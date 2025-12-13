@@ -128,12 +128,26 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
 
       // Error handling
       session.on('error', (err) => {
-        console.error('Session error:', err);
-        const errorMessage = err?.error instanceof Error
-          ? err.error.message
-          : typeof err?.error === 'string'
-          ? err.error
-          : 'Unknown session error';
+        console.error('Session error (full):', JSON.stringify(err, null, 2));
+        console.error('Session error object:', err);
+        let errorMessage = 'Unknown session error';
+        if (err?.error instanceof Error) {
+          errorMessage = err.error.message;
+        } else if (typeof err?.error === 'string') {
+          errorMessage = err.error;
+        } else if (typeof err?.error === 'object' && err?.error !== null) {
+          // Try to extract message from error object
+          const errObj = err.error as Record<string, unknown>;
+          if (typeof errObj.message === 'string') {
+            errorMessage = errObj.message;
+          } else if (typeof errObj.code === 'string') {
+            errorMessage = `Error code: ${errObj.code}`;
+          } else {
+            errorMessage = JSON.stringify(err.error);
+          }
+        } else if (typeof err === 'object' && err !== null) {
+          errorMessage = JSON.stringify(err);
+        }
         setError(errorMessage);
         options.onError?.(new Error(errorMessage));
       });
