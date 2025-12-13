@@ -2,18 +2,12 @@
 // Generates ephemeral client keys for secure browser WebRTC connections
 
 interface SessionConfig {
-  session: {
+  model: string;
+  voice?: string;
+  modalities?: string[];
+  turn_detection?: {
     type: string;
-    model: string;
-    audio?: {
-      output?: {
-        voice?: string;
-      };
-    };
-    turn_detection?: {
-      type: string;
-      interrupt_response?: boolean;
-    };
+    interrupt_response?: boolean;
   };
 }
 
@@ -35,18 +29,12 @@ export async function createVoiceSession(): Promise<VoiceSessionResult> {
   }
 
   const sessionConfig: SessionConfig = {
-    session: {
-      type: 'realtime',
-      model: 'gpt-4o-realtime-preview',
-      audio: {
-        output: {
-          voice: 'ash', // Professional voice suitable for field work
-        },
-      },
-      turn_detection: {
-        type: 'semantic_vad',
-        interrupt_response: true,
-      },
+    model: 'gpt-4o-realtime-preview',
+    voice: 'ash', // Professional voice suitable for field work
+    modalities: ['audio', 'text'],
+    turn_detection: {
+      type: 'semantic_vad',
+      interrupt_response: true,
     },
   };
 
