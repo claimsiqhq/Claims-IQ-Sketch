@@ -40,6 +40,13 @@ DAMAGE DOCUMENTATION (CRITICAL FOR INSURANCE):
   - Category 3: Black water (sewage, rising floodwater, toilet with feces)
 - Document source and extent clearly
 
+EDITING AND CORRECTIONS:
+- When the adjuster says "actually" or "wait" or "change that", they're making a correction
+- For room edits: "Actually, call it the guest bedroom" → use edit_room to change name
+- For deleting: "Remove that window" or "Delete the closet" → use delete_opening or delete_feature
+- For damage corrections: "Change that to Category 3" → use edit_damage_zone
+- If adjuster wants to start over: "Delete this room" → use delete_room
+
 EXAMPLE FLOW:
 User: "Starting in the master bedroom, it's about fourteen by eighteen"
 You: [call create_room tool] "Got it—master bedroom, 14 by 18. Where's the entry door?"
@@ -56,13 +63,20 @@ You: [call add_feature tool] "6 by 8 walk-in on the east wall. Any water damage 
 User: "Yeah, cat 2 from the bathroom, about 4 feet into the room"
 You: [call mark_damage tool] "Marked Category 2 water damage, 4 feet from the east wall. Anything else for this room?"
 
+User: "Actually, that should be cat 3—there was sewage backup"
+You: [call edit_damage_zone tool] "Updated to Category 3. Anything else?"
+
+User: "Remove one of those windows on the back wall"
+You: [call delete_opening tool] "Removed one window from north wall. Anything else?"
+
 User: "That's it"
 You: [call confirm_room tool] "Master bedroom complete. Ready for the next room when you are."
 
 ERROR HANDLING:
 - If you can't parse a dimension: "I didn't catch that measurement—how many feet?"
 - If wall reference is unclear: "Which wall is that—the one with the door or the window?"
-- If impossible geometry: "That would make the closet bigger than the room—did you mean 6 feet wide?"`;
+- If impossible geometry: "That would make the closet bigger than the room—did you mean 6 feet wide?"
+- If multiple items match for deletion: "Which one—the door or the window on the west wall?"`;
 
 // Tool: Create a new room
 const createRoomTool = tool({
@@ -187,6 +201,81 @@ const confirmRoomTool = tool({
   },
 });
 
+// Tool: Delete a room entirely
+const deleteRoomTool = tool({
+  name: 'delete_room',
+  description: 'Delete a room entirely. Use when the adjuster wants to start over or remove a room completely.',
+  parameters: z.object({
+    room_name: z.string().optional().describe('Name of the room to delete. If not specified, deletes the current room being edited.'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.deleteRoom(params);
+  },
+});
+
+// Tool: Edit room properties
+const editRoomTool = tool({
+  name: 'edit_room',
+  description: 'Edit room properties like name, shape, or dimensions. Use when the adjuster wants to correct or change room details.',
+  parameters: z.object({
+    room_name: z.string().optional().describe('Name of the room to edit. If not specified, edits the current room.'),
+    new_name: z.string().optional().describe('New name for the room'),
+    new_shape: z.enum(['rectangle', 'l_shape', 't_shape', 'irregular']).optional().describe('New shape for the room'),
+    new_width_ft: z.number().optional().describe('New width in feet'),
+    new_length_ft: z.number().optional().describe('New length in feet'),
+    new_ceiling_height_ft: z.number().optional().describe('New ceiling height in feet'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.editRoom(params);
+  },
+});
+
+// Tool: Delete an opening (door, window, etc.)
+const deleteOpeningTool = tool({
+  name: 'delete_opening',
+  description: 'Delete a door, window, or other opening from the current room. Can identify by wall, type, or index.',
+  parameters: z.object({
+    wall: z.enum(['north', 'south', 'east', 'west']).optional().describe('Which wall the opening is on'),
+    type: z.enum(['door', 'window', 'archway', 'sliding_door', 'french_door']).optional().describe('Type of opening to delete'),
+    opening_index: z.number().optional().describe('Index of the opening (0-based) if there are multiple'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.deleteOpening(params);
+  },
+});
+
+// Tool: Delete a feature (closet, island, etc.)
+const deleteFeatureTool = tool({
+  name: 'delete_feature',
+  description: 'Delete a feature like a closet, island, or fireplace from the current room.',
+  parameters: z.object({
+    type: z.enum(['closet', 'alcove', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).optional().describe('Type of feature to delete'),
+    feature_index: z.number().optional().describe('Index of the feature (0-based) if there are multiple of the same type'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.deleteFeature(params);
+  },
+});
+
+// Tool: Edit damage zone properties
+const editDamageZoneTool = tool({
+  name: 'edit_damage_zone',
+  description: 'Edit properties of a damage zone. Use when adjuster needs to correct damage category, extent, source, or affected areas.',
+  parameters: z.object({
+    damage_index: z.number().optional().describe('Index of the damage zone to edit (0-based). If room has only one damage zone, not needed.'),
+    new_type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).optional().describe('New damage type'),
+    new_category: z.enum(['1', '2', '3']).optional().describe('New IICRC category for water damage'),
+    new_affected_walls: z.array(z.enum(['north', 'south', 'east', 'west'])).optional().describe('New list of affected walls'),
+    new_floor_affected: z.boolean().optional().describe('Whether floor is affected'),
+    new_ceiling_affected: z.boolean().optional().describe('Whether ceiling is affected'),
+    new_extent_ft: z.number().optional().describe('New extent in feet'),
+    new_source: z.string().optional().describe('New source description'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.editDamageZone(params);
+  },
+});
+
 // Create the RealtimeAgent with all tools
 export const roomSketchAgent = new RealtimeAgent({
   name: 'RoomSketchAgent',
@@ -200,6 +289,11 @@ export const roomSketchAgent = new RealtimeAgent({
     addNoteTool,
     undoTool,
     confirmRoomTool,
+    deleteRoomTool,
+    editRoomTool,
+    deleteOpeningTool,
+    deleteFeatureTool,
+    editDamageZoneTool,
   ],
 });
 
@@ -213,4 +307,9 @@ export const tools = {
   addNote: addNoteTool,
   undo: undoTool,
   confirmRoom: confirmRoomTool,
+  deleteRoom: deleteRoomTool,
+  editRoom: editRoomTool,
+  deleteOpening: deleteOpeningTool,
+  deleteFeature: deleteFeatureTool,
+  editDamageZone: editDamageZoneTool,
 };
