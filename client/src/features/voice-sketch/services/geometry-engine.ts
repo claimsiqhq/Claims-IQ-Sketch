@@ -164,6 +164,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       width_ft: params.width_ft,
       height_ft: height,
       position: params.position,
+      position_from: params.position_from ?? 'start',
       sill_height_ft: params.sill_height_ft ?? (params.type === 'window' ? 3 : undefined),
     };
 
@@ -207,6 +208,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       width_ft: params.width_ft,
       depth_ft: params.depth_ft,
       position: params.position,
+      position_from: params.position_from ?? 'start',
     };
 
     const wallDesc = params.wall === 'freestanding' ? 'freestanding' : `on ${params.wall} wall`;

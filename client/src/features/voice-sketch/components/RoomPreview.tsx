@@ -2,8 +2,9 @@
 // Live 2D sketch preview for voice-created rooms with pinch-to-zoom support
 
 import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
-import { Home, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Home, ZoomIn, ZoomOut, Maximize2, Minimize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { RoomGeometry, Opening, Feature, VoiceDamageZone, WallDirection } from '../types/geometry';
 import { formatDimension, getWallLength, calculatePositionInFeet, formatRoomName } from '../utils/polygon-math';
 import { cn } from '@/lib/utils';
@@ -42,12 +43,14 @@ const COLORS = {
 
 export function RoomPreview({ room, className }: RoomPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const expandedCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // Zoom state
   const [zoom, setZoom] = useState(1);
   const [isPinching, setIsPinching] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const lastTouchDistance = useRef<number | null>(null);
 
   // Calculate canvas dimensions and scale
@@ -65,6 +68,26 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
       scale: PIXELS_PER_FOOT,
       offsetX: PADDING,
       offsetY: PADDING,
+    };
+  }, [room]);
+
+  // Calculate expanded canvas dimensions (larger scale for detail)
+  const EXPANDED_PIXELS_PER_FOOT = 40; // Double the resolution
+  const EXPANDED_PADDING = 100;
+  const expandedDimensions = useMemo(() => {
+    if (!room) {
+      return { width: 800, height: 800, scale: EXPANDED_PIXELS_PER_FOOT, offsetX: EXPANDED_PADDING, offsetY: EXPANDED_PADDING };
+    }
+
+    const roomWidthPx = room.width_ft * EXPANDED_PIXELS_PER_FOOT;
+    const roomHeightPx = room.length_ft * EXPANDED_PIXELS_PER_FOOT;
+
+    return {
+      width: roomWidthPx + EXPANDED_PADDING * 2,
+      height: roomHeightPx + EXPANDED_PADDING * 2,
+      scale: EXPANDED_PIXELS_PER_FOOT,
+      offsetX: EXPANDED_PADDING,
+      offsetY: EXPANDED_PADDING,
     };
   }, [room]);
 
@@ -117,6 +140,14 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
     setZoom(1);
   }, []);
 
+  const handleExpand = useCallback(() => {
+    setIsExpanded(true);
+  }, []);
+
+  const handleCloseExpanded = useCallback(() => {
+    setIsExpanded(false);
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -164,6 +195,58 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
 
   }, [room, canvasWidth, canvasHeight, offsetX, offsetY, scale]);
 
+  // Draw on expanded canvas when dialog is open
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const canvas = expandedCanvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const { width, height, scale: expScale, offsetX: expOffsetX, offsetY: expOffsetY } = expandedDimensions;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw grid background
+    drawGrid(ctx, width, height);
+
+    if (!room) {
+      drawPlaceholder(ctx, width, height);
+      return;
+    }
+
+    // Draw damage zones first (background)
+    room.damageZones.forEach((zone) => {
+      drawDamageZone(ctx, zone, room, expOffsetX, expOffsetY, expScale);
+    });
+
+    // Draw room outline
+    drawRoomOutline(ctx, room, expOffsetX, expOffsetY, expScale);
+
+    // Draw features
+    room.features.forEach((feature) => {
+      drawFeature(ctx, feature, room, expOffsetX, expOffsetY, expScale);
+    });
+
+    // Draw openings (doors, windows)
+    room.openings.forEach((opening) => {
+      drawOpening(ctx, opening, room, expOffsetX, expOffsetY, expScale);
+    });
+
+    // Draw dimensions
+    drawDimensions(ctx, room, expOffsetX, expOffsetY, expScale);
+
+    // Draw wall labels
+    drawWallLabels(ctx, room, expOffsetX, expOffsetY, expScale);
+
+    // Draw room name
+    drawRoomName(ctx, room, expOffsetX, expOffsetY, expScale, width);
+
+  }, [isExpanded, room, expandedDimensions]);
+
   return (
     <div
       ref={containerRef}
@@ -207,9 +290,10 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={handleResetZoom}
-            disabled={zoom === 1}
-            data-testid="button-reset-zoom"
+            onClick={handleExpand}
+            disabled={!room}
+            data-testid="button-expand"
+            title="Expand to fullscreen"
           >
             <Maximize2 className="h-4 w-4" />
           </Button>
@@ -269,6 +353,82 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
           </div>
         </div>
       )}
+
+      {/* Expanded view dialog */}
+      <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] w-auto h-auto p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b bg-muted/50">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <Home className="h-5 w-5" />
+                {room ? formatRoomName(room.name) : 'Room Preview'}
+              </DialogTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCloseExpanded}
+                className="h-8 w-8"
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="overflow-auto p-4 bg-white flex items-center justify-center" style={{ maxHeight: 'calc(95vh - 120px)' }}>
+            <canvas
+              ref={expandedCanvasRef}
+              width={expandedDimensions.width}
+              height={expandedDimensions.height}
+              style={{
+                imageRendering: 'crisp-edges',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'contain'
+              }}
+            />
+          </div>
+          {/* Expanded view room info */}
+          {room && (
+            <div className="p-4 border-t bg-muted/30">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">Dimensions:</span>
+                  <span>{formatDimension(room.width_ft)} × {formatDimension(room.length_ft)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">Area:</span>
+                  <span>{(room.width_ft * room.length_ft).toFixed(0)} ft²</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">Perimeter:</span>
+                  <span>{(2 * (room.width_ft + room.length_ft)).toFixed(0)} ft</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">Ceiling:</span>
+                  <span>{formatDimension(room.ceiling_height_ft)}</span>
+                </div>
+                {room.openings.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground">Openings:</span>
+                    <span>{room.openings.length}</span>
+                  </div>
+                )}
+                {room.features.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground">Features:</span>
+                    <span>{room.features.length}</span>
+                  </div>
+                )}
+                {room.damageZones.length > 0 && (
+                  <div className="flex items-center gap-2 text-red-600">
+                    <span className="font-medium">Damage Zones:</span>
+                    <span>{room.damageZones.length}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -330,7 +490,7 @@ function drawOpening(
   scale: number
 ) {
   const wallLength = getWallLength(opening.wall, room.width_ft, room.length_ft);
-  const position = calculatePositionInFeet(opening.position, wallLength, opening.width_ft);
+  const position = calculatePositionInFeet(opening.position, wallLength, opening.width_ft, opening.position_from ?? 'start');
   const openingWidthPx = opening.width_ft * scale;
 
   let x: number, y: number, width: number, height: number;
@@ -437,7 +597,7 @@ function drawFeature(
   }
 
   const wallLength = getWallLength(feature.wall, room.width_ft, room.length_ft);
-  const position = calculatePositionInFeet(feature.position, wallLength, feature.width_ft);
+  const position = calculatePositionInFeet(feature.position, wallLength, feature.width_ft, feature.position_from ?? 'start');
   const featureWidthPx = feature.width_ft * scale;
   const featureDepthPx = feature.depth_ft * scale;
 

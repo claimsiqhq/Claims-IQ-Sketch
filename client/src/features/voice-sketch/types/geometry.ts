@@ -8,6 +8,7 @@ export type FeatureType = 'closet' | 'alcove' | 'bump_out' | 'island' | 'peninsu
 export type DamageType = 'water' | 'fire' | 'smoke' | 'mold' | 'wind' | 'impact';
 export type WaterDamageCategory = '1' | '2' | '3'; // IICRC S500 categories
 export type PositionType = 'left' | 'center' | 'right' | number;
+export type PositionFromType = 'start' | 'end';
 
 export interface Point {
   x: number;
@@ -21,6 +22,7 @@ export interface Opening {
   width_ft: number;
   height_ft: number;
   position: PositionType;
+  position_from?: PositionFromType; // 'start' = from north/west corner, 'end' = from south/east corner
   sill_height_ft?: number; // For windows
 }
 
@@ -31,6 +33,7 @@ export interface Feature {
   width_ft: number;
   depth_ft: number;
   position: PositionType;
+  position_from?: PositionFromType; // 'start' = from north/west corner, 'end' = from south/east corner
 }
 
 export interface VoiceDamageZone {
@@ -98,6 +101,7 @@ export interface AddOpeningParams {
   width_ft: number;
   height_ft?: number;
   position: PositionType;
+  position_from?: PositionFromType;
   sill_height_ft?: number;
 }
 
@@ -107,6 +111,7 @@ export interface AddFeatureParams {
   width_ft: number;
   depth_ft: number;
   position: PositionType;
+  position_from?: PositionFromType;
 }
 
 export interface MarkDamageParams {
