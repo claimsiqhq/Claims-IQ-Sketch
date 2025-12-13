@@ -1,6 +1,7 @@
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { validateUser, findUserById, seedAdminUser, type AuthUser } from '../services/auth';
 
@@ -46,21 +47,25 @@ passport.deserializeUser(async (id: string, done) => {
 
 // Setup auth middleware on Express app
 export function setupAuth(app: Express): void {
-  // Session configuration
-  const sessionConfig = {
+  const PgSession = connectPgSimple(session);
+  
+  const sessionConfig: session.SessionOptions = {
+    store: new PgSession({
+      conString: process.env.DATABASE_URL,
+      tableName: 'session',
+      createTableIfMissing: true,
+    }),
     secret: process.env.SESSION_SECRET || 'claims-iq-secret-key-change-in-production',
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'none' as const,
+      sameSite: 'lax',
     },
-    proxy: true,
   };
 
-  // Use memory store for simplicity (in production, use connect-pg-simple)
   app.use(session(sessionConfig));
   app.use(passport.initialize());
   app.use(passport.session());
