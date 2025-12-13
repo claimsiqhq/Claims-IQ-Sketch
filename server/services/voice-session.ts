@@ -1,0 +1,97 @@
+// Voice Session Service
+// Generates ephemeral client keys for secure browser WebRTC connections
+
+interface SessionConfig {
+  session: {
+    type: string;
+    model: string;
+    audio?: {
+      output?: {
+        voice?: string;
+      };
+    };
+    turn_detection?: {
+      type: string;
+      interrupt_response?: boolean;
+    };
+  };
+}
+
+interface EphemeralKeyResponse {
+  value: string;
+  expires_at?: string;
+}
+
+interface VoiceSessionResult {
+  ephemeral_key: string;
+  expires_at?: string;
+}
+
+export async function createVoiceSession(): Promise<VoiceSessionResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY environment variable not configured');
+  }
+
+  const sessionConfig: SessionConfig = {
+    session: {
+      type: 'realtime',
+      model: 'gpt-4o-realtime-preview',
+      audio: {
+        output: {
+          voice: 'ash', // Professional voice suitable for field work
+        },
+      },
+      turn_detection: {
+        type: 'semantic_vad',
+        interrupt_response: true,
+      },
+    },
+  };
+
+  const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(sessionConfig),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create voice session: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as { client_secret?: EphemeralKeyResponse };
+
+  // The response contains client_secret with the ephemeral key
+  if (!data.client_secret?.value) {
+    throw new Error('Invalid response from OpenAI: missing client_secret');
+  }
+
+  return {
+    ephemeral_key: data.client_secret.value,
+    expires_at: data.client_secret.expires_at,
+  };
+}
+
+// Configuration for voice session (can be extended)
+export const VOICE_CONFIG = {
+  availableVoices: [
+    'alloy',
+    'echo',
+    'fable',
+    'onyx',
+    'nova',
+    'shimmer',
+    'ash',
+    'ballad',
+    'coral',
+    'sage',
+    'verse',
+  ] as const,
+  defaultVoice: 'ash' as const,
+  model: 'gpt-4o-realtime-preview' as const,
+};

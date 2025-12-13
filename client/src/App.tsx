@@ -9,6 +9,7 @@ import Auth from "@/pages/auth";
 import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
 import Settings from "@/pages/settings";
+import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 
 function Router() {
   return (
@@ -18,6 +19,8 @@ function Router() {
       <Route path="/claim/:id" component={ClaimDetail} />
       <Route path="/new-claim" component={NewClaim} />
       <Route path="/settings" component={Settings} />
+      <Route path="/voice-sketch" component={VoiceSketchPage} />
+      <Route path="/voice-sketch/:claimId" component={VoiceSketchPage} />
       <Route component={NotFound} />
     </Switch>
   );
