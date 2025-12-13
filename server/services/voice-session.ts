@@ -32,17 +32,12 @@ export async function createVoiceSession(): Promise<VoiceSessionResult> {
   const sessionConfig = {
     session: {
       type: 'realtime',
-      model: 'gpt-4o-realtime-preview-2024-12-17',
+      model: 'gpt-realtime',
       audio: {
         output: {
-          voice: 'ash' // Professional voice suitable for field work
+          voice: 'ash'
         }
-      },
-      modalities: ['audio', 'text'],
-      turn_detection: {
-        type: 'semantic_vad',
-        interrupt_response: true,
-      },
+      }
     }
   };
 
