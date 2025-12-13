@@ -424,44 +424,42 @@ export default function SketchCanvas({
         cursor: isPanning ? 'grabbing' : 'grab'
       }}
     >
-      {/* Zoom Controls - Mobile Friendly */}
-      <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-20">
+      {/* Zoom Controls Panel - Bottom Right */}
+      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-1 z-20 bg-white/95 backdrop-blur rounded-lg shadow-md p-2">
         <Button
           size="sm"
-          variant="outline"
-          className="h-10 w-10 p-0 bg-white shadow-md"
+          variant="ghost"
+          className="h-9 w-9 p-0"
           onClick={(e) => { e.stopPropagation(); handleZoomIn(); }}
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
+        <span className="text-xs text-slate-600 font-mono py-1 min-w-[3rem] text-center">
+          {Math.round(viewState.scale * 100)}%
+        </span>
         <Button
           size="sm"
-          variant="outline"
-          className="h-10 w-10 p-0 bg-white shadow-md"
+          variant="ghost"
+          className="h-9 w-9 p-0"
           onClick={(e) => { e.stopPropagation(); handleZoomOut(); }}
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
+        <div className="border-t border-slate-200 w-full my-1" />
         <Button
           size="sm"
-          variant="outline"
-          className="h-10 w-10 p-0 bg-white shadow-md"
+          variant="ghost"
+          className="h-9 w-9 p-0"
           onClick={(e) => { e.stopPropagation(); fitToView(); }}
+          title="Fit to view"
         >
           <Maximize className="h-4 w-4" />
         </Button>
-      </div>
-
-      {/* Zoom Level Indicator - positioned below toolbar area */}
-      <div className="absolute top-16 left-4 pointer-events-none z-10 flex flex-col gap-1">
-        <span className="text-xs text-slate-400 font-mono bg-white/80 px-2 py-1 rounded shadow-sm">
-          {Math.round(viewState.scale * 100)}%
+        <span className="text-[9px] text-slate-400 text-center leading-tight hidden md:block">
+          Scroll to zoom<br/>Drag to pan
         </span>
-        <span className="text-[10px] text-slate-400 font-mono bg-white/80 px-2 py-0.5 rounded shadow-sm hidden md:block">
-          Scroll to zoom, drag to pan
-        </span>
-        <span className="text-[10px] text-slate-400 font-mono bg-white/80 px-2 py-0.5 rounded shadow-sm md:hidden">
-          Pinch to zoom, drag to pan
+        <span className="text-[9px] text-slate-400 text-center leading-tight md:hidden">
+          Pinch to zoom<br/>Drag to pan
         </span>
       </div>
 
