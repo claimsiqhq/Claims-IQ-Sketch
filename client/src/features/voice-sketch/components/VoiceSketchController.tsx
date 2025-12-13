@@ -138,10 +138,10 @@ export function VoiceSketchController({
         </Alert>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-hidden">
+      {/* Main Content - scrollable on mobile */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-auto">
         {/* Left Column: Room Preview */}
-        <div className="flex flex-col gap-4 min-h-0">
+        <div className="flex flex-col gap-4 min-h-[400px] lg:min-h-0">
           {/* Voice Waveform */}
           <VoiceWaveform
             isConnected={isConnected}

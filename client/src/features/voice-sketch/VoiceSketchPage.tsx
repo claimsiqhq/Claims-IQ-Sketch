@@ -159,11 +159,11 @@ export default function VoiceSketchPage() {
           </div>
         </div>
 
-        {/* Voice Sketch Controller */}
-        <div className="flex-1 overflow-hidden">
+        {/* Voice Sketch Controller - allow scrolling on mobile */}
+        <div className="flex-1 overflow-auto">
           <VoiceSketchController
             onRoomConfirmed={handleRoomConfirmed}
-            className="h-full"
+            className="min-h-full"
           />
         </div>
       </div>
