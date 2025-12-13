@@ -108,7 +108,7 @@ export default function ClaimDetail() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden pb-nav-safe md:pb-0">
           {/* Desktop Tabs */}
           <div className="hidden md:block px-6 pt-2 bg-white border-b border-border">
             <TabsList className="bg-transparent h-auto p-0 space-x-6">
@@ -578,7 +578,7 @@ export default function ClaimDetail() {
           </div>
 
           {/* Mobile Bottom Nav */}
-          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-border z-50 flex items-center justify-around h-16 pb-safe">
+          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-border z-50 flex items-center justify-around h-nav-safe">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -586,8 +586,8 @@ export default function ClaimDetail() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors",
-                    isActive ? "text-primary" : "text-slate-400 hover:text-slate-600"
+                    "flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors min-tap-target pb-safe",
+                    isActive ? "text-primary" : "text-slate-400 active:text-slate-600"
                   )}
                 >
                   <tab.icon className={cn("h-5 w-5", isActive && "fill-current")} />

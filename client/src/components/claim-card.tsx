@@ -20,7 +20,7 @@ export default function ClaimCard({ claim }: ClaimCardProps) {
 
   return (
     <Link href={`/claim/${claim.id}`}>
-      <Card className="hover:shadow-md transition-shadow cursor-pointer group border-l-4 border-l-transparent hover:border-l-primary">
+      <Card className="hover:shadow-md active:shadow-sm transition-shadow cursor-pointer group border-l-4 border-l-transparent hover:border-l-primary active:border-l-primary active:scale-[0.99]">
         <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
           <div>
             <div className="flex items-center gap-2 mb-1">

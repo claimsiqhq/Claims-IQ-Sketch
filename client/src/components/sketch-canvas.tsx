@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Room, DamageZone } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Move, Maximize2, X, Plus, AlertTriangle } from "lucide-react";
@@ -12,13 +12,13 @@ interface SketchCanvasProps {
   readOnly?: boolean;
 }
 
-export default function SketchCanvas({ 
-  rooms, 
+export default function SketchCanvas({
+  rooms,
   damageZones = [],
-  onUpdateRoom, 
-  onSelectRoom, 
+  onUpdateRoom,
+  onSelectRoom,
   selectedRoomId,
-  readOnly = false 
+  readOnly = false
 }: SketchCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<{
@@ -36,20 +36,27 @@ export default function SketchCanvas({
   const PIXELS_PER_FOOT = 20;
   const SNAP_GRID = 10; // Snap to half foot
 
-  const handleMouseDown = (e: React.MouseEvent, roomId: string, type: "move" | "resize") => {
+  // Helper to get coordinates from mouse or touch event
+  const getEventCoordinates = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
+    if ('touches' in e) {
+      return { clientX: e.touches[0]?.clientX ?? 0, clientY: e.touches[0]?.clientY ?? 0 };
+    }
+    return { clientX: e.clientX, clientY: e.clientY };
+  };
+
+  const startDrag = (clientX: number, clientY: number, roomId: string, type: "move" | "resize") => {
     if (readOnly) return;
-    e.stopPropagation();
-    
+
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
 
     onSelectRoom(roomId);
-    
+
     setDragState({
       roomId,
       type,
-      startX: e.clientX,
-      startY: e.clientY,
+      startX: clientX,
+      startY: clientY,
       initialX: room.x * PIXELS_PER_FOOT,
       initialY: room.y * PIXELS_PER_FOOT,
       initialW: room.width * PIXELS_PER_FOOT,
@@ -57,11 +64,27 @@ export default function SketchCanvas({
     });
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseDown = (e: React.MouseEvent, roomId: string, type: "move" | "resize") => {
+    e.stopPropagation();
+    const { clientX, clientY } = getEventCoordinates(e);
+    startDrag(clientX, clientY, roomId, type);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, roomId: string, type: "move" | "resize") => {
+    e.stopPropagation();
+    // Prevent scrolling while dragging
+    if (!readOnly) {
+      e.preventDefault();
+    }
+    const { clientX, clientY } = getEventCoordinates(e);
+    startDrag(clientX, clientY, roomId, type);
+  };
+
+  const handleDragMove = useCallback((clientX: number, clientY: number) => {
     if (!dragState) return;
 
-    const dx = e.clientX - dragState.startX;
-    const dy = e.clientY - dragState.startY;
+    const dx = clientX - dragState.startX;
+    const dy = clientY - dragState.startY;
 
     if (dragState.type === "move") {
       let newX = dragState.initialX + dx;
@@ -93,22 +116,40 @@ export default function SketchCanvas({
         height: newH / PIXELS_PER_FOOT
       });
     }
+  }, [dragState, onUpdateRoom]);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const { clientX, clientY } = getEventCoordinates(e);
+    handleDragMove(clientX, clientY);
   };
 
-  const handleMouseUp = () => {
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!dragState) return;
+    e.preventDefault(); // Prevent scrolling while dragging
+    const { clientX, clientY } = getEventCoordinates(e);
+    handleDragMove(clientX, clientY);
+  }, [dragState, handleDragMove]);
+
+  const handleDragEnd = useCallback(() => {
     setDragState(null);
-  };
+  }, []);
 
   useEffect(() => {
     if (dragState) {
-      window.addEventListener('mouseup', handleMouseUp);
-      // We can also add mousemove to window to handle dragging outside container
-      // But for now keeping it simple
+      // Mouse events
+      window.addEventListener('mouseup', handleDragEnd);
+      // Touch events
+      window.addEventListener('touchend', handleDragEnd);
+      window.addEventListener('touchcancel', handleDragEnd);
+      window.addEventListener('touchmove', handleTouchMove, { passive: false });
     }
     return () => {
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchend', handleDragEnd);
+      window.removeEventListener('touchcancel', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
     };
-  }, [dragState]);
+  }, [dragState, handleDragEnd, handleTouchMove]);
 
   return (
     <div 
@@ -136,9 +177,9 @@ export default function SketchCanvas({
             <div
               key={room.id}
               className={cn(
-                "absolute border-2 transition-all flex items-center justify-center cursor-move shadow-sm",
-                isSelected 
-                  ? "border-primary bg-primary/5 z-20" 
+                "absolute border-2 transition-all flex items-center justify-center cursor-move shadow-sm touch-none",
+                isSelected
+                  ? "border-primary bg-primary/5 z-20"
                   : "border-slate-400 bg-white hover:border-primary/50 z-10",
                 hasDamage && !isSelected && "border-red-400 bg-red-50/50"
               )}
@@ -149,6 +190,7 @@ export default function SketchCanvas({
                 height: `${room.height * PIXELS_PER_FOOT}px`,
               }}
               onMouseDown={(e) => handleMouseDown(e, room.id, "move")}
+              onTouchStart={(e) => handleTouchStart(e, room.id, "move")}
               onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
             >
               {/* Damage Overlay */}
@@ -171,13 +213,14 @@ export default function SketchCanvas({
                 </div>
               </div>
 
-              {/* Resize Handle */}
+              {/* Resize Handle - larger touch target on mobile */}
               {!readOnly && isSelected && (
-                <div 
-                  className="absolute bottom-[-6px] right-[-6px] w-4 h-4 bg-white border-2 border-primary rounded-full cursor-nwse-resize shadow-md z-30 flex items-center justify-center"
+                <div
+                  className="absolute bottom-[-8px] right-[-8px] w-6 h-6 md:w-4 md:h-4 bg-white border-2 border-primary rounded-full cursor-nwse-resize shadow-md z-30 flex items-center justify-center touch-none"
                   onMouseDown={(e) => handleMouseDown(e, room.id, "resize")}
+                  onTouchStart={(e) => handleTouchStart(e, room.id, "resize")}
                 >
-                  <div className="w-1.5 h-1.5 bg-primary rounded-full" />
+                  <div className="w-2 h-2 md:w-1.5 md:h-1.5 bg-primary rounded-full" />
                 </div>
               )}
               
