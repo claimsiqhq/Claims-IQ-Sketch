@@ -9,6 +9,19 @@ export interface Address {
   lng?: number;
 }
 
+export type WallDirection = 'north' | 'south' | 'east' | 'west';
+export type OpeningType = 'door' | 'window' | 'sliding_door' | 'french_door' | 'archway';
+export type PositionType = 'left' | 'center' | 'right';
+
+export interface RoomOpening {
+  id: string;
+  type: OpeningType;
+  wall: WallDirection;
+  width: number; // in feet
+  height: number; // in feet
+  position: PositionType;
+}
+
 export interface Room {
   id: string;
   name: string;
@@ -20,6 +33,7 @@ export interface Room {
   ceilingHeight: number;
   flooringType?: string;
   wallFinish?: string;
+  openings?: RoomOpening[];
 }
 
 export interface DamageZone {

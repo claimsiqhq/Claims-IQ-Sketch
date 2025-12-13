@@ -30,24 +30,30 @@ import { Link } from "wouter";
 
 import SketchCanvas from "@/components/sketch-canvas";
 import DamageZoneModal from "@/components/damage-zone-modal";
+import OpeningModal from "@/components/opening-modal";
 import LineItemPicker from "@/components/line-item-picker";
-import { Room } from "@/lib/types";
+import { Room, RoomOpening } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { DoorOpen } from "lucide-react";
 
 export default function ClaimDetail() {
   const [, params] = useRoute("/claim/:id");
-  const { 
-    activeClaim: claim, 
-    setActiveClaim, 
-    addRoom, 
-    updateRoom, 
+  const {
+    activeClaim: claim,
+    setActiveClaim,
+    addRoom,
+    updateRoom,
     deleteRoom,
     addDamageZone,
-    addLineItem
+    addLineItem,
+    updateLineItem,
+    deleteLineItem
   } = useStore();
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
+  const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
+  const [editingOpening, setEditingOpening] = useState<RoomOpening | undefined>(undefined);
   const [isLineItemPickerOpen, setIsLineItemPickerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
 
@@ -74,6 +80,45 @@ export default function ClaimDetail() {
       y: 0,
       ceilingHeight: 8
     });
+  };
+
+  const handleSaveOpening = (openingData: Omit<RoomOpening, "id">) => {
+    if (!selectedRoom) return;
+
+    const existingOpenings = selectedRoom.openings || [];
+
+    if (editingOpening) {
+      // Update existing opening
+      const updatedOpenings = existingOpenings.map((o) =>
+        o.id === editingOpening.id ? { ...openingData, id: editingOpening.id } : o
+      );
+      updateRoom(claim.id, selectedRoom.id, { openings: updatedOpenings });
+    } else {
+      // Add new opening
+      const newOpening: RoomOpening = {
+        ...openingData,
+        id: `op${Date.now()}`,
+      };
+      updateRoom(claim.id, selectedRoom.id, { openings: [...existingOpenings, newOpening] });
+    }
+
+    setEditingOpening(undefined);
+  };
+
+  const handleDeleteOpening = (openingId: string) => {
+    if (!selectedRoom) return;
+    const updatedOpenings = (selectedRoom.openings || []).filter((o) => o.id !== openingId);
+    updateRoom(claim.id, selectedRoom.id, { openings: updatedOpenings });
+  };
+
+  const handleEditOpening = (opening: RoomOpening) => {
+    setEditingOpening(opening);
+    setIsOpeningModalOpen(true);
+  };
+
+  const handleAddOpeningClick = () => {
+    setEditingOpening(undefined);
+    setIsOpeningModalOpen(true);
   };
 
   const tabs = [
@@ -273,7 +318,20 @@ export default function ClaimDetail() {
                               />
                             </div>
                           </div>
+                          {/* Openings summary for mobile */}
+                          {(selectedRoom.openings?.length ?? 0) > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {selectedRoom.openings?.map((o) => (
+                                <Badge key={o.id} variant="outline" className="text-amber-600 border-amber-200 text-xs">
+                                  {o.type.replace("_", " ")} ({o.wall})
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                           <div className="flex gap-2">
+                            <Button className="flex-1 h-9" variant="outline" onClick={handleAddOpeningClick}>
+                              <DoorOpen className="h-4 w-4 mr-1" /> Door/Window
+                            </Button>
                             <Button className="flex-1 h-9" variant="destructive" onClick={() => setIsDamageModalOpen(true)}>
                               Add Damage
                             </Button>
@@ -399,6 +457,54 @@ export default function ClaimDetail() {
 
                             <Separator />
 
+                            {/* Openings (Doors/Windows) */}
+                            <div>
+                              <h4 className="font-medium mb-3 flex items-center gap-2">
+                                <DoorOpen className="h-4 w-4" />
+                                Doors & Windows
+                              </h4>
+                              <div className="space-y-2 mb-3">
+                                {(selectedRoom.openings || []).length === 0 ? (
+                                  <p className="text-sm text-muted-foreground text-center py-2">No openings added yet</p>
+                                ) : (
+                                  selectedRoom.openings?.map((opening) => (
+                                    <div
+                                      key={opening.id}
+                                      className="bg-amber-50 border border-amber-100 p-2 rounded text-sm flex items-center justify-between cursor-pointer hover:bg-amber-100 transition-colors"
+                                      onClick={() => handleEditOpening(opening)}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="capitalize">{opening.type.replace("_", " ")}</span>
+                                        <span className="text-muted-foreground">•</span>
+                                        <span className="text-muted-foreground capitalize">{opening.wall}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="text-amber-600 bg-white border-amber-200">
+                                          {opening.width}' × {opening.height}'
+                                        </Badge>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteOpening(opening.id);
+                                          }}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                              <Button className="w-full" variant="outline" onClick={handleAddOpeningClick}>
+                                <Plus className="h-4 w-4 mr-2" /> Add Door / Window
+                              </Button>
+                            </div>
+
+                            <Separator />
+
                             <div>
                               <h4 className="font-medium mb-3">Damage Zones</h4>
                               <div className="space-y-2 mb-3">
@@ -469,12 +575,13 @@ export default function ClaimDetail() {
                 <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
                   <div className="grid grid-cols-12 gap-2 md:gap-4 p-4 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     <div className="col-span-3 md:col-span-2">Code</div>
-                    <div className="col-span-6 md:col-span-4">Description</div>
-                    <div className="hidden md:block col-span-2 text-right">Qty</div>
+                    <div className="col-span-5 md:col-span-3">Description</div>
+                    <div className="col-span-2 md:col-span-2 text-center">Qty</div>
                     <div className="hidden md:block col-span-2 text-right">Unit Price</div>
-                    <div className="col-span-3 md:col-span-2 text-right">Total</div>
+                    <div className="col-span-2 md:col-span-2 text-right">Total</div>
+                    <div className="hidden md:block col-span-1"></div>
                   </div>
-                  
+
                   {claim.lineItems.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
                       No line items added yet. Use the "Add Line Item" button to start building the estimate.
@@ -482,20 +589,73 @@ export default function ClaimDetail() {
                   ) : (
                     <div className="divide-y">
                       {claim.lineItems.map((item) => (
-                        <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50">
+                        <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50 group">
                           <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.code}</div>
-                          <div className="col-span-6 md:col-span-4">
+                          <div className="col-span-5 md:col-span-3">
                             <p className="font-medium truncate">{item.description}</p>
                             <p className="text-xs text-muted-foreground">{item.category}</p>
                           </div>
-                          <div className="hidden md:block col-span-2 text-right">
-                            <span className="bg-slate-100 px-2 py-1 rounded">{item.quantity} {item.unit}</span>
+                          <div className="col-span-2 md:col-span-2 flex items-center justify-center gap-1">
+                            <div className="flex items-center border rounded-md">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 rounded-r-none"
+                                onClick={() => {
+                                  const newQty = Math.max(1, item.quantity - 1);
+                                  updateLineItem(claim.id, item.id, {
+                                    quantity: newQty,
+                                    total: newQty * item.unitPrice
+                                  });
+                                }}
+                              >
+                                -
+                              </Button>
+                              <Input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const newQty = Math.max(1, Number(e.target.value) || 1);
+                                  updateLineItem(claim.id, item.id, {
+                                    quantity: newQty,
+                                    total: newQty * item.unitPrice
+                                  });
+                                }}
+                                className="h-8 w-14 text-center border-0 rounded-none focus-visible:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 rounded-l-none"
+                                onClick={() => {
+                                  const newQty = item.quantity + 1;
+                                  updateLineItem(claim.id, item.id, {
+                                    quantity: newQty,
+                                    total: newQty * item.unitPrice
+                                  });
+                                }}
+                              >
+                                +
+                              </Button>
+                            </div>
+                            <span className="text-xs text-muted-foreground hidden md:inline">{item.unit}</span>
                           </div>
                           <div className="hidden md:block col-span-2 text-right text-slate-600">
                             ${item.unitPrice.toFixed(2)}
                           </div>
-                          <div className="col-span-3 md:col-span-2 text-right font-semibold">
+                          <div className="col-span-2 md:col-span-2 text-right font-semibold">
                             ${item.total.toFixed(2)}
+                          </div>
+                          <div className="hidden md:flex col-span-1 justify-end">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => deleteLineItem(claim.id, item.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -638,11 +798,23 @@ export default function ClaimDetail() {
 
       {/* Modals */}
       {selectedRoomId && (
-        <DamageZoneModal 
-          isOpen={isDamageModalOpen} 
+        <DamageZoneModal
+          isOpen={isDamageModalOpen}
           onClose={() => setIsDamageModalOpen(false)}
           roomId={selectedRoomId}
           onSave={(zone) => addDamageZone(claim.id, { ...zone, id: `dz${Date.now()}`, photos: [] })}
+        />
+      )}
+
+      {selectedRoomId && (
+        <OpeningModal
+          isOpen={isOpeningModalOpen}
+          onClose={() => {
+            setIsOpeningModalOpen(false);
+            setEditingOpening(undefined);
+          }}
+          onSave={handleSaveOpening}
+          existingOpening={editingOpening}
         />
       )}
 

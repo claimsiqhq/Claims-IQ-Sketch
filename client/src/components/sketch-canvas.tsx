@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { Room, DamageZone } from "@/lib/types";
+import { Room, DamageZone, RoomOpening, WallDirection, PositionType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Move, Maximize2, X, Plus, AlertTriangle, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,86 @@ export default function SketchCanvas({
   const SNAP_GRID = 10 * viewState.scale; // Snap to half foot
   const MIN_SCALE = 0.3;
   const MAX_SCALE = 3;
+
+  // Helper to calculate opening position on a wall
+  const getOpeningStyle = (
+    opening: RoomOpening,
+    roomWidth: number,
+    roomHeight: number
+  ): React.CSSProperties => {
+    const openingWidthPx = opening.width * BASE_PIXELS_PER_FOOT;
+    const openingThickness = 6; // Thickness of the opening indicator
+
+    // Calculate position offset based on position type
+    const getPositionOffset = (wallLength: number, openingLength: number): number => {
+      const padding = 10; // Small padding from edges
+      switch (opening.position) {
+        case "left":
+          return padding;
+        case "right":
+          return wallLength - openingLength - padding;
+        case "center":
+        default:
+          return (wallLength - openingLength) / 2;
+      }
+    };
+
+    const roomWidthPx = roomWidth * BASE_PIXELS_PER_FOOT;
+    const roomHeightPx = roomHeight * BASE_PIXELS_PER_FOOT;
+
+    switch (opening.wall) {
+      case "north":
+        return {
+          position: "absolute",
+          top: -openingThickness / 2,
+          left: getPositionOffset(roomWidthPx, openingWidthPx),
+          width: openingWidthPx,
+          height: openingThickness,
+        };
+      case "south":
+        return {
+          position: "absolute",
+          bottom: -openingThickness / 2,
+          left: getPositionOffset(roomWidthPx, openingWidthPx),
+          width: openingWidthPx,
+          height: openingThickness,
+        };
+      case "east":
+        return {
+          position: "absolute",
+          right: -openingThickness / 2,
+          top: getPositionOffset(roomHeightPx, openingWidthPx),
+          width: openingThickness,
+          height: openingWidthPx,
+        };
+      case "west":
+        return {
+          position: "absolute",
+          left: -openingThickness / 2,
+          top: getPositionOffset(roomHeightPx, openingWidthPx),
+          width: openingThickness,
+          height: openingWidthPx,
+        };
+      default:
+        return {};
+    }
+  };
+
+  // Get color for opening type
+  const getOpeningColor = (type: RoomOpening["type"]): string => {
+    switch (type) {
+      case "window":
+        return "#38bdf8"; // sky-400
+      case "door":
+      case "sliding_door":
+      case "french_door":
+        return "#d97706"; // amber-600
+      case "archway":
+        return "#a855f7"; // purple-500
+      default:
+        return "#64748b"; // slate-500
+    }
+  };
 
   // Calculate bounds for all rooms to enable fit-to-view
   const roomBounds = useMemo(() => {
@@ -499,6 +579,21 @@ export default function SketchCanvas({
                   <AlertTriangle className="text-red-500/20 h-12 w-12" />
                 </div>
               )}
+
+              {/* Openings (Doors/Windows) */}
+              {room.openings?.map((opening) => (
+                <div
+                  key={opening.id}
+                  className="pointer-events-none z-20"
+                  style={{
+                    ...getOpeningStyle(opening, room.width, room.height),
+                    backgroundColor: getOpeningColor(opening.type),
+                    borderRadius: "2px",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                  }}
+                  title={`${opening.type} (${opening.width}' x ${opening.height}')`}
+                />
+              ))}
 
               <div className="text-center pointer-events-none select-none px-2 z-10 relative">
                 <div className="text-xs font-semibold text-slate-900 truncate max-w-full flex items-center justify-center gap-1">
