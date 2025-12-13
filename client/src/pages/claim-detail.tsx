@@ -27,7 +27,9 @@ import {
   X,
   Mic,
   Loader2,
-  Settings2
+  Settings2,
+  Sparkles,
+  Wand2
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -35,6 +37,7 @@ import SketchCanvas from "@/components/sketch-canvas";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
 import LineItemPicker from "@/components/line-item-picker";
+import { VoiceScopeController } from "@/features/voice-scope";
 import { Room, RoomOpening } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DoorOpen } from "lucide-react";
@@ -69,6 +72,17 @@ export default function ClaimDetail() {
   const [isLineItemPickerOpen, setIsLineItemPickerOpen] = useState(false);
   const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
+  const [isVoiceScopeOpen, setIsVoiceScopeOpen] = useState(false);
+  const [isGeneratingAISuggestions, setIsGeneratingAISuggestions] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<Array<{
+    lineItemCode: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    unitPrice?: number;
+    reasoning: string;
+    priority: string;
+  }> | null>(null);
 
   useEffect(() => {
     if (params?.id) {
@@ -147,6 +161,91 @@ export default function ClaimDetail() {
     if (result) {
       setActiveTab("estimate");
     }
+  };
+
+  const handleGenerateAISuggestions = async () => {
+    if (claim.damageZones.length === 0) {
+      alert("Please add damage zones first in the Sketch tab before generating AI suggestions.");
+      return;
+    }
+
+    setIsGeneratingAISuggestions(true);
+    setAiSuggestions(null);
+
+    try {
+      // Transform damage zones to the format expected by the API
+      const damageZones = claim.damageZones.map(dz => {
+        const room = claim.rooms.find(r => r.id === dz.roomId);
+        return {
+          id: dz.id,
+          roomName: room?.name || "Unknown Room",
+          roomType: room?.type,
+          damageType: dz.type.toLowerCase(),
+          damageSeverity: dz.severity,
+          squareFootage: dz.affectedArea,
+          notes: dz.notes,
+        };
+      });
+
+      const response = await fetch("/api/ai/suggest-estimate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          damageZones,
+          regionId: estimateSettings.regionId,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to generate suggestions");
+      }
+
+      const result = await response.json();
+      setAiSuggestions(result.suggestions || []);
+    } catch (error) {
+      console.error("AI suggestion error:", error);
+      alert(error instanceof Error ? error.message : "Failed to generate AI suggestions");
+    } finally {
+      setIsGeneratingAISuggestions(false);
+    }
+  };
+
+  const handleAddAISuggestion = (suggestion: typeof aiSuggestions extends (infer T)[] | null ? T : never) => {
+    if (!suggestion) return;
+
+    addLineItem(claim.id, {
+      id: `li${Date.now()}`,
+      code: suggestion.lineItemCode,
+      description: suggestion.description,
+      quantity: suggestion.quantity,
+      unit: suggestion.unit,
+      unitPrice: suggestion.unitPrice || 0,
+      total: (suggestion.unitPrice || 0) * suggestion.quantity,
+      category: "AI Suggested",
+    });
+
+    // Remove from suggestions
+    setAiSuggestions(prev => prev?.filter(s => s.lineItemCode !== suggestion.lineItemCode) || null);
+  };
+
+  const handleAddAllAISuggestions = () => {
+    if (!aiSuggestions) return;
+
+    aiSuggestions.forEach(suggestion => {
+      addLineItem(claim.id, {
+        id: `li${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        code: suggestion.lineItemCode,
+        description: suggestion.description,
+        quantity: suggestion.quantity,
+        unit: suggestion.unit,
+        unitPrice: suggestion.unitPrice || 0,
+        total: (suggestion.unitPrice || 0) * suggestion.quantity,
+        category: "AI Suggested",
+      });
+    });
+
+    setAiSuggestions(null);
   };
 
   // Calculate display totals - use API result if available, otherwise use local subtotal
@@ -300,22 +399,24 @@ export default function ClaimDetail() {
               {/* Mobile View: Optimized for small screens */}
               <div className="md:hidden flex-1 flex flex-col overflow-hidden">
                 {/* Canvas Area - Takes most of the space */}
-                <div className="flex-1 min-h-0 relative border-b border-border">
+                <div className="flex-1 min-h-0 relative border-b border-border overflow-hidden">
                    {/* Floating Toolbar - Compact */}
-                   <div className="absolute top-2 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur border shadow-sm rounded-full px-3 py-1.5 flex gap-1 z-30">
-                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setSelectedRoomId(null)}>
-                        <Move className="h-4 w-4" />
-                      </Button>
-                      <Separator orientation="vertical" className="h-6 my-auto" />
-                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={handleAddRoom}>
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                      <Separator orientation="vertical" className="h-6 my-auto" />
-                      <Link href={`/voice-sketch/${claim.id}`}>
-                        <Button size="sm" variant="ghost" className="h-8 px-2 text-primary">
-                          <Mic className="h-4 w-4" />
+                   <div className="absolute top-2 left-2 right-2 flex justify-center z-30 pointer-events-none">
+                     <div className="bg-white/95 backdrop-blur border shadow-sm rounded-full px-3 py-1.5 flex gap-1 pointer-events-auto">
+                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setSelectedRoomId(null)}>
+                          <Move className="h-4 w-4" />
                         </Button>
-                      </Link>
+                        <Separator orientation="vertical" className="h-6 my-auto" />
+                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={handleAddRoom}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                        <Separator orientation="vertical" className="h-6 my-auto" />
+                        <Link href={`/voice-sketch/${claim.id}`}>
+                          <Button size="sm" variant="ghost" className="h-8 px-2 text-primary">
+                            <Mic className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                      </div>
                     </div>
                     <SketchCanvas
                       rooms={claim.rooms}
@@ -407,21 +508,23 @@ export default function ClaimDetail() {
               <div className="hidden md:block h-full">
                 <ResizablePanelGroup direction="horizontal">
                   <ResizablePanel defaultSize={65}>
-                    <div className="h-full relative flex flex-col">
-                      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur border shadow-sm rounded-full px-4 py-2 flex gap-2 z-10">
-                        <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)}>
-                          <Move className="h-4 w-4 mr-2" /> Select
-                        </Button>
-                        <Separator orientation="vertical" className="h-6" />
-                        <Button size="sm" variant="ghost" onClick={handleAddRoom}>
-                          <Plus className="h-4 w-4 mr-2" /> Add Room
-                        </Button>
-                        <Separator orientation="vertical" className="h-6" />
-                        <Link href={`/voice-sketch/${claim.id}`}>
-                          <Button size="sm" variant="ghost" className="text-primary">
-                            <Mic className="h-4 w-4 mr-2" /> Voice Sketch
+                    <div className="h-full relative flex flex-col overflow-hidden">
+                      <div className="absolute top-4 left-4 right-4 flex justify-center z-10 pointer-events-none">
+                        <div className="bg-white/90 backdrop-blur border shadow-sm rounded-full px-4 py-2 flex gap-2 pointer-events-auto">
+                          <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)}>
+                            <Move className="h-4 w-4 mr-2" /> Select
                           </Button>
-                        </Link>
+                          <Separator orientation="vertical" className="h-6" />
+                          <Button size="sm" variant="ghost" onClick={handleAddRoom}>
+                            <Plus className="h-4 w-4 mr-2" /> Add Room
+                          </Button>
+                          <Separator orientation="vertical" className="h-6" />
+                          <Link href={`/voice-sketch/${claim.id}`}>
+                            <Button size="sm" variant="ghost" className="text-primary">
+                              <Mic className="h-4 w-4 mr-2" /> Voice Sketch
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
                       <SketchCanvas 
                         rooms={claim.rooms} 
@@ -613,12 +716,132 @@ export default function ClaimDetail() {
             {/* TAB: SCOPE */}
             <TabsContent value="scope" className="h-full p-4 md:p-6 m-0 overflow-auto">
               <div className="max-w-5xl mx-auto space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold">Scope of Work</h2>
-                  <Button onClick={() => setIsLineItemPickerOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" /> <span className="hidden md:inline">Add Line Item</span>
-                  </Button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateAISuggestions}
+                      disabled={isGeneratingAISuggestions || claim.damageZones.length === 0}
+                      className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                    >
+                      {isGeneratingAISuggestions ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Wand2 className="h-4 w-4 mr-2" />
+                      )}
+                      <span className="hidden sm:inline">AI Suggest</span>
+                      <span className="sm:hidden">AI</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsVoiceScopeOpen(!isVoiceScopeOpen)}
+                      className={cn(
+                        isVoiceScopeOpen && "bg-primary/10 border-primary"
+                      )}
+                    >
+                      <Mic className="h-4 w-4 mr-2" />
+                      <span className="hidden sm:inline">Voice</span>
+                    </Button>
+                    <Button size="sm" onClick={() => setIsLineItemPickerOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      <span className="hidden sm:inline">Add Item</span>
+                      <span className="sm:hidden">Add</span>
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Voice Scope Controller */}
+                {isVoiceScopeOpen && (
+                  <VoiceScopeController
+                    onClose={() => setIsVoiceScopeOpen(false)}
+                    onLineItemAdded={(item) => {
+                      addLineItem(claim.id, {
+                        id: `li${Date.now()}`,
+                        code: item.code,
+                        description: item.description,
+                        quantity: item.quantity,
+                        unit: item.unit,
+                        unitPrice: 0,
+                        total: 0,
+                        category: "Voice Added",
+                      });
+                    }}
+                    className="max-h-[350px]"
+                  />
+                )}
+
+                {/* AI Suggestions Panel */}
+                {aiSuggestions && aiSuggestions.length > 0 && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-purple-600" />
+                        <h3 className="font-semibold text-purple-900">AI Suggestions ({aiSuggestions.length})</h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setAiSuggestions(null)}
+                          className="text-purple-600"
+                        >
+                          Dismiss
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleAddAllAISuggestions}
+                          className="bg-purple-600 hover:bg-purple-700"
+                        >
+                          Add All
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-[300px] overflow-auto">
+                      {aiSuggestions.map((suggestion, index) => (
+                        <div
+                          key={`${suggestion.lineItemCode}-${index}`}
+                          className="bg-white border border-purple-100 rounded p-3 flex items-center justify-between gap-3"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-purple-600">{suggestion.lineItemCode}</span>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-xs",
+                                  suggestion.priority === "required" && "border-red-300 text-red-600",
+                                  suggestion.priority === "recommended" && "border-amber-300 text-amber-600",
+                                  suggestion.priority === "optional" && "border-slate-300 text-slate-600"
+                                )}
+                              >
+                                {suggestion.priority}
+                              </Badge>
+                            </div>
+                            <p className="text-sm font-medium truncate">{suggestion.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {suggestion.quantity} {suggestion.unit}
+                              {suggestion.unitPrice && ` • $${(suggestion.unitPrice * suggestion.quantity).toFixed(2)}`}
+                            </p>
+                            {suggestion.reasoning && (
+                              <p className="text-xs text-purple-600 mt-1 italic">{suggestion.reasoning}</p>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleAddAISuggestion(suggestion)}
+                            className="shrink-0"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
                   <div className="grid grid-cols-12 gap-2 md:gap-4 p-4 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">

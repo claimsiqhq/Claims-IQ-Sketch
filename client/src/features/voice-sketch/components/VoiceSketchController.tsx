@@ -77,35 +77,36 @@ export function VoiceSketchController({
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* Header with Controls */}
-      <div className="flex items-center justify-between p-4 border-b bg-background">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border-b bg-background">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-foreground">Voice Sketch</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-foreground">Voice Sketch</h2>
           {isConnected && (
             <div className="flex items-center gap-2">
               {isListening && (
-                <span className="flex items-center gap-1 text-sm text-green-600">
+                <span className="flex items-center gap-1 text-xs sm:text-sm text-green-600">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                   </span>
-                  Listening
+                  <span className="hidden xs:inline">Listening</span>
                 </span>
               )}
               {isSpeaking && (
-                <span className="flex items-center gap-1 text-sm text-blue-600">
+                <span className="flex items-center gap-1 text-xs sm:text-sm text-blue-600">
                   <Volume2 className="h-4 w-4 animate-pulse" />
-                  Speaking
+                  <span className="hidden xs:inline">Speaking</span>
                 </span>
               )}
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {!isConnected ? (
-            <Button onClick={handleStartSession} variant="default" size="sm">
-              <Mic className="h-4 w-4 mr-2" />
-              Start Voice Sketching
+            <Button onClick={handleStartSession} variant="default" size="sm" className="flex-1 sm:flex-none">
+              <Mic className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Start Voice Sketching</span>
+              <span className="sm:hidden">Start</span>
             </Button>
           ) : (
             <>
@@ -115,12 +116,12 @@ export function VoiceSketchController({
                 size="sm"
                 disabled={!isSpeaking}
               >
-                <Square className="h-4 w-4 mr-2" />
-                Stop Speaking
+                <Square className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Stop Speaking</span>
               </Button>
               <Button onClick={handleStopSession} variant="destructive" size="sm">
-                <MicOff className="h-4 w-4 mr-2" />
-                End Session
+                <MicOff className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">End Session</span>
               </Button>
             </>
           )}
