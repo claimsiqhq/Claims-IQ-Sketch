@@ -424,43 +424,40 @@ export default function SketchCanvas({
         cursor: isPanning ? 'grabbing' : 'grab'
       }}
     >
-      {/* Zoom Controls Panel - Bottom Right */}
-      <div className="absolute bottom-4 right-4 flex flex-col items-center gap-1 z-20 bg-white/95 backdrop-blur rounded-lg shadow-md p-2">
+      {/* Zoom Controls - Horizontal Bar at Bottom */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20 bg-white/95 backdrop-blur rounded-full shadow-md px-3 py-1.5">
         <Button
           size="sm"
           variant="ghost"
-          className="h-9 w-9 p-0"
-          onClick={(e) => { e.stopPropagation(); handleZoomIn(); }}
+          className="h-7 w-7 p-0"
+          onClick={(e) => { e.stopPropagation(); handleZoomOut(); }}
         >
-          <ZoomIn className="h-4 w-4" />
+          <ZoomOut className="h-3.5 w-3.5" />
         </Button>
-        <span className="text-xs text-slate-600 font-mono py-1 min-w-[3rem] text-center">
+        <span className="text-xs text-slate-600 font-mono min-w-[2.5rem] text-center">
           {Math.round(viewState.scale * 100)}%
         </span>
         <Button
           size="sm"
           variant="ghost"
-          className="h-9 w-9 p-0"
-          onClick={(e) => { e.stopPropagation(); handleZoomOut(); }}
+          className="h-7 w-7 p-0"
+          onClick={(e) => { e.stopPropagation(); handleZoomIn(); }}
         >
-          <ZoomOut className="h-4 w-4" />
+          <ZoomIn className="h-3.5 w-3.5" />
         </Button>
-        <div className="border-t border-slate-200 w-full my-1" />
+        <div className="h-4 w-px bg-slate-200" />
         <Button
           size="sm"
           variant="ghost"
-          className="h-9 w-9 p-0"
+          className="h-7 w-7 p-0"
           onClick={(e) => { e.stopPropagation(); fitToView(); }}
           title="Fit to view"
         >
-          <Maximize className="h-4 w-4" />
+          <Maximize className="h-3.5 w-3.5" />
         </Button>
-        <span className="text-[9px] text-slate-400 text-center leading-tight hidden md:block">
-          Scroll to zoom<br/>Drag to pan
-        </span>
-        <span className="text-[9px] text-slate-400 text-center leading-tight md:hidden">
-          Pinch to zoom<br/>Drag to pan
-        </span>
+        <div className="h-4 w-px bg-slate-200" />
+        <span className="text-[10px] text-slate-400 hidden md:block">Scroll/drag</span>
+        <span className="text-[10px] text-slate-400 md:hidden">Pinch/drag</span>
       </div>
 
       {/* Canvas Content with Transform */}
