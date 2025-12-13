@@ -25,6 +25,12 @@ import {
   quickSuggestLineItems,
   searchLineItemsByDescription
 } from "./services/ai-estimate-suggest";
+import {
+  generatePdfReport,
+  generateEsxExport,
+  generateEsxXml,
+  generateCsvExport
+} from "./services/reportGenerator";
 import { passport, requireAuth } from "./middleware/auth";
 
 export async function registerRoutes(
@@ -587,6 +593,410 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // COVERAGE TYPES ROUTES
+  // ============================================
+
+  // Get all coverage types
+  app.get('/api/coverage-types', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM coverage_types WHERE is_active = true ORDER BY sort_order, code'
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get coverage type by code
+  app.get('/api/coverage-types/:code', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM coverage_types WHERE code = $1 AND is_active = true',
+          [req.params.code]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Coverage type not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // TAX RATES ROUTES
+  // ============================================
+
+  // Get all tax rates
+  app.get('/api/tax-rates', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { region_code, tax_type } = req.query;
+        let query = 'SELECT * FROM tax_rates WHERE is_active = true';
+        const params: string[] = [];
+        let paramIndex = 1;
+
+        if (region_code) {
+          query += ` AND region_code = $${paramIndex}`;
+          params.push(region_code as string);
+          paramIndex++;
+        }
+        if (tax_type) {
+          query += ` AND tax_type = $${paramIndex}`;
+          params.push(tax_type as string);
+        }
+
+        query += ' ORDER BY region_code, tax_type';
+        const result = await client.query(query, params);
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get tax rate for a specific region
+  app.get('/api/tax-rates/region/:regionCode', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM tax_rates
+           WHERE region_code = $1 AND is_active = true
+           ORDER BY tax_type`,
+          [req.params.regionCode]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // DEPRECIATION SCHEDULES ROUTES
+  // ============================================
+
+  // Get all depreciation schedules
+  app.get('/api/depreciation-schedules', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { category_code, item_type } = req.query;
+        let query = 'SELECT * FROM depreciation_schedules WHERE 1=1';
+        const params: string[] = [];
+        let paramIndex = 1;
+
+        if (category_code) {
+          query += ` AND category_code = $${paramIndex}`;
+          params.push(category_code as string);
+          paramIndex++;
+        }
+        if (item_type) {
+          query += ` AND item_type ILIKE $${paramIndex}`;
+          params.push(`%${item_type}%`);
+        }
+
+        query += ' ORDER BY category_code, item_type';
+        const result = await client.query(query, params);
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get depreciation schedule by category
+  app.get('/api/depreciation-schedules/category/:categoryCode', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM depreciation_schedules
+           WHERE category_code = $1
+           ORDER BY item_type`,
+          [req.params.categoryCode]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // REGIONAL MULTIPLIERS ROUTES
+  // ============================================
+
+  // Get all regional multipliers
+  app.get('/api/regional-multipliers', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM regional_multipliers WHERE is_active = true ORDER BY region_code'
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get regional multiplier by region code
+  app.get('/api/regional-multipliers/:regionCode', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM regional_multipliers WHERE region_code = $1 AND is_active = true',
+          [req.params.regionCode]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Regional multiplier not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // LABOR RATES ROUTES
+  // ============================================
+
+  // Get all labor rates
+  app.get('/api/labor-rates', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { trade_code, region_code } = req.query;
+        let query = 'SELECT * FROM labor_rates_enhanced WHERE is_active = true';
+        const params: string[] = [];
+        let paramIndex = 1;
+
+        if (trade_code) {
+          query += ` AND trade_code = $${paramIndex}`;
+          params.push(trade_code as string);
+          paramIndex++;
+        }
+        if (region_code) {
+          query += ` AND region_code = $${paramIndex}`;
+          params.push(region_code as string);
+        }
+
+        query += ' ORDER BY trade_code, region_code';
+        const result = await client.query(query, params);
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get labor rate for specific trade
+  app.get('/api/labor-rates/trade/:tradeCode', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM labor_rates_enhanced
+           WHERE trade_code = $1 AND is_active = true
+           ORDER BY region_code`,
+          [req.params.tradeCode]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // PRICE LISTS ROUTES
+  // ============================================
+
+  // Get all price lists
+  app.get('/api/price-lists', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM price_lists
+           WHERE is_active = true
+           ORDER BY effective_date DESC, region_code`
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get price list by code
+  app.get('/api/price-lists/:code', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM price_lists WHERE code = $1 AND is_active = true',
+          [req.params.code]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Price list not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // REPORT & EXPORT ROUTES
+  // ============================================
+
+  // Generate PDF report (returns HTML for PDF conversion)
+  app.get('/api/estimates/:id/report/pdf', async (req, res) => {
+    try {
+      const options = {
+        includeLineItemDetails: req.query.includeLineItems !== 'false',
+        includeDepreciation: req.query.includeDepreciation !== 'false',
+        includeCoverageSummary: req.query.includeCoverage !== 'false',
+        companyName: req.query.companyName as string,
+      };
+      const html = await generatePdfReport(req.params.id, options);
+      res.setHeader('Content-Type', 'text/html');
+      res.send(html);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Generate ESX JSON export
+  app.get('/api/estimates/:id/export/esx', async (req, res) => {
+    try {
+      const metadata = {
+        dateOfLoss: req.query.dateOfLoss as string,
+        insuredName: req.query.insuredName as string,
+        adjusterName: req.query.adjusterName as string,
+        priceListDate: req.query.priceListDate as string,
+      };
+      const esxData = await generateEsxExport(req.params.id, metadata);
+      res.json(esxData);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Generate ESX XML export
+  app.get('/api/estimates/:id/export/esx-xml', async (req, res) => {
+    try {
+      const metadata = {
+        dateOfLoss: req.query.dateOfLoss as string,
+        insuredName: req.query.insuredName as string,
+        adjusterName: req.query.adjusterName as string,
+        priceListDate: req.query.priceListDate as string,
+      };
+      const xml = await generateEsxXml(req.params.id, metadata);
+      res.setHeader('Content-Type', 'application/xml');
+      res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
+      res.send(xml);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Generate CSV export
+  app.get('/api/estimates/:id/export/csv', async (req, res) => {
+    try {
+      const csv = await generateCsvExport(req.params.id);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.csv"`);
+      res.send(csv);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 

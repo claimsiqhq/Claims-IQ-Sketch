@@ -5,6 +5,16 @@ import {
   calculateEquipmentCost,
   calculateBasePrice
 } from './pricing';
+import {
+  calculateDepreciation,
+  getTaxRate,
+  getRegionalMultipliers,
+  getCarrierOpRules,
+  calculateSettlement,
+  type DepreciationResult,
+  type CoverageSummary,
+  type SettlementResult
+} from './depreciationEngine';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -16,6 +26,9 @@ export interface EstimateLineItemInput {
   notes?: string;
   roomName?: string;
   damageZoneId?: string;
+  coverageCode?: string;  // A, B, C, D override
+  ageYears?: number;      // Age of item for depreciation
+  condition?: 'Good' | 'Average' | 'Poor';
 }
 
 export interface EstimateCalculationInput {
@@ -27,6 +40,13 @@ export interface EstimateCalculationInput {
   carrierProfileId?: string;
   overheadPct?: number;
   profitPct?: number;
+  deductibles?: {
+    covA?: number;
+    covB?: number;
+    covC?: number;
+  };
+  defaultAgeYears?: number;
+  defaultCondition?: 'Good' | 'Average' | 'Poor';
 }
 
 export interface CalculatedLineItem {
@@ -40,9 +60,19 @@ export interface CalculatedLineItem {
   equipmentCost: number;
   unitPrice: number;
   subtotal: number;
+  taxAmount: number;
+  rcv: number;
+  coverageCode: string;
+  tradeCode: string | null;
+  depreciationType: string | null;
+  ageYears: number;
+  condition: 'Good' | 'Average' | 'Poor';
+  depreciation: DepreciationResult;
+  acv: number;
   notes?: string;
   roomName?: string;
   damageZoneId?: string;
+  xactimateCode?: string;
 }
 
 export interface EstimateCalculationResult {
@@ -59,6 +89,20 @@ export interface EstimateCalculationResult {
   carrierProfileId?: string;
   lineItemCount: number;
   categoryBreakdown: Record<string, { count: number; subtotal: number }>;
+  // Settlement and depreciation data
+  settlement: SettlementResult;
+  coverageSummaries: CoverageSummary[];
+  totals: {
+    subtotalMaterials: number;
+    subtotalLabor: number;
+    subtotalEquipment: number;
+    totalRcv: number;
+    totalDepreciation: number;
+    totalAcv: number;
+    recoverableDepreciation: number;
+    nonRecoverableDepreciation: number;
+    netClaimTotal: number;
+  };
 }
 
 export interface SavedEstimate extends EstimateCalculationResult {
@@ -82,7 +126,14 @@ export async function calculateEstimate(
   const client = await pool.connect();
 
   try {
-    // Fetch carrier profile if provided
+    // Get regional multipliers and tax rate
+    const regionalMultipliers = await getRegionalMultipliers(regionId);
+    const taxRate = await getTaxRate(regionId);
+
+    // Get carrier O&P rules
+    const carrierRules = await getCarrierOpRules(input.carrierProfileId || null);
+
+    // Fetch carrier profile if provided (for backward compatibility)
     let carrierProfile = null;
     if (input.carrierProfileId) {
       const carrierRow = await client.query(
@@ -105,7 +156,11 @@ export async function calculateEstimate(
       lineItemsResult.rows.map((li: any) => [li.code, li])
     );
 
-    // Calculate each line item
+    // Default age and condition
+    const defaultAge = input.defaultAgeYears ?? 5;
+    const defaultCondition = input.defaultCondition ?? 'Average';
+
+    // Calculate each line item with depreciation
     const calculatedItems: CalculatedLineItem[] = [];
     const categoryBreakdown: Record<string, { count: number; subtotal: number }> = {};
 
@@ -117,6 +172,11 @@ export async function calculateEstimate(
       }
 
       const quantity = inputItem.quantity;
+      const ageYears = inputItem.ageYears ?? defaultAge;
+      const condition = inputItem.condition ?? defaultCondition;
+      const coverageCode = inputItem.coverageCode ?? def.default_coverage_code ?? 'A';
+      const tradeCode = def.trade_code || null;
+      const depreciationType = def.depreciation_type || null;
 
       // Calculate costs using existing pricing functions
       let materialCost = await calculateMaterialCost(
@@ -133,11 +193,16 @@ export async function calculateEstimate(
       const wasteFactor = parseFloat(def.waste_factor || '1.0');
       materialCost *= wasteFactor;
 
+      // Apply regional multipliers
+      const adjustedMaterial = materialCost * regionalMultipliers.material;
+      const adjustedLabor = laborCost * regionalMultipliers.labor;
+      const adjustedEquipment = equipmentCost * regionalMultipliers.equipment;
+
       // Calculate totals for this quantity
-      const totalMaterial = materialCost * quantity;
-      const totalLabor = laborCost * quantity;
-      const totalEquipment = equipmentCost * quantity;
-      const unitPrice = materialCost + laborCost + equipmentCost;
+      const totalMaterial = adjustedMaterial * quantity;
+      const totalLabor = adjustedLabor * quantity;
+      const totalEquipment = adjustedEquipment * quantity;
+      const unitPrice = adjustedMaterial + adjustedLabor + adjustedEquipment;
       let subtotal = totalMaterial + totalLabor + totalEquipment;
 
       // Apply minimum charge
@@ -145,6 +210,23 @@ export async function calculateEstimate(
       if (subtotal < minCharge) {
         subtotal = minCharge;
       }
+
+      // Calculate tax on materials
+      const taxAmount = carrierRules.taxOnMaterialsOnly
+        ? totalMaterial * taxRate
+        : subtotal * taxRate;
+
+      // RCV = subtotal + tax (O&P added at settlement level)
+      const rcv = subtotal;
+
+      // Calculate depreciation
+      const depreciation = await calculateDepreciation({
+        categoryCode: def.category_id.split('.')[0],
+        depreciationType,
+        ageYears,
+        condition,
+        rcv: rcv + taxAmount
+      });
 
       const calculatedItem: CalculatedLineItem = {
         code: def.code,
@@ -157,15 +239,25 @@ export async function calculateEstimate(
         equipmentCost: round(totalEquipment),
         unitPrice: round(unitPrice),
         subtotal: round(subtotal),
+        taxAmount: round(taxAmount),
+        rcv: round(rcv + taxAmount),
+        coverageCode,
+        tradeCode,
+        depreciationType,
+        ageYears,
+        condition,
+        depreciation,
+        acv: depreciation.acv,
         notes: inputItem.notes,
         roomName: inputItem.roomName,
         damageZoneId: inputItem.damageZoneId,
+        xactimateCode: def.xactimate_code || undefined,
       };
 
       calculatedItems.push(calculatedItem);
 
       // Update category breakdown
-      const categoryId = def.category_id.split('.')[0]; // Get parent category
+      const categoryId = def.category_id.split('.')[0];
       if (!categoryBreakdown[categoryId]) {
         categoryBreakdown[categoryId] = { count: 0, subtotal: 0 };
       }
@@ -173,44 +265,70 @@ export async function calculateEstimate(
       categoryBreakdown[categoryId].subtotal += calculatedItem.subtotal;
     }
 
+    // Prepare line items for settlement calculation
+    const settlementLineItems = calculatedItems.map(item => ({
+      coverageCode: item.coverageCode,
+      materialCost: item.materialCost,
+      laborCost: item.laborCost,
+      equipmentCost: item.equipmentCost,
+      lineRcv: item.subtotal,
+      taxAmount: item.taxAmount,
+      depreciationAmount: item.depreciation.depreciationAmount,
+      isRecoverable: item.depreciation.isRecoverable,
+      tradeCode: item.tradeCode,
+    }));
+
+    // Calculate settlement with O&P eligibility
+    const settlement = calculateSettlement(
+      settlementLineItems,
+      {
+        overheadPct: input.overheadPct ?? carrierRules.overheadPct,
+        profitPct: input.profitPct ?? carrierRules.profitPct,
+        opThreshold: carrierRules.opThreshold,
+        opTradeMinimum: carrierRules.opTradeMinimum,
+      },
+      {
+        covA: input.deductibles?.covA ?? 0,
+        covB: input.deductibles?.covB ?? 0,
+        covC: input.deductibles?.covC ?? 0,
+      }
+    );
+
     // Calculate totals
     const subtotal = calculatedItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const totalTax = calculatedItems.reduce((sum, item) => sum + item.taxAmount, 0);
 
-    // Get O&P percentages (from input, carrier profile, or defaults)
-    const overheadPct = input.overheadPct ??
-      (carrierProfile ? parseFloat(carrierProfile.overhead_pct) : 10);
-    const profitPct = input.profitPct ??
-      (carrierProfile ? parseFloat(carrierProfile.profit_pct) : 10);
-
-    // Calculate O&P
-    const overheadAmount = subtotal * (overheadPct / 100);
-    const profitAmount = subtotal * (profitPct / 100);
-
-    // Calculate tax (if applicable from carrier)
-    const taxPct = carrierProfile?.applies_tax
-      ? parseFloat(carrierProfile.tax_rate || '0')
-      : 0;
-    const taxableAmount = carrierProfile?.tax_on_materials_only
-      ? calculatedItems.reduce((sum, item) => sum + item.materialCost, 0)
-      : subtotal;
-    const taxAmount = taxableAmount * (taxPct / 100);
-
-    const grandTotal = subtotal + overheadAmount + profitAmount + taxAmount;
+    // Get O&P percentages from settlement
+    const overheadPct = input.overheadPct ?? carrierRules.overheadPct;
+    const profitPct = input.profitPct ?? carrierRules.profitPct;
 
     return {
       lineItems: calculatedItems,
       subtotal: round(subtotal),
-      overheadAmount: round(overheadAmount),
+      overheadAmount: settlement.totals.overheadAmount,
       overheadPct,
-      profitAmount: round(profitAmount),
+      profitAmount: settlement.totals.profitAmount,
       profitPct,
-      taxAmount: round(taxAmount),
-      taxPct,
-      grandTotal: round(grandTotal),
+      taxAmount: round(totalTax),
+      taxPct: round(taxRate * 100),
+      grandTotal: settlement.totals.totalRcv,
       regionId,
       carrierProfileId: input.carrierProfileId,
       lineItemCount: calculatedItems.length,
       categoryBreakdown,
+      settlement,
+      coverageSummaries: settlement.coverageSummaries,
+      totals: {
+        subtotalMaterials: settlement.totals.subtotalMaterials,
+        subtotalLabor: settlement.totals.subtotalLabor,
+        subtotalEquipment: settlement.totals.subtotalEquipment,
+        totalRcv: settlement.totals.totalRcv,
+        totalDepreciation: settlement.totals.totalDepreciation,
+        totalAcv: settlement.totals.totalAcv,
+        recoverableDepreciation: settlement.totals.recoverableDepreciation,
+        nonRecoverableDepreciation: settlement.totals.nonRecoverableDepreciation,
+        netClaimTotal: settlement.totals.netClaimTotal,
+      },
     };
   } finally {
     client.release();
@@ -262,7 +380,7 @@ export async function saveEstimate(
 
     const estimate = estimateResult.rows[0];
 
-    // Insert line items
+    // Insert line items with depreciation data
     for (let i = 0; i < calculation.lineItems.length; i++) {
       const item = calculation.lineItems[i];
       await client.query(
@@ -270,8 +388,14 @@ export async function saveEstimate(
           estimate_id, line_item_code, line_item_description,
           category_id, quantity, unit,
           unit_price, material_cost, labor_cost, equipment_cost, subtotal,
+          tax_amount, rcv, acv,
+          coverage_code, trade_code, depreciation_type,
+          age_years, condition,
+          depreciation_pct, depreciation_amount,
+          useful_life_years, is_depreciable, is_recoverable,
+          xactimate_code,
           source, room_name, damage_zone_id, notes, sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)`,
         [
           estimate.id,
           item.code,
@@ -284,11 +408,52 @@ export async function saveEstimate(
           item.laborCost,
           item.equipmentCost,
           item.subtotal,
+          item.taxAmount,
+          item.rcv,
+          item.acv,
+          item.coverageCode,
+          item.tradeCode,
+          item.depreciationType,
+          item.ageYears,
+          item.condition,
+          item.depreciation.depreciationPct,
+          item.depreciation.depreciationAmount,
+          item.depreciation.usefulLifeYears,
+          item.depreciation.isDepreciable,
+          item.depreciation.isRecoverable,
+          item.xactimateCode || null,
           'manual',
           item.roomName || null,
           item.damageZoneId || null,
           item.notes || null,
           i,
+        ]
+      );
+    }
+
+    // Insert coverage summaries
+    for (const coverage of calculation.coverageSummaries) {
+      await client.query(
+        `INSERT INTO estimate_coverage_summary (
+          estimate_id, coverage_code,
+          subtotal_rcv, tax_amount, overhead_amount, profit_amount, total_rcv,
+          recoverable_depreciation, non_recoverable_depreciation, total_depreciation,
+          total_acv, deductible, net_claim
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          estimate.id,
+          coverage.coverageCode,
+          coverage.subtotalRcv,
+          coverage.taxAmount,
+          coverage.overheadAmount,
+          coverage.profitAmount,
+          coverage.totalRcv,
+          coverage.recoverableDepreciation,
+          coverage.nonRecoverableDepreciation,
+          coverage.totalDepreciation,
+          coverage.totalAcv,
+          coverage.deductible,
+          coverage.netClaim,
         ]
       );
     }
@@ -333,7 +498,7 @@ export async function getEstimate(estimateId: string): Promise<SavedEstimate | n
 
     const estimate = estimateResult.rows[0];
 
-    // Get line items
+    // Get line items with depreciation data
     const itemsResult = await client.query(
       `SELECT * FROM estimate_line_items
        WHERE estimate_id = $1
@@ -341,20 +506,67 @@ export async function getEstimate(estimateId: string): Promise<SavedEstimate | n
       [estimateId]
     );
 
-    const lineItems: CalculatedLineItem[] = itemsResult.rows.map((row: any) => ({
-      code: row.line_item_code,
-      description: row.line_item_description,
-      categoryId: row.category_id,
-      unit: row.unit,
-      quantity: parseFloat(row.quantity),
-      materialCost: parseFloat(row.material_cost),
-      laborCost: parseFloat(row.labor_cost),
-      equipmentCost: parseFloat(row.equipment_cost),
-      unitPrice: parseFloat(row.unit_price),
-      subtotal: parseFloat(row.subtotal),
-      notes: row.notes,
-      roomName: row.room_name,
-      damageZoneId: row.damage_zone_id,
+    const lineItems: CalculatedLineItem[] = itemsResult.rows.map((row: any) => {
+      const subtotal = parseFloat(row.subtotal || '0');
+      const taxAmount = parseFloat(row.tax_amount || '0');
+      const depreciationPct = parseFloat(row.depreciation_pct || '0');
+      const depreciationAmount = parseFloat(row.depreciation_amount || '0');
+      const rcv = parseFloat(row.rcv || subtotal);
+      const acv = parseFloat(row.acv || (rcv - depreciationAmount));
+
+      return {
+        code: row.line_item_code,
+        description: row.line_item_description,
+        categoryId: row.category_id,
+        unit: row.unit,
+        quantity: parseFloat(row.quantity),
+        materialCost: parseFloat(row.material_cost || '0'),
+        laborCost: parseFloat(row.labor_cost || '0'),
+        equipmentCost: parseFloat(row.equipment_cost || '0'),
+        unitPrice: parseFloat(row.unit_price || '0'),
+        subtotal,
+        taxAmount,
+        rcv,
+        coverageCode: row.coverage_code || 'A',
+        tradeCode: row.trade_code || null,
+        depreciationType: row.depreciation_type || null,
+        ageYears: parseInt(row.age_years || '5'),
+        condition: row.condition || 'Average',
+        depreciation: {
+          depreciationPct,
+          depreciationAmount,
+          acv,
+          usefulLifeYears: parseInt(row.useful_life_years || '0'),
+          isDepreciable: row.is_depreciable !== false,
+          isRecoverable: row.is_recoverable !== false,
+        },
+        acv,
+        notes: row.notes,
+        roomName: row.room_name,
+        damageZoneId: row.damage_zone_id,
+        xactimateCode: row.xactimate_code || undefined,
+      };
+    });
+
+    // Get coverage summaries
+    const coverageResult = await client.query(
+      `SELECT * FROM estimate_coverage_summary WHERE estimate_id = $1`,
+      [estimateId]
+    );
+
+    const coverageSummaries: CoverageSummary[] = coverageResult.rows.map((row: any) => ({
+      coverageCode: row.coverage_code,
+      subtotalRcv: parseFloat(row.subtotal_rcv || '0'),
+      taxAmount: parseFloat(row.tax_amount || '0'),
+      overheadAmount: parseFloat(row.overhead_amount || '0'),
+      profitAmount: parseFloat(row.profit_amount || '0'),
+      totalRcv: parseFloat(row.total_rcv || '0'),
+      recoverableDepreciation: parseFloat(row.recoverable_depreciation || '0'),
+      nonRecoverableDepreciation: parseFloat(row.non_recoverable_depreciation || '0'),
+      totalDepreciation: parseFloat(row.total_depreciation || '0'),
+      totalAcv: parseFloat(row.total_acv || '0'),
+      deductible: parseFloat(row.deductible || '0'),
+      netClaim: parseFloat(row.net_claim || '0'),
     }));
 
     // Calculate category breakdown
@@ -368,6 +580,40 @@ export async function getEstimate(estimateId: string): Promise<SavedEstimate | n
       categoryBreakdown[categoryId].subtotal += item.subtotal;
     }
 
+    // Build settlement result
+    const trades = new Set<string>();
+    lineItems.forEach(item => {
+      if (item.tradeCode) trades.add(item.tradeCode);
+    });
+
+    const settlement: SettlementResult = {
+      coverageSummaries,
+      totals: {
+        subtotalMaterials: lineItems.reduce((s, i) => s + i.materialCost, 0),
+        subtotalLabor: lineItems.reduce((s, i) => s + i.laborCost, 0),
+        subtotalEquipment: lineItems.reduce((s, i) => s + i.equipmentCost, 0),
+        subtotalBeforeOp: lineItems.reduce((s, i) => s + i.subtotal + i.taxAmount, 0),
+        overheadAmount: parseFloat(estimate.overhead_amount || '0'),
+        profitAmount: parseFloat(estimate.profit_amount || '0'),
+        taxAmount: parseFloat(estimate.tax_amount || '0'),
+        totalRcv: parseFloat(estimate.grand_total || '0'),
+        totalDepreciation: coverageSummaries.reduce((s, c) => s + c.totalDepreciation, 0),
+        totalAcv: coverageSummaries.reduce((s, c) => s + c.totalAcv, 0),
+        recoverableDepreciation: coverageSummaries.reduce((s, c) => s + c.recoverableDepreciation, 0),
+        nonRecoverableDepreciation: coverageSummaries.reduce((s, c) => s + c.nonRecoverableDepreciation, 0),
+        netClaimCovA: coverageSummaries.find(c => c.coverageCode === 'A')?.netClaim || 0,
+        netClaimCovB: coverageSummaries.find(c => c.coverageCode === 'B')?.netClaim || 0,
+        netClaimCovC: coverageSummaries.find(c => c.coverageCode === 'C')?.netClaim || 0,
+        netClaimTotal: coverageSummaries.reduce((s, c) => s + c.netClaim, 0),
+      },
+      meta: {
+        tradesInvolved: Array.from(trades),
+        qualifiesForOp: parseFloat(estimate.overhead_amount || '0') > 0,
+        opThreshold: 0,
+        opTradeMinimum: 3,
+      },
+    };
+
     return {
       id: estimate.id,
       claimId: estimate.claim_id,
@@ -377,18 +623,31 @@ export async function getEstimate(estimateId: string): Promise<SavedEstimate | n
       version: estimate.version,
       createdAt: estimate.created_at,
       lineItems,
-      subtotal: parseFloat(estimate.subtotal),
-      overheadAmount: parseFloat(estimate.overhead_amount),
-      overheadPct: parseFloat(estimate.overhead_pct),
-      profitAmount: parseFloat(estimate.profit_amount),
-      profitPct: parseFloat(estimate.profit_pct),
-      taxAmount: parseFloat(estimate.tax_amount),
-      taxPct: parseFloat(estimate.tax_pct),
-      grandTotal: parseFloat(estimate.grand_total),
-      regionId: estimate.region_id,
+      subtotal: parseFloat(estimate.subtotal || '0'),
+      overheadAmount: parseFloat(estimate.overhead_amount || '0'),
+      overheadPct: parseFloat(estimate.overhead_pct || '10'),
+      profitAmount: parseFloat(estimate.profit_amount || '0'),
+      profitPct: parseFloat(estimate.profit_pct || '10'),
+      taxAmount: parseFloat(estimate.tax_amount || '0'),
+      taxPct: parseFloat(estimate.tax_pct || '0'),
+      grandTotal: parseFloat(estimate.grand_total || '0'),
+      regionId: estimate.region_id || 'US-NATIONAL',
       carrierProfileId: estimate.carrier_profile_id,
       lineItemCount: lineItems.length,
       categoryBreakdown,
+      settlement,
+      coverageSummaries,
+      totals: {
+        subtotalMaterials: settlement.totals.subtotalMaterials,
+        subtotalLabor: settlement.totals.subtotalLabor,
+        subtotalEquipment: settlement.totals.subtotalEquipment,
+        totalRcv: settlement.totals.totalRcv,
+        totalDepreciation: settlement.totals.totalDepreciation,
+        totalAcv: settlement.totals.totalAcv,
+        recoverableDepreciation: settlement.totals.recoverableDepreciation,
+        nonRecoverableDepreciation: settlement.totals.nonRecoverableDepreciation,
+        netClaimTotal: settlement.totals.netClaimTotal,
+      },
     };
   } finally {
     client.release();
@@ -452,13 +711,17 @@ export async function updateEstimate(
       ]
     );
 
-    // Delete existing line items
+    // Delete existing line items and coverage summaries
     await client.query(
       'DELETE FROM estimate_line_items WHERE estimate_id = $1',
       [estimateId]
     );
+    await client.query(
+      'DELETE FROM estimate_coverage_summary WHERE estimate_id = $1',
+      [estimateId]
+    );
 
-    // Insert new line items
+    // Insert new line items with depreciation data
     for (let i = 0; i < calculation.lineItems.length; i++) {
       const item = calculation.lineItems[i];
       await client.query(
@@ -466,8 +729,14 @@ export async function updateEstimate(
           estimate_id, line_item_code, line_item_description,
           category_id, quantity, unit,
           unit_price, material_cost, labor_cost, equipment_cost, subtotal,
+          tax_amount, rcv, acv,
+          coverage_code, trade_code, depreciation_type,
+          age_years, condition,
+          depreciation_pct, depreciation_amount,
+          useful_life_years, is_depreciable, is_recoverable,
+          xactimate_code,
           source, room_name, damage_zone_id, notes, sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)`,
         [
           estimateId,
           item.code,
@@ -480,11 +749,52 @@ export async function updateEstimate(
           item.laborCost,
           item.equipmentCost,
           item.subtotal,
+          item.taxAmount,
+          item.rcv,
+          item.acv,
+          item.coverageCode,
+          item.tradeCode,
+          item.depreciationType,
+          item.ageYears,
+          item.condition,
+          item.depreciation.depreciationPct,
+          item.depreciation.depreciationAmount,
+          item.depreciation.usefulLifeYears,
+          item.depreciation.isDepreciable,
+          item.depreciation.isRecoverable,
+          item.xactimateCode || null,
           'manual',
           item.roomName || null,
           item.damageZoneId || null,
           item.notes || null,
           i,
+        ]
+      );
+    }
+
+    // Insert coverage summaries
+    for (const coverage of calculation.coverageSummaries) {
+      await client.query(
+        `INSERT INTO estimate_coverage_summary (
+          estimate_id, coverage_code,
+          subtotal_rcv, tax_amount, overhead_amount, profit_amount, total_rcv,
+          recoverable_depreciation, non_recoverable_depreciation, total_depreciation,
+          total_acv, deductible, net_claim
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          estimateId,
+          coverage.coverageCode,
+          coverage.subtotalRcv,
+          coverage.taxAmount,
+          coverage.overheadAmount,
+          coverage.profitAmount,
+          coverage.totalRcv,
+          coverage.recoverableDepreciation,
+          coverage.nonRecoverableDepreciation,
+          coverage.totalDepreciation,
+          coverage.totalAcv,
+          coverage.deductible,
+          coverage.netClaim,
         ]
       );
     }
