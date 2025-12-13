@@ -7,7 +7,7 @@ interface StoreState {
   claims: Claim[];
   activeClaim: Claim | null;
   lineItemCatalog: LineItem[];
-  
+
   // Actions
   setActiveClaim: (claimId: string | null) => void;
   updateClaim: (claimId: string, data: Partial<Claim>) => void;
@@ -16,6 +16,8 @@ interface StoreState {
   deleteRoom: (claimId: string, roomId: string) => void;
   addDamageZone: (claimId: string, zone: DamageZone) => void;
   addLineItem: (claimId: string, item: ClaimLineItem) => void;
+  updateLineItem: (claimId: string, itemId: string, data: Partial<ClaimLineItem>) => void;
+  deleteLineItem: (claimId: string, itemId: string) => void;
   createClaim: (claim: Omit<Claim, 'id' | 'createdAt' | 'updatedAt'>) => void;
 }
 
@@ -97,7 +99,35 @@ export const useStore = create<StoreState>((set) => ({
       activeClaim: state.activeClaim?.id === claimId ? updatedClaim : state.activeClaim
     };
   }),
-  
+
+  updateLineItem: (claimId, itemId, data) => set((state) => {
+    const claim = state.claims.find((c) => c.id === claimId);
+    if (!claim) return {};
+
+    const updatedLineItems = claim.lineItems.map((item) =>
+      item.id === itemId ? { ...item, ...data } : item
+    );
+    const updatedClaim = { ...claim, lineItems: updatedLineItems, updatedAt: new Date().toISOString() };
+
+    return {
+      claims: state.claims.map((c) => c.id === claimId ? updatedClaim : c),
+      activeClaim: state.activeClaim?.id === claimId ? updatedClaim : state.activeClaim
+    };
+  }),
+
+  deleteLineItem: (claimId, itemId) => set((state) => {
+    const claim = state.claims.find((c) => c.id === claimId);
+    if (!claim) return {};
+
+    const updatedLineItems = claim.lineItems.filter((item) => item.id !== itemId);
+    const updatedClaim = { ...claim, lineItems: updatedLineItems, updatedAt: new Date().toISOString() };
+
+    return {
+      claims: state.claims.map((c) => c.id === claimId ? updatedClaim : c),
+      activeClaim: state.activeClaim?.id === claimId ? updatedClaim : state.activeClaim
+    };
+  }),
+
   createClaim: (claimData) => set((state) => {
     const newClaim: Claim = {
       ...claimData,
