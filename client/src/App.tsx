@@ -10,17 +10,42 @@ import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
 import Settings from "@/pages/settings";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
       <Route path="/auth" component={Auth} />
-      <Route path="/claim/:id" component={ClaimDetail} />
-      <Route path="/new-claim" component={NewClaim} />
-      <Route path="/settings" component={Settings} />
-      <Route path="/voice-sketch" component={VoiceSketchPage} />
-      <Route path="/voice-sketch/:claimId" component={VoiceSketchPage} />
+      <Route path="/">
+        <ProtectedRoute>
+          <Home />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/claim/:id">
+        <ProtectedRoute>
+          <ClaimDetail />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/new-claim">
+        <ProtectedRoute>
+          <NewClaim />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/settings">
+        <ProtectedRoute>
+          <Settings />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/voice-sketch">
+        <ProtectedRoute>
+          <VoiceSketchPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/voice-sketch/:claimId">
+        <ProtectedRoute>
+          <VoiceSketchPage />
+        </ProtectedRoute>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

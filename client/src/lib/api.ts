@@ -1,6 +1,56 @@
-// API service for line items and estimates
+// API service for line items, estimates, and auth
 
 const API_BASE = '/api';
+
+// ============================================
+// AUTH TYPES & API
+// ============================================
+
+export interface AuthUser {
+  id: string;
+  username: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser | null;
+  authenticated: boolean;
+  message?: string;
+}
+
+export async function login(username: string, password: string): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Login failed');
+  }
+  return response.json();
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Logout failed');
+  }
+}
+
+export async function checkAuth(): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE}/auth/me`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    return { user: null, authenticated: false };
+  }
+  return response.json();
+}
 
 // ============================================
 // TYPES

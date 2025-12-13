@@ -8,7 +8,11 @@ import {
   calculateEstimate as apiCalculateEstimate,
   getRegions,
   getCarrierProfiles,
-  EstimateLineItemInput
+  EstimateLineItemInput,
+  AuthUser,
+  login as apiLogin,
+  logout as apiLogout,
+  checkAuth as apiCheckAuth
 } from './api';
 
 interface EstimateSettings {
@@ -19,6 +23,12 @@ interface EstimateSettings {
 }
 
 interface StoreState {
+  // Auth state
+  authUser: AuthUser | null;
+  isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  authError: string | null;
+
   user: User;
   claims: Claim[];
   activeClaim: Claim | null;
@@ -30,6 +40,12 @@ interface StoreState {
   calculatedEstimate: EstimateCalculationResult | null;
   isCalculating: boolean;
   estimateError: string | null;
+
+  // Auth actions
+  login: (username: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<boolean>;
+  clearAuthError: () => void;
 
   // Actions
   setActiveClaim: (claimId: string | null) => void;
@@ -51,6 +67,12 @@ interface StoreState {
 }
 
 export const useStore = create<StoreState>((set, get) => ({
+  // Auth state defaults
+  authUser: null,
+  isAuthenticated: false,
+  isAuthLoading: true, // Start as loading until we check
+  authError: null,
+
   user: MOCK_USER,
   claims: MOCK_CLAIMS,
   activeClaim: null,
@@ -67,6 +89,65 @@ export const useStore = create<StoreState>((set, get) => ({
   calculatedEstimate: null,
   isCalculating: false,
   estimateError: null,
+
+  // Auth actions
+  login: async (username, password) => {
+    set({ isAuthLoading: true, authError: null });
+    try {
+      const response = await apiLogin(username, password);
+      if (response.user) {
+        set({
+          authUser: response.user,
+          isAuthenticated: true,
+          isAuthLoading: false,
+          authError: null,
+        });
+        return true;
+      }
+      set({ isAuthLoading: false, authError: 'Login failed' });
+      return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      set({ isAuthLoading: false, authError: message });
+      return false;
+    }
+  },
+
+  logout: async () => {
+    try {
+      await apiLogout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    set({
+      authUser: null,
+      isAuthenticated: false,
+      isAuthLoading: false,
+      authError: null,
+    });
+  },
+
+  checkAuth: async () => {
+    set({ isAuthLoading: true });
+    try {
+      const response = await apiCheckAuth();
+      set({
+        authUser: response.user,
+        isAuthenticated: response.authenticated,
+        isAuthLoading: false,
+      });
+      return response.authenticated;
+    } catch (error) {
+      set({
+        authUser: null,
+        isAuthenticated: false,
+        isAuthLoading: false,
+      });
+      return false;
+    }
+  },
+
+  clearAuthError: () => set({ authError: null }),
 
   setActiveClaim: (claimId) => set((state) => ({
     activeClaim: claimId ? state.claims.find((c) => c.id === claimId) || null : null,
