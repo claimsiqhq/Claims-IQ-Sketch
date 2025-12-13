@@ -124,10 +124,91 @@
   * {
     @apply border-border;
   }
+
+  /* Smooth scrolling with momentum on iOS */
+  html {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    /* Prevent pull-to-refresh on mobile */
+    overscroll-behavior-y: contain;
   }
+
   h1, h2, h3, h4, h5, h6 {
     @apply font-display tracking-tight font-semibold;
+  }
+
+  /* Improve tap highlight for mobile */
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+  }
+
+  /* Prevent text selection on interactive elements */
+  button, [role="button"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Ensure inputs don't zoom on focus (iOS) - 16px minimum */
+  input, select, textarea {
+    font-size: 16px;
+  }
+
+  @media (min-width: 768px) {
+    input, select, textarea {
+      font-size: inherit;
+    }
+  }
+}
+
+/* Safe area utilities for notched devices */
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .pl-safe {
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+
+  .pr-safe {
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .mt-safe {
+    margin-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Bottom nav safe area - combines fixed height with safe area */
+  .h-nav-safe {
+    height: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Content that sits above bottom nav */
+  .pb-nav-safe {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Touch-friendly minimum tap target */
+  .min-tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Smooth scroll container */
+  .scroll-smooth-touch {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
   }
 }

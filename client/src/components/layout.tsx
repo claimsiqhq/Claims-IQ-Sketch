@@ -74,12 +74,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {navItems.map((item) => {
                 const isActive = location === item.href;
                 return (
-                  <Link key={item.href} href={item.href}>
+                  <Link key={item.href} href={item.href} onClick={() => setIsMobileMenuOpen(false)}>
                     <div className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
-                      isActive 
-                        ? "bg-primary text-primary-foreground shadow-sm" 
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer min-tap-target",
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted"
                     )}>
                       <item.icon className={cn("h-5 w-5", isActive ? "text-primary-foreground" : "text-muted-foreground")} />
                       {item.label}
@@ -100,7 +100,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto h-[calc(100vh-64px)] md:h-screen w-full">
+      <main className="flex-1 overflow-auto h-[calc(100vh-64px)] md:h-screen w-full scroll-smooth-touch">
         {children}
       </main>
 
