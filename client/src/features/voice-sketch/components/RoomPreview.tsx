@@ -217,7 +217,7 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
       </div>
       
       {/* Canvas container with touch handling */}
-      <div 
+      <div
         ref={canvasContainerRef}
         className="flex-1 overflow-auto min-h-[200px] sm:min-h-[300px]"
         onTouchStart={handleTouchStart}
@@ -225,22 +225,20 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
         onTouchEnd={handleTouchEnd}
         style={{ touchAction: isPinching ? 'none' : 'pan-x pan-y' }}
       >
-        <div 
-          className="p-2 sm:p-4 flex items-center justify-center"
-          style={{ 
-            minWidth: canvasWidth * zoom + 16,
-            minHeight: canvasHeight * zoom + 16
-          }}
+        <div
+          className="p-2 sm:p-4 flex items-center justify-center w-full h-full"
         >
           <canvas
             ref={canvasRef}
             width={canvasWidth}
             height={canvasHeight}
-            className="max-w-none"
-            style={{ 
+            className="max-w-full"
+            style={{
               imageRendering: 'crisp-edges',
-              transform: `scale(${zoom})`,
-              transformOrigin: 'center center'
+              width: `${canvasWidth * zoom}px`,
+              height: `${canvasHeight * zoom}px`,
+              maxWidth: zoom <= 1 ? '100%' : 'none',
+              objectFit: 'contain'
             }}
           />
         </div>
