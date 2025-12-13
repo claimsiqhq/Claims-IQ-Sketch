@@ -204,71 +204,94 @@ export default function ClaimDetail() {
 
             {/* TAB: SKETCH */}
             <TabsContent value="sketch" className="h-full m-0 flex flex-col">
-              {/* Mobile View: Stacked */}
+              {/* Mobile View: Optimized for small screens */}
               <div className="md:hidden flex-1 flex flex-col overflow-hidden">
-                <div className="h-[60%] relative border-b border-border">
-                   <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur border shadow-sm rounded-full px-4 py-2 flex gap-2 z-10 scale-90">
-                      <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)}>
-                        <Move className="h-4 w-4 mr-2" /> Select
+                {/* Canvas Area - Takes most of the space */}
+                <div className="flex-1 min-h-0 relative border-b border-border">
+                   {/* Floating Toolbar - Compact */}
+                   <div className="absolute top-2 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur border shadow-sm rounded-full px-3 py-1.5 flex gap-1 z-30">
+                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setSelectedRoomId(null)}>
+                        <Move className="h-4 w-4" />
                       </Button>
-                      <Separator orientation="vertical" className="h-6" />
-                      <Button size="sm" variant="ghost" onClick={handleAddRoom}>
-                        <Plus className="h-4 w-4 mr-2" /> Add
+                      <Separator orientation="vertical" className="h-6 my-auto" />
+                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={handleAddRoom}>
+                        <Plus className="h-4 w-4" />
                       </Button>
-                      <Separator orientation="vertical" className="h-6" />
+                      <Separator orientation="vertical" className="h-6 my-auto" />
                       <Link href={`/voice-sketch/${claim.id}`}>
-                        <Button size="sm" variant="ghost" className="text-primary">
-                          <Mic className="h-4 w-4 mr-2" /> Voice
+                        <Button size="sm" variant="ghost" className="h-8 px-2 text-primary">
+                          <Mic className="h-4 w-4" />
                         </Button>
                       </Link>
                     </div>
-                    <SketchCanvas 
-                      rooms={claim.rooms} 
+                    <SketchCanvas
+                      rooms={claim.rooms}
                       damageZones={claim.damageZones}
                       selectedRoomId={selectedRoomId}
                       onSelectRoom={setSelectedRoomId}
                       onUpdateRoom={(id, data) => updateRoom(claim.id, id, data)}
                     />
                 </div>
-                <div className="flex-1 overflow-auto bg-white">
+                {/* Room Details Panel - Collapsible */}
+                <div className={cn(
+                  "bg-white transition-all duration-200 overflow-auto",
+                  selectedRoom ? "h-auto max-h-[40%]" : "h-12"
+                )}>
                     {selectedRoom ? (
-                      <div className="p-4 space-y-4">
+                      <div className="p-3 space-y-3">
                          <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-sm">Room Properties</h3>
-                            <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)}><X className="h-4 w-4" /></Button>
+                            <h3 className="font-semibold text-sm">{selectedRoom.name}</h3>
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSelectedRoomId(null)}>
+                              <X className="h-4 w-4" />
+                            </Button>
                          </div>
-                         <div className="space-y-2">
-                            <Label>Room Name</Label>
-                            <Input 
-                              value={selectedRoom.name} 
-                              onChange={(e) => updateRoom(claim.id, selectedRoom.id, { name: e.target.value })} 
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Width</Label>
-                              <Input 
-                                type="number" 
-                                value={selectedRoom.width} 
-                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { width: Number(e.target.value) })} 
+                         <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Name</Label>
+                              <Input
+                                className="h-9"
+                                value={selectedRoom.name}
+                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { name: e.target.value })}
                               />
                             </div>
-                            <div className="space-y-2">
-                              <Label>Length</Label>
-                              <Input 
-                                type="number" 
-                                value={selectedRoom.height} 
-                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { height: Number(e.target.value) })} 
+                            <div className="space-y-1">
+                              <Label className="text-xs">Width (ft)</Label>
+                              <Input
+                                className="h-9"
+                                type="number"
+                                value={selectedRoom.width}
+                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { width: Number(e.target.value) })}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Length (ft)</Label>
+                              <Input
+                                className="h-9"
+                                type="number"
+                                value={selectedRoom.height}
+                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { height: Number(e.target.value) })}
                               />
                             </div>
                           </div>
-                          <Button className="w-full" variant="destructive" onClick={() => setIsDamageModalOpen(true)}>
-                              Add Damage Zone
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button className="flex-1 h-9" variant="destructive" onClick={() => setIsDamageModalOpen(true)}>
+                              Add Damage
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="h-9 px-3 text-muted-foreground hover:text-destructive"
+                              onClick={() => {
+                                deleteRoom(claim.id, selectedRoom.id);
+                                setSelectedRoomId(null);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                       </div>
                     ) : (
-                      <div className="p-4 text-center text-muted-foreground text-sm">
-                        Select a room to edit details.
+                      <div className="p-3 text-center text-muted-foreground text-sm flex items-center justify-center h-full">
+                        <span>Tap a room to edit • Pinch to zoom • Drag to pan</span>
                       </div>
                     )}
                 </div>

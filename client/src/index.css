@@ -211,4 +211,19 @@
     -webkit-overflow-scrolling: touch;
     scroll-behavior: smooth;
   }
+
+  /* Prevent rubber-band scrolling on iOS for sketch canvas */
+  .no-bounce {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+  }
+
+  /* Full viewport height accounting for mobile browser chrome */
+  .h-dvh {
+    height: 100dvh;
+  }
+
+  .min-h-dvh {
+    min-height: 100dvh;
+  }
 }
