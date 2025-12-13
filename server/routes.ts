@@ -20,12 +20,74 @@ import {
   getEstimateTemplates,
   createEstimateFromTemplate
 } from "./services/estimateCalculator";
+import { passport, requireAuth } from "./middleware/auth";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
+  // ============================================
+  // AUTH ROUTES
+  // ============================================
+
+  // Login endpoint
+  app.post('/api/auth/login', (req, res, next) => {
+    passport.authenticate('local', (err: Error | null, user: Express.User | false, info: { message: string }) => {
+      if (err) {
+        return res.status(500).json({ error: 'Authentication error' });
+      }
+      if (!user) {
+        return res.status(401).json({ error: info?.message || 'Invalid credentials' });
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          return res.status(500).json({ error: 'Login error' });
+        }
+        return res.json({
+          user: { id: user.id, username: user.username },
+          message: 'Login successful'
+        });
+      });
+    })(req, res, next);
+  });
+
+  // Logout endpoint
+  app.post('/api/auth/logout', (req, res) => {
+    req.logout((err) => {
+      if (err) {
+        return res.status(500).json({ error: 'Logout error' });
+      }
+      req.session.destroy((sessionErr) => {
+        if (sessionErr) {
+          return res.status(500).json({ error: 'Session destroy error' });
+        }
+        res.clearCookie('connect.sid');
+        res.json({ message: 'Logout successful' });
+      });
+    });
+  });
+
+  // Get current user endpoint
+  app.get('/api/auth/me', (req, res) => {
+    if (req.isAuthenticated() && req.user) {
+      return res.json({
+        user: { id: req.user.id, username: req.user.username },
+        authenticated: true
+      });
+    }
+    return res.json({ user: null, authenticated: false });
+  });
+
+  // Check authentication status
+  app.get('/api/auth/check', (req, res) => {
+    res.json({ authenticated: req.isAuthenticated() });
+  });
+
+  // ============================================
+  // LINE ITEMS ROUTES
+  // ============================================
+
   app.get('/api/line-items', async (req, res) => {
     try {
       const { q, category, damage_type, limit, offset } = req.query;

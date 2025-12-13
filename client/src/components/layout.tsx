@@ -15,10 +15,15 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+// Default avatar for authenticated users
+const DEFAULT_AVATAR = "https://api.dicebear.com/7.x/initials/svg?seed=Admin";
+
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const user = useStore((state) => state.user);
+  const authUser = useStore((state) => state.authUser);
+  const logout = useStore((state) => state.logout);
 
   const navItems = [
     { label: "Dashboard", icon: LayoutDashboard, href: "/" },
@@ -26,6 +31,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },
     { label: "Settings", icon: Settings, href: "/settings" },
   ];
+
+  const handleLogout = async () => {
+    await logout();
+    setLocation("/auth");
+  };
+
+  // Get display name and avatar
+  const displayName = authUser?.username || user.name;
+  const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
   return (
     <div className="min-h-screen bg-muted/30 flex flex-col md:flex-row">
@@ -41,9 +55,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Button variant="ghost" size="icon">
             <Bell className="h-5 w-5 text-muted-foreground" />
           </Button>
-          <img 
-            src={user.avatar} 
-            alt={user.name} 
+          <img
+            src={displayAvatar}
+            alt={displayName}
             className="h-8 w-8 rounded-full border border-border"
           />
         </div>
@@ -61,14 +75,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           <div className="p-4">
             <div className="flex items-center gap-3 p-3 mb-6 bg-muted/50 rounded-lg">
-              <img 
-                src={user.avatar} 
-                alt={user.name} 
+              <img
+                src={displayAvatar}
+                alt={displayName}
                 className="h-10 w-10 rounded-full border border-white shadow-sm"
               />
               <div className="overflow-hidden">
-                <p className="font-medium text-sm truncate">{user.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                <p className="font-medium text-sm truncate">{displayName}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {authUser ? 'Administrator' : user.email}
+                </p>
               </div>
             </div>
 
@@ -93,7 +109,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="mt-auto p-4 border-t border-border">
-            <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+            <Button
+              variant="ghost"
+              className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={handleLogout}
+            >
               <LogOut className="h-5 w-5 mr-3" />
               Sign Out
             </Button>
@@ -108,7 +128,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-30 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
