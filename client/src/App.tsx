@@ -8,6 +8,7 @@ import Home from "@/pages/home";
 import Auth from "@/pages/auth";
 import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
+import Settings from "@/pages/settings";
 
 function Router() {
   return (
@@ -16,7 +17,7 @@ function Router() {
       <Route path="/auth" component={Auth} />
       <Route path="/claim/:id" component={ClaimDetail} />
       <Route path="/new-claim" component={NewClaim} />
-      <Route path="/settings" component={() => <div>Settings Placeholder</div>} />
+      <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );
