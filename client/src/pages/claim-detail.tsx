@@ -12,6 +12,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Home,
   PenTool,
@@ -24,7 +25,9 @@ import {
   Camera,
   Move,
   X,
-  Mic
+  Mic,
+  Loader2,
+  Settings2
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -47,7 +50,16 @@ export default function ClaimDetail() {
     addDamageZone,
     addLineItem,
     updateLineItem,
-    deleteLineItem
+    deleteLineItem,
+    regions,
+    carriers,
+    estimateSettings,
+    calculatedEstimate,
+    isCalculating,
+    estimateError,
+    loadRegionsAndCarriers,
+    setEstimateSettings,
+    calculateEstimate,
   } = useStore();
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -55,6 +67,7 @@ export default function ClaimDetail() {
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
   const [editingOpening, setEditingOpening] = useState<RoomOpening | undefined>(undefined);
   const [isLineItemPickerOpen, setIsLineItemPickerOpen] = useState(false);
+  const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
 
   useEffect(() => {
@@ -64,10 +77,14 @@ export default function ClaimDetail() {
     return () => setActiveClaim(null);
   }, [params?.id, setActiveClaim]);
 
+  // Load regions and carriers on mount
+  useEffect(() => {
+    loadRegionsAndCarriers();
+  }, [loadRegionsAndCarriers]);
+
   if (!claim) return <div className="flex items-center justify-center h-screen">Loading...</div>;
 
   const selectedRoom = claim.rooms.find(r => r.id === selectedRoomId);
-  const claimTotal = claim.lineItems.reduce((sum, item) => sum + item.total, 0);
 
   const handleAddRoom = () => {
     addRoom(claim.id, {
@@ -121,6 +138,25 @@ export default function ClaimDetail() {
     setIsOpeningModalOpen(true);
   };
 
+  const handleGenerateEstimate = async () => {
+    if (claim.lineItems.length === 0) {
+      setIsEstimateSettingsOpen(true);
+      return;
+    }
+    const result = await calculateEstimate(claim.id);
+    if (result) {
+      setActiveTab("estimate");
+    }
+  };
+
+  // Calculate display totals - use API result if available, otherwise use local subtotal
+  const localSubtotal = claim.lineItems.reduce((sum, item) => sum + item.total, 0);
+  const displaySubtotal = calculatedEstimate?.subtotal ?? localSubtotal;
+  const displayOverhead = calculatedEstimate?.overheadAmount ?? (localSubtotal * (estimateSettings.overheadPct / 100));
+  const displayProfit = calculatedEstimate?.profitAmount ?? (localSubtotal * (estimateSettings.profitPct / 100));
+  const displayTax = calculatedEstimate?.taxAmount ?? 0;
+  const displayTotal = calculatedEstimate?.grandTotal ?? (displaySubtotal + displayOverhead + displayProfit + displayTax);
+
   const tabs = [
     { id: "info", label: "Info", icon: Home },
     { id: "sketch", label: "Sketch", icon: PenTool },
@@ -144,11 +180,23 @@ export default function ClaimDetail() {
             <p className="text-sm text-muted-foreground font-mono mt-0.5 hidden md:block">{claim.policyNumber}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="hidden md:flex">
-              <Save className="h-4 w-4 mr-2" />
-              Save
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:flex"
+              onClick={() => setIsEstimateSettingsOpen(true)}
+            >
+              <Settings2 className="h-4 w-4 mr-2" />
+              Settings
             </Button>
-            <Button size="sm">
+            <Button
+              size="sm"
+              onClick={handleGenerateEstimate}
+              disabled={isCalculating || claim.lineItems.length === 0}
+            >
+              {isCalculating ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
               <span className="hidden md:inline">Generate </span>Estimate
             </Button>
           </div>
@@ -663,20 +711,36 @@ export default function ClaimDetail() {
                   )}
                   
                   <div className="p-4 bg-slate-50 border-t flex justify-end">
-                    <div className="w-full md:w-64 space-y-2">
+                    <div className="w-full md:w-72 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Subtotal</span>
-                        <span>${claimTotal.toFixed(2)}</span>
+                        <span>${displaySubtotal.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Tax (8%)</span>
-                        <span>${(claimTotal * 0.08).toFixed(2)}</span>
+                        <span className="text-muted-foreground">Overhead ({estimateSettings.overheadPct}%)</span>
+                        <span>${displayOverhead.toFixed(2)}</span>
                       </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Profit ({estimateSettings.profitPct}%)</span>
+                        <span>${displayProfit.toFixed(2)}</span>
+                      </div>
+                      {displayTax > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Tax</span>
+                          <span>${displayTax.toFixed(2)}</span>
+                        </div>
+                      )}
                       <Separator />
                       <div className="flex justify-between font-bold text-lg">
                         <span>Total</span>
-                        <span>${(claimTotal * 1.08).toFixed(2)}</span>
+                        <span>${displayTotal.toFixed(2)}</span>
                       </div>
+                      {estimateError && (
+                        <p className="text-xs text-destructive">{estimateError}</p>
+                      )}
+                      {!calculatedEstimate && claim.lineItems.length > 0 && (
+                        <p className="text-xs text-muted-foreground">Click "Generate Estimate" to calculate with regional pricing</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -818,8 +882,8 @@ export default function ClaimDetail() {
         />
       )}
 
-      <LineItemPicker 
-        isOpen={isLineItemPickerOpen} 
+      <LineItemPicker
+        isOpen={isLineItemPickerOpen}
         onClose={() => setIsLineItemPickerOpen(false)}
         onSelect={(item) => {
           addLineItem(claim.id, {
@@ -831,6 +895,105 @@ export default function ClaimDetail() {
           setIsLineItemPickerOpen(false);
         }}
       />
+
+      {/* Estimate Settings Dialog */}
+      <Dialog open={isEstimateSettingsOpen} onOpenChange={setIsEstimateSettingsOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Estimate Settings</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="region">Region</Label>
+              <Select
+                value={estimateSettings.regionId}
+                onValueChange={(value) => setEstimateSettings({ regionId: value })}
+              >
+                <SelectTrigger id="region">
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  {regions.map((region) => (
+                    <SelectItem key={region.id} value={region.id}>
+                      {region.name}{region.state ? `, ${region.state}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="carrier">Carrier Profile</Label>
+              <Select
+                value={estimateSettings.carrierProfileId || "none"}
+                onValueChange={(value) => setEstimateSettings({ carrierProfileId: value === "none" ? null : value })}
+              >
+                <SelectTrigger id="carrier">
+                  <SelectValue placeholder="Select carrier" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No carrier profile</SelectItem>
+                  {carriers.map((carrier) => (
+                    <SelectItem key={carrier.id} value={carrier.id}>
+                      {carrier.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="overhead">Overhead %</Label>
+                <Input
+                  id="overhead"
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={estimateSettings.overheadPct}
+                  onChange={(e) => setEstimateSettings({ overheadPct: Number(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="profit">Profit %</Label>
+                <Input
+                  id="profit"
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={estimateSettings.profitPct}
+                  onChange={(e) => setEstimateSettings({ profitPct: Number(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+            {estimateError && (
+              <p className="text-sm text-destructive">{estimateError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEstimateSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const result = await calculateEstimate(claim.id);
+                if (result) {
+                  setIsEstimateSettingsOpen(false);
+                  setActiveTab("estimate");
+                }
+              }}
+              disabled={isCalculating || claim.lineItems.length === 0}
+            >
+              {isCalculating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Calculating...
+                </>
+              ) : (
+                'Generate Estimate'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

@@ -9,6 +9,17 @@ import {
   getRegionByZip
 } from "./services/pricing";
 import { createVoiceSession, VOICE_CONFIG } from "./services/voice-session";
+import {
+  calculateEstimate,
+  saveEstimate,
+  getEstimate,
+  updateEstimate,
+  addLineItemToEstimate,
+  removeLineItemFromEstimate,
+  listEstimates,
+  getEstimateTemplates,
+  createEstimateFromTemplate
+} from "./services/estimateCalculator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -248,6 +259,196 @@ export async function registerRoutes(
       defaultVoice: VOICE_CONFIG.defaultVoice,
       model: VOICE_CONFIG.model
     });
+  });
+
+  // ============================================
+  // ESTIMATE ROUTES
+  // ============================================
+
+  // Calculate estimate without saving (preview)
+  app.post('/api/estimates/calculate', async (req, res) => {
+    try {
+      const result = await calculateEstimate(req.body);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Create and save new estimate
+  app.post('/api/estimates', async (req, res) => {
+    try {
+      const calculation = await calculateEstimate(req.body);
+      const savedEstimate = await saveEstimate(req.body, calculation);
+      res.status(201).json(savedEstimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // List estimates
+  app.get('/api/estimates', async (req, res) => {
+    try {
+      const { status, claim_id, limit, offset } = req.query;
+      const result = await listEstimates({
+        status: status as string,
+        claimId: claim_id as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      });
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get estimate by ID
+  app.get('/api/estimates/:id', async (req, res) => {
+    try {
+      const estimate = await getEstimate(req.params.id);
+      if (!estimate) {
+        return res.status(404).json({ error: 'Estimate not found' });
+      }
+      res.json(estimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update estimate
+  app.put('/api/estimates/:id', async (req, res) => {
+    try {
+      const updatedEstimate = await updateEstimate(req.params.id, req.body);
+      res.json(updatedEstimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Add line item to estimate
+  app.post('/api/estimates/:id/line-items', async (req, res) => {
+    try {
+      const { lineItemCode, quantity, notes, roomName } = req.body;
+      if (!lineItemCode || !quantity) {
+        return res.status(400).json({
+          error: 'Missing required fields: lineItemCode, quantity'
+        });
+      }
+      const updatedEstimate = await addLineItemToEstimate(
+        req.params.id,
+        { lineItemCode, quantity, notes, roomName }
+      );
+      res.json(updatedEstimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Remove line item from estimate
+  app.delete('/api/estimates/:id/line-items/:code', async (req, res) => {
+    try {
+      const updatedEstimate = await removeLineItemFromEstimate(
+        req.params.id,
+        req.params.code
+      );
+      res.json(updatedEstimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Get estimate templates
+  app.get('/api/estimate-templates', async (req, res) => {
+    try {
+      const { damage_type } = req.query;
+      const templates = await getEstimateTemplates(damage_type as string);
+      res.json(templates);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Create estimate from template
+  app.post('/api/estimate-templates/:id/create', async (req, res) => {
+    try {
+      const { quantities, ...estimateInput } = req.body;
+      if (!quantities || typeof quantities !== 'object') {
+        return res.status(400).json({
+          error: 'Missing required field: quantities (object with line item codes as keys)'
+        });
+      }
+      const savedEstimate = await createEstimateFromTemplate(
+        req.params.id,
+        quantities,
+        estimateInput
+      );
+      res.status(201).json(savedEstimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Get carrier profiles
+  app.get('/api/carrier-profiles', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM carrier_profiles WHERE is_active = true ORDER BY name'
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get regions
+  app.get('/api/regions', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT * FROM regions ORDER BY id'
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
   });
 
   return httpServer;
