@@ -1,0 +1,350 @@
+# pricing_scraper/home_depot.py
+
+import asyncio
+import aiohttp
+from bs4 import BeautifulSoup
+from dataclasses import dataclass
+from datetime import datetime
+import json
+import re
+from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ScrapedProduct:
+    sku: str
+    name: str
+    price: float
+    unit: str
+    url: str
+    store_id: Optional[str] = None
+    in_stock: bool = True
+    scraped_at: datetime = None
+    
+    def __post_init__(self):
+        if self.scraped_at is None:
+            self.scraped_at = datetime.utcnow()
+
+class HomeDepotScraper:
+    """
+    Scrapes pricing data from Home Depot for material cost validation.
+    
+    Note: This is for research/validation purposes. In production,
+    consider using official APIs or data partnerships.
+    """
+    
+    BASE_URL = "https://www.homedepot.com"
+    
+    # Map our SKUs to Home Depot search terms
+    PRODUCT_MAPPINGS = {
+        'DRY-SHEET-12': {
+            'search': 'drywall 4x8 1/2',
+            'filters': {'brand': ['USG', 'Gold Bond', 'National Gypsum']},
+            'unit': 'EA'
+        },
+        'DRY-COMPOUND': {
+            'search': 'joint compound all purpose',
+            'filters': {},
+            'unit': 'GAL',
+            'convert_from': 'bucket'  # May need unit conversion
+        },
+        'PAINT-INT-GAL': {
+            'search': 'interior paint gallon',
+            'filters': {'brand': ['Behr', 'PPG', 'Glidden']},
+            'unit': 'GAL'
+        },
+        'CARPET-STD': {
+            'search': 'carpet per square foot',
+            'filters': {},
+            'unit': 'SF'
+        },
+        'LVP-STD': {
+            'search': 'luxury vinyl plank flooring',
+            'filters': {},
+            'unit': 'SF'
+        },
+        'TRIM-BASE-MDF': {
+            'search': 'mdf baseboard 3.25',
+            'filters': {},
+            'unit': 'LF'
+        },
+        'PLY-CDX-12': {
+            'search': 'cdx plywood 1/2 4x8',
+            'filters': {},
+            'unit': 'EA'
+        }
+    }
+    
+    def __init__(self, session: aiohttp.ClientSession = None):
+        self.session = session
+        self._owns_session = session is None
+        
+    async def __aenter__(self):
+        if self._owns_session:
+            self.session = aiohttp.ClientSession(
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            )
+        return self
+        
+    async def __aexit__(self, *args):
+        if self._owns_session and self.session:
+            await self.session.close()
+    
+    async def search_product(self, search_term: str, store_id: str = None) -> list[dict]:
+        """
+        Search Home Depot for products matching search term.
+        Returns list of product results with pricing.
+        """
+        params = {
+            'Ntt': search_term,
+            'NCNI-5': 'true',
+        }
+        if store_id:
+            params['storeId'] = store_id
+            
+        url = f"{self.BASE_URL}/s/{search_term.replace(' ', '%20')}"
+        
+        try:
+            async with self.session.get(url, params=params) as response:
+                if response.status != 200:
+                    logger.warning(f"Search failed for '{search_term}': {response.status}")
+                    return []
+                    
+                html = await response.text()
+                return self._parse_search_results(html)
+                
+        except Exception as e:
+            logger.error(f"Error searching for '{search_term}': {e}")
+            return []
+    
+    def _parse_search_results(self, html: str) -> list[dict]:
+        """Parse search results page for product data."""
+        soup = BeautifulSoup(html, 'html.parser')
+        products = []
+        
+        # Home Depot uses data attributes for product info
+        product_pods = soup.find_all('div', {'data-testid': 'product-pod'})
+        
+        for pod in product_pods[:10]:  # Limit to first 10 results
+            try:
+                product = self._extract_product_data(pod)
+                if product:
+                    products.append(product)
+            except Exception as e:
+                logger.debug(f"Failed to parse product pod: {e}")
+                continue
+                
+        return products
+    
+    def _extract_product_data(self, pod) -> Optional[dict]:
+        """Extract product data from a product pod element."""
+        # Price extraction
+        price_elem = pod.find('div', {'data-testid': 'product-price'})
+        if not price_elem:
+            return None
+            
+        price_text = price_elem.get_text()
+        price_match = re.search(r'\$?([\d,]+\.?\d*)', price_text)
+        if not price_match:
+            return None
+            
+        price = float(price_match.group(1).replace(',', ''))
+        
+        # Product name
+        name_elem = pod.find('span', {'data-testid': 'product-header'})
+        name = name_elem.get_text().strip() if name_elem else "Unknown"
+        
+        # Product URL/SKU
+        link_elem = pod.find('a', href=True)
+        url = link_elem['href'] if link_elem else ""
+        
+        # Try to extract HD SKU from URL
+        sku_match = re.search(r'/(\d{9})(?:\?|$)', url)
+        hd_sku = sku_match.group(1) if sku_match else None
+        
+        # Unit price (per sqft, per piece, etc.)
+        unit_price_elem = pod.find('span', string=re.compile(r'/sq\. ft\.|/piece|/linear ft\.'))
+        unit = 'EA'  # Default
+        if unit_price_elem:
+            unit_text = unit_price_elem.get_text()
+            if '/sq. ft.' in unit_text:
+                unit = 'SF'
+            elif '/linear ft.' in unit_text:
+                unit = 'LF'
+        
+        return {
+            'name': name,
+            'price': price,
+            'unit': unit,
+            'hd_sku': hd_sku,
+            'url': self.BASE_URL + url if url.startswith('/') else url
+        }
+    
+    async def scrape_all_materials(self, store_id: str = None) -> dict[str, ScrapedProduct]:
+        """
+        Scrape prices for all mapped materials.
+        Returns dict mapping our SKU to scraped product data.
+        """
+        results = {}
+        
+        for our_sku, mapping in self.PRODUCT_MAPPINGS.items():
+            logger.info(f"Scraping prices for {our_sku}: '{mapping['search']}'")
+            
+            search_results = await self.search_product(
+                mapping['search'], 
+                store_id=store_id
+            )
+            
+            if search_results:
+                # Take the median price of top results for more stability
+                prices = [r['price'] for r in search_results if r['price'] > 0]
+                if prices:
+                    median_price = sorted(prices)[len(prices) // 2]
+                    best_result = min(
+                        search_results, 
+                        key=lambda x: abs(x['price'] - median_price)
+                    )
+                    
+                    results[our_sku] = ScrapedProduct(
+                        sku=our_sku,
+                        name=best_result['name'],
+                        price=best_result['price'],
+                        unit=mapping['unit'],
+                        url=best_result['url'],
+                        store_id=store_id
+                    )
+                    
+            # Rate limiting
+            await asyncio.sleep(2)
+            
+        return results
+
+
+class PricingDataPipeline:
+    """
+    Orchestrates price scraping and database updates.
+    """
+    
+    def __init__(self, db_connection):
+        self.db = db_connection
+        
+    async def run_scrape_job(self, sources: list[str] = None):
+        """Run a complete pricing scrape job."""
+        sources = sources or ['home_depot']
+        
+        job_id = await self._create_job_record()
+        
+        try:
+            for source in sources:
+                if source == 'home_depot':
+                    await self._scrape_home_depot(job_id)
+                # Add other sources here
+                
+            await self._complete_job(job_id, 'completed')
+            
+        except Exception as e:
+            logger.error(f"Scrape job {job_id} failed: {e}")
+            await self._complete_job(job_id, 'failed', str(e))
+            raise
+    
+    async def _scrape_home_depot(self, job_id: str):
+        """Scrape Home Depot and update material prices."""
+        async with HomeDepotScraper() as scraper:
+            # Scrape for different regions (using store IDs)
+            store_regions = {
+                'US-TX-DAL': '581',   # Dallas store
+                'US-CA-SF': '678',    # SF store
+                'US-FL-MIA': '1903',  # Miami store
+            }
+            
+            for region_id, store_id in store_regions.items():
+                logger.info(f"Scraping Home Depot for region {region_id}")
+                
+                results = await scraper.scrape_all_materials(store_id=store_id)
+                
+                for sku, product in results.items():
+                    await self._update_material_price(
+                        sku=sku,
+                        region_id=region_id,
+                        price=product.price,
+                        source='home_depot_scrape',
+                        source_url=product.url
+                    )
+                    
+    async def _update_material_price(
+        self, 
+        sku: str, 
+        region_id: str, 
+        price: float,
+        source: str,
+        source_url: str = None
+    ):
+        """Update material price in database."""
+        # Get material ID
+        material = await self.db.fetchrow(
+            "SELECT id FROM materials WHERE sku = $1",
+            sku
+        )
+        
+        if not material:
+            logger.warning(f"Material {sku} not found in catalog")
+            return
+            
+        # Insert or update regional price
+        await self.db.execute("""
+            INSERT INTO material_regional_prices 
+                (material_id, region_id, price, effective_date, source)
+            VALUES ($1, $2, $3, CURRENT_DATE, $4)
+            ON CONFLICT (material_id, region_id, effective_date) 
+            DO UPDATE SET price = $3, source = $4
+        """, material['id'], region_id, price, source)
+        
+        # Record in price history
+        await self.db.execute("""
+            INSERT INTO price_history (material_id, region_id, price, source)
+            VALUES ($1, $2, $3, $4)
+        """, material['id'], region_id, price, source)
+        
+        logger.info(f"Updated {sku} in {region_id}: ${price:.2f}")
+    
+    async def _create_job_record(self) -> str:
+        """Create a scrape job record."""
+        result = await self.db.fetchrow("""
+            INSERT INTO price_scrape_jobs (source, status, started_at)
+            VALUES ('multi_source', 'running', NOW())
+            RETURNING id
+        """)
+        return str(result['id'])
+    
+    async def _complete_job(self, job_id: str, status: str, error: str = None):
+        """Mark job as complete."""
+        await self.db.execute("""
+            UPDATE price_scrape_jobs 
+            SET status = $2, completed_at = NOW(), 
+                errors = CASE WHEN $3 IS NOT NULL 
+                         THEN jsonb_build_array($3) 
+                         ELSE '[]'::jsonb END
+            WHERE id = $1
+        """, job_id, status, error)
+
+
+# Example usage
+async def main():
+    # For testing without DB
+    async with HomeDepotScraper() as scraper:
+        results = await scraper.scrape_all_materials()
+        
+        print("\n=== Scraped Material Prices ===\n")
+        for sku, product in results.items():
+            print(f"{sku}:")
+            print(f"  Name: {product.name}")
+            print(f"  Price: ${product.price:.2f} / {product.unit}")
+            print(f"  URL: {product.url}")
+            print()
+
+if __name__ == "__main__":
+    asyncio.run(main())
