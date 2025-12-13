@@ -20,6 +20,11 @@ import {
   getEstimateTemplates,
   createEstimateFromTemplate
 } from "./services/estimateCalculator";
+import {
+  generateEstimateSuggestions,
+  quickSuggestLineItems,
+  searchLineItemsByDescription
+} from "./services/ai-estimate-suggest";
 import { passport, requireAuth } from "./middleware/auth";
 
 export async function registerRoutes(
@@ -321,6 +326,78 @@ export async function registerRoutes(
       defaultVoice: VOICE_CONFIG.defaultVoice,
       model: VOICE_CONFIG.model
     });
+  });
+
+  // ============================================
+  // AI ESTIMATE SUGGESTION ROUTES
+  // ============================================
+
+  // Generate AI suggestions from damage zones
+  app.post('/api/ai/suggest-estimate', async (req, res) => {
+    try {
+      const { damageZones, regionId } = req.body;
+
+      if (!damageZones || !Array.isArray(damageZones) || damageZones.length === 0) {
+        return res.status(400).json({
+          error: 'Missing required field: damageZones (array of damage zone objects)'
+        });
+      }
+
+      const result = await generateEstimateSuggestions(damageZones, regionId);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('AI suggestion error:', message);
+      if (message.includes('not configured')) {
+        res.status(500).json({ error: 'AI service not configured' });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Quick suggest line items (for voice interface)
+  app.post('/api/ai/quick-suggest', async (req, res) => {
+    try {
+      const { description, roomName, damageType, quantity } = req.body;
+
+      if (!description || !roomName || !damageType) {
+        return res.status(400).json({
+          error: 'Missing required fields: description, roomName, damageType'
+        });
+      }
+
+      const suggestions = await quickSuggestLineItems(
+        description,
+        roomName,
+        damageType,
+        quantity
+      );
+      res.json({ suggestions });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Search line items by natural language
+  app.get('/api/ai/search-line-items', async (req, res) => {
+    try {
+      const { q, limit } = req.query;
+
+      if (!q) {
+        return res.status(400).json({ error: 'Missing query parameter: q' });
+      }
+
+      const results = await searchLineItemsByDescription(
+        q as string,
+        limit ? parseInt(limit as string) : 10
+      );
+      res.json({ results });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
   });
 
   // ============================================
