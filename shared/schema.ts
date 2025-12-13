@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -197,3 +197,154 @@ export const insertEstimateTemplateSchema = createInsertSchema(estimateTemplates
 
 export type InsertEstimateTemplate = z.infer<typeof insertEstimateTemplateSchema>;
 export type EstimateTemplate = typeof estimateTemplates.$inferSelect;
+
+// ============================================
+// PRICE LISTS TABLE
+// ============================================
+
+export const priceLists = pgTable("price_lists", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code", { length: 20 }).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  regionCode: varchar("region_code", { length: 20 }).notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  expirationDate: date("expiration_date"),
+  source: varchar("source", { length: 50 }).default("internal"),
+  baseMultiplier: decimal("base_multiplier", { precision: 5, scale: 4 }).default("1.0000"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+});
+
+export type PriceList = typeof priceLists.$inferSelect;
+
+// ============================================
+// COVERAGE TYPES TABLE
+// ============================================
+
+export const coverageTypes = pgTable("coverage_types", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code", { length: 10 }).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  defaultDeductible: decimal("default_deductible", { precision: 10, scale: 2 }).default("0"),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+});
+
+export type CoverageType = typeof coverageTypes.$inferSelect;
+
+// ============================================
+// TAX RATES TABLE
+// ============================================
+
+export const taxRates = pgTable("tax_rates", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  regionCode: varchar("region_code", { length: 20 }).notNull(),
+  taxType: varchar("tax_type", { length: 50 }).notNull(),
+  taxName: varchar("tax_name", { length: 100 }).notNull(),
+  rate: decimal("rate", { precision: 6, scale: 4 }).notNull(),
+  appliesTo: varchar("applies_to", { length: 50 }).default("materials"),
+  isActive: boolean("is_active").default(true),
+  effectiveDate: date("effective_date").default(sql`CURRENT_DATE`),
+});
+
+export type TaxRate = typeof taxRates.$inferSelect;
+
+// ============================================
+// DEPRECIATION SCHEDULES TABLE
+// ============================================
+
+export const depreciationSchedules = pgTable("depreciation_schedules", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  categoryCode: varchar("category_code", { length: 20 }).notNull(),
+  itemType: varchar("item_type", { length: 100 }).notNull(),
+  usefulLifeYears: integer("useful_life_years").notNull(),
+  maxDepreciationPct: decimal("max_depreciation_pct", { precision: 5, scale: 2 }).default("80.00"),
+  depreciationMethod: varchar("depreciation_method", { length: 30 }).default("straight_line"),
+  conditionAdjustmentGood: decimal("condition_adjustment_good", { precision: 5, scale: 2 }).default("0.85"),
+  conditionAdjustmentPoor: decimal("condition_adjustment_poor", { precision: 5, scale: 2 }).default("1.15"),
+  isDepreciable: boolean("is_depreciable").default(true),
+  notes: text("notes"),
+});
+
+export type DepreciationSchedule = typeof depreciationSchedules.$inferSelect;
+
+// ============================================
+// REGIONAL MULTIPLIERS TABLE
+// ============================================
+
+export const regionalMultipliers = pgTable("regional_multipliers", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  regionCode: varchar("region_code", { length: 20 }).notNull().unique(),
+  regionName: varchar("region_name", { length: 100 }).notNull(),
+  materialMultiplier: decimal("material_multiplier", { precision: 5, scale: 4 }).default("1.0000"),
+  laborMultiplier: decimal("labor_multiplier", { precision: 5, scale: 4 }).default("1.0000"),
+  equipmentMultiplier: decimal("equipment_multiplier", { precision: 5, scale: 4 }).default("1.0000"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+});
+
+export type RegionalMultiplier = typeof regionalMultipliers.$inferSelect;
+
+// ============================================
+// LABOR RATES ENHANCED TABLE
+// ============================================
+
+export const laborRatesEnhanced = pgTable("labor_rates_enhanced", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tradeCode: varchar("trade_code", { length: 20 }).notNull(),
+  tradeName: varchar("trade_name", { length: 100 }).notNull(),
+  baseHourlyRate: decimal("base_hourly_rate", { precision: 10, scale: 2 }).notNull(),
+  overtimeMultiplier: decimal("overtime_multiplier", { precision: 4, scale: 2 }).default("1.50"),
+  regionCode: varchar("region_code", { length: 20 }).default("NATIONAL"),
+  effectiveDate: date("effective_date").default(sql`CURRENT_DATE`),
+  isActive: boolean("is_active").default(true),
+});
+
+export type LaborRateEnhanced = typeof laborRatesEnhanced.$inferSelect;
+
+// ============================================
+// DAMAGE AREAS TABLE (Spatial Hierarchy)
+// ============================================
+
+export const damageAreas = pgTable("damage_areas", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull(),
+  parentAreaId: uuid("parent_area_id"),
+  sketchZoneId: uuid("sketch_zone_id"),
+  name: varchar("name", { length: 100 }).notNull(),
+  areaType: varchar("area_type", { length: 50 }).notNull(),
+  measurements: jsonb("measurements").default(sql`'{}'::jsonb`),
+  photoIds: jsonb("photo_ids").default(sql`'[]'::jsonb`),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+});
+
+export type DamageArea = typeof damageAreas.$inferSelect;
+
+// ============================================
+// ESTIMATE COVERAGE SUMMARY TABLE
+// ============================================
+
+export const estimateCoverageSummary = pgTable("estimate_coverage_summary", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull(),
+  coverageCode: varchar("coverage_code", { length: 10 }).notNull(),
+
+  subtotalRcv: decimal("subtotal_rcv", { precision: 12, scale: 2 }).default("0"),
+  taxAmount: decimal("tax_amount", { precision: 12, scale: 2 }).default("0"),
+  overheadAmount: decimal("overhead_amount", { precision: 12, scale: 2 }).default("0"),
+  profitAmount: decimal("profit_amount", { precision: 12, scale: 2 }).default("0"),
+  totalRcv: decimal("total_rcv", { precision: 12, scale: 2 }).default("0"),
+
+  recoverableDepreciation: decimal("recoverable_depreciation", { precision: 12, scale: 2 }).default("0"),
+  nonRecoverableDepreciation: decimal("non_recoverable_depreciation", { precision: 12, scale: 2 }).default("0"),
+  totalDepreciation: decimal("total_depreciation", { precision: 12, scale: 2 }).default("0"),
+
+  totalAcv: decimal("total_acv", { precision: 12, scale: 2 }).default("0"),
+  deductible: decimal("deductible", { precision: 12, scale: 2 }).default("0"),
+  netClaim: decimal("net_claim", { precision: 12, scale: 2 }).default("0"),
+});
+
+export type EstimateCoverageSummary = typeof estimateCoverageSummary.$inferSelect;
