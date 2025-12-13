@@ -1,5 +1,5 @@
 // Polygon Math Utilities for Room Geometry
-import type { Point, RoomShape, WallDirection, PositionType } from '../types/geometry';
+import type { Point, RoomShape, WallDirection, PositionType, PositionFromType } from '../types/geometry';
 
 // Generate unique ID
 export function generateId(): string {
@@ -110,25 +110,42 @@ export function getWallCoordinates(
 }
 
 // Calculate position in feet from wall start
+// position_from: 'start' = from north/west corner (default), 'end' = from south/east corner
 export function calculatePositionInFeet(
   position: PositionType,
   wallLength: number,
-  elementWidth: number
+  elementWidth: number,
+  positionFrom: PositionFromType = 'start'
 ): number {
+  let positionInFeet: number;
+
   if (typeof position === 'number') {
-    return position;
+    // If position_from is 'end', convert to position from start
+    if (positionFrom === 'end') {
+      positionInFeet = wallLength - position;
+    } else {
+      positionInFeet = position;
+    }
+  } else {
+    switch (position) {
+      case 'left':
+        positionInFeet = elementWidth / 2 + 0.5; // 6 inches from corner
+        break;
+      case 'center':
+        positionInFeet = wallLength / 2;
+        break;
+      case 'right':
+        positionInFeet = wallLength - elementWidth / 2 - 0.5;
+        break;
+      default:
+        positionInFeet = wallLength / 2;
+    }
   }
 
-  switch (position) {
-    case 'left':
-      return elementWidth / 2 + 0.5; // 6 inches from corner
-    case 'center':
-      return wallLength / 2;
-    case 'right':
-      return wallLength - elementWidth / 2 - 0.5;
-    default:
-      return wallLength / 2;
-  }
+  // Ensure position stays within wall bounds (accounting for element width)
+  const minPos = elementWidth / 2;
+  const maxPos = wallLength - elementWidth / 2;
+  return Math.max(minPos, Math.min(maxPos, positionInFeet));
 }
 
 // Calculate area of polygon using shoelace formula

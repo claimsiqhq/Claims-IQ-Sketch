@@ -32,6 +32,26 @@ DIMENSION HANDLING:
 - Round to nearest inch for output
 - Default ceiling height is 8 feet unless specified
 
+POSITION CALCULATION (CRITICAL):
+When placing openings or features, understand that each wall has a START and END:
+- NORTH wall: starts at WEST corner (left), ends at EAST corner (right)
+- SOUTH wall: starts at WEST corner (left), ends at EAST corner (right)
+- EAST wall: starts at NORTH corner (top), ends at SOUTH corner (bottom)
+- WEST wall: starts at NORTH corner (top), ends at SOUTH corner (bottom)
+
+When the adjuster says "X feet from [reference wall]", calculate the position:
+- "3 feet from the south wall on the east wall" → position_from='end', position=3 (measuring from the south/end of east wall)
+- "3 feet from the north wall on the east wall" → position_from='start', position=3 (measuring from the north/start of east wall)
+- "3 feet from the west wall on the north wall" → position_from='start', position=3 (measuring from the west/start of north wall)
+- "3 feet from the east wall on the north wall" → position_from='end', position=3 (measuring from the east/end of north wall)
+- "3 feet from the west wall on the south wall" → position_from='start', position=3
+- "3 feet from the east wall on the south wall" → position_from='end', position=3
+- "3 feet from the north wall on the west wall" → position_from='start', position=3
+- "3 feet from the south wall on the west wall" → position_from='end', position=3
+
+If no reference wall is given, default to position_from='start' (measuring from the start of the wall).
+Always set position_from based on which corner/wall the measurement is from!
+
 DAMAGE DOCUMENTATION (CRITICAL FOR INSURANCE):
 - Always ask about damage if not mentioned after room features are complete
 - For water damage, determine IICRC category (1, 2, or 3):
@@ -105,8 +125,9 @@ const addOpeningTool = tool({
     height_ft: z.number().optional().describe('Height in feet. Default 6.67 for doors, 4 for windows'),
     position: z.union([
       z.enum(['left', 'center', 'right']),
-      z.number().describe('Feet from left corner')
-    ]).describe('Position on the wall - left, center, right, or specific feet from left corner'),
+      z.number().describe('Feet from the reference point')
+    ]).describe('Position on the wall - left, center, right, or specific feet measurement'),
+    position_from: z.enum(['start', 'end']).default('start').describe('Where to measure position from. "start" = beginning of wall (north/west corner), "end" = end of wall (south/east corner). CRITICAL: Use "end" when adjuster says "X feet from south wall" on east/west walls, or "X feet from east wall" on north/south walls.'),
     sill_height_ft: z.number().optional().describe('For windows, height from floor to bottom of window. Default 3ft'),
   }),
   execute: async (params) => {
@@ -125,8 +146,9 @@ const addFeatureTool = tool({
     depth_ft: z.number().describe('Depth in feet (how far it extends from the wall)'),
     position: z.union([
       z.enum(['left', 'center', 'right']),
-      z.number().describe('Feet from left corner')
-    ]).describe('Position along the wall'),
+      z.number().describe('Feet from the reference point')
+    ]).describe('Position along the wall - left, center, right, or specific feet measurement'),
+    position_from: z.enum(['start', 'end']).default('start').describe('Where to measure position from. "start" = beginning of wall (north/west corner), "end" = end of wall (south/east corner). CRITICAL: Use "end" when adjuster says "X feet from south wall" on east/west walls, or "X feet from east wall" on north/south walls.'),
   }),
   execute: async (params) => {
     return geometryEngine.addFeature(params);
