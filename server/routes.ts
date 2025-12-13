@@ -116,6 +116,116 @@ export async function registerRoutes(
     });
   });
 
+  // Get scraped prices from database for visualization
+  app.get('/api/scrape/prices', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(`
+          SELECT
+            m.sku,
+            m.name as material_name,
+            m.unit,
+            mrp.region_id,
+            mrp.price,
+            mrp.source,
+            mrp.effective_date
+          FROM material_regional_prices mrp
+          JOIN materials m ON m.id = mrp.material_id
+          WHERE mrp.source = 'home_depot_scrape'
+          ORDER BY mrp.effective_date DESC, m.sku, mrp.region_id
+        `);
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get scrape job history
+  app.get('/api/scrape/jobs', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(`
+          SELECT id, source, status, started_at, completed_at,
+                 items_processed, items_updated, errors
+          FROM price_scrape_jobs
+          ORDER BY started_at DESC
+          LIMIT 10
+        `);
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // System status endpoint
+  app.get('/api/system/status', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        // Test database connection
+        const dbResult = await client.query('SELECT NOW() as time, version() as version');
+        const dbTime = dbResult.rows[0].time;
+        const dbVersion = dbResult.rows[0].version;
+
+        // Get table counts
+        const countsResult = await client.query(`
+          SELECT
+            (SELECT COUNT(*) FROM materials) as materials_count,
+            (SELECT COUNT(*) FROM line_items) as line_items_count,
+            (SELECT COUNT(*) FROM regions) as regions_count,
+            (SELECT COUNT(*) FROM material_regional_prices) as prices_count
+        `);
+        const counts = countsResult.rows[0];
+
+        // Get regions list
+        const regionsResult = await client.query(`
+          SELECT id, name FROM regions ORDER BY id
+        `);
+
+        res.json({
+          database: {
+            connected: true,
+            time: dbTime,
+            version: dbVersion.split(' ')[0] + ' ' + dbVersion.split(' ')[1]
+          },
+          counts: {
+            materials: parseInt(counts.materials_count),
+            lineItems: parseInt(counts.line_items_count),
+            regions: parseInt(counts.regions_count),
+            prices: parseInt(counts.prices_count)
+          },
+          regions: regionsResult.rows,
+          environment: process.env.NODE_ENV || 'development',
+          openaiConfigured: !!process.env.OPENAI_API_KEY
+        });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      res.json({
+        database: {
+          connected: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        },
+        environment: process.env.NODE_ENV || 'development',
+        openaiConfigured: !!process.env.OPENAI_API_KEY
+      });
+    }
+  });
+
   // Voice Session Routes
   app.post('/api/voice/session', async (req, res) => {
     try {
