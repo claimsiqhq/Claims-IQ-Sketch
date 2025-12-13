@@ -77,7 +77,12 @@ export type VoiceCommandType =
   | 'modify_dimension'
   | 'add_note'
   | 'undo'
-  | 'confirm_room';
+  | 'confirm_room'
+  | 'delete_room'
+  | 'edit_room'
+  | 'delete_opening'
+  | 'delete_feature'
+  | 'edit_damage_zone';
 
 export interface CreateRoomParams {
   name: string;
@@ -130,6 +135,46 @@ export interface UndoParams {
 
 export interface ConfirmRoomParams {
   ready_for_next: boolean;
+}
+
+export interface DeleteRoomParams {
+  room_id?: string; // If not specified, deletes current room. Can also identify by name.
+  room_name?: string;
+}
+
+export interface EditRoomParams {
+  room_id?: string; // If not specified, edits current room
+  room_name?: string; // Can identify room by name
+  new_name?: string;
+  new_shape?: RoomShape;
+  new_width_ft?: number;
+  new_length_ft?: number;
+  new_ceiling_height_ft?: number;
+}
+
+export interface DeleteOpeningParams {
+  opening_index?: number; // 0-based index
+  opening_id?: string;
+  wall?: WallDirection; // Can delete by wall + type
+  type?: OpeningType;
+}
+
+export interface DeleteFeatureParams {
+  feature_index?: number; // 0-based index
+  feature_id?: string;
+  type?: FeatureType; // Can delete by type
+}
+
+export interface EditDamageZoneParams {
+  damage_index?: number; // 0-based index
+  damage_id?: string;
+  new_type?: DamageType;
+  new_category?: WaterDamageCategory;
+  new_affected_walls?: WallDirection[];
+  new_floor_affected?: boolean;
+  new_ceiling_affected?: boolean;
+  new_extent_ft?: number;
+  new_source?: string;
 }
 
 // Command History for undo/redo

@@ -18,6 +18,11 @@ import type {
   ModifyDimensionParams,
   AddNoteParams,
   ConfirmRoomParams,
+  DeleteRoomParams,
+  EditRoomParams,
+  DeleteOpeningParams,
+  DeleteFeatureParams,
+  EditDamageZoneParams,
 } from '../types/geometry';
 import {
   generateId,
@@ -55,6 +60,11 @@ interface GeometryEngineState {
   addNote: (params: AddNoteParams) => string;
   undo: (steps: number) => string;
   confirmRoom: (params: ConfirmRoomParams) => string;
+  deleteRoom: (params: DeleteRoomParams) => string;
+  editRoom: (params: EditRoomParams) => string;
+  deleteOpening: (params: DeleteOpeningParams) => string;
+  deleteFeature: (params: DeleteFeatureParams) => string;
+  editDamageZone: (params: EditDamageZoneParams) => string;
 
   // Transcript management
   addTranscriptEntry: (entry: Omit<TranscriptEntry, 'id' | 'timestamp'>) => void;
@@ -423,6 +433,366 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     return command.result;
   },
 
+  deleteRoom: (params) => {
+    const { currentRoom, rooms } = get();
+
+    // Determine which room to delete
+    let roomToDelete: RoomGeometry | null = null;
+    let isCurrentRoom = false;
+    let roomIndex = -1;
+
+    if (params.room_id) {
+      // Delete by ID from confirmed rooms
+      roomIndex = rooms.findIndex(r => r.id === params.room_id);
+      if (roomIndex >= 0) {
+        roomToDelete = rooms[roomIndex];
+      } else if (currentRoom?.id === params.room_id) {
+        roomToDelete = currentRoom;
+        isCurrentRoom = true;
+      }
+    } else if (params.room_name) {
+      // Delete by name
+      const normalizedName = params.room_name.toLowerCase().replace(/\s+/g, '_');
+      roomIndex = rooms.findIndex(r => r.name.toLowerCase() === normalizedName);
+      if (roomIndex >= 0) {
+        roomToDelete = rooms[roomIndex];
+      } else if (currentRoom?.name.toLowerCase() === normalizedName) {
+        roomToDelete = currentRoom;
+        isCurrentRoom = true;
+      }
+    } else {
+      // Delete current room
+      if (currentRoom) {
+        roomToDelete = currentRoom;
+        isCurrentRoom = true;
+      }
+    }
+
+    if (!roomToDelete) {
+      return 'Error: Could not find room to delete. Please specify a room name or ID.';
+    }
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'delete_room',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Deleted ${formatRoomName(roomToDelete.name)}`,
+    };
+
+    if (isCurrentRoom) {
+      set((state) => ({
+        currentRoom: null,
+        undoStack: [],
+        commandHistory: [...state.commandHistory, command],
+      }));
+    } else {
+      set((state) => ({
+        rooms: state.rooms.filter((_, i) => i !== roomIndex),
+        commandHistory: [...state.commandHistory, command],
+      }));
+    }
+
+    return command.result;
+  },
+
+  editRoom: (params) => {
+    const { currentRoom, rooms } = get();
+
+    // Determine which room to edit
+    let roomToEdit: RoomGeometry | null = null;
+    let isCurrentRoom = false;
+    let roomIndex = -1;
+
+    if (params.room_id) {
+      roomIndex = rooms.findIndex(r => r.id === params.room_id);
+      if (roomIndex >= 0) {
+        roomToEdit = rooms[roomIndex];
+      } else if (currentRoom?.id === params.room_id) {
+        roomToEdit = currentRoom;
+        isCurrentRoom = true;
+      }
+    } else if (params.room_name) {
+      const normalizedName = params.room_name.toLowerCase().replace(/\s+/g, '_');
+      roomIndex = rooms.findIndex(r => r.name.toLowerCase() === normalizedName);
+      if (roomIndex >= 0) {
+        roomToEdit = rooms[roomIndex];
+      } else if (currentRoom?.name.toLowerCase() === normalizedName) {
+        roomToEdit = currentRoom;
+        isCurrentRoom = true;
+      }
+    } else {
+      // Edit current room
+      if (currentRoom) {
+        roomToEdit = currentRoom;
+        isCurrentRoom = true;
+      }
+    }
+
+    if (!roomToEdit) {
+      return 'Error: Could not find room to edit. Please specify a room name or create a room first.';
+    }
+
+    // Save to undo stack if editing current room
+    if (isCurrentRoom && currentRoom) {
+      set((state) => ({
+        undoStack: [...state.undoStack, state.currentRoom!],
+      }));
+    }
+
+    const changes: string[] = [];
+    let updatedRoom = { ...roomToEdit, updated_at: new Date().toISOString() };
+
+    if (params.new_name) {
+      const newName = normalizeRoomName(params.new_name);
+      changes.push(`name to ${formatRoomName(newName)}`);
+      updatedRoom.name = newName;
+    }
+
+    if (params.new_shape) {
+      changes.push(`shape to ${params.new_shape}`);
+      updatedRoom.shape = params.new_shape;
+      updatedRoom.polygon = generatePolygon(params.new_shape, updatedRoom.width_ft, updatedRoom.length_ft);
+    }
+
+    if (params.new_width_ft !== undefined) {
+      changes.push(`width to ${formatDimension(params.new_width_ft)}`);
+      updatedRoom.width_ft = params.new_width_ft;
+      updatedRoom.polygon = generatePolygon(updatedRoom.shape, params.new_width_ft, updatedRoom.length_ft);
+    }
+
+    if (params.new_length_ft !== undefined) {
+      changes.push(`length to ${formatDimension(params.new_length_ft)}`);
+      updatedRoom.length_ft = params.new_length_ft;
+      updatedRoom.polygon = generatePolygon(updatedRoom.shape, updatedRoom.width_ft, params.new_length_ft);
+    }
+
+    if (params.new_ceiling_height_ft !== undefined) {
+      changes.push(`ceiling height to ${formatDimension(params.new_ceiling_height_ft)}`);
+      updatedRoom.ceiling_height_ft = params.new_ceiling_height_ft;
+    }
+
+    if (changes.length === 0) {
+      return 'No changes specified. Please provide at least one property to update.';
+    }
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'edit_room',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Updated ${formatRoomName(roomToEdit.name)}: ${changes.join(', ')}`,
+    };
+
+    if (isCurrentRoom) {
+      set((state) => ({
+        currentRoom: updatedRoom,
+        commandHistory: [...state.commandHistory, command],
+      }));
+    } else {
+      set((state) => ({
+        rooms: state.rooms.map((r, i) => i === roomIndex ? updatedRoom : r),
+        commandHistory: [...state.commandHistory, command],
+      }));
+    }
+
+    return command.result;
+  },
+
+  deleteOpening: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Save to undo stack
+    set((state) => ({
+      undoStack: [...state.undoStack, state.currentRoom!],
+    }));
+
+    let openingIndex = -1;
+    let openingToDelete: Opening | null = null;
+
+    if (params.opening_index !== undefined) {
+      openingIndex = params.opening_index;
+      openingToDelete = currentRoom.openings[openingIndex] || null;
+    } else if (params.opening_id) {
+      openingIndex = currentRoom.openings.findIndex(o => o.id === params.opening_id);
+      openingToDelete = openingIndex >= 0 ? currentRoom.openings[openingIndex] : null;
+    } else if (params.wall && params.type) {
+      // Find by wall and type
+      openingIndex = currentRoom.openings.findIndex(o => o.wall === params.wall && o.type === params.type);
+      openingToDelete = openingIndex >= 0 ? currentRoom.openings[openingIndex] : null;
+    } else if (params.wall) {
+      // Find first opening on the wall
+      openingIndex = currentRoom.openings.findIndex(o => o.wall === params.wall);
+      openingToDelete = openingIndex >= 0 ? currentRoom.openings[openingIndex] : null;
+    } else if (params.type) {
+      // Find first opening of the type
+      openingIndex = currentRoom.openings.findIndex(o => o.type === params.type);
+      openingToDelete = openingIndex >= 0 ? currentRoom.openings[openingIndex] : null;
+    }
+
+    if (!openingToDelete || openingIndex < 0) {
+      return 'Error: Could not find opening to delete. Please specify the opening index, wall, or type.';
+    }
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'delete_opening',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Deleted ${openingToDelete.type} on ${openingToDelete.wall} wall`,
+    };
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        openings: state.currentRoom!.openings.filter((_, i) => i !== openingIndex),
+        updated_at: new Date().toISOString(),
+      },
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return command.result;
+  },
+
+  deleteFeature: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Save to undo stack
+    set((state) => ({
+      undoStack: [...state.undoStack, state.currentRoom!],
+    }));
+
+    let featureIndex = -1;
+    let featureToDelete: Feature | null = null;
+
+    if (params.feature_index !== undefined) {
+      featureIndex = params.feature_index;
+      featureToDelete = currentRoom.features[featureIndex] || null;
+    } else if (params.feature_id) {
+      featureIndex = currentRoom.features.findIndex(f => f.id === params.feature_id);
+      featureToDelete = featureIndex >= 0 ? currentRoom.features[featureIndex] : null;
+    } else if (params.type) {
+      // Find first feature of the type
+      featureIndex = currentRoom.features.findIndex(f => f.type === params.type);
+      featureToDelete = featureIndex >= 0 ? currentRoom.features[featureIndex] : null;
+    }
+
+    if (!featureToDelete || featureIndex < 0) {
+      return 'Error: Could not find feature to delete. Please specify the feature index or type.';
+    }
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'delete_feature',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Deleted ${featureToDelete.type}${featureToDelete.wall !== 'freestanding' ? ` on ${featureToDelete.wall} wall` : ''}`,
+    };
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        features: state.currentRoom!.features.filter((_, i) => i !== featureIndex),
+        updated_at: new Date().toISOString(),
+      },
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return command.result;
+  },
+
+  editDamageZone: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Save to undo stack
+    set((state) => ({
+      undoStack: [...state.undoStack, state.currentRoom!],
+    }));
+
+    let damageIndex = -1;
+    let damageZone: VoiceDamageZone | null = null;
+
+    if (params.damage_index !== undefined) {
+      damageIndex = params.damage_index;
+      damageZone = currentRoom.damageZones[damageIndex] || null;
+    } else if (params.damage_id) {
+      damageIndex = currentRoom.damageZones.findIndex(d => d.id === params.damage_id);
+      damageZone = damageIndex >= 0 ? currentRoom.damageZones[damageIndex] : null;
+    } else if (currentRoom.damageZones.length === 1) {
+      // If there's only one damage zone, edit it
+      damageIndex = 0;
+      damageZone = currentRoom.damageZones[0];
+    }
+
+    if (!damageZone || damageIndex < 0) {
+      return 'Error: Could not find damage zone to edit. Please specify the damage index or ID.';
+    }
+
+    const changes: string[] = [];
+    let updatedDamageZone = { ...damageZone };
+
+    if (params.new_type) {
+      changes.push(`type to ${params.new_type}`);
+      updatedDamageZone.type = params.new_type;
+    }
+
+    if (params.new_category) {
+      changes.push(`category to ${params.new_category}`);
+      updatedDamageZone.category = params.new_category;
+    }
+
+    if (params.new_affected_walls) {
+      changes.push(`affected walls to ${params.new_affected_walls.join(', ')}`);
+      updatedDamageZone.affected_walls = params.new_affected_walls;
+    }
+
+    if (params.new_floor_affected !== undefined) {
+      changes.push(`floor affected to ${params.new_floor_affected}`);
+      updatedDamageZone.floor_affected = params.new_floor_affected;
+    }
+
+    if (params.new_ceiling_affected !== undefined) {
+      changes.push(`ceiling affected to ${params.new_ceiling_affected}`);
+      updatedDamageZone.ceiling_affected = params.new_ceiling_affected;
+    }
+
+    if (params.new_extent_ft !== undefined) {
+      changes.push(`extent to ${formatDimension(params.new_extent_ft)}`);
+      updatedDamageZone.extent_ft = params.new_extent_ft;
+    }
+
+    if (params.new_source) {
+      changes.push(`source to "${params.new_source}"`);
+      updatedDamageZone.source = params.new_source;
+    }
+
+    if (changes.length === 0) {
+      return 'No changes specified. Please provide at least one property to update.';
+    }
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'edit_damage_zone',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Updated ${damageZone.type} damage zone: ${changes.join(', ')}`,
+    };
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        damageZones: state.currentRoom!.damageZones.map((d, i) => i === damageIndex ? updatedDamageZone : d),
+        updated_at: new Date().toISOString(),
+      },
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return command.result;
+  },
+
   addTranscriptEntry: (entry) => {
     const newEntry: TranscriptEntry = {
       ...entry,
@@ -470,4 +840,9 @@ export const geometryEngine = {
   addNote: (params: AddNoteParams) => useGeometryEngine.getState().addNote(params),
   undo: (steps: number) => useGeometryEngine.getState().undo(steps),
   confirmRoom: (params: ConfirmRoomParams) => useGeometryEngine.getState().confirmRoom(params),
+  deleteRoom: (params: DeleteRoomParams) => useGeometryEngine.getState().deleteRoom(params),
+  editRoom: (params: EditRoomParams) => useGeometryEngine.getState().editRoom(params),
+  deleteOpening: (params: DeleteOpeningParams) => useGeometryEngine.getState().deleteOpening(params),
+  deleteFeature: (params: DeleteFeatureParams) => useGeometryEngine.getState().deleteFeature(params),
+  editDamageZone: (params: EditDamageZoneParams) => useGeometryEngine.getState().editDamageZone(params),
 };
