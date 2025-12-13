@@ -1,8 +1,9 @@
 // Room Preview Component
-// Live 2D sketch preview for voice-created rooms
+// Live 2D sketch preview for voice-created rooms with pinch-to-zoom support
 
-import React, { useRef, useEffect, useMemo } from 'react';
-import { Home } from 'lucide-react';
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { Home, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { RoomGeometry, Opening, Feature, VoiceDamageZone, WallDirection } from '../types/geometry';
 import { formatDimension, getWallLength, calculatePositionInFeet, formatRoomName } from '../utils/polygon-math';
 import { cn } from '@/lib/utils';
@@ -15,6 +16,8 @@ interface RoomPreviewProps {
 const PIXELS_PER_FOOT = 20;
 const PADDING = 60;
 const WALL_STROKE_WIDTH = 3;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
 
 // Color scheme
 const COLORS = {
@@ -40,6 +43,12 @@ const COLORS = {
 export function RoomPreview({ room, className }: RoomPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Zoom state
+  const [zoom, setZoom] = useState(1);
+  const [isPinching, setIsPinching] = useState(false);
+  const lastTouchDistance = useRef<number | null>(null);
 
   // Calculate canvas dimensions and scale
   const { canvasWidth, canvasHeight, scale, offsetX, offsetY } = useMemo(() => {
@@ -58,6 +67,55 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
       offsetY: PADDING,
     };
   }, [room]);
+
+  // Touch event handlers for pinch-to-zoom
+  const getTouchDistance = useCallback((touches: React.TouchList) => {
+    if (touches.length < 2) return null;
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      setIsPinching(true);
+      lastTouchDistance.current = getTouchDistance(e.touches);
+    }
+  }, [getTouchDistance]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && isPinching) {
+      e.preventDefault();
+      const currentDistance = getTouchDistance(e.touches);
+      if (currentDistance && lastTouchDistance.current) {
+        const delta = currentDistance / lastTouchDistance.current;
+        setZoom(prevZoom => {
+          const newZoom = prevZoom * delta;
+          return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
+        });
+        lastTouchDistance.current = currentDistance;
+      }
+    }
+  }, [isPinching, getTouchDistance]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsPinching(false);
+    lastTouchDistance.current = null;
+  }, []);
+
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
+    setZoom(prev => Math.min(MAX_ZOOM, prev + 0.25));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom(prev => Math.max(MIN_ZOOM, prev - 0.25));
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoom(1);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -110,41 +168,105 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
     <div
       ref={containerRef}
       className={cn(
-        'rounded-lg border bg-card overflow-auto',
+        'rounded-lg border bg-card overflow-hidden flex flex-col',
         className
       )}
     >
-      <div className="p-3 border-b bg-muted/50">
+      {/* Header with zoom controls */}
+      <div className="p-2 sm:p-3 border-b bg-muted/50 flex items-center justify-between gap-2">
         <h3 className="font-medium text-sm flex items-center gap-2">
           <Home className="h-4 w-4" />
-          Room Preview
+          <span className="hidden xs:inline">Room Preview</span>
+          <span className="xs:hidden">Preview</span>
         </h3>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomOut}
+            disabled={zoom <= MIN_ZOOM}
+            data-testid="button-zoom-out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <span className="text-xs text-muted-foreground w-10 text-center">
+            {Math.round(zoom * 100)}%
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomIn}
+            disabled={zoom >= MAX_ZOOM}
+            data-testid="button-zoom-in"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleResetZoom}
+            disabled={zoom === 1}
+            data-testid="button-reset-zoom"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
-      <div className="p-4 flex items-center justify-center min-h-[300px]">
-        <canvas
-          ref={canvasRef}
-          width={canvasWidth}
-          height={canvasHeight}
-          className="max-w-full h-auto"
-          style={{ imageRendering: 'crisp-edges' }}
-        />
+      
+      {/* Canvas container with touch handling */}
+      <div 
+        ref={canvasContainerRef}
+        className="flex-1 overflow-auto min-h-[200px] sm:min-h-[300px]"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ touchAction: isPinching ? 'none' : 'pan-x pan-y' }}
+      >
+        <div 
+          className="p-2 sm:p-4 flex items-center justify-center"
+          style={{ 
+            minWidth: canvasWidth * zoom + 16,
+            minHeight: canvasHeight * zoom + 16
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={canvasWidth}
+            height={canvasHeight}
+            className="max-w-none"
+            style={{ 
+              imageRendering: 'crisp-edges',
+              transform: `scale(${zoom})`,
+              transformOrigin: 'center center'
+            }}
+          />
+        </div>
       </div>
+      
+      {/* Room info - optimized for mobile */}
       {room && (
-        <div className="p-3 border-t bg-muted/30 text-xs text-muted-foreground">
-          <div className="flex flex-wrap gap-4">
-            <span>
-              <strong>Area:</strong> {(room.width_ft * room.length_ft).toFixed(0)} sq ft
-            </span>
-            <span>
-              <strong>Perimeter:</strong> {(2 * (room.width_ft + room.length_ft)).toFixed(0)} ft
-            </span>
-            <span>
-              <strong>Ceiling:</strong> {formatDimension(room.ceiling_height_ft)}
-            </span>
+        <div className="p-2 sm:p-3 border-t bg-muted/30">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-foreground">Area:</span>
+              <span>{(room.width_ft * room.length_ft).toFixed(0)} ft²</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-foreground">Perim:</span>
+              <span>{(2 * (room.width_ft + room.length_ft)).toFixed(0)} ft</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-foreground">Ceiling:</span>
+              <span>{formatDimension(room.ceiling_height_ft)}</span>
+            </div>
             {room.damageZones.length > 0 && (
-              <span className="text-red-600">
-                <strong>Damage Zones:</strong> {room.damageZones.length}
-              </span>
+              <div className="flex items-center gap-1 text-red-600">
+                <span className="font-medium">Damage:</span>
+                <span>{room.damageZones.length} zone{room.damageZones.length > 1 ? 's' : ''}</span>
+              </div>
             )}
           </div>
         </div>
