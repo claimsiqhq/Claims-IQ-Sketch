@@ -217,7 +217,6 @@ export async function registerRoutes(
             mrp.effective_date
           FROM material_regional_prices mrp
           JOIN materials m ON m.id = mrp.material_id
-          WHERE mrp.source = 'home_depot_scrape'
           ORDER BY mrp.effective_date DESC, m.sku, mrp.region_id
         `);
         res.json(result.rows);
