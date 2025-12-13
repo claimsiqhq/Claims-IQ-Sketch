@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShieldCheck, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
+import logoWordmark from "../assets/logo-wordmark.png";
 
 export default function Auth() {
   const [, setLocation] = useLocation();
@@ -43,8 +44,8 @@ export default function Auth() {
     <div className="min-h-screen w-full flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md shadow-xl border-t-4 border-t-primary">
         <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-            <ShieldCheck className="h-6 w-6 text-primary" />
+          <div className="mx-auto mb-4">
+            <img src={logoWordmark} alt="Claims IQ" className="h-12 w-auto" />
           </div>
           <CardTitle className="text-2xl font-display font-bold">Welcome Back</CardTitle>
           <CardDescription>
