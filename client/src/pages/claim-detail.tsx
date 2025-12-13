@@ -12,19 +12,21 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Home, 
-  PenTool, 
-  ClipboardList, 
-  FileText, 
-  Image as ImageIcon, 
-  Save, 
-  Plus, 
-  Trash2, 
+import {
+  Home,
+  PenTool,
+  ClipboardList,
+  FileText,
+  Image as ImageIcon,
+  Save,
+  Plus,
+  Trash2,
   Camera,
   Move,
-  X
+  X,
+  Mic
 } from "lucide-react";
+import { Link } from "wouter";
 
 import SketchCanvas from "@/components/sketch-canvas";
 import DamageZoneModal from "@/components/damage-zone-modal";
@@ -213,6 +215,12 @@ export default function ClaimDetail() {
                       <Button size="sm" variant="ghost" onClick={handleAddRoom}>
                         <Plus className="h-4 w-4 mr-2" /> Add
                       </Button>
+                      <Separator orientation="vertical" className="h-6" />
+                      <Link href={`/voice-sketch/${claim.id}`}>
+                        <Button size="sm" variant="ghost" className="text-primary">
+                          <Mic className="h-4 w-4 mr-2" /> Voice
+                        </Button>
+                      </Link>
                     </div>
                     <SketchCanvas 
                       rooms={claim.rooms} 
@@ -279,6 +287,12 @@ export default function ClaimDetail() {
                         <Button size="sm" variant="ghost" onClick={handleAddRoom}>
                           <Plus className="h-4 w-4 mr-2" /> Add Room
                         </Button>
+                        <Separator orientation="vertical" className="h-6" />
+                        <Link href={`/voice-sketch/${claim.id}`}>
+                          <Button size="sm" variant="ghost" className="text-primary">
+                            <Mic className="h-4 w-4 mr-2" /> Voice Sketch
+                          </Button>
+                        </Link>
                       </div>
                       <SketchCanvas 
                         rooms={claim.rooms} 

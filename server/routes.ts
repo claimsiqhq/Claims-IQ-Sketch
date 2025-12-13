@@ -2,12 +2,13 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { runScrapeJob, testScrape, PRODUCT_MAPPINGS, STORE_REGIONS } from "./scraper/homeDepot";
-import { 
-  searchLineItems, 
-  getCategories, 
-  calculatePrice, 
-  getRegionByZip 
+import {
+  searchLineItems,
+  getCategories,
+  calculatePrice,
+  getRegionByZip
 } from "./services/pricing";
+import { createVoiceSession, VOICE_CONFIG } from "./services/voice-session";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -112,6 +113,30 @@ export async function registerRoutes(
     res.json({
       productMappings: PRODUCT_MAPPINGS,
       storeRegions: STORE_REGIONS
+    });
+  });
+
+  // Voice Session Routes
+  app.post('/api/voice/session', async (req, res) => {
+    try {
+      const result = await createVoiceSession();
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Voice session creation error:', message);
+      if (message.includes('not configured')) {
+        res.status(500).json({ error: 'Voice service not configured' });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  app.get('/api/voice/config', (req, res) => {
+    res.json({
+      availableVoices: VOICE_CONFIG.availableVoices,
+      defaultVoice: VOICE_CONFIG.defaultVoice,
+      model: VOICE_CONFIG.model
     });
   });
 

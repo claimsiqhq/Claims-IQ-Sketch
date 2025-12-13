@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Settings, 
-  LogOut, 
-  Menu, 
+import {
+  LayoutDashboard,
+  FileText,
+  Settings,
+  LogOut,
+  Menu,
   X,
   PlusCircle,
-  Bell
+  Bell,
+  Mic
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
@@ -22,6 +23,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { label: "Dashboard", icon: LayoutDashboard, href: "/" },
     { label: "New Claim", icon: PlusCircle, href: "/new-claim" },
+    { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },
     { label: "Settings", icon: Settings, href: "/settings" },
   ];
 
