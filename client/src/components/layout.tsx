@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import logoWordmark from "../assets/logo-wordmark.png";
 
 // Default avatar for authenticated users
 const DEFAULT_AVATAR = "https://api.dicebear.com/7.x/initials/svg?seed=Admin";
@@ -49,7 +50,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </Button>
-          <span className="font-display font-bold text-xl text-primary tracking-tight">Claims IQ</span>
+          <img src={logoWordmark} alt="Claims IQ" className="h-8 w-auto" />
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon">
@@ -70,7 +71,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}>
         <div className="h-full flex flex-col">
           <div className="h-16 flex items-center px-6 border-b border-border">
-            <span className="font-display font-bold text-2xl text-primary tracking-tight">Claims IQ</span>
+            <img src={logoWordmark} alt="Claims IQ" className="h-9 w-auto" />
           </div>
 
           <div className="p-4">
