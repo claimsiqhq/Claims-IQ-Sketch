@@ -452,15 +452,15 @@ export default function SketchCanvas({
         </Button>
       </div>
 
-      {/* Zoom Level Indicator */}
-      <div className="absolute top-4 left-4 pointer-events-none z-10 flex flex-col gap-1">
-        <span className="text-xs text-slate-400 font-mono bg-white/80 px-2 py-1 rounded">
+      {/* Zoom Level Indicator - positioned below toolbar area */}
+      <div className="absolute top-16 left-4 pointer-events-none z-10 flex flex-col gap-1">
+        <span className="text-xs text-slate-400 font-mono bg-white/80 px-2 py-1 rounded shadow-sm">
           {Math.round(viewState.scale * 100)}%
         </span>
-        <span className="text-[10px] text-slate-400 font-mono bg-white/80 px-2 py-0.5 rounded hidden md:block">
+        <span className="text-[10px] text-slate-400 font-mono bg-white/80 px-2 py-0.5 rounded shadow-sm hidden md:block">
           Scroll to zoom, drag to pan
         </span>
-        <span className="text-[10px] text-slate-400 font-mono bg-white/80 px-2 py-0.5 rounded md:hidden">
+        <span className="text-[10px] text-slate-400 font-mono bg-white/80 px-2 py-0.5 rounded shadow-sm md:hidden">
           Pinch to zoom, drag to pan
         </span>
       </div>
