@@ -28,17 +28,25 @@ export async function createVoiceSession(): Promise<VoiceSessionResult> {
     throw new Error('OPENAI_API_KEY environment variable not configured');
   }
 
-  const sessionConfig: SessionConfig = {
-    model: 'gpt-4o-realtime-preview',
-    voice: 'ash', // Professional voice suitable for field work
-    modalities: ['audio', 'text'],
-    turn_detection: {
-      type: 'semantic_vad',
-      interrupt_response: true,
-    },
+  // Use the GA endpoint for client secrets
+  const sessionConfig = {
+    session: {
+      type: 'realtime',
+      model: 'gpt-4o-realtime-preview-2024-12-17',
+      audio: {
+        output: {
+          voice: 'ash' // Professional voice suitable for field work
+        }
+      },
+      modalities: ['audio', 'text'],
+      turn_detection: {
+        type: 'semantic_vad',
+        interrupt_response: true,
+      },
+    }
   };
 
-  const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+  const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -52,16 +60,16 @@ export async function createVoiceSession(): Promise<VoiceSessionResult> {
     throw new Error(`Failed to create voice session: ${response.status} - ${errorText}`);
   }
 
-  const data = await response.json() as { client_secret?: EphemeralKeyResponse };
+  const data = await response.json() as { value?: string; expires_at?: string };
 
-  // The response contains client_secret with the ephemeral key
-  if (!data.client_secret?.value) {
-    throw new Error('Invalid response from OpenAI: missing client_secret');
+  // The new GA response returns value directly
+  if (!data.value) {
+    throw new Error('Invalid response from OpenAI: missing ephemeral key value');
   }
 
   return {
-    ephemeral_key: data.client_secret.value,
-    expires_at: data.client_secret.expires_at,
+    ephemeral_key: data.value,
+    expires_at: data.expires_at,
   };
 }
 
