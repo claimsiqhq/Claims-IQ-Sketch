@@ -1,0 +1,295 @@
+-- Categories
+INSERT INTO line_item_categories (id, parent_id, name, sort_order) VALUES
+('01', NULL, 'General Conditions', 1),
+('02', NULL, 'Selective Demolition', 2),
+('03', NULL, 'Water Mitigation', 3),
+('03.1', '03', 'Emergency Services', 1),
+('03.2', '03', 'Drying Equipment', 2),
+('03.3', '03', 'Moisture Testing', 3),
+('03.4', '03', 'Antimicrobial Treatment', 4),
+('03.5', '03', 'Contents Manipulation', 5),
+('06', NULL, 'Interior Finishes', 6),
+('06.1', '06', 'Drywall', 1),
+('06.3', '06', 'Painting', 3),
+('06.4', '06', 'Trim & Millwork', 4),
+('07', NULL, 'Flooring', 7),
+('07.1', '07', 'Carpet', 1),
+('07.2', '07', 'Hardwood', 2),
+('07.4', '07', 'Vinyl/LVP', 4);
+
+-- Water Mitigation Line Items
+INSERT INTO line_items (code, category_id, description, unit, material_components, labor_components, waste_factor, scope_triggers, related_items) VALUES
+
+-- Emergency Services
+('WTR-EXTRACT-01', '03.1', 'Water extraction - carpet/pad', 'SF', 
+ '[]',
+ '[{"task": "extraction", "hours_per_unit": 0.008, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_1", "class_2", "class_3", "class_4"]}]',
+ ARRAY['WTR-EXTRACT-02', 'WTR-AIR-MOVER']
+),
+
+('WTR-EXTRACT-02', '03.1', 'Water extraction - hard surface', 'SF',
+ '[]',
+ '[{"task": "extraction", "hours_per_unit": 0.005, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_1", "class_2", "class_3", "class_4"], "surface": "floor", "flooring": ["hardwood", "tile", "vinyl", "laminate"]}]',
+ ARRAY['WTR-AIR-MOVER']
+),
+
+('WTR-BOARDUP', '03.1', 'Emergency board-up', 'SF',
+ '[{"sku": "PLY-CDX-12", "qty_per_unit": 0.03125}]',
+ '[{"task": "board_up", "hours_per_unit": 0.05, "trade": "general"}]',
+ 1.10,
+ '[{"damage_type": "water", "emergency": true}]',
+ ARRAY[]
+),
+
+-- Drying Equipment
+('WTR-AIR-MOVER', '03.2', 'Air mover - per unit per day', 'EA',
+ '[]',
+ '[{"task": "setup_monitor", "hours_per_unit": 0.25, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_1", "class_2", "class_3", "class_4"]}]',
+ ARRAY['WTR-DEHU-STD', 'WTR-MONITOR']
+),
+
+('WTR-DEHU-STD', '03.2', 'Dehumidifier - standard (per day)', 'EA',
+ '[]',
+ '[{"task": "setup_monitor", "hours_per_unit": 0.25, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_2", "class_3", "class_4"]}]',
+ ARRAY['WTR-AIR-MOVER']
+),
+
+('WTR-DEHU-LGR', '03.2', 'Dehumidifier - LGR (per day)', 'EA',
+ '[]',
+ '[{"task": "setup_monitor", "hours_per_unit": 0.33, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_3", "class_4"]}]',
+ ARRAY['WTR-AIR-MOVER']
+),
+
+('WTR-INJECTDRY', '03.2', 'Injectidry system - wall cavity drying (per day)', 'EA',
+ '[]',
+ '[{"task": "setup_monitor", "hours_per_unit": 0.5, "trade": "skilled"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_3", "class_4"], "surface": "wall"}]',
+ ARRAY[]
+),
+
+-- Moisture Testing
+('WTR-INSPECT-INIT', '03.3', 'Initial moisture inspection & documentation', 'EA',
+ '[]',
+ '[{"task": "inspection", "hours_per_unit": 1.5, "trade": "skilled"}]',
+ 1.00,
+ '[{"damage_type": "water"}]',
+ ARRAY['WTR-MONITOR']
+),
+
+('WTR-MONITOR', '03.3', 'Daily moisture monitoring', 'EA',
+ '[]',
+ '[{"task": "monitoring", "hours_per_unit": 0.5, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_2", "class_3", "class_4"]}]',
+ ARRAY[]
+),
+
+('WTR-INSPECT-FINAL', '03.3', 'Final moisture verification & documentation', 'EA',
+ '[]',
+ '[{"task": "inspection", "hours_per_unit": 1.0, "trade": "skilled"}]',
+ 1.00,
+ '[{"damage_type": "water"}]',
+ ARRAY[]
+),
+
+-- Antimicrobial
+('WTR-ANTI-SURF', '03.4', 'Antimicrobial application - surface', 'SF',
+ '[{"sku": "CHEM-ANTIMICRO", "qty_per_unit": 0.01}]',
+ '[{"task": "application", "hours_per_unit": 0.003, "trade": "general"}]',
+ 1.05,
+ '[{"damage_type": "water", "category": ["cat_2", "cat_3"]}]',
+ ARRAY['WTR-ANTI-INJECT']
+),
+
+('WTR-ANTI-INJECT', '03.4', 'Antimicrobial application - injection (wall cavity)', 'LF',
+ '[{"sku": "CHEM-ANTIMICRO", "qty_per_unit": 0.02}]',
+ '[{"task": "injection", "hours_per_unit": 0.02, "trade": "skilled"}]',
+ 1.05,
+ '[{"damage_type": "water", "category": ["cat_2", "cat_3"], "surface": "wall"}]',
+ ARRAY[]
+),
+
+-- Contents
+('WTR-CONTENTS-OUT', '03.5', 'Contents manipulation - move out (per room)', 'EA',
+ '[]',
+ '[{"task": "move_contents", "hours_per_unit": 2.0, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "contents_affected": true}]',
+ ARRAY['WTR-CONTENTS-BACK']
+),
+
+('WTR-CONTENTS-BACK', '03.5', 'Contents manipulation - move back (per room)', 'EA',
+ '[]',
+ '[{"task": "move_contents", "hours_per_unit": 1.5, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "contents_affected": true}]',
+ ARRAY[]
+),
+
+('WTR-BLOCK-STACK', '03.5', 'Block and stack contents', 'SF',
+ '[{"sku": "PLASTIC-SHEET", "qty_per_unit": 1.1}, {"sku": "FOAM-BLOCK", "qty_per_unit": 0.1}]',
+ '[{"task": "block_stack", "hours_per_unit": 0.01, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "contents_affected": true}]',
+ ARRAY[]
+),
+
+-- Demolition
+('DEM-DRY-REMOVE', '02', 'Drywall removal - damaged section', 'SF',
+ '[]',
+ '[{"task": "demolition", "hours_per_unit": 0.015, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_3", "class_4"], "surface": "wall"}]',
+ ARRAY['DEM-HAUL', 'DRY-HTT-12']
+),
+
+('DEM-INSUL-REMOVE', '02', 'Insulation removal - wet/contaminated', 'SF',
+ '[]',
+ '[{"task": "demolition", "hours_per_unit": 0.008, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_3", "class_4"]}]',
+ ARRAY['DEM-HAUL', 'INSUL-BATT-R13']
+),
+
+('DEM-BASE-REMOVE', '02', 'Baseboard removal', 'LF',
+ '[]',
+ '[{"task": "demolition", "hours_per_unit": 0.02, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "surface": "wall"}]',
+ ARRAY['TRIM-BASE-INSTALL']
+),
+
+('DEM-HAUL', '02', 'Debris haul-off', 'CY',
+ '[]',
+ '[{"task": "hauling", "hours_per_unit": 0.5, "trade": "general"}]',
+ 1.00,
+ '[]',
+ ARRAY[]
+),
+
+-- Drywall
+('DRY-HTT-12', '06.1', 'Drywall 1/2" - hang, tape, texture, prime', 'SF',
+ '[{"sku": "DRY-SHEET-12", "qty_per_unit": 0.03125}, {"sku": "DRY-COMPOUND", "qty_per_unit": 0.15}, {"sku": "DRY-TAPE", "qty_per_unit": 0.03}, {"sku": "DRY-SCREWS", "qty_per_unit": 0.08}, {"sku": "PRIMER-INT", "qty_per_unit": 0.004}, {"sku": "TEXTURE-STD", "qty_per_unit": 0.10}]',
+ '[{"task": "hang", "hours_per_unit": 0.018, "trade": "general"}, {"task": "tape_mud", "hours_per_unit": 0.022, "trade": "skilled"}, {"task": "texture", "hours_per_unit": 0.012, "trade": "skilled"}, {"task": "prime", "hours_per_unit": 0.008, "trade": "general"}]',
+ 1.10,
+ '[{"damage_type": "water", "severity": ["class_3", "class_4"], "surface": "wall"}]',
+ ARRAY['PAINT-INT-2CT']
+),
+
+('DRY-PATCH-SM', '06.1', 'Drywall patch - small (under 2 SF)', 'EA',
+ '[{"sku": "DRY-PATCH-KIT", "qty_per_unit": 1}]',
+ '[{"task": "patch", "hours_per_unit": 0.75, "trade": "skilled"}]',
+ 1.00,
+ '[{"damage_type": "water", "severity": ["class_1", "class_2"], "surface": "wall"}]',
+ ARRAY['PAINT-INT-2CT']
+),
+
+-- Painting
+('PAINT-INT-2CT', '06.3', 'Interior paint - walls - 2 coats', 'SF',
+ '[{"sku": "PAINT-INT-GAL", "qty_per_unit": 0.003}]',
+ '[{"task": "paint", "hours_per_unit": 0.012, "trade": "skilled"}]',
+ 1.05,
+ '[]',
+ ARRAY[]
+),
+
+('PAINT-CEIL-2CT', '06.3', 'Interior paint - ceiling - 2 coats', 'SF',
+ '[{"sku": "PAINT-CEIL-GAL", "qty_per_unit": 0.0033}]',
+ '[{"task": "paint", "hours_per_unit": 0.015, "trade": "skilled"}]',
+ 1.05,
+ '[]',
+ ARRAY[]
+),
+
+-- Trim
+('TRIM-BASE-INSTALL', '06.4', 'Baseboard - install (includes paint)', 'LF',
+ '[{"sku": "TRIM-BASE-MDF", "qty_per_unit": 1.05}]',
+ '[{"task": "install", "hours_per_unit": 0.06, "trade": "skilled"}, {"task": "paint", "hours_per_unit": 0.02, "trade": "skilled"}]',
+ 1.05,
+ '[]',
+ ARRAY[]
+),
+
+-- Flooring
+('FLR-CARPET-REMOVE', '07.1', 'Carpet removal (includes pad)', 'SF',
+ '[]',
+ '[{"task": "removal", "hours_per_unit": 0.006, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "surface": "floor", "flooring": "carpet"}]',
+ ARRAY['FLR-CARPET-INST', 'DEM-HAUL']
+),
+
+('FLR-CARPET-INST', '07.1', 'Carpet installation - standard grade', 'SF',
+ '[{"sku": "CARPET-STD", "qty_per_unit": 1.0}, {"sku": "CARPET-PAD", "qty_per_unit": 1.0}, {"sku": "CARPET-TACK", "qty_per_unit": 0.05}]',
+ '[{"task": "install", "hours_per_unit": 0.018, "trade": "skilled"}]',
+ 1.10,
+ '[]',
+ ARRAY[]
+),
+
+('FLR-LVP-REMOVE', '07.4', 'Luxury vinyl plank removal', 'SF',
+ '[]',
+ '[{"task": "removal", "hours_per_unit": 0.008, "trade": "general"}]',
+ 1.00,
+ '[{"damage_type": "water", "surface": "floor", "flooring": "vinyl"}]',
+ ARRAY['FLR-LVP-INST', 'DEM-HAUL']
+),
+
+('FLR-LVP-INST', '07.4', 'Luxury vinyl plank installation', 'SF',
+ '[{"sku": "LVP-STD", "qty_per_unit": 1.0}, {"sku": "LVP-UNDERLAYMENT", "qty_per_unit": 1.0}]',
+ '[{"task": "install", "hours_per_unit": 0.025, "trade": "skilled"}]',
+ 1.10,
+ '[]',
+ ARRAY[]
+);
+
+-- Materials catalog
+INSERT INTO materials (sku, name, unit, base_price, price_source) VALUES
+('DRY-SHEET-12', 'Drywall sheet 4x8 1/2"', 'EA', 12.50, 'baseline_2024'),
+('DRY-COMPOUND', 'Joint compound', 'SF', 0.15, 'baseline_2024'),
+('DRY-TAPE', 'Drywall tape', 'SF', 0.03, 'baseline_2024'),
+('DRY-SCREWS', 'Drywall screws', 'SF', 0.08, 'baseline_2024'),
+('DRY-PATCH-KIT', 'Drywall patch kit', 'EA', 8.50, 'baseline_2024'),
+('PRIMER-INT', 'Interior primer', 'GAL', 28.00, 'baseline_2024'),
+('TEXTURE-STD', 'Wall texture material', 'SF', 0.10, 'baseline_2024'),
+('PAINT-INT-GAL', 'Interior paint', 'GAL', 35.00, 'baseline_2024'),
+('PAINT-CEIL-GAL', 'Ceiling paint', 'GAL', 32.00, 'baseline_2024'),
+('TRIM-BASE-MDF', 'MDF baseboard 3.25"', 'LF', 1.20, 'baseline_2024'),
+('CARPET-STD', 'Carpet - standard grade', 'SF', 2.50, 'baseline_2024'),
+('CARPET-PAD', 'Carpet padding', 'SF', 0.65, 'baseline_2024'),
+('CARPET-TACK', 'Tack strip', 'LF', 0.35, 'baseline_2024'),
+('LVP-STD', 'Luxury vinyl plank - standard', 'SF', 3.25, 'baseline_2024'),
+('LVP-UNDERLAYMENT', 'LVP underlayment', 'SF', 0.45, 'baseline_2024'),
+('PLY-CDX-12', 'CDX plywood 1/2"', 'EA', 32.00, 'baseline_2024'),
+('CHEM-ANTIMICRO', 'Antimicrobial solution', 'GAL', 45.00, 'baseline_2024'),
+('PLASTIC-SHEET', 'Plastic sheeting', 'SF', 0.08, 'baseline_2024'),
+('FOAM-BLOCK', 'Foam blocking', 'EA', 0.25, 'baseline_2024'),
+('INSUL-BATT-R13', 'Insulation R-13 batt', 'SF', 0.85, 'baseline_2024');
+
+-- Base labor rates (national)
+INSERT INTO labor_rates (region_id, trade, hourly_rate, effective_date, source) VALUES
+('US-NATIONAL', 'general', 45.00, '2024-01-01', 'baseline_2024'),
+('US-NATIONAL', 'skilled', 55.00, '2024-01-01', 'baseline_2024'),
+('US-NATIONAL', 'specialty', 75.00, '2024-01-01', 'baseline_2024'),
+('US-NATIONAL', 'electrical', 85.00, '2024-01-01', 'baseline_2024'),
+('US-NATIONAL', 'plumbing', 90.00, '2024-01-01', 'baseline_2024'),
+('US-NATIONAL', 'hvac', 95.00, '2024-01-01', 'baseline_2024');
+
+-- Sample regions
+INSERT INTO regions (id, name, country, state_province, zip_postal_prefixes, indices) VALUES
+('US-NATIONAL', 'National Average', 'US', NULL, ARRAY[]::text[], '{"material": 1.00, "labor_general": 1.00, "labor_skilled": 1.00, "labor_specialty": 1.00}'),
+('US-TX-DAL', 'Dallas-Fort Worth', 'US', 'TX', ARRAY['750', '751', '752', '753', '760', '761', '762', '763'], '{"material": 1.02, "labor_general": 1.02, "labor_skilled": 1.05, "labor_specialty": 1.00}'),
+('US-CA-SF', 'San Francisco Bay Area', 'US', 'CA', ARRAY['940', '941', '942', '943', '944', '945', '946', '947', '948', '949', '950', '951'], '{"material": 1.15, "labor_general": 1.55, "labor_skilled": 1.62, "labor_specialty": 1.48}'),
+('US-FL-MIA', 'Miami-Dade', 'US', 'FL', ARRAY['330', '331', '332', '333'], '{"material": 1.08, "labor_general": 1.12, "labor_skilled": 1.15, "labor_specialty": 1.10}'),
+('CA-ON-TOR', 'Greater Toronto Area', 'CA', 'ON', ARRAY['M', 'L'], '{"material": 1.08, "labor_general": 1.25, "labor_skilled": 1.30, "labor_specialty": 1.22}');
