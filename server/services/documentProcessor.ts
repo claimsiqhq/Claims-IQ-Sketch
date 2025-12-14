@@ -515,7 +515,21 @@ Extract any insurance-related information you can find including:
 }
 
 /**
- * Merge extracted data from multiple documents
+ * Helper to merge two objects, filling in missing fields from source
+ */
+function enrichObject<T extends Record<string, any>>(existing: T, source: T): T {
+  const result = { ...existing };
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== null && value !== undefined && value !== '' && !result[key]) {
+      (result as any)[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Merge extracted data from multiple documents/pages
+ * Properly handles arrays by deduplicating and enriching existing entries
  */
 export function mergeExtractedData(
   ...documents: ExtractedClaimData[]
@@ -525,18 +539,48 @@ export function mergeExtractedData(
   for (const doc of documents) {
     if (!doc) continue;
 
-    // Merge each field, preferring non-null values
     for (const [key, value] of Object.entries(doc)) {
-      if (value !== null && value !== undefined && value !== '') {
-        if (key === 'endorsements' && Array.isArray(value)) {
-          // Merge endorsements arrays
-          merged.endorsements = [
-            ...(merged.endorsements || []),
-            ...value
-          ];
-        } else if (!(merged as any)[key]) {
-          (merged as any)[key] = value;
+      if (value === null || value === undefined || value === '') continue;
+
+      // Handle array fields with proper merging and enrichment
+      if (key === 'coverages' && Array.isArray(value)) {
+        const existing = merged.coverages || [];
+        const byCode = new Map(existing.map(c => [c.code, c]));
+        for (const cov of value as CoverageDetail[]) {
+          const prev = byCode.get(cov.code);
+          byCode.set(cov.code, prev ? enrichObject(prev, cov) : cov);
         }
+        merged.coverages = Array.from(byCode.values());
+      } else if (key === 'scheduledStructures' && Array.isArray(value)) {
+        const existing = merged.scheduledStructures || [];
+        const byDesc = new Map(existing.map(s => [s.description, s]));
+        for (const str of value as ScheduledStructure[]) {
+          const prev = byDesc.get(str.description);
+          byDesc.set(str.description, prev ? enrichObject(prev, str) : str);
+        }
+        merged.scheduledStructures = Array.from(byDesc.values());
+      } else if (key === 'additionalCoverages' && Array.isArray(value)) {
+        const existing = merged.additionalCoverages || [];
+        const byName = new Map(existing.map(c => [c.name, c]));
+        for (const cov of value as { name: string; limit?: string; deductible?: string }[]) {
+          const prev = byName.get(cov.name);
+          byName.set(cov.name, prev ? enrichObject(prev, cov) : cov);
+        }
+        merged.additionalCoverages = Array.from(byName.values());
+      } else if (key === 'endorsementDetails' && Array.isArray(value)) {
+        const existing = merged.endorsementDetails || [];
+        const byForm = new Map(existing.map(e => [e.formNumber, e]));
+        for (const end of value as EndorsementDetail[]) {
+          const prev = byForm.get(end.formNumber);
+          byForm.set(end.formNumber, prev ? enrichObject(prev, end) : end);
+        }
+        merged.endorsementDetails = Array.from(byForm.values());
+      } else if (key === 'endorsementsListed' && Array.isArray(value)) {
+        const existing = merged.endorsementsListed || [];
+        merged.endorsementsListed = [...new Set([...existing, ...value])];
+      } else if (!(merged as any)[key]) {
+        // For scalar fields, prefer first non-null value
+        (merged as any)[key] = value;
       }
     }
   }

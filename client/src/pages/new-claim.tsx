@@ -204,30 +204,117 @@ export default function NewClaim() {
       const merged = { ...prev };
       const pd = extracted.policyDetails || {};
 
+      // Basic claim info
       if (extracted.claimId && !merged.claimId) merged.claimId = extracted.claimId;
       if (extracted.policyholder && !merged.policyholder) merged.policyholder = extracted.policyholder;
+      if (extracted.policyholderSecondary && !merged.policyholderSecondary) merged.policyholderSecondary = extracted.policyholderSecondary;
+      if (extracted.contactPhone && !merged.contactPhone) merged.contactPhone = extracted.contactPhone;
+      if (extracted.contactEmail && !merged.contactEmail) merged.contactEmail = extracted.contactEmail;
       if (extracted.dateOfLoss && !merged.dateOfLoss) merged.dateOfLoss = extracted.dateOfLoss;
       if (extracted.riskLocation && !merged.riskLocation) merged.riskLocation = extracted.riskLocation;
       if (extracted.causeOfLoss && extracted.causeOfLoss !== 'Hail') merged.causeOfLoss = extracted.causeOfLoss;
       if (extracted.lossDescription && !merged.lossDescription) merged.lossDescription = extracted.lossDescription;
+      if (extracted.dwellingDamageDescription && !merged.dwellingDamageDescription) merged.dwellingDamageDescription = extracted.dwellingDamageDescription;
+      if (extracted.otherStructureDamageDescription && !merged.otherStructureDamageDescription) merged.otherStructureDamageDescription = extracted.otherStructureDamageDescription;
+      if (extracted.damageLocation && !merged.damageLocation) merged.damageLocation = extracted.damageLocation;
+
+      // Property details
+      if (extracted.yearBuilt && !merged.yearBuilt) merged.yearBuilt = extracted.yearBuilt;
+      if ((extracted.yearRoofInstall || pd.yearRoofInstall) && !merged.yearRoofInstall)
+        merged.yearRoofInstall = extracted.yearRoofInstall || pd.yearRoofInstall;
+      if (extracted.isWoodRoof !== undefined && merged.isWoodRoof === undefined) merged.isWoodRoof = extracted.isWoodRoof;
 
       // Policy details
       if ((extracted.policyNumber || pd.policyNumber) && !merged.policyNumber)
         merged.policyNumber = extracted.policyNumber || pd.policyNumber;
       if ((extracted.state || pd.state) && !merged.state)
         merged.state = extracted.state || pd.state;
-      if ((extracted.yearRoofInstall || pd.yearRoofInstall) && !merged.yearRoofInstall)
-        merged.yearRoofInstall = extracted.yearRoofInstall || pd.yearRoofInstall;
+      if (extracted.carrier && !merged.carrier) merged.carrier = extracted.carrier;
+      if (extracted.lineOfBusiness && !merged.lineOfBusiness) merged.lineOfBusiness = extracted.lineOfBusiness;
+      if (extracted.policyInceptionDate && !merged.policyInceptionDate) merged.policyInceptionDate = extracted.policyInceptionDate;
+
+      // Deductibles
+      if (extracted.policyDeductible && !merged.policyDeductible) merged.policyDeductible = extracted.policyDeductible;
       if ((extracted.windHailDeductible || pd.windHailDeductible) && !merged.windHailDeductible)
         merged.windHailDeductible = extracted.windHailDeductible || pd.windHailDeductible;
+      if (extracted.windHailDeductiblePercent && !merged.windHailDeductiblePercent) merged.windHailDeductiblePercent = extracted.windHailDeductiblePercent;
+
+      // Coverage limits
       if ((extracted.dwellingLimit || pd.dwellingLimit) && !merged.dwellingLimit)
         merged.dwellingLimit = extracted.dwellingLimit || pd.dwellingLimit;
+      if (extracted.otherStructuresLimit && !merged.otherStructuresLimit) merged.otherStructuresLimit = extracted.otherStructuresLimit;
+      if (extracted.personalPropertyLimit && !merged.personalPropertyLimit) merged.personalPropertyLimit = extracted.personalPropertyLimit;
+      if (extracted.lossOfUseLimit && !merged.lossOfUseLimit) merged.lossOfUseLimit = extracted.lossOfUseLimit;
+      if (extracted.liabilityLimit && !merged.liabilityLimit) merged.liabilityLimit = extracted.liabilityLimit;
+      if (extracted.medicalLimit && !merged.medicalLimit) merged.medicalLimit = extracted.medicalLimit;
+      if (extracted.unscheduledStructuresLimit && !merged.unscheduledStructuresLimit) merged.unscheduledStructuresLimit = extracted.unscheduledStructuresLimit;
 
-      // Merge endorsements
+      // Helper to enrich existing object with new data
+      const enrichObj = <T extends Record<string, any>>(existing: T, source: T): T => {
+        const result = { ...existing };
+        for (const [k, v] of Object.entries(source)) {
+          if (v !== null && v !== undefined && v !== '' && !result[k]) {
+            (result as any)[k] = v;
+          }
+        }
+        return result;
+      };
+
+      // Coverages array (merge and enrich existing entries)
+      if (extracted.coverages && extracted.coverages.length > 0) {
+        const byCode = new Map((merged.coverages || []).map(c => [c.code, c]));
+        for (const cov of extracted.coverages) {
+          const prev = byCode.get(cov.code);
+          byCode.set(cov.code, prev ? enrichObj(prev, cov) : cov);
+        }
+        merged.coverages = Array.from(byCode.values());
+      }
+
+      // Scheduled structures (merge and enrich by description)
+      if (extracted.scheduledStructures && extracted.scheduledStructures.length > 0) {
+        const byDesc = new Map((merged.scheduledStructures || []).map(s => [s.description, s]));
+        for (const str of extracted.scheduledStructures) {
+          const prev = byDesc.get(str.description);
+          byDesc.set(str.description, prev ? enrichObj(prev, str) : str);
+        }
+        merged.scheduledStructures = Array.from(byDesc.values());
+      }
+
+      // Additional coverages (merge and enrich by name)
+      if (extracted.additionalCoverages && extracted.additionalCoverages.length > 0) {
+        const byName = new Map((merged.additionalCoverages || []).map(c => [c.name, c]));
+        for (const cov of extracted.additionalCoverages) {
+          const prev = byName.get(cov.name);
+          byName.set(cov.name, prev ? enrichObj(prev, cov) : cov);
+        }
+        merged.additionalCoverages = Array.from(byName.values());
+      }
+
+      // Endorsement details (merge and enrich by formNumber)
+      if (extracted.endorsementDetails && extracted.endorsementDetails.length > 0) {
+        const byForm = new Map((merged.endorsementDetails || []).map(e => [e.formNumber, e]));
+        for (const end of extracted.endorsementDetails) {
+          const prev = byForm.get(end.formNumber);
+          byForm.set(end.formNumber, prev ? enrichObj(prev, end) : end);
+        }
+        merged.endorsementDetails = Array.from(byForm.values());
+      }
+
+      // Endorsements list
       const newEndorsements = extracted.endorsementsListed || pd.endorsementsListed || [];
       if (newEndorsements.length > 0) {
         merged.endorsementsListed = [...new Set([...(merged.endorsementsListed || []), ...newEndorsements])];
       }
+
+      // Third parties
+      if (extracted.mortgagee && !merged.mortgagee) merged.mortgagee = extracted.mortgagee;
+      if (extracted.producer && !merged.producer) merged.producer = extracted.producer;
+      if (extracted.producerPhone && !merged.producerPhone) merged.producerPhone = extracted.producerPhone;
+      if (extracted.producerEmail && !merged.producerEmail) merged.producerEmail = extracted.producerEmail;
+
+      // Reporting info
+      if (extracted.reportedBy && !merged.reportedBy) merged.reportedBy = extracted.reportedBy;
+      if (extracted.reportedDate && !merged.reportedDate) merged.reportedDate = extracted.reportedDate;
 
       return merged;
     });
@@ -400,7 +487,7 @@ export default function NewClaim() {
         if (d.document?.id) documentIds.push(d.document.id);
       });
 
-      // Create the claim
+      // Create the claim with all rich data
       const claim = await createClaim({
         claimId: claimData.claimId,
         policyholder: claimData.policyholder,
@@ -418,6 +505,44 @@ export default function NewClaim() {
         metadata: {
           documentIds,
           endorsementRecords,
+          // Rich policyholder data
+          policyholderSecondary: claimData.policyholderSecondary,
+          contactPhone: claimData.contactPhone,
+          contactEmail: claimData.contactEmail,
+          // Property details
+          yearBuilt: claimData.yearBuilt,
+          isWoodRoof: claimData.isWoodRoof,
+          // Damage descriptions
+          dwellingDamageDescription: claimData.dwellingDamageDescription,
+          otherStructureDamageDescription: claimData.otherStructureDamageDescription,
+          damageLocation: claimData.damageLocation,
+          // Policy info
+          carrier: claimData.carrier,
+          lineOfBusiness: claimData.lineOfBusiness,
+          policyInceptionDate: claimData.policyInceptionDate,
+          // Deductibles
+          policyDeductible: claimData.policyDeductible,
+          windHailDeductiblePercent: claimData.windHailDeductiblePercent,
+          // All coverage limits
+          otherStructuresLimit: claimData.otherStructuresLimit,
+          personalPropertyLimit: claimData.personalPropertyLimit,
+          lossOfUseLimit: claimData.lossOfUseLimit,
+          liabilityLimit: claimData.liabilityLimit,
+          medicalLimit: claimData.medicalLimit,
+          unscheduledStructuresLimit: claimData.unscheduledStructuresLimit,
+          // Detailed coverages
+          coverages: claimData.coverages,
+          scheduledStructures: claimData.scheduledStructures,
+          additionalCoverages: claimData.additionalCoverages,
+          endorsementDetails: claimData.endorsementDetails,
+          // Third parties
+          mortgagee: claimData.mortgagee,
+          producer: claimData.producer,
+          producerPhone: claimData.producerPhone,
+          producerEmail: claimData.producerEmail,
+          // Reporting
+          reportedBy: claimData.reportedBy,
+          reportedDate: claimData.reportedDate,
         },
       });
 
