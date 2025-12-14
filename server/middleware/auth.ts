@@ -57,6 +57,9 @@ passport.deserializeUser(async (id: string, done) => {
 export function setupAuth(app: Express): void {
   const PgSession = connectPgSimple(session);
   
+  // Determine if we're in production (HTTPS)
+  const isProduction = process.env.NODE_ENV === 'production';
+
   app.use(session({
     store: new PgSession({
       conString: process.env.DATABASE_URL,
@@ -67,10 +70,10 @@ export function setupAuth(app: Express): void {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true,
+      secure: isProduction, // Only require HTTPS in production
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000,
-      sameSite: 'none',
+      maxAge: 24 * 60 * 60 * 1000, // Default 24 hours, can be extended for "remember me"
+      sameSite: isProduction ? 'none' : 'lax', // Use 'lax' in development
     },
   }));
 
