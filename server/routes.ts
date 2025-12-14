@@ -64,6 +64,10 @@ import {
   associateDocumentWithClaim,
   getDocumentStats
 } from "./services/documents";
+import {
+  processDocument as processDocumentAI,
+  createClaimFromDocuments
+} from "./services/documentProcessor";
 
 // Configure multer for file uploads (memory storage for processing)
 const upload = multer({
@@ -1506,6 +1510,48 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Document not found' });
       }
       res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Process document with AI extraction
+  app.post('/api/documents/:id/process', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const extractedData = await processDocumentAI(req.params.id, req.organizationId!);
+      res.json({
+        extractedData,
+        processingStatus: 'completed'
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Create claim from uploaded documents
+  app.post('/api/claims/from-documents', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { documentIds, overrides } = req.body;
+
+      if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
+        return res.status(400).json({ error: 'documentIds array required' });
+      }
+
+      const claimId = await createClaimFromDocuments(
+        req.organizationId!,
+        documentIds,
+        overrides
+      );
+
+      // Get the created claim
+      const claim = await getClaim(claimId, req.organizationId!);
+      res.status(201).json(claim);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
