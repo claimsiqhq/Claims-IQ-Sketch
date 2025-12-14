@@ -92,8 +92,7 @@ export async function generateEstimateSuggestions(
     // Get line items for relevant categories
     const categoryArray = Array.from(relevantCategories);
     const result = await client.query(
-      `SELECT code, description, category_id, unit,
-              COALESCE(base_material_cost, 0) + COALESCE(base_labor_cost, 0) as base_price
+      `SELECT code, description, category_id, unit
        FROM line_items
        WHERE is_active = true
          AND (${categoryArray.map((_, i) => `category_id LIKE $${i + 1} || '%'`).join(' OR ')})
@@ -119,7 +118,7 @@ export async function generateEstimateSuggestions(
   }).join('\n');
 
   const lineItemList = availableLineItems.map(li =>
-    `${li.code}: ${li.description} (${li.unit}, ~$${parseFloat(li.base_price).toFixed(2)})`
+    `${li.code}: ${li.description} (${li.unit})`
   ).join('\n');
 
   const systemPrompt = `You are an expert insurance claims estimator specializing in property damage restoration.
@@ -198,16 +197,12 @@ Generate a comprehensive estimate with appropriate quantities. Be thorough but r
           description: lineItem.description,
           category: lineItem.category_id,
           unit: lineItem.unit,
-          unitPrice: parseFloat(lineItem.base_price),
         });
       }
     }
 
-    // Calculate total estimated cost
-    const totalEstimatedCost = validatedSuggestions.reduce(
-      (sum, item) => sum + (item.unitPrice || 0) * item.quantity,
-      0
-    );
+    // Total cost will be calculated when items are added to estimate with regional pricing
+    const totalEstimatedCost = 0;
 
     return {
       ...result,
@@ -304,7 +299,6 @@ export async function searchLineItemsByDescription(
     // Use PostgreSQL full-text search with ranking
     const result = await client.query(
       `SELECT code, description, category_id, unit,
-              COALESCE(base_material_cost, 0) + COALESCE(base_labor_cost, 0) as base_price,
               ts_rank(to_tsvector('english', description), plainto_tsquery('english', $1)) as rank
        FROM line_items
        WHERE is_active = true
@@ -317,8 +311,7 @@ export async function searchLineItemsByDescription(
     // If no full-text results, try ILIKE fallback
     if (result.rows.length === 0) {
       const fallbackResult = await client.query(
-        `SELECT code, description, category_id, unit,
-                COALESCE(base_material_cost, 0) + COALESCE(base_labor_cost, 0) as base_price
+        `SELECT code, description, category_id, unit
          FROM line_items
          WHERE is_active = true
            AND (description ILIKE $1 OR code ILIKE $1)
