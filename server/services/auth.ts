@@ -146,10 +146,11 @@ export async function seedAdminUser(): Promise<void> {
     }
 
     // Check if admin is already a member
+    const adminId = adminUser!.id;
     const membershipResult = await client.query(
       `SELECT id FROM organization_memberships
        WHERE user_id = $1 AND organization_id = $2`,
-      [adminUser.id, orgId]
+      [adminId, orgId]
     );
 
     if (membershipResult.rows.length === 0) {
@@ -157,7 +158,7 @@ export async function seedAdminUser(): Promise<void> {
       await client.query(
         `INSERT INTO organization_memberships (user_id, organization_id, role, status)
          VALUES ($1, $2, 'owner', 'active')`,
-        [adminUser.id, orgId]
+        [adminId, orgId]
       );
       console.log('Admin added to default organization');
     }
@@ -166,7 +167,7 @@ export async function seedAdminUser(): Promise<void> {
     await client.query(
       `UPDATE users SET current_organization_id = $1
        WHERE id = $2 AND current_organization_id IS NULL`,
-      [orgId, adminUser.id]
+      [orgId, adminId]
     );
   } finally {
     client.release();
