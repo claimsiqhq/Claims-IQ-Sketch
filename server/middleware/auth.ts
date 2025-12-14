@@ -3,7 +3,7 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import type { Express, Request, Response, NextFunction } from 'express';
-import { validateUser, findUserById, seedAdminUser, type AuthUser } from '../services/auth';
+import { validateUser, findUserById, type AuthUser } from '../services/auth';
 
 // Extend Express types for passport
 declare global {
@@ -85,9 +85,6 @@ export function setupAuth(app: Express): void {
 
   app.use(passport.initialize());
   app.use(passport.session());
-
-  // Seed admin user on startup
-  seedAdminUser().catch(console.error);
 }
 
 // Middleware to require authentication
