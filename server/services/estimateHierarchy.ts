@@ -434,9 +434,9 @@ export async function getZoneWithChildren(zoneId: string): Promise<ZoneWithChild
     const totalsResult = await client.query(
       `SELECT
         COUNT(*) as count,
-        COALESCE(SUM(subtotal + COALESCE(tax_amount, 0)), 0) as rcv_total,
+        COALESCE(SUM(rcv), 0) as rcv_total,
         COALESCE(SUM(acv), 0) as acv_total
-       FROM estimate_line_items WHERE zone_id = $1`,
+       FROM estimate_line_items WHERE zone_id = $1 AND is_approved = true`,
       [zoneId]
     );
 
@@ -738,6 +738,71 @@ export async function createSubroom(input: CreateSubroomInput): Promise<Estimate
   }
 }
 
+export async function getSubroom(subroomId: string): Promise<EstimateSubroom | null> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      'SELECT * FROM estimate_subrooms WHERE id = $1',
+      [subroomId]
+    );
+    return result.rows.length > 0 ? mapSubroomRow(result.rows[0]) : null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateSubroom(
+  subroomId: string,
+  updates: Partial<CreateSubroomInput>
+): Promise<EstimateSubroom | null> {
+  const client = await pool.connect();
+  try {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (updates.name !== undefined) {
+      setClauses.push(`name = $${paramIndex++}`);
+      values.push(updates.name);
+    }
+    if (updates.subroomType !== undefined) {
+      setClauses.push(`subroom_type = $${paramIndex++}`);
+      values.push(updates.subroomType);
+    }
+    if (updates.lengthFt !== undefined) {
+      setClauses.push(`length_ft = $${paramIndex++}`);
+      values.push(updates.lengthFt);
+    }
+    if (updates.widthFt !== undefined) {
+      setClauses.push(`width_ft = $${paramIndex++}`);
+      values.push(updates.widthFt);
+    }
+    if (updates.heightFt !== undefined) {
+      setClauses.push(`height_ft = $${paramIndex++}`);
+      values.push(updates.heightFt);
+    }
+    if (updates.isAddition !== undefined) {
+      setClauses.push(`is_addition = $${paramIndex++}`);
+      values.push(updates.isAddition);
+    }
+
+    if (setClauses.length === 0) {
+      return getSubroom(subroomId);
+    }
+
+    values.push(subroomId);
+
+    const result = await client.query(
+      `UPDATE estimate_subrooms SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    return result.rows.length > 0 ? mapSubroomRow(result.rows[0]) : null;
+  } finally {
+    client.release();
+  }
+}
+
 export async function deleteSubroom(subroomId: string): Promise<boolean> {
   const client = await pool.connect();
   try {
@@ -749,6 +814,233 @@ export async function deleteSubroom(subroomId: string): Promise<boolean> {
   } finally {
     client.release();
   }
+}
+
+// ============================================
+// DIMENSION-BASED LINE ITEM CALCULATION
+// ============================================
+
+export interface DimensionBasedLineItemInput {
+  zoneId: string;
+  lineItemCode: string;
+  dimensionKey: string; // 'sfFloor', 'sfWalls', etc.
+  unitPrice?: number; // optional, will use from line_items table if not provided
+  taxRate?: number;
+  depreciationPct?: number;
+  isRecoverable?: boolean;
+  notes?: string;
+}
+
+export async function addLineItemFromDimension(
+  input: DimensionBasedLineItemInput
+): Promise<{ quantity: number; subtotal: number; rcv: number; acv: number }> {
+  const client = await pool.connect();
+  try {
+    // Get the zone with dimensions
+    const zoneResult = await client.query(
+      `SELECT ez.id, ez.dimensions, ea.structure_id, es.estimate_id
+       FROM estimate_zones ez
+       JOIN estimate_areas ea ON ez.area_id = ea.id
+       JOIN estimate_structures es ON ea.structure_id = es.id
+       WHERE ez.id = $1`,
+      [input.zoneId]
+    );
+
+    if (zoneResult.rows.length === 0) {
+      throw new Error('Zone not found');
+    }
+
+    const zone = zoneResult.rows[0];
+    const estimateId = zone.estimate_id;
+    const dimensions = zone.dimensions || {};
+
+    // Get dimension value
+    const quantity = parseFloat(dimensions[input.dimensionKey] || '0');
+    if (quantity === 0) {
+      throw new Error(`Dimension ${input.dimensionKey} not found or is zero`);
+    }
+
+    // Get line item definition
+    const lineItemResult = await client.query(
+      'SELECT * FROM line_items WHERE code = $1 AND is_active = true',
+      [input.lineItemCode]
+    );
+
+    if (lineItemResult.rows.length === 0) {
+      throw new Error(`Line item ${input.lineItemCode} not found`);
+    }
+
+    const lineItem = lineItemResult.rows[0];
+    const unitPrice = input.unitPrice ?? parseFloat(lineItem.unit_price || '0');
+    const taxRate = input.taxRate ?? 0;
+    const depreciationPct = input.depreciationPct ?? 0;
+
+    // Calculate totals
+    const subtotal = quantity * unitPrice;
+    const taxAmount = subtotal * taxRate;
+    const rcv = subtotal + taxAmount;
+    const depreciationAmount = rcv * (depreciationPct / 100);
+    const acv = rcv - depreciationAmount;
+
+    // Get next sort order
+    const orderResult = await client.query(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM estimate_line_items WHERE estimate_id = $1',
+      [estimateId]
+    );
+
+    // Insert line item with calculated values
+    await client.query(
+      `INSERT INTO estimate_line_items (
+        estimate_id, zone_id, line_item_code, line_item_description,
+        category_id, quantity, unit, unit_price, subtotal,
+        tax_amount, rcv, depreciation_pct, depreciation_amount, is_recoverable, acv,
+        calc_ref, trade_code, notes, sort_order, source
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+      [
+        estimateId,
+        input.zoneId,
+        lineItem.code,
+        lineItem.description,
+        lineItem.category_id,
+        quantity,
+        lineItem.unit,
+        unitPrice,
+        subtotal,
+        taxAmount,
+        rcv,
+        depreciationPct,
+        depreciationAmount,
+        input.isRecoverable !== false,
+        acv,
+        input.dimensionKey,
+        lineItem.trade_code || null,
+        input.notes || null,
+        orderResult.rows[0].next_order,
+        'dimension_calc',
+      ]
+    );
+
+    return { quantity, subtotal, rcv, acv };
+  } finally {
+    client.release();
+  }
+}
+
+// ============================================
+// COVERAGE MANAGEMENT
+// ============================================
+
+export interface CreateCoverageInput {
+  estimateId: string;
+  coverageType: '0' | '1' | '2'; // 0=Dwelling, 1=Other Structures, 2=Contents
+  coverageName: string;
+  policyLimit?: number;
+  deductible?: number;
+}
+
+export async function createCoverage(input: CreateCoverageInput): Promise<any> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `INSERT INTO estimate_coverages (
+        estimate_id, coverage_type, coverage_name, policy_limit, deductible, sort_order
+      ) VALUES ($1, $2, $3, $4, $5,
+        (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM estimate_coverages WHERE estimate_id = $1)
+      )
+      RETURNING *`,
+      [
+        input.estimateId,
+        input.coverageType,
+        input.coverageName,
+        input.policyLimit || 0,
+        input.deductible || 0,
+      ]
+    );
+
+    return mapCoverageRow(result.rows[0]);
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCoverages(estimateId: string): Promise<any[]> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      'SELECT * FROM estimate_coverages WHERE estimate_id = $1 ORDER BY sort_order',
+      [estimateId]
+    );
+    return result.rows.map(mapCoverageRow);
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateLineItemCoverage(
+  lineItemId: string,
+  coverageId: string | null
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      'UPDATE estimate_line_items SET coverage_id = $1, updated_at = NOW() WHERE id = $2',
+      [coverageId, lineItemId]
+    );
+  } finally {
+    client.release();
+  }
+}
+
+export async function getLineItemsByCoverage(estimateId: string): Promise<Record<string, any[]>> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT eli.*, ec.coverage_name, ec.coverage_type
+       FROM estimate_line_items eli
+       LEFT JOIN estimate_coverages ec ON eli.coverage_id = ec.id
+       WHERE eli.estimate_id = $1
+       ORDER BY ec.sort_order, eli.sort_order`,
+      [estimateId]
+    );
+
+    // Group by coverage
+    const grouped: Record<string, any[]> = { unassigned: [] };
+    for (const row of result.rows) {
+      const key = row.coverage_id || 'unassigned';
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(row);
+    }
+
+    return grouped;
+  } finally {
+    client.release();
+  }
+}
+
+function mapCoverageRow(row: any): any {
+  return {
+    id: row.id,
+    estimateId: row.estimate_id,
+    coverageType: row.coverage_type,
+    coverageName: row.coverage_name,
+    policyLimit: parseFloat(row.policy_limit || '0'),
+    deductible: parseFloat(row.deductible || '0'),
+    lineItemTotal: parseFloat(row.line_item_total || '0'),
+    taxTotal: parseFloat(row.tax_total || '0'),
+    overheadTotal: parseFloat(row.overhead_total || '0'),
+    profitTotal: parseFloat(row.profit_total || '0'),
+    rcvTotal: parseFloat(row.rcv_total || '0'),
+    depreciationTotal: parseFloat(row.depreciation_total || '0'),
+    acvTotal: parseFloat(row.acv_total || '0'),
+    recoverableDepreciation: parseFloat(row.recoverable_depreciation || '0'),
+    nonRecoverableDepreciation: parseFloat(row.non_recoverable_depreciation || '0'),
+    netClaim: parseFloat(row.net_claim || '0'),
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 // ============================================
@@ -807,9 +1099,9 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
           const totalsResult = await client.query(
             `SELECT
               COUNT(*) as count,
-              COALESCE(SUM(subtotal + COALESCE(tax_amount, 0)), 0) as rcv_total,
+              COALESCE(SUM(rcv), 0) as rcv_total,
               COALESCE(SUM(acv), 0) as acv_total
-             FROM estimate_line_items WHERE zone_id = $1`,
+             FROM estimate_line_items WHERE zone_id = $1 AND is_approved = true`,
             [zone.id]
           );
 

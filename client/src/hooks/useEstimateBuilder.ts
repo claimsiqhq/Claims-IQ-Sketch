@@ -340,6 +340,134 @@ async function deleteLineItem(lineItemId: string): Promise<void> {
   }
 }
 
+// Dimension-based line item API
+export interface DimensionLineItemInput {
+  lineItemCode: string;
+  dimensionKey: string; // 'sfFloor', 'sfWalls', etc.
+  unitPrice?: number;
+  taxRate?: number;
+  depreciationPct?: number;
+  isRecoverable?: boolean;
+  notes?: string;
+}
+
+async function addLineItemFromDimension(
+  zoneId: string,
+  input: DimensionLineItemInput
+): Promise<{ quantity: number; subtotal: number; rcv: number; acv: number; zone: ZoneWithChildren }> {
+  const response = await fetch(`/api/zones/${zoneId}/line-items/from-dimension`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to add dimension-based line item');
+  }
+  return response.json();
+}
+
+// Subroom API
+export interface CreateSubroomInput {
+  name: string;
+  subroomType?: string;
+  lengthFt: number;
+  widthFt: number;
+  heightFt?: number;
+  isAddition?: boolean;
+}
+
+async function createSubroom(zoneId: string, input: CreateSubroomInput): Promise<EstimateSubroom> {
+  const response = await fetch(`/api/zones/${zoneId}/subrooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create subroom');
+  }
+  return response.json();
+}
+
+async function updateSubroom(subroomId: string, input: Partial<CreateSubroomInput>): Promise<EstimateSubroom> {
+  const response = await fetch(`/api/subrooms/${subroomId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update subroom');
+  }
+  return response.json();
+}
+
+async function deleteSubroom(subroomId: string): Promise<void> {
+  const response = await fetch(`/api/subrooms/${subroomId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete subroom');
+  }
+}
+
+// Coverage API
+export interface Coverage {
+  id: string;
+  estimateId: string;
+  coverageType: '0' | '1' | '2';
+  coverageName: string;
+  policyLimit: number;
+  deductible: number;
+  rcvTotal: number;
+  acvTotal: number;
+  depreciationTotal: number;
+}
+
+export interface CreateCoverageInput {
+  coverageType: '0' | '1' | '2';
+  coverageName: string;
+  policyLimit?: number;
+  deductible?: number;
+}
+
+async function fetchCoverages(estimateId: string): Promise<Coverage[]> {
+  const response = await fetch(`/api/estimates/${estimateId}/coverages`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch coverages');
+  }
+  return response.json();
+}
+
+async function createCoverage(estimateId: string, input: CreateCoverageInput): Promise<Coverage> {
+  const response = await fetch(`/api/estimates/${estimateId}/coverages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create coverage');
+  }
+  return response.json();
+}
+
+async function updateLineItemCoverage(lineItemId: string, coverageId: string | null): Promise<void> {
+  const response = await fetch(`/api/line-items/${lineItemId}/coverage`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ coverageId }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update line item coverage');
+  }
+}
+
+async function fetchLineItemsByCoverage(estimateId: string): Promise<Record<string, any[]>> {
+  const response = await fetch(`/api/estimates/${estimateId}/line-items/by-coverage`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch line items by coverage');
+  }
+  return response.json();
+}
+
 // ============================================
 // MAIN HOOK
 // ============================================
@@ -513,6 +641,76 @@ export function useEstimateBuilder(estimateId: string) {
     },
   });
 
+  // Dimension-based line item mutation
+  const addLineItemFromDimensionMutation = useMutation({
+    mutationFn: ({ zoneId, input }: { zoneId: string; input: DimensionLineItemInput }) =>
+      addLineItemFromDimension(zoneId, input),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['zone', variables.zoneId] });
+      queryClient.invalidateQueries({ queryKey: ['estimate-hierarchy', estimateId] });
+    },
+  });
+
+  // Subroom mutations
+  const createSubroomMutation = useMutation({
+    mutationFn: ({ zoneId, input }: { zoneId: string; input: CreateSubroomInput }) =>
+      createSubroom(zoneId, input),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['zone', variables.zoneId] });
+      queryClient.invalidateQueries({ queryKey: ['estimate-hierarchy', estimateId] });
+    },
+  });
+
+  const updateSubroomMutation = useMutation({
+    mutationFn: ({ subroomId, input }: { subroomId: string; input: Partial<CreateSubroomInput> }) =>
+      updateSubroom(subroomId, input),
+    onSuccess: () => {
+      if (activeZoneId) {
+        queryClient.invalidateQueries({ queryKey: ['zone', activeZoneId] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['estimate-hierarchy', estimateId] });
+    },
+  });
+
+  const deleteSubroomMutation = useMutation({
+    mutationFn: deleteSubroom,
+    onSuccess: () => {
+      if (activeZoneId) {
+        queryClient.invalidateQueries({ queryKey: ['zone', activeZoneId] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['estimate-hierarchy', estimateId] });
+    },
+  });
+
+  // Coverage mutations
+  const coveragesQuery = useQuery({
+    queryKey: ['coverages', estimateId],
+    queryFn: () => fetchCoverages(estimateId),
+    enabled: !!estimateId,
+  });
+
+  const createCoverageMutation = useMutation({
+    mutationFn: (input: CreateCoverageInput) => createCoverage(estimateId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['coverages', estimateId] });
+    },
+  });
+
+  const updateLineItemCoverageMutation = useMutation({
+    mutationFn: ({ lineItemId, coverageId }: { lineItemId: string; coverageId: string | null }) =>
+      updateLineItemCoverage(lineItemId, coverageId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['coverages', estimateId] });
+      queryClient.invalidateQueries({ queryKey: ['estimate-hierarchy', estimateId] });
+    },
+  });
+
+  const lineItemsByCoverageQuery = useQuery({
+    queryKey: ['line-items-by-coverage', estimateId],
+    queryFn: () => fetchLineItemsByCoverage(estimateId),
+    enabled: !!estimateId,
+  });
+
   // Computed values
   const totalZones = useMemo(() => {
     if (!hierarchyQuery.data) return 0;
@@ -606,6 +804,25 @@ export function useEstimateBuilder(estimateId: string) {
       updateLineItemMutation.mutateAsync({ lineItemId, updates }),
     deleteLineItem: deleteLineItemMutation.mutateAsync,
 
+    // Dimension-based line item actions
+    addLineItemFromDimension: (zoneId: string, input: DimensionLineItemInput) =>
+      addLineItemFromDimensionMutation.mutateAsync({ zoneId, input }),
+
+    // Subroom actions
+    createSubroom: (zoneId: string, input: CreateSubroomInput) =>
+      createSubroomMutation.mutateAsync({ zoneId, input }),
+    updateSubroom: (subroomId: string, input: Partial<CreateSubroomInput>) =>
+      updateSubroomMutation.mutateAsync({ subroomId, input }),
+    deleteSubroom: deleteSubroomMutation.mutateAsync,
+
+    // Coverage actions
+    coverages: coveragesQuery.data || [],
+    lineItemsByCoverage: lineItemsByCoverageQuery.data || {},
+    createCoverage: createCoverageMutation.mutateAsync,
+    updateLineItemCoverage: (lineItemId: string, coverageId: string | null) =>
+      updateLineItemCoverageMutation.mutateAsync({ lineItemId, coverageId }),
+    refetchCoverages: coveragesQuery.refetch,
+
     // Loading states
     isInitializing: initializeMutation.isPending,
     isRecalculating: recalculateMutation.isPending,
@@ -614,7 +831,10 @@ export function useEstimateBuilder(estimateId: string) {
               createAreaMutation.isPending ||
               createZoneMutation.isPending ||
               updateZoneMutation.isPending ||
-              addLineItemMutation.isPending,
+              addLineItemMutation.isPending ||
+              addLineItemFromDimensionMutation.isPending ||
+              createSubroomMutation.isPending ||
+              createCoverageMutation.isPending,
 
     // Refetch
     refetch: hierarchyQuery.refetch,

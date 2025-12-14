@@ -88,10 +88,17 @@ import {
   updateMissingWall,
   deleteMissingWall,
   createSubroom,
+  getSubroom,
+  updateSubroom,
   deleteSubroom,
   getEstimateHierarchy,
   initializeEstimateHierarchy,
   addLineItemToZone,
+  addLineItemFromDimension,
+  createCoverage,
+  getCoverages,
+  updateLineItemCoverage,
+  getLineItemsByCoverage,
 } from "./services/estimateHierarchy";
 
 // Configure multer for file uploads (memory storage for processing)
@@ -1608,6 +1615,140 @@ export async function registerRoutes(
       } finally {
         client.release();
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Add line item from zone dimension (auto-calculate quantity)
+  app.post('/api/zones/:id/line-items/from-dimension', async (req, res) => {
+    try {
+      const { lineItemCode, dimensionKey, unitPrice, taxRate, depreciationPct, isRecoverable, notes } = req.body;
+      if (!lineItemCode || !dimensionKey) {
+        return res.status(400).json({ error: 'lineItemCode and dimensionKey required' });
+      }
+      const result = await addLineItemFromDimension({
+        zoneId: req.params.id,
+        lineItemCode,
+        dimensionKey,
+        unitPrice,
+        taxRate,
+        depreciationPct,
+        isRecoverable,
+        notes,
+      });
+      const zone = await getZoneWithChildren(req.params.id);
+      res.status(201).json({ ...result, zone });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // ============================================
+  // SUBROOM ROUTES
+  // ============================================
+
+  // Get subroom
+  app.get('/api/subrooms/:id', async (req, res) => {
+    try {
+      const subroom = await getSubroom(req.params.id);
+      if (!subroom) {
+        return res.status(404).json({ error: 'Subroom not found' });
+      }
+      res.json(subroom);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update subroom
+  app.put('/api/subrooms/:id', async (req, res) => {
+    try {
+      const subroom = await updateSubroom(req.params.id, req.body);
+      if (!subroom) {
+        return res.status(404).json({ error: 'Subroom not found' });
+      }
+      res.json(subroom);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete subroom
+  app.delete('/api/subrooms/:id', async (req, res) => {
+    try {
+      const success = await deleteSubroom(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Subroom not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // COVERAGE ROUTES
+  // ============================================
+
+  // Get coverages for an estimate
+  app.get('/api/estimates/:id/coverages', async (req, res) => {
+    try {
+      const coverages = await getCoverages(req.params.id);
+      res.json(coverages);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Create coverage for an estimate
+  app.post('/api/estimates/:id/coverages', async (req, res) => {
+    try {
+      const { coverageType, coverageName, policyLimit, deductible } = req.body;
+      if (!coverageType || !coverageName) {
+        return res.status(400).json({ error: 'coverageType and coverageName required' });
+      }
+      const coverage = await createCoverage({
+        estimateId: req.params.id,
+        coverageType,
+        coverageName,
+        policyLimit,
+        deductible,
+      });
+      res.status(201).json(coverage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get line items grouped by coverage
+  app.get('/api/estimates/:id/line-items/by-coverage', async (req, res) => {
+    try {
+      const grouped = await getLineItemsByCoverage(req.params.id);
+      res.json(grouped);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update line item coverage assignment
+  app.put('/api/line-items/:id/coverage', async (req, res) => {
+    try {
+      const { coverageId } = req.body;
+      await updateLineItemCoverage(req.params.id, coverageId || null);
+      res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
