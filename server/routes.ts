@@ -286,6 +286,66 @@ export async function registerRoutes(
     }
   });
 
+  // Get user preferences
+  app.get('/api/users/preferences', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'SELECT preferences FROM users WHERE id = $1',
+          [userId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        res.json(result.rows[0].preferences || {});
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update user preferences
+  app.put('/api/users/preferences', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const preferences = req.body;
+      
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        // Merge new preferences with existing
+        const existingResult = await client.query(
+          'SELECT preferences FROM users WHERE id = $1',
+          [userId]
+        );
+        if (existingResult.rows.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const existingPrefs = existingResult.rows[0].preferences || {};
+        const mergedPrefs = { ...existingPrefs, ...preferences };
+        
+        await client.query(
+          'UPDATE users SET preferences = $1, updated_at = NOW() WHERE id = $2',
+          [JSON.stringify(mergedPrefs), userId]
+        );
+        
+        res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // LINE ITEMS ROUTES
   // ============================================

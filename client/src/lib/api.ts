@@ -53,6 +53,60 @@ export async function checkAuth(): Promise<AuthResponse> {
 }
 
 // ============================================
+// USER PREFERENCES API
+// ============================================
+
+export interface UserPreferences {
+  estimateDefaults?: {
+    laborMultiplier: number;
+    materialMultiplier: number;
+    overheadPercent: number;
+    profitPercent: number;
+    defaultRegion: string;
+    includeTax: boolean;
+    taxRate: number;
+    roundToNearest: string;
+  };
+  notifications?: {
+    emailEnabled: boolean;
+    smsEnabled: boolean;
+    emailNewClaim: boolean;
+    emailClaimApproved: boolean;
+    emailClaimDenied: boolean;
+    smsUrgentAlerts: boolean;
+    digestFrequency: string;
+  };
+  carrier?: {
+    defaultCarrier: string;
+    approvalThreshold: number;
+  };
+}
+
+export async function getUserPreferences(): Promise<UserPreferences> {
+  const response = await fetch(`${API_BASE}/users/preferences`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch user preferences');
+  }
+  return response.json();
+}
+
+export async function saveUserPreferences(preferences: Partial<UserPreferences>): Promise<{ preferences: UserPreferences; message: string }> {
+  const response = await fetch(`${API_BASE}/users/preferences`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preferences),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to save preferences');
+  }
+  return response.json();
+}
+
+// ============================================
 // TYPES
 // ============================================
 

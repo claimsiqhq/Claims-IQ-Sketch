@@ -54,6 +54,9 @@ export const users = pgTable("users", {
   // Current active organization (for users with multiple org memberships)
   currentOrganizationId: uuid("current_organization_id"),
 
+  // User preferences (estimate defaults, notifications, carrier settings)
+  preferences: jsonb("preferences").default(sql`'{}'::jsonb`),
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
