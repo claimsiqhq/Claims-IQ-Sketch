@@ -267,6 +267,10 @@ export const documents = pgTable("documents", {
   // Extracted data (from AI processing)
   extractedData: jsonb("extracted_data").default(sql`'{}'::jsonb`),
   processingStatus: varchar("processing_status", { length: 30 }).default("pending"), // pending, processing, completed, failed
+  
+  // Full text extraction for document search and display
+  fullText: text("full_text"),
+  pageTexts: jsonb("page_texts").default(sql`'[]'::jsonb`), // Array of text per page
 
   // Metadata
   description: text("description"),

@@ -124,6 +124,15 @@ export interface ExtractedClaimData {
 
   // Raw text (for reference)
   rawText?: string;
+  
+  // Full text extraction fields
+  pageTexts?: string[];
+  fullText?: string;
+}
+
+// Extended result from single page extraction
+interface PageExtractionResult extends ExtractedClaimData {
+  pageText?: string;
 }
 
 /**
@@ -180,12 +189,21 @@ export async function processDocument(
         }
       }
 
-      // Update document with extracted data
+      // Update document with extracted data including full text
       await client.query(
         `UPDATE documents
-         SET extracted_data = $1, processing_status = 'completed', updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify(extractedData), documentId]
+         SET extracted_data = $1, 
+             full_text = $2,
+             page_texts = $3,
+             processing_status = 'completed', 
+             updated_at = NOW()
+         WHERE id = $4`,
+        [
+          JSON.stringify(extractedData), 
+          extractedData.fullText || null,
+          JSON.stringify(extractedData.pageTexts || []),
+          documentId
+        ]
       );
 
       return extractedData;
@@ -253,13 +271,14 @@ function cleanupTempImages(imagePaths: string[]): void {
 
 /**
  * Extract data from a single image using Vision API
+ * Also extracts the complete page text for full document storage
  */
 async function extractFromSingleImage(
   imagePath: string,
   documentType: string,
   pageNum: number,
   totalPages: number
-): Promise<ExtractedClaimData> {
+): Promise<PageExtractionResult> {
   const fileBuffer = fs.readFileSync(imagePath);
   const base64 = fileBuffer.toString('base64');
 
@@ -270,7 +289,7 @@ async function extractFromSingleImage(
     messages: [
       {
         role: 'system',
-        content: systemPrompt
+        content: systemPrompt + `\n\nADDITIONALLY: Include a "pageText" field in your JSON response containing the complete verbatim text from this page, preserving the original layout as much as possible.`
       },
       {
         role: 'user',
@@ -284,12 +303,12 @@ async function extractFromSingleImage(
           },
           {
             type: 'text',
-            text: `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information from this page. Return ONLY valid JSON with extracted fields.`
+            text: `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.`
           }
         ]
       }
     ],
-    max_tokens: 2000,
+    max_tokens: 4000,
     response_format: { type: 'json_object' }
   });
 
@@ -298,11 +317,12 @@ async function extractFromSingleImage(
     return {};
   }
 
-  return JSON.parse(content) as ExtractedClaimData;
+  return JSON.parse(content) as PageExtractionResult;
 }
 
 /**
  * Extract data from a PDF document by converting to images first
+ * Collects both structured data and full page text from each page
  */
 async function extractFromPDF(
   filePath: string,
@@ -320,7 +340,9 @@ async function extractFromPDF(
 
     console.log(`Processing ${imagePaths.length} page(s) with Vision API`);
 
-    const pageResults: ExtractedClaimData[] = [];
+    const pageResults: PageExtractionResult[] = [];
+    const pageTexts: string[] = [];
+    
     for (let i = 0; i < imagePaths.length; i++) {
       try {
         const pageData = await extractFromSingleImage(
@@ -330,13 +352,24 @@ async function extractFromPDF(
           imagePaths.length
         );
         pageResults.push(pageData);
+        
+        // Collect page text if available
+        if (pageData.pageText) {
+          pageTexts.push(pageData.pageText);
+        }
       } catch (pageError) {
         console.error(`Error processing page ${i + 1}:`, pageError);
+        pageTexts.push(`[Error extracting page ${i + 1}]`);
       }
     }
 
     const merged = mergeExtractedData(...pageResults);
     merged.rawText = `Successfully extracted from ${pageResults.length} page(s)`;
+    
+    // Add full text extraction results
+    merged.pageTexts = pageTexts;
+    merged.fullText = pageTexts.join('\n\n--- Page Break ---\n\n');
+    
     return merged;
 
   } catch (error) {
@@ -349,6 +382,7 @@ async function extractFromPDF(
 
 /**
  * Extract data from an image document
+ * Also extracts the complete page text for full document storage
  */
 async function extractFromImage(
   filePath: string,
@@ -366,7 +400,7 @@ async function extractFromImage(
       messages: [
         {
           role: 'system',
-          content: systemPrompt
+          content: systemPrompt + `\n\nADDITIONALLY: Include a "pageText" field in your JSON response containing the complete verbatim text from this document, preserving the original layout as much as possible.`
         },
         {
           role: 'user',
@@ -380,12 +414,12 @@ async function extractFromImage(
             },
             {
               type: 'text',
-              text: `Extract all relevant information from this ${documentType} document. Return ONLY valid JSON.`
+              text: `Extract all relevant information AND transcribe the complete text from this ${documentType} document. Return ONLY valid JSON with extracted fields and "pageText" containing the full document text.`
             }
           ]
         }
       ],
-      max_tokens: 2000,
+      max_tokens: 4000,
       response_format: { type: 'json_object' }
     });
 
@@ -394,7 +428,15 @@ async function extractFromImage(
       return { rawText: 'No content extracted' };
     }
 
-    return JSON.parse(content) as ExtractedClaimData;
+    const result = JSON.parse(content) as PageExtractionResult;
+    
+    // Set full text fields for single image documents
+    if (result.pageText) {
+      result.pageTexts = [result.pageText];
+      result.fullText = result.pageText;
+    }
+    
+    return result;
 
   } catch (error) {
     console.error('Image extraction error:', error);
