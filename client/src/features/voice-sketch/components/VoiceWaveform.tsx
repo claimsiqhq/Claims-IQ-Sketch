@@ -132,41 +132,40 @@ export function VoiceWaveform({
   return (
     <div
       className={cn(
-        'rounded-lg border bg-card p-4 flex flex-col items-center gap-3',
+        'rounded-lg border bg-card px-3 py-2 flex items-center gap-3',
         className
       )}
     >
-      {/* Status Label */}
-      <div className={cn('flex items-center gap-2 text-sm font-medium', status.className)}>
-        <StatusIcon className={cn('h-4 w-4', isSpeaking && 'animate-pulse')} />
-        <span>{status.text}</span>
-      </div>
-
-      {/* Waveform Canvas */}
-      <canvas
-        ref={canvasRef}
-        className="w-full h-16"
-        style={{ width: '100%', height: '64px' }}
-      />
-
-      {/* Visual indicator ring */}
+      {/* Visual indicator */}
       <div
         className={cn(
-          'w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300',
+          'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-300',
           !isConnected && 'bg-muted',
-          isConnected && isListening && 'bg-green-100 ring-2 ring-green-400 ring-offset-2',
-          isConnected && isSpeaking && 'bg-primary/10 ring-2 ring-primary ring-offset-2',
+          isConnected && isListening && 'bg-green-100 ring-2 ring-green-400',
+          isConnected && isSpeaking && 'bg-primary/10 ring-2 ring-primary',
           isConnected && !isListening && !isSpeaking && 'bg-muted'
         )}
       >
         <StatusIcon
           className={cn(
-            'h-6 w-6 transition-colors',
+            'h-4 w-4 transition-colors',
             !isConnected && 'text-muted-foreground',
             isConnected && isListening && 'text-green-600',
             isConnected && isSpeaking && 'text-primary'
           )}
         />
+      </div>
+
+      {/* Waveform Canvas */}
+      <canvas
+        ref={canvasRef}
+        className="flex-1 h-8"
+        style={{ height: '32px' }}
+      />
+
+      {/* Status Label */}
+      <div className={cn('flex items-center gap-1 text-xs font-medium flex-shrink-0', status.className)}>
+        <span>{status.text}</span>
       </div>
     </div>
   );
