@@ -139,25 +139,21 @@ export function VoiceSketchController({
         </Alert>
       )}
 
-      {/* Main Content - scrollable on mobile */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-auto">
+      {/* Voice Waveform - compact bar */}
+      <VoiceWaveform
+        isConnected={isConnected}
+        isListening={isListening}
+        isSpeaking={isSpeaking}
+        className="mx-4 mt-2"
+      />
+
+      {/* Main Content */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 min-h-0">
         {/* Left Column: Room Preview - takes 2/3 of space */}
-        <div className="flex flex-col gap-4 min-h-[400px] lg:min-h-0 lg:col-span-2">
-          {/* Voice Waveform */}
-          <VoiceWaveform
-            isConnected={isConnected}
-            isListening={isListening}
-            isSpeaking={isSpeaking}
-          />
-
-          {/* Room Preview Canvas */}
-          <div className="flex-1 min-h-0">
-            <RoomPreview room={currentRoom} />
-          </div>
-
-          {/* Last Tool Call Feedback */}
+        <div className="lg:col-span-2 flex flex-col min-h-[300px] lg:min-h-0">
+          <RoomPreview room={currentRoom} className="flex-1" />
           {lastToolCall && (
-            <div className="bg-secondary/50 rounded-lg p-3 text-sm">
+            <div className="bg-secondary/50 rounded-lg p-2 text-sm mt-2">
               <span className="font-medium text-secondary-foreground">
                 {lastToolCall.name}:
               </span>{' '}
@@ -166,29 +162,24 @@ export function VoiceSketchController({
           )}
         </div>
 
-        {/* Right Column: Command History & Room Summary */}
-        <div className="flex flex-col gap-4 min-h-0">
-          {/* Command History */}
-          <div className="flex-1 min-h-0">
-            <CommandHistory />
-          </div>
-
-          {/* Confirmed Rooms Summary */}
+        {/* Right Column: Command History */}
+        <div className="flex flex-col min-h-[200px] lg:min-h-0">
+          <CommandHistory className="flex-1" />
           {rooms.length > 0 && (
-            <div className="bg-muted rounded-lg p-4">
-              <h3 className="font-medium text-sm mb-2">
-                Confirmed Rooms ({rooms.length})
+            <div className="bg-muted rounded-lg p-3 mt-2">
+              <h3 className="font-medium text-xs mb-1">
+                Confirmed ({rooms.length})
               </h3>
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {rooms.map((room) => (
                   <div
                     key={room.id}
-                    className="text-sm text-muted-foreground flex justify-between"
+                    className="text-xs text-muted-foreground flex justify-between"
                   >
-                    <span className="capitalize">
+                    <span className="capitalize truncate">
                       {room.name.replace(/_/g, ' ')}
                     </span>
-                    <span>
+                    <span className="flex-shrink-0 ml-2">
                       {room.width_ft}' × {room.length_ft}'
                     </span>
                   </div>
@@ -198,7 +189,6 @@ export function VoiceSketchController({
           )}
         </div>
       </div>
-
     </div>
   );
 }
