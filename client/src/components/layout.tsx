@@ -86,11 +86,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="cursor-pointer">
-                  <User className="mr-2 h-4 w-4" />
-                  <span>Profile & Settings</span>
-                </Link>
+              <DropdownMenuItem
+                className="cursor-pointer"
+                onClick={() => setLocation("/settings")}
+              >
+                <User className="mr-2 h-4 w-4" />
+                <span>Profile & Settings</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -136,11 +137,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/settings" className="cursor-pointer">
-                    <User className="mr-2 h-4 w-4" />
-                    <span>Profile & Settings</span>
-                  </Link>
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => setLocation("/settings")}
+                >
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile & Settings</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
