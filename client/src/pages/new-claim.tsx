@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Upload,
   FileText,
@@ -19,24 +20,30 @@ import {
   Loader2,
   AlertCircle,
   FileCheck,
-  ArrowRight
+  ArrowRight,
+  ArrowLeft,
+  Plus,
+  Eye
 } from "lucide-react";
 import { uploadDocument, processDocument, createClaim, type Document } from "@/lib/api";
 
-interface UploadedFile {
+// Step types for the wizard
+type WizardStep = 'fnol' | 'policy' | 'endorsements' | 'review';
+
+interface UploadedDocument {
   file: File;
   type: 'fnol' | 'policy' | 'endorsement';
-  status: 'pending' | 'uploading' | 'uploaded' | 'error';
-  progress: number;
+  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error';
   document?: Document;
+  extractedData?: ExtractedData;
   error?: string;
 }
 
-// Updated to match new FNOL JSON format
+// Extracted data from documents
 interface ExtractedData {
   claimId?: string;
   policyholder?: string;
-  dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
+  dateOfLoss?: string;
   riskLocation?: string;
   causeOfLoss?: string;
   lossDescription?: string;
@@ -46,266 +53,489 @@ interface ExtractedData {
   windHailDeductible?: string;
   dwellingLimit?: string;
   endorsementsListed?: string[];
+  policyDetails?: {
+    policyNumber?: string;
+    state?: string;
+    yearRoofInstall?: string;
+    windHailDeductible?: string;
+    dwellingLimit?: string;
+    endorsementsListed?: string[];
+  };
+}
+
+// Endorsement record for database
+interface EndorsementRecord {
+  formNumber: string;
+  documentTitle: string;
+  description?: string;
+  documentId?: string;
+  fileName?: string;
 }
 
 export default function NewClaim() {
   const [, setLocation] = useLocation();
-  const [step, setStep] = useState<'upload' | 'review' | 'creating'>('upload');
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [extractedData, setExtractedData] = useState<ExtractedData>({});
+  const [currentStep, setCurrentStep] = useState<WizardStep>('fnol');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Handle file drop
-  const handleDrop = useCallback((e: React.DragEvent, type: 'fnol' | 'policy' | 'endorsement') => {
-    e.preventDefault();
-    const droppedFiles = Array.from(e.dataTransfer.files).filter(
-      f => f.type === 'application/pdf' || f.type.startsWith('image/')
-    );
+  // Document state for each step
+  const [fnolDoc, setFnolDoc] = useState<UploadedDocument | null>(null);
+  const [policyDoc, setPolicyDoc] = useState<UploadedDocument | null>(null);
+  const [endorsementDocs, setEndorsementDocs] = useState<UploadedDocument[]>([]);
 
-    const newFiles: UploadedFile[] = droppedFiles.map(file => ({
+  // Merged extracted data from all documents
+  const [claimData, setClaimData] = useState<ExtractedData>({
+    causeOfLoss: 'Hail',
+    endorsementsListed: [],
+  });
+
+  // Endorsement records to be created
+  const [endorsementRecords, setEndorsementRecords] = useState<EndorsementRecord[]>([]);
+
+  // Creating claim state
+  const [isCreating, setIsCreating] = useState(false);
+
+  const steps: { key: WizardStep; label: string; icon: React.ElementType }[] = [
+    { key: 'fnol', label: 'FNOL Report', icon: FileText },
+    { key: 'policy', label: 'HO Policy', icon: Shield },
+    { key: 'endorsements', label: 'Endorsements', icon: FilePlus },
+    { key: 'review', label: 'Review & Create', icon: CheckCircle2 },
+  ];
+
+  const currentStepIndex = steps.findIndex(s => s.key === currentStep);
+
+  // Upload and process a single document
+  const uploadAndProcessDocument = async (
+    file: File,
+    type: 'fnol' | 'policy' | 'endorsement'
+  ): Promise<UploadedDocument> => {
+    const uploadedDoc: UploadedDocument = {
       file,
       type,
-      status: 'pending',
-      progress: 0
-    }));
-
-    setFiles(prev => [...prev, ...newFiles]);
-  }, []);
-
-  // Handle file input
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'fnol' | 'policy' | 'endorsement') => {
-    if (!e.target.files) return;
-
-    const selectedFiles = Array.from(e.target.files);
-    const newFiles: UploadedFile[] = selectedFiles.map(file => ({
-      file,
-      type,
-      status: 'pending',
-      progress: 0
-    }));
-
-    setFiles(prev => [...prev, ...newFiles]);
-    e.target.value = ''; // Reset input
-  };
-
-  // Remove file
-  const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Upload all files and process with Vision AI
-  const handleUploadAndProcess = async () => {
-    if (files.length === 0) {
-      setError('Please add at least one document');
-      return;
-    }
-
-    setIsProcessing(true);
-    setError(null);
+      status: 'uploading',
+    };
 
     try {
-      // Upload each file
-      const uploadedDocs: Document[] = [];
+      // Upload the document
+      const doc = await uploadDocument(file, {
+        type,
+        name: file.name,
+      });
+      uploadedDoc.document = doc;
+      uploadedDoc.status = 'processing';
 
-      for (let i = 0; i < files.length; i++) {
-        const uploadFile = files[i];
-
-        // Update status to uploading
-        setFiles(prev => prev.map((f, idx) =>
-          idx === i ? { ...f, status: 'uploading', progress: 30 } : f
-        ));
-
-        try {
-          const doc = await uploadDocument(uploadFile.file, {
-            type: uploadFile.type,
-            name: uploadFile.file.name,
-          });
-
-          // Update progress - now processing with AI
-          setFiles(prev => prev.map((f, idx) =>
-            idx === i ? { ...f, status: 'uploading', progress: 60, document: doc } : f
-          ));
-
-          // Process document with Vision AI
-          try {
-            const processResult = await processDocument(doc.id);
-            doc.extractedData = processResult.extractedData;
-            doc.processingStatus = processResult.processingStatus;
-          } catch (processErr) {
-            console.warn('AI extraction failed for', doc.name, processErr);
-          }
-
-          uploadedDocs.push(doc);
-
-          // Update status to uploaded
-          setFiles(prev => prev.map((f, idx) =>
-            idx === i ? { ...f, status: 'uploaded', progress: 100, document: doc } : f
-          ));
-        } catch (err) {
-          setFiles(prev => prev.map((f, idx) =>
-            idx === i ? { ...f, status: 'error', error: (err as Error).message } : f
-          ));
-        }
+      // Process with AI
+      try {
+        const processResult = await processDocument(doc.id);
+        uploadedDoc.extractedData = processResult.extractedData as ExtractedData;
+        uploadedDoc.status = 'completed';
+      } catch (processErr) {
+        console.warn('AI extraction failed for', doc.name, processErr);
+        uploadedDoc.status = 'completed'; // Still mark as completed, just no extraction
       }
 
-      // Merge extracted data from all documents - using new FNOL format
-      const mergedData: ExtractedData = {
-        claimId: '',
-        policyholder: '',
-        dateOfLoss: '',
-        riskLocation: '',
-        causeOfLoss: 'Hail',
-        lossDescription: '',
-        policyNumber: '',
-        state: '',
-        yearRoofInstall: '',
-        windHailDeductible: '',
-        dwellingLimit: '',
-        endorsementsListed: [],
-      };
+      return uploadedDoc;
+    } catch (err) {
+      uploadedDoc.status = 'error';
+      uploadedDoc.error = (err as Error).message;
+      throw err;
+    }
+  };
 
-      // Populate from extracted data (prefer non-empty values)
-      for (const doc of uploadedDocs) {
-        if (doc.extractedData) {
-          const ed = doc.extractedData;
-          // Map new field names
-          if (ed.claimId && !mergedData.claimId) mergedData.claimId = ed.claimId;
-          if (ed.policyholder && !mergedData.policyholder) mergedData.policyholder = ed.policyholder;
-          if (ed.dateOfLoss && !mergedData.dateOfLoss) mergedData.dateOfLoss = ed.dateOfLoss;
-          if (ed.riskLocation && !mergedData.riskLocation) mergedData.riskLocation = ed.riskLocation;
-          if (ed.causeOfLoss && !mergedData.causeOfLoss) mergedData.causeOfLoss = ed.causeOfLoss;
-          if (ed.lossDescription && !mergedData.lossDescription) mergedData.lossDescription = ed.lossDescription;
+  // Merge extracted data into claim data
+  const mergeExtractedData = (extracted: ExtractedData | undefined) => {
+    if (!extracted) return;
 
-          // Policy details - check both flattened and nested
-          const pd = ed.policyDetails || {};
-          if ((ed.policyNumber || pd.policyNumber) && !mergedData.policyNumber)
-            mergedData.policyNumber = ed.policyNumber || pd.policyNumber;
-          if ((ed.state || pd.state) && !mergedData.state)
-            mergedData.state = ed.state || pd.state;
-          if ((ed.yearRoofInstall || pd.yearRoofInstall) && !mergedData.yearRoofInstall)
-            mergedData.yearRoofInstall = ed.yearRoofInstall || pd.yearRoofInstall;
-          if ((ed.windHailDeductible || pd.windHailDeductible) && !mergedData.windHailDeductible)
-            mergedData.windHailDeductible = ed.windHailDeductible || pd.windHailDeductible;
-          if ((ed.dwellingLimit || pd.dwellingLimit) && !mergedData.dwellingLimit)
-            mergedData.dwellingLimit = ed.dwellingLimit || pd.dwellingLimit;
+    setClaimData(prev => {
+      const merged = { ...prev };
+      const pd = extracted.policyDetails || {};
 
-          // Merge endorsements arrays
-          const endorsements = ed.endorsementsListed || pd.endorsementsListed || [];
-          if (endorsements.length > 0) {
-            mergedData.endorsementsListed = [...new Set([...(mergedData.endorsementsListed || []), ...endorsements])];
-          }
-        }
+      if (extracted.claimId && !merged.claimId) merged.claimId = extracted.claimId;
+      if (extracted.policyholder && !merged.policyholder) merged.policyholder = extracted.policyholder;
+      if (extracted.dateOfLoss && !merged.dateOfLoss) merged.dateOfLoss = extracted.dateOfLoss;
+      if (extracted.riskLocation && !merged.riskLocation) merged.riskLocation = extracted.riskLocation;
+      if (extracted.causeOfLoss && extracted.causeOfLoss !== 'Hail') merged.causeOfLoss = extracted.causeOfLoss;
+      if (extracted.lossDescription && !merged.lossDescription) merged.lossDescription = extracted.lossDescription;
+
+      // Policy details
+      if ((extracted.policyNumber || pd.policyNumber) && !merged.policyNumber)
+        merged.policyNumber = extracted.policyNumber || pd.policyNumber;
+      if ((extracted.state || pd.state) && !merged.state)
+        merged.state = extracted.state || pd.state;
+      if ((extracted.yearRoofInstall || pd.yearRoofInstall) && !merged.yearRoofInstall)
+        merged.yearRoofInstall = extracted.yearRoofInstall || pd.yearRoofInstall;
+      if ((extracted.windHailDeductible || pd.windHailDeductible) && !merged.windHailDeductible)
+        merged.windHailDeductible = extracted.windHailDeductible || pd.windHailDeductible;
+      if ((extracted.dwellingLimit || pd.dwellingLimit) && !merged.dwellingLimit)
+        merged.dwellingLimit = extracted.dwellingLimit || pd.dwellingLimit;
+
+      // Merge endorsements
+      const newEndorsements = extracted.endorsementsListed || pd.endorsementsListed || [];
+      if (newEndorsements.length > 0) {
+        merged.endorsementsListed = [...new Set([...(merged.endorsementsListed || []), ...newEndorsements])];
       }
 
-      setExtractedData(mergedData);
-      setStep('review');
+      return merged;
+    });
+  };
+
+  // Handle FNOL file selection
+  const handleFnolSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    const file = e.target.files[0];
+    setError(null);
+    setIsProcessing(true);
+    setFnolDoc({ file, type: 'fnol', status: 'uploading' });
+
+    try {
+      const result = await uploadAndProcessDocument(file, 'fnol');
+      setFnolDoc(result);
+      mergeExtractedData(result.extractedData);
     } catch (err) {
       setError((err as Error).message);
+      setFnolDoc(prev => prev ? { ...prev, status: 'error', error: (err as Error).message } : null);
     } finally {
       setIsProcessing(false);
+      e.target.value = '';
     }
   };
 
-  // Create claim with extracted data
+  // Handle Policy file selection
+  const handlePolicySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    const file = e.target.files[0];
+    setError(null);
+    setIsProcessing(true);
+    setPolicyDoc({ file, type: 'policy', status: 'uploading' });
+
+    try {
+      const result = await uploadAndProcessDocument(file, 'policy');
+      setPolicyDoc(result);
+      mergeExtractedData(result.extractedData);
+    } catch (err) {
+      setError((err as Error).message);
+      setPolicyDoc(prev => prev ? { ...prev, status: 'error', error: (err as Error).message } : null);
+    } finally {
+      setIsProcessing(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle Endorsement file selection
+  const handleEndorsementSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    const file = e.target.files[0];
+    setError(null);
+    setIsProcessing(true);
+
+    const tempDoc: UploadedDocument = { file, type: 'endorsement', status: 'uploading' };
+    setEndorsementDocs(prev => [...prev, tempDoc]);
+
+    try {
+      const result = await uploadAndProcessDocument(file, 'endorsement');
+
+      // Update the document in the list
+      setEndorsementDocs(prev =>
+        prev.map(d => d.file === file ? result : d)
+      );
+
+      // Merge any endorsement data extracted
+      mergeExtractedData(result.extractedData);
+
+      // Create an endorsement record from the extracted data
+      const extracted = result.extractedData;
+      const endorsementsList = extracted?.endorsementsListed || extracted?.policyDetails?.endorsementsListed || [];
+
+      if (endorsementsList.length > 0) {
+        // Parse endorsement strings into records
+        endorsementsList.forEach(endorsementStr => {
+          const parts = endorsementStr.split(' - ');
+          const formNumber = parts[0]?.trim() || endorsementStr;
+          const documentTitle = parts.slice(1).join(' - ').trim() || 'Endorsement';
+
+          // Check if this endorsement already exists
+          setEndorsementRecords(prev => {
+            const exists = prev.some(r => r.formNumber === formNumber);
+            if (exists) return prev;
+            return [...prev, {
+              formNumber,
+              documentTitle,
+              documentId: result.document?.id,
+              fileName: file.name,
+            }];
+          });
+        });
+      } else {
+        // If no specific endorsements extracted, create a generic record
+        setEndorsementRecords(prev => [...prev, {
+          formNumber: `END-${prev.length + 1}`,
+          documentTitle: file.name.replace(/\.[^/.]+$/, ''),
+          documentId: result.document?.id,
+          fileName: file.name,
+        }]);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setEndorsementDocs(prev =>
+        prev.map(d => d.file === file ? { ...d, status: 'error', error: (err as Error).message } : d)
+      );
+    } finally {
+      setIsProcessing(false);
+      e.target.value = '';
+    }
+  };
+
+  // Remove an endorsement document
+  const removeEndorsementDoc = (index: number) => {
+    const doc = endorsementDocs[index];
+    setEndorsementDocs(prev => prev.filter((_, i) => i !== index));
+
+    // Also remove associated endorsement records
+    if (doc.document?.id) {
+      setEndorsementRecords(prev => prev.filter(r => r.documentId !== doc.document?.id));
+    }
+  };
+
+  // Remove an endorsement record
+  const removeEndorsementRecord = (index: number) => {
+    setEndorsementRecords(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Add manual endorsement record
+  const [newEndorsementForm, setNewEndorsementForm] = useState({ formNumber: '', documentTitle: '' });
+
+  const addManualEndorsement = () => {
+    if (!newEndorsementForm.formNumber.trim()) return;
+
+    setEndorsementRecords(prev => [...prev, {
+      formNumber: newEndorsementForm.formNumber.trim(),
+      documentTitle: newEndorsementForm.documentTitle.trim() || 'Manual Entry',
+    }]);
+    setNewEndorsementForm({ formNumber: '', documentTitle: '' });
+  };
+
+  // Navigate between steps
+  const goToNextStep = () => {
+    const nextIndex = currentStepIndex + 1;
+    if (nextIndex < steps.length) {
+      setCurrentStep(steps[nextIndex].key);
+    }
+  };
+
+  const goToPrevStep = () => {
+    const prevIndex = currentStepIndex - 1;
+    if (prevIndex >= 0) {
+      setCurrentStep(steps[prevIndex].key);
+    }
+  };
+
+  // Create the claim
   const handleCreateClaim = async () => {
-    setStep('creating');
+    setIsCreating(true);
     setError(null);
 
     try {
-      const claim = await createClaim({
-        claimId: extractedData.claimId,
-        policyholder: extractedData.policyholder,
-        dateOfLoss: extractedData.dateOfLoss,
-        riskLocation: extractedData.riskLocation,
-        causeOfLoss: extractedData.causeOfLoss,
-        lossDescription: extractedData.lossDescription,
-        policyNumber: extractedData.policyNumber,
-        state: extractedData.state,
-        yearRoofInstall: extractedData.yearRoofInstall,
-        windHailDeductible: extractedData.windHailDeductible,
-        dwellingLimit: extractedData.dwellingLimit,
-        endorsementsListed: extractedData.endorsementsListed,
-        status: 'fnol',
+      // Collect all document IDs
+      const documentIds: string[] = [];
+      if (fnolDoc?.document?.id) documentIds.push(fnolDoc.document.id);
+      if (policyDoc?.document?.id) documentIds.push(policyDoc.document.id);
+      endorsementDocs.forEach(d => {
+        if (d.document?.id) documentIds.push(d.document.id);
       });
+
+      // Create the claim
+      const claim = await createClaim({
+        claimId: claimData.claimId,
+        policyholder: claimData.policyholder,
+        dateOfLoss: claimData.dateOfLoss,
+        riskLocation: claimData.riskLocation,
+        causeOfLoss: claimData.causeOfLoss,
+        lossDescription: claimData.lossDescription,
+        policyNumber: claimData.policyNumber,
+        state: claimData.state,
+        yearRoofInstall: claimData.yearRoofInstall,
+        windHailDeductible: claimData.windHailDeductible,
+        dwellingLimit: claimData.dwellingLimit,
+        endorsementsListed: claimData.endorsementsListed,
+        status: 'fnol',
+        metadata: {
+          documentIds,
+          endorsementRecords,
+        },
+      });
+
+      // Create endorsement records in the database
+      if (endorsementRecords.length > 0) {
+        try {
+          await fetch('/api/endorsements/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              claimId: claim.id,
+              endorsements: endorsementRecords,
+            }),
+          });
+        } catch (endorsementErr) {
+          console.warn('Failed to create endorsement records:', endorsementErr);
+        }
+      }
 
       // Navigate to the new claim
       setLocation(`/claim/${claim.id}`);
     } catch (err) {
       setError((err as Error).message);
-      setStep('review');
+      setIsCreating(false);
     }
   };
 
-  const FileTypeCard = ({
-    type,
+  // File drop zone component
+  const FileDropZone = ({
     title,
     description,
     icon: Icon,
-    required
+    accept,
+    onFileSelect,
+    uploadedDoc,
+    onRemove,
+    multiple = false,
   }: {
-    type: 'fnol' | 'policy' | 'endorsement';
     title: string;
     description: string;
     icon: React.ElementType;
-    required?: boolean;
+    accept: string;
+    onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    uploadedDoc?: UploadedDocument | null;
+    onRemove?: () => void;
+    multiple?: boolean;
   }) => {
-    const typeFiles = files.filter(f => f.type === type);
-    const hasFiles = typeFiles.length > 0;
+    const hasFile = uploadedDoc && uploadedDoc.status !== 'error';
+    const isUploading = uploadedDoc?.status === 'uploading' || uploadedDoc?.status === 'processing';
 
     return (
       <div
-        className={`relative border-2 border-dashed rounded-lg p-6 transition-colors ${
-          hasFiles ? 'border-green-300 bg-green-50' : 'border-slate-200 hover:border-primary/50'
+        className={`relative border-2 border-dashed rounded-lg p-8 transition-colors ${
+          hasFile ? 'border-green-300 bg-green-50' : 'border-slate-200 hover:border-primary/50 bg-slate-50'
         }`}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => handleDrop(e, type)}
       >
-        <input
-          type="file"
-          accept=".pdf,image/*"
-          multiple
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          onChange={(e) => handleFileSelect(e, type)}
-        />
+        {!hasFile && !isUploading && (
+          <input
+            type="file"
+            accept={accept}
+            multiple={multiple}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            onChange={onFileSelect}
+          />
+        )}
 
         <div className="flex flex-col items-center text-center">
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-3 ${
-            hasFiles ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+            hasFile ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'
           }`}>
-            {hasFiles ? <CheckCircle2 className="w-6 h-6" /> : <Icon className="w-6 h-6" />}
+            {isUploading ? (
+              <Loader2 className="w-8 h-8 animate-spin" />
+            ) : hasFile ? (
+              <CheckCircle2 className="w-8 h-8" />
+            ) : (
+              <Icon className="w-8 h-8" />
+            )}
           </div>
 
-          <h3 className="font-semibold text-slate-900 mb-1">
-            {title}
-            {required && <span className="text-red-500 ml-1">*</span>}
-          </h3>
-          <p className="text-sm text-slate-500 mb-3">{description}</p>
+          <h3 className="font-semibold text-slate-900 mb-1 text-lg">{title}</h3>
+          <p className="text-sm text-slate-500 mb-4">{description}</p>
 
-          {typeFiles.length > 0 ? (
-            <div className="w-full space-y-2">
-              {typeFiles.map((f, idx) => (
-                <div key={idx} className="flex items-center gap-2 bg-white rounded p-2 text-sm">
-                  <FileCheck className="w-4 h-4 text-green-500" />
-                  <span className="flex-1 truncate text-left">{f.file.name}</span>
-                  {f.status === 'uploading' && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {f.status === 'uploaded' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                  {f.status === 'error' && <AlertCircle className="w-4 h-4 text-red-500" />}
+          {uploadedDoc ? (
+            <div className="w-full max-w-md">
+              <div className="flex items-center gap-3 bg-white rounded-lg p-3 shadow-sm">
+                <FileCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <span className="flex-1 truncate text-sm font-medium">{uploadedDoc.file.name}</span>
+                {uploadedDoc.status === 'uploading' && (
+                  <Badge variant="secondary">Uploading...</Badge>
+                )}
+                {uploadedDoc.status === 'processing' && (
+                  <Badge variant="secondary">Processing...</Badge>
+                )}
+                {uploadedDoc.status === 'completed' && (
+                  <Badge className="bg-green-100 text-green-700">Processed</Badge>
+                )}
+                {uploadedDoc.status === 'error' && (
+                  <Badge variant="destructive">Error</Badge>
+                )}
+                {onRemove && uploadedDoc.status !== 'uploading' && uploadedDoc.status !== 'processing' && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); removeFile(files.indexOf(f)); }}
-                    className="text-slate-400 hover:text-red-500"
+                    onClick={onRemove}
+                    className="text-slate-400 hover:text-red-500 p-1"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                </div>
-              ))}
+                )}
+              </div>
+              {uploadedDoc.error && (
+                <p className="text-sm text-red-500 mt-2">{uploadedDoc.error}</p>
+              )}
             </div>
           ) : (
             <p className="text-xs text-slate-400">
-              Drop files here or click to browse
+              Drop file here or click to browse
             </p>
           )}
         </div>
+      </div>
+    );
+  };
+
+  // Extracted data preview component
+  const ExtractedDataPreview = ({ data, title }: { data: ExtractedData | undefined; title: string }) => {
+    if (!data) return null;
+
+    const fields = [
+      { label: 'Policyholder', value: data.policyholder },
+      { label: 'Risk Location', value: data.riskLocation },
+      { label: 'Date of Loss', value: data.dateOfLoss },
+      { label: 'Cause of Loss', value: data.causeOfLoss },
+      { label: 'Policy Number', value: data.policyNumber || data.policyDetails?.policyNumber },
+      { label: 'State', value: data.state || data.policyDetails?.state },
+      { label: 'Dwelling Limit', value: data.dwellingLimit || data.policyDetails?.dwellingLimit },
+      { label: 'Wind/Hail Deductible', value: data.windHailDeductible || data.policyDetails?.windHailDeductible },
+    ].filter(f => f.value);
+
+    const endorsements = data.endorsementsListed || data.policyDetails?.endorsementsListed || [];
+
+    if (fields.length === 0 && endorsements.length === 0) {
+      return (
+        <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-sm text-amber-700">No data could be extracted from this document.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+        <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+          <Eye className="w-4 h-4" />
+          {title}
+        </h4>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {fields.map((field, idx) => (
+            <div key={idx} className="flex flex-col">
+              <span className="text-slate-500 text-xs">{field.label}</span>
+              <span className="text-slate-900 font-medium truncate">{field.value}</span>
+            </div>
+          ))}
+        </div>
+        {endorsements.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-200">
+            <span className="text-slate-500 text-xs">Endorsements Found</span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {endorsements.map((e, idx) => (
+                <Badge key={idx} variant="secondary" className="text-xs">{e}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -315,28 +545,40 @@ export default function NewClaim() {
       <div className="max-w-4xl mx-auto p-6 md:p-8">
         <div className="mb-8">
           <h1 className="text-3xl font-display font-bold text-slate-900">New Claim</h1>
-          <p className="text-slate-500 mt-1">Upload documents to create a new claim</p>
+          <p className="text-slate-500 mt-1">Upload documents step-by-step to create a new claim</p>
         </div>
 
         {/* Progress Steps */}
-        <div className="flex items-center gap-4 mb-8">
-          <div className={`flex items-center gap-2 ${step === 'upload' ? 'text-primary' : 'text-green-600'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-              step === 'upload' ? 'bg-primary text-white' : 'bg-green-100 text-green-600'
-            }`}>
-              {step !== 'upload' ? <CheckCircle2 className="w-5 h-5" /> : '1'}
-            </div>
-            <span className="font-medium">Upload Documents</span>
-          </div>
-          <div className="flex-1 h-0.5 bg-slate-200" />
-          <div className={`flex items-center gap-2 ${step === 'review' ? 'text-primary' : step === 'creating' ? 'text-green-600' : 'text-slate-400'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-              step === 'review' ? 'bg-primary text-white' : step === 'creating' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'
-            }`}>
-              {step === 'creating' ? <CheckCircle2 className="w-5 h-5" /> : '2'}
-            </div>
-            <span className="font-medium">Review & Confirm</span>
-          </div>
+        <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
+          {steps.map((step, idx) => {
+            const isActive = step.key === currentStep;
+            const isCompleted = idx < currentStepIndex;
+            const Icon = step.icon;
+
+            return (
+              <div key={step.key} className="flex items-center">
+                <div
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-primary text-white'
+                      : isCompleted
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                    isActive ? 'bg-white/20' : isCompleted ? 'bg-green-200' : 'bg-slate-200'
+                  }`}>
+                    {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
+                  </div>
+                  <span className="font-medium text-sm whitespace-nowrap">{step.label}</span>
+                </div>
+                {idx < steps.length - 1 && (
+                  <div className={`w-8 h-0.5 mx-1 ${idx < currentStepIndex ? 'bg-green-300' : 'bg-slate-200'}`} />
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {error && (
@@ -346,54 +588,31 @@ export default function NewClaim() {
           </div>
         )}
 
-        {step === 'upload' && (
+        {/* Step 1: FNOL Upload */}
+        {currentStep === 'fnol' && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Upload className="w-5 h-5" />
-                Upload Claim Documents
+                <FileText className="w-5 h-5" />
+                Step 1: Upload FNOL Report
               </CardTitle>
               <CardDescription>
-                Upload your FNOL report, policy declarations, and any endorsements.
-                We'll extract the key information to create your claim.
+                Upload the First Notice of Loss document. We'll extract claim details automatically.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FileTypeCard
-                  type="fnol"
-                  title="FNOL Report"
-                  description="First Notice of Loss document"
-                  icon={FileText}
-                  required
-                />
-                <FileTypeCard
-                  type="policy"
-                  title="HO Policy"
-                  description="Homeowners policy declarations"
-                  icon={Shield}
-                />
-                <FileTypeCard
-                  type="endorsement"
-                  title="Endorsements"
-                  description="Policy endorsements & riders"
-                  icon={FilePlus}
-                />
-              </div>
+              <FileDropZone
+                title="FNOL Report"
+                description="PDF or image of the First Notice of Loss"
+                icon={FileText}
+                accept=".pdf,image/*"
+                onFileSelect={handleFnolSelect}
+                uploadedDoc={fnolDoc}
+                onRemove={() => setFnolDoc(null)}
+              />
 
-              {files.length > 0 && (
-                <div className="mt-6 p-4 bg-slate-50 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-slate-700">
-                      {files.length} document{files.length !== 1 ? 's' : ''} ready
-                    </span>
-                    <Badge variant="secondary">
-                      {files.filter(f => f.type === 'fnol').length} FNOL, {' '}
-                      {files.filter(f => f.type === 'policy').length} Policy, {' '}
-                      {files.filter(f => f.type === 'endorsement').length} Endorsement
-                    </Badge>
-                  </div>
-                </div>
+              {fnolDoc?.status === 'completed' && fnolDoc.extractedData && (
+                <ExtractedDataPreview data={fnolDoc.extractedData} title="Extracted from FNOL" />
               )}
             </CardContent>
             <CardFooter className="flex justify-between">
@@ -401,261 +620,426 @@ export default function NewClaim() {
                 Cancel
               </Button>
               <Button
-                onClick={handleUploadAndProcess}
-                disabled={files.length === 0 || isProcessing}
+                onClick={goToNextStep}
+                disabled={!fnolDoc || fnolDoc.status !== 'completed'}
               >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    Continue
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </>
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        )}
-
-        {step === 'review' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Review Claim Information</CardTitle>
-              <CardDescription>
-                Review and edit the extracted information before creating the claim.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <Tabs defaultValue="claim" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="claim">Claim Info</TabsTrigger>
-                  <TabsTrigger value="policy">Policy Details</TabsTrigger>
-                  <TabsTrigger value="endorsements">Endorsements</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="claim" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="claimId">Claim ID</Label>
-                      <Input
-                        id="claimId"
-                        placeholder="01-XXX-XXXXXX"
-                        value={extractedData.claimId || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, claimId: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="policyholder">Policyholder</Label>
-                      <Input
-                        id="policyholder"
-                        value={extractedData.policyholder || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, policyholder: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="riskLocation">Risk Location (Full Address)</Label>
-                    <Input
-                      id="riskLocation"
-                      placeholder="123 Main St, City, ST 12345"
-                      value={extractedData.riskLocation || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, riskLocation: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="dateOfLoss">Date of Loss</Label>
-                      <Input
-                        id="dateOfLoss"
-                        placeholder="MM/DD/YYYY@HH:MM AM/PM"
-                        value={extractedData.dateOfLoss || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, dateOfLoss: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Cause of Loss</Label>
-                      <Select
-                        value={extractedData.causeOfLoss || 'Hail'}
-                        onValueChange={(v) => setExtractedData({ ...extractedData, causeOfLoss: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {["Hail", "Wind", "Fire", "Water", "Impact", "Other"].map(t => (
-                            <SelectItem key={t} value={t}>{t}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lossDescription">Loss Description</Label>
-                    <Textarea
-                      id="lossDescription"
-                      className="min-h-[100px]"
-                      placeholder="Describe the damage..."
-                      value={extractedData.lossDescription || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, lossDescription: e.target.value })}
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="policy" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="policyNumber">Policy Number</Label>
-                      <Input
-                        id="policyNumber"
-                        value={extractedData.policyNumber || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, policyNumber: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="state">State</Label>
-                      <Input
-                        id="state"
-                        placeholder="CO"
-                        maxLength={2}
-                        value={extractedData.state || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, state: e.target.value.toUpperCase() })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="dwellingLimit">Dwelling Limit</Label>
-                      <Input
-                        id="dwellingLimit"
-                        placeholder="$XXX,XXX"
-                        value={extractedData.dwellingLimit || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, dwellingLimit: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="windHailDeductible">Wind/Hail Deductible</Label>
-                      <Input
-                        id="windHailDeductible"
-                        placeholder="$X,XXX X%"
-                        value={extractedData.windHailDeductible || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, windHailDeductible: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="yearRoofInstall">Year Roof Installed</Label>
-                    <Input
-                      id="yearRoofInstall"
-                      placeholder="MM-DD-YYYY"
-                      value={extractedData.yearRoofInstall || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, yearRoofInstall: e.target.value })}
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="endorsements" className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label>Endorsements Listed</Label>
-                    <div className="border rounded-lg p-4 min-h-[150px]">
-                      {(extractedData.endorsementsListed || []).length > 0 ? (
-                        <div className="space-y-2">
-                          {extractedData.endorsementsListed?.map((endorsement, idx) => (
-                            <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded p-2">
-                              <FileCheck className="w-4 h-4 text-green-500" />
-                              <span className="flex-1 text-sm">{endorsement}</span>
-                              <button
-                                onClick={() => {
-                                  const newList = [...(extractedData.endorsementsListed || [])];
-                                  newList.splice(idx, 1);
-                                  setExtractedData({ ...extractedData, endorsementsListed: newList });
-                                }}
-                                className="text-slate-400 hover:text-red-500"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-400 text-center py-8">
-                          No endorsements extracted. Add them manually below.
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        id="newEndorsement"
-                        placeholder="HO 84 28 - Hidden Water Coverage"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const input = e.target as HTMLInputElement;
-                            if (input.value.trim()) {
-                              setExtractedData({
-                                ...extractedData,
-                                endorsementsListed: [...(extractedData.endorsementsListed || []), input.value.trim()]
-                              });
-                              input.value = '';
-                            }
-                          }
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          const input = document.getElementById('newEndorsement') as HTMLInputElement;
-                          if (input?.value.trim()) {
-                            setExtractedData({
-                              ...extractedData,
-                              endorsementsListed: [...(extractedData.endorsementsListed || []), input.value.trim()]
-                            });
-                            input.value = '';
-                          }
-                        }}
-                      >
-                        Add
-                      </Button>
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-
-              {/* Uploaded Documents Summary */}
-              <div className="pt-4 border-t">
-                <h4 className="text-sm font-medium text-slate-700 mb-2">Attached Documents</h4>
-                <div className="flex flex-wrap gap-2">
-                  {files.filter(f => f.status === 'uploaded').map((f, idx) => (
-                    <Badge key={idx} variant="secondary" className="flex items-center gap-1">
-                      <FileCheck className="w-3 h-3" />
-                      {f.file.name}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep('upload')}>
-                Back
-              </Button>
-              <Button onClick={handleCreateClaim}>
-                Create Claim
+                Continue to Policy
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </CardFooter>
           </Card>
         )}
 
-        {step === 'creating' && (
+        {/* Step 2: Policy Upload */}
+        {currentStep === 'policy' && (
           <Card>
-            <CardContent className="py-12">
-              <div className="flex flex-col items-center text-center">
-                <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">Creating Your Claim</h3>
-                <p className="text-slate-500">Please wait while we set up your claim...</p>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5" />
+                Step 2: Upload Homeowner Policy
+              </CardTitle>
+              <CardDescription>
+                Upload the policy declarations page to extract coverage details.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FileDropZone
+                title="HO Policy Declarations"
+                description="PDF or image of the policy declarations page"
+                icon={Shield}
+                accept=".pdf,image/*"
+                onFileSelect={handlePolicySelect}
+                uploadedDoc={policyDoc}
+                onRemove={() => setPolicyDoc(null)}
+              />
+
+              {policyDoc?.status === 'completed' && policyDoc.extractedData && (
+                <ExtractedDataPreview data={policyDoc.extractedData} title="Extracted from Policy" />
+              )}
+
+              {!policyDoc && (
+                <p className="text-sm text-slate-500 mt-4 text-center">
+                  You can skip this step if you don't have the policy document.
+                </p>
+              )}
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button variant="outline" onClick={goToPrevStep}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={goToNextStep}>
+                  Skip
+                </Button>
+                <Button onClick={goToNextStep}>
+                  Continue to Endorsements
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+            </CardFooter>
+          </Card>
+        )}
+
+        {/* Step 3: Endorsements Upload */}
+        {currentStep === 'endorsements' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FilePlus className="w-5 h-5" />
+                Step 3: Upload Endorsements
+              </CardTitle>
+              <CardDescription>
+                Upload one or more policy endorsement documents. You can keep adding until complete.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Upload area */}
+              <div
+                className="relative border-2 border-dashed rounded-lg p-6 transition-colors border-slate-200 hover:border-primary/50 bg-slate-50"
+              >
+                <input
+                  type="file"
+                  accept=".pdf,image/*"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  onChange={handleEndorsementSelect}
+                  disabled={isProcessing}
+                />
+                <div className="flex flex-col items-center text-center">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3 bg-slate-100 text-slate-500">
+                    {isProcessing ? (
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    ) : (
+                      <Plus className="w-6 h-6" />
+                    )}
+                  </div>
+                  <h3 className="font-semibold text-slate-900 mb-1">
+                    {isProcessing ? 'Processing...' : 'Add Endorsement'}
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Click or drop an endorsement PDF here
+                  </p>
+                </div>
+              </div>
+
+              {/* Uploaded endorsement documents */}
+              {endorsementDocs.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-slate-700">
+                    Uploaded Endorsement Documents ({endorsementDocs.length})
+                  </h4>
+                  {endorsementDocs.map((doc, idx) => (
+                    <div key={idx} className="flex items-center gap-3 bg-white rounded-lg p-3 border border-slate-200">
+                      <FileCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
+                      <span className="flex-1 truncate text-sm font-medium">{doc.file.name}</span>
+                      {doc.status === 'uploading' && <Badge variant="secondary">Uploading...</Badge>}
+                      {doc.status === 'processing' && <Badge variant="secondary">Processing...</Badge>}
+                      {doc.status === 'completed' && <Badge className="bg-green-100 text-green-700">Processed</Badge>}
+                      {doc.status === 'error' && <Badge variant="destructive">Error</Badge>}
+                      <button
+                        onClick={() => removeEndorsementDoc(idx)}
+                        className="text-slate-400 hover:text-red-500 p-1"
+                        disabled={doc.status === 'uploading' || doc.status === 'processing'}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Separator />
+
+              {/* Endorsement records list */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-700">
+                  Endorsement Records ({endorsementRecords.length})
+                </h4>
+
+                {endorsementRecords.length > 0 ? (
+                  <ScrollArea className="max-h-48">
+                    <div className="space-y-2">
+                      {endorsementRecords.map((record, idx) => (
+                        <div key={idx} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">{record.formNumber}</div>
+                            <div className="text-xs text-slate-500">{record.documentTitle}</div>
+                            {record.fileName && (
+                              <div className="text-xs text-slate-400">Source: {record.fileName}</div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => removeEndorsementRecord(idx)}
+                            className="text-slate-400 hover:text-red-500 p-1"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <p className="text-sm text-slate-500 text-center py-4">
+                    No endorsements added yet. Upload documents above or add manually below.
+                  </p>
+                )}
+
+                {/* Manual endorsement entry */}
+                <div className="flex gap-2 pt-2">
+                  <Input
+                    placeholder="Form Number (e.g., HO 84 28)"
+                    value={newEndorsementForm.formNumber}
+                    onChange={(e) => setNewEndorsementForm(prev => ({ ...prev, formNumber: e.target.value }))}
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder="Title (optional)"
+                    value={newEndorsementForm.documentTitle}
+                    onChange={(e) => setNewEndorsementForm(prev => ({ ...prev, documentTitle: e.target.value }))}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={addManualEndorsement}
+                    disabled={!newEndorsementForm.formNumber.trim()}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button variant="outline" onClick={goToPrevStep}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <Button onClick={goToNextStep}>
+                Continue to Review
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
+
+        {/* Step 4: Review & Create */}
+        {currentStep === 'review' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5" />
+                Step 4: Review & Create Claim
+              </CardTitle>
+              <CardDescription>
+                Review and edit the extracted information before creating the claim.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Documents summary */}
+              <div className="p-4 bg-slate-50 rounded-lg">
+                <h4 className="text-sm font-semibold text-slate-700 mb-3">Attached Documents</h4>
+                <div className="flex flex-wrap gap-2">
+                  {fnolDoc?.document && (
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      FNOL: {fnolDoc.file.name}
+                    </Badge>
+                  )}
+                  {policyDoc?.document && (
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <Shield className="w-3 h-3" />
+                      Policy: {policyDoc.file.name}
+                    </Badge>
+                  )}
+                  {endorsementDocs.filter(d => d.document).map((doc, idx) => (
+                    <Badge key={idx} variant="secondary" className="flex items-center gap-1">
+                      <FilePlus className="w-3 h-3" />
+                      {doc.file.name}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Claim Info */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-slate-700">Claim Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="claimId">Claim ID</Label>
+                    <Input
+                      id="claimId"
+                      placeholder="Auto-generated if empty"
+                      value={claimData.claimId || ''}
+                      onChange={(e) => setClaimData({ ...claimData, claimId: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="policyholder">Policyholder</Label>
+                    <Input
+                      id="policyholder"
+                      value={claimData.policyholder || ''}
+                      onChange={(e) => setClaimData({ ...claimData, policyholder: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="riskLocation">Risk Location</Label>
+                  <Input
+                    id="riskLocation"
+                    placeholder="123 Main St, City, ST 12345"
+                    value={claimData.riskLocation || ''}
+                    onChange={(e) => setClaimData({ ...claimData, riskLocation: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="dateOfLoss">Date of Loss</Label>
+                    <Input
+                      id="dateOfLoss"
+                      placeholder="MM/DD/YYYY@HH:MM AM/PM"
+                      value={claimData.dateOfLoss || ''}
+                      onChange={(e) => setClaimData({ ...claimData, dateOfLoss: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Cause of Loss</Label>
+                    <Select
+                      value={claimData.causeOfLoss || 'Hail'}
+                      onValueChange={(v) => setClaimData({ ...claimData, causeOfLoss: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["Hail", "Wind", "Fire", "Water", "Impact", "Other"].map(t => (
+                          <SelectItem key={t} value={t}>{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lossDescription">Loss Description</Label>
+                  <Textarea
+                    id="lossDescription"
+                    className="min-h-[80px]"
+                    placeholder="Describe the damage..."
+                    value={claimData.lossDescription || ''}
+                    onChange={(e) => setClaimData({ ...claimData, lossDescription: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Policy Details */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-slate-700">Policy Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="policyNumber">Policy Number</Label>
+                    <Input
+                      id="policyNumber"
+                      value={claimData.policyNumber || ''}
+                      onChange={(e) => setClaimData({ ...claimData, policyNumber: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="state">State</Label>
+                    <Input
+                      id="state"
+                      placeholder="CO"
+                      maxLength={2}
+                      value={claimData.state || ''}
+                      onChange={(e) => setClaimData({ ...claimData, state: e.target.value.toUpperCase() })}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="dwellingLimit">Dwelling Limit</Label>
+                    <Input
+                      id="dwellingLimit"
+                      placeholder="$XXX,XXX"
+                      value={claimData.dwellingLimit || ''}
+                      onChange={(e) => setClaimData({ ...claimData, dwellingLimit: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="windHailDeductible">Wind/Hail Deductible</Label>
+                    <Input
+                      id="windHailDeductible"
+                      placeholder="$X,XXX X%"
+                      value={claimData.windHailDeductible || ''}
+                      onChange={(e) => setClaimData({ ...claimData, windHailDeductible: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="yearRoofInstall">Roof Install Date</Label>
+                    <Input
+                      id="yearRoofInstall"
+                      placeholder="MM-DD-YYYY"
+                      value={claimData.yearRoofInstall || ''}
+                      onChange={(e) => setClaimData({ ...claimData, yearRoofInstall: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Endorsements */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-slate-700">
+                  Endorsements ({endorsementRecords.length})
+                </h4>
+                {endorsementRecords.length > 0 ? (
+                  <div className="space-y-2">
+                    {endorsementRecords.map((record, idx) => (
+                      <div key={idx} className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                        <FilePlus className="w-4 h-4 text-slate-500" />
+                        <div className="flex-1">
+                          <span className="font-medium text-sm">{record.formNumber}</span>
+                          {record.documentTitle && (
+                            <span className="text-slate-500 text-sm"> - {record.documentTitle}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No endorsements added.</p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentStep('endorsements')}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add More Endorsements
+                </Button>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button variant="outline" onClick={goToPrevStep}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <Button onClick={handleCreateClaim} disabled={isCreating}>
+                {isCreating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    Create Claim
+                    <CheckCircle2 className="w-4 h-4 ml-2" />
+                  </>
+                )}
+              </Button>
+            </CardFooter>
           </Card>
         )}
       </div>

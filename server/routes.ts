@@ -2270,6 +2270,55 @@ export async function registerRoutes(
     }
   });
 
+  // Bulk create endorsements
+  app.post('/api/endorsements/bulk', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { claimId, endorsements } = req.body;
+        if (!endorsements || !Array.isArray(endorsements) || endorsements.length === 0) {
+          return res.status(400).json({ error: 'endorsements array required' });
+        }
+
+        const results = [];
+        for (const endorsement of endorsements) {
+          const { formNumber, documentTitle, description, keyChanges } = endorsement;
+          if (!formNumber) continue;
+
+          const result = await client.query(
+            `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, key_changes)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *`,
+            [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyChanges || {})]
+          );
+          results.push(result.rows[0]);
+        }
+
+        // Also update the documents associated with the endorsements to link to the claim
+        if (claimId) {
+          const docIds = endorsements
+            .filter((e: any) => e.documentId)
+            .map((e: any) => e.documentId);
+
+          if (docIds.length > 0) {
+            await client.query(
+              `UPDATE documents SET claim_id = $1, updated_at = NOW() WHERE id = ANY($2) AND organization_id = $3`,
+              [claimId, docIds, req.organizationId]
+            );
+          }
+        }
+
+        res.status(201).json({ endorsements: results, count: results.length });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Get endorsement
   app.get('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
     try {

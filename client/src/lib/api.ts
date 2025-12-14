@@ -658,3 +658,59 @@ export async function processDocument(documentId: string): Promise<{
 export function getDocumentDownloadUrl(documentId: string): string {
   return `${API_BASE}/documents/${documentId}/download`;
 }
+
+// ============================================
+// ENDORSEMENTS API
+// ============================================
+
+export interface Endorsement {
+  id: string;
+  organization_id: string;
+  claim_id?: string;
+  form_type: string;
+  form_number: string;
+  document_title?: string;
+  description?: string;
+  key_changes?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  // Also support camelCase for compatibility
+  organizationId?: string;
+  claimId?: string;
+  formType?: string;
+  formNumber?: string;
+  documentTitle?: string;
+  keyChanges?: Record<string, any>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export async function getClaimEndorsements(claimId: string): Promise<Endorsement[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/endorsements`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claim endorsements');
+  }
+  return response.json();
+}
+
+export async function createEndorsement(data: {
+  claimId?: string;
+  formNumber: string;
+  documentTitle?: string;
+  description?: string;
+  keyChanges?: Record<string, any>;
+}): Promise<Endorsement> {
+  const response = await fetch(`${API_BASE}/endorsements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to create endorsement');
+  }
+  return response.json();
+}

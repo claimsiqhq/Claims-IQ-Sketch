@@ -63,7 +63,7 @@ import {
   type AddLineItemInput,
 } from "@/hooks/useEstimateBuilder";
 import { Link } from "wouter";
-import { getClaim, getClaimDocuments, uploadDocument, getDocumentDownloadUrl, type Claim, type Document } from "@/lib/api";
+import { getClaim, getClaimDocuments, getClaimEndorsements, uploadDocument, getDocumentDownloadUrl, type Claim, type Document, type Endorsement } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 
 import SketchCanvas from "@/components/sketch-canvas";
@@ -102,6 +102,7 @@ export default function ClaimDetail() {
   // API Claim Data
   const [apiClaim, setApiClaim] = useState<Claim | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [endorsements, setEndorsements] = useState<Endorsement[]>([]);
   const [loadingApiData, setLoadingApiData] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
@@ -158,12 +159,14 @@ export default function ClaimDetail() {
     setApiError(null);
 
     try {
-      const [claimData, docsData] = await Promise.all([
+      const [claimData, docsData, endorsementsData] = await Promise.all([
         getClaim(params.id),
-        getClaimDocuments(params.id)
+        getClaimDocuments(params.id),
+        getClaimEndorsements(params.id).catch(() => []) // Don't fail if endorsements fail
       ]);
       setApiClaim(claimData);
       setDocuments(docsData);
+      setEndorsements(endorsementsData);
     } catch (err) {
       setApiError((err as Error).message);
     } finally {
@@ -657,21 +660,51 @@ export default function ClaimDetail() {
                     <CardHeader className="pb-3">
                       <CardTitle className="text-lg flex items-center gap-2">
                         <ClipboardList className="w-5 h-5" />
-                        Endorsements Listed
+                        Endorsements
                         <Badge variant="secondary" className="ml-2">
-                          {apiClaim?.endorsementsListed?.length || 0}
+                          {endorsements.length > 0 ? endorsements.length : (apiClaim?.endorsementsListed?.length || 0)}
                         </Badge>
                       </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      {apiClaim?.endorsementsListed && apiClaim.endorsementsListed.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {apiClaim.endorsementsListed.map((endorsement, idx) => (
-                            <div key={idx} className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
-                              <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                              <span className="text-sm">{endorsement}</span>
-                            </div>
-                          ))}
+                    <CardContent className="space-y-4">
+                      {/* Detailed Endorsement Records (from endorsements table) */}
+                      {endorsements.length > 0 ? (
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-medium text-muted-foreground">Endorsement Documents</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {endorsements.map((endorsement) => (
+                              <div key={endorsement.id} className="bg-muted/50 rounded-lg p-4 border border-muted">
+                                <div className="flex items-start gap-3">
+                                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                    <FileText className="w-4 h-4 text-primary" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-mono font-semibold text-sm">{endorsement.form_number}</p>
+                                    <p className="text-sm text-muted-foreground truncate">
+                                      {endorsement.document_title || 'No title'}
+                                    </p>
+                                    {endorsement.description && (
+                                      <p className="text-xs text-muted-foreground mt-1">{endorsement.description}</p>
+                                    )}
+                                  </div>
+                                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : apiClaim?.endorsementsListed && apiClaim.endorsementsListed.length > 0 ? (
+                        /* Fallback to simple endorsements list from claim */
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-medium text-muted-foreground">Listed Endorsements</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {apiClaim.endorsementsListed.map((endorsement, idx) => (
+                              <div key={idx} className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
+                                <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                                <span className="text-sm">{endorsement}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground text-center py-4">
