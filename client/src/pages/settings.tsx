@@ -177,7 +177,7 @@ export default function Settings() {
   const runHomeDepotScraper = async () => {
     setIsScrapingHomeDepot(true);
     try {
-      const response = await fetch('/api/scrape/home-depot', { method: 'POST' });
+      const response = await fetch('/api/scrape/home-depot', { method: 'POST', credentials: 'include' });
       if (!response.ok) {
         throw new Error('Failed to run scraper');
       }
@@ -201,7 +201,7 @@ export default function Settings() {
   const loadScraperConfig = async () => {
     setIsLoadingConfig(true);
     try {
-      const response = await fetch('/api/scrape/config');
+      const response = await fetch('/api/scrape/config', { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to load config');
       const config = await response.json();
       setScraperConfig(config);
@@ -220,8 +220,8 @@ export default function Settings() {
     setIsLoadingPrices(true);
     try {
       const [pricesRes, jobsRes] = await Promise.all([
-        fetch('/api/scrape/prices'),
-        fetch('/api/scrape/jobs')
+        fetch('/api/scrape/prices', { credentials: 'include' }),
+        fetch('/api/scrape/jobs', { credentials: 'include' })
       ]);
       if (pricesRes.ok) {
         const prices = await pricesRes.json();
@@ -245,7 +245,7 @@ export default function Settings() {
   const loadSystemStatus = async () => {
     setIsLoadingSystem(true);
     try {
-      const response = await fetch('/api/system/status');
+      const response = await fetch('/api/system/status', { credentials: 'include' });
       if (response.ok) {
         const status = await response.json();
         setSystemStatus(status);
@@ -282,35 +282,39 @@ export default function Settings() {
   }, {} as Record<string, { sku: string; name: string; unit: string; regions: Record<string, { price: number; date: string }> }>);
 
   const handleSaveEstimateDefaults = () => {
+    // Note: These settings are stored locally and will be saved when backend API is available
     toast({
-      title: "Settings Saved",
-      description: "Your estimate defaults have been updated.",
+      title: "Settings Applied",
+      description: "Estimate defaults applied for this session.",
     });
   };
 
   const handleSaveCarrierSettings = () => {
+    // Note: These settings are stored locally and will be saved when backend API is available
     toast({
-      title: "Settings Saved",
-      description: "Your carrier settings have been updated.",
+      title: "Settings Applied",
+      description: "Carrier settings applied for this session.",
     });
   };
 
   const handleSaveNotifications = () => {
+    // Note: These settings are stored locally and will be saved when backend API is available
     toast({
-      title: "Settings Saved",
-      description: "Your notification preferences have been updated.",
+      title: "Settings Applied",
+      description: "Notification preferences applied for this session.",
     });
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Profile update API not yet implemented
     toast({
-      title: "Profile Updated",
-      description: "Your profile information has been saved.",
+      title: "Profile Applied",
+      description: "Profile settings applied for this session.",
     });
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (profileData.newPassword !== profileData.confirmPassword) {
       toast({
@@ -328,9 +332,10 @@ export default function Settings() {
       });
       return;
     }
+    // Password change API not yet implemented
     toast({
-      title: "Password Changed",
-      description: "Your password has been updated successfully.",
+      title: "Coming Soon",
+      description: "Password change functionality will be available in a future update.",
     });
     setProfileData(prev => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
   };

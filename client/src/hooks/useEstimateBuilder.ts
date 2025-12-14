@@ -113,7 +113,9 @@ export interface AddLineItemInput {
 // ============================================
 
 async function fetchEstimateHierarchy(estimateId: string): Promise<EstimateHierarchy> {
-  const response = await fetch(`/api/estimates/${estimateId}/hierarchy`);
+  const response = await fetch(`/api/estimates/${estimateId}/hierarchy`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch estimate hierarchy');
   }
@@ -130,6 +132,7 @@ async function initializeHierarchy(estimateId: string, options?: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options || {}),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to initialize estimate hierarchy');
@@ -140,6 +143,7 @@ async function initializeHierarchy(estimateId: string, options?: {
 async function recalculateEstimate(estimateId: string): Promise<any> {
   const response = await fetch(`/api/estimates/${estimateId}/recalculate`, {
     method: 'POST',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to recalculate estimate');
@@ -153,6 +157,7 @@ async function createStructure(estimateId: string, input: CreateStructureInput):
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to create structure');
@@ -165,6 +170,7 @@ async function updateStructure(structureId: string, input: Partial<CreateStructu
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to update structure');
@@ -175,6 +181,7 @@ async function updateStructure(structureId: string, input: Partial<CreateStructu
 async function deleteStructure(structureId: string): Promise<void> {
   const response = await fetch(`/api/structures/${structureId}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to delete structure');
@@ -187,6 +194,7 @@ async function createArea(structureId: string, input: CreateAreaInput): Promise<
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to create area');
@@ -199,6 +207,7 @@ async function updateArea(areaId: string, input: Partial<CreateAreaInput>): Prom
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to update area');
@@ -209,6 +218,7 @@ async function updateArea(areaId: string, input: Partial<CreateAreaInput>): Prom
 async function deleteArea(areaId: string): Promise<void> {
   const response = await fetch(`/api/areas/${areaId}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to delete area');
@@ -221,6 +231,7 @@ async function createZone(areaId: string, input: CreateZoneInput): Promise<Estim
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to create zone');
@@ -229,7 +240,9 @@ async function createZone(areaId: string, input: CreateZoneInput): Promise<Estim
 }
 
 async function fetchZone(zoneId: string): Promise<EstimateZone> {
-  const response = await fetch(`/api/zones/${zoneId}`);
+  const response = await fetch(`/api/zones/${zoneId}`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch zone');
   }
@@ -237,7 +250,9 @@ async function fetchZone(zoneId: string): Promise<EstimateZone> {
 }
 
 async function fetchZoneWithChildren(zoneId: string): Promise<ZoneWithChildren> {
-  const response = await fetch(`/api/zones/${zoneId}/full`);
+  const response = await fetch(`/api/zones/${zoneId}/full`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch zone');
   }
@@ -249,6 +264,7 @@ async function updateZone(zoneId: string, input: UpdateZoneInput): Promise<Estim
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to update zone');
@@ -259,6 +275,7 @@ async function updateZone(zoneId: string, input: UpdateZoneInput): Promise<Estim
 async function recalculateZoneDimensions(zoneId: string): Promise<ZoneDimensions> {
   const response = await fetch(`/api/zones/${zoneId}/calculate-dimensions`, {
     method: 'POST',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to recalculate dimensions');
@@ -270,6 +287,7 @@ async function recalculateZoneDimensions(zoneId: string): Promise<ZoneDimensions
 async function deleteZone(zoneId: string): Promise<void> {
   const response = await fetch(`/api/zones/${zoneId}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to delete zone');
@@ -282,6 +300,7 @@ async function createMissingWall(zoneId: string, input: CreateMissingWallInput):
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to create missing wall');
@@ -292,6 +311,7 @@ async function createMissingWall(zoneId: string, input: CreateMissingWallInput):
 async function deleteMissingWall(wallId: string): Promise<void> {
   const response = await fetch(`/api/missing-walls/${wallId}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to delete missing wall');
@@ -300,7 +320,9 @@ async function deleteMissingWall(wallId: string): Promise<void> {
 
 // Line Item API
 async function fetchZoneLineItems(zoneId: string): Promise<any[]> {
-  const response = await fetch(`/api/zones/${zoneId}/line-items`);
+  const response = await fetch(`/api/zones/${zoneId}/line-items`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch line items');
   }
@@ -312,6 +334,7 @@ async function addLineItemToZone(zoneId: string, input: AddLineItemInput): Promi
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to add line item');
@@ -324,6 +347,7 @@ async function updateLineItem(lineItemId: string, updates: any): Promise<any> {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to update line item');
@@ -334,6 +358,7 @@ async function updateLineItem(lineItemId: string, updates: any): Promise<any> {
 async function deleteLineItem(lineItemId: string): Promise<void> {
   const response = await fetch(`/api/line-items/${lineItemId}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to delete line item');
@@ -359,6 +384,7 @@ async function addLineItemFromDimension(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to add dimension-based line item');
@@ -381,6 +407,7 @@ async function createSubroom(zoneId: string, input: CreateSubroomInput): Promise
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to create subroom');
@@ -393,6 +420,7 @@ async function updateSubroom(subroomId: string, input: Partial<CreateSubroomInpu
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to update subroom');
@@ -403,6 +431,7 @@ async function updateSubroom(subroomId: string, input: Partial<CreateSubroomInpu
 async function deleteSubroom(subroomId: string): Promise<void> {
   const response = await fetch(`/api/subrooms/${subroomId}`, {
     method: 'DELETE',
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to delete subroom');
@@ -430,7 +459,9 @@ export interface CreateCoverageInput {
 }
 
 async function fetchCoverages(estimateId: string): Promise<Coverage[]> {
-  const response = await fetch(`/api/estimates/${estimateId}/coverages`);
+  const response = await fetch(`/api/estimates/${estimateId}/coverages`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch coverages');
   }
@@ -442,6 +473,7 @@ async function createCoverage(estimateId: string, input: CreateCoverageInput): P
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to create coverage');
@@ -454,6 +486,7 @@ async function updateLineItemCoverage(lineItemId: string, coverageId: string | n
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ coverageId }),
+    credentials: 'include',
   });
   if (!response.ok) {
     throw new Error('Failed to update line item coverage');
@@ -461,7 +494,9 @@ async function updateLineItemCoverage(lineItemId: string, coverageId: string | n
 }
 
 async function fetchLineItemsByCoverage(estimateId: string): Promise<Record<string, any[]>> {
-  const response = await fetch(`/api/estimates/${estimateId}/line-items/by-coverage`);
+  const response = await fetch(`/api/estimates/${estimateId}/line-items/by-coverage`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch line items by coverage');
   }

@@ -103,21 +103,72 @@ export async function validateUser(username: string, password: string): Promise<
 }
 
 export async function seedAdminUser(): Promise<void> {
-  const existingUser = await findUserByUsername('admin');
-  if (existingUser) {
-    // Ensure admin has super_admin role
-    const client = await pool.connect();
-    try {
+  const client = await pool.connect();
+  try {
+    let adminUser = await findUserByUsername('admin');
+
+    if (adminUser) {
+      // Ensure admin has super_admin role
       await client.query(
         "UPDATE users SET role = 'super_admin' WHERE username = 'admin' AND (role IS NULL OR role = 'user')"
       );
-    } finally {
-      client.release();
+      console.log('Admin user already exists');
+    } else {
+      // Create admin user
+      const hashedPassword = await hashPassword('admin123');
+      const userResult = await client.query(
+        `INSERT INTO users (username, password, role)
+         VALUES ($1, $2, $3)
+         RETURNING id, username, role`,
+        ['admin', hashedPassword, 'super_admin']
+      );
+      adminUser = userResult.rows[0];
+      console.log('Admin user created successfully');
     }
-    console.log('Admin user already exists');
-    return;
-  }
 
-  await createUser('admin', 'admin123', { role: 'super_admin' });
-  console.log('Admin user created successfully');
+    // Ensure default organization exists and admin is a member
+    const orgResult = await client.query(
+      `SELECT id FROM organizations WHERE slug = 'default'`
+    );
+
+    let orgId: string;
+    if (orgResult.rows.length === 0) {
+      // Create default organization
+      const createOrgResult = await client.query(
+        `INSERT INTO organizations (name, slug, type, status)
+         VALUES ('Default Organization', 'default', 'carrier', 'active')
+         RETURNING id`
+      );
+      orgId = createOrgResult.rows[0].id;
+      console.log('Default organization created');
+    } else {
+      orgId = orgResult.rows[0].id;
+    }
+
+    // Check if admin is already a member
+    const membershipResult = await client.query(
+      `SELECT id FROM organization_memberships
+       WHERE user_id = $1 AND organization_id = $2`,
+      [adminUser.id, orgId]
+    );
+
+    if (membershipResult.rows.length === 0) {
+      // Add admin as owner of default organization
+      await client.query(
+        `INSERT INTO organization_memberships (user_id, organization_id, role, status)
+         VALUES ($1, $2, 'owner', 'active')`,
+        [adminUser.id, orgId]
+      );
+      console.log('Admin added to default organization');
+    }
+
+    // Set admin's current organization if not set
+    await client.query(
+      `UPDATE users SET current_organization_id = $1
+       WHERE id = $2 AND current_organization_id IS NULL`,
+      [orgId, adminUser.id]
+    );
+  } finally {
+    client.release();
+  }
 }

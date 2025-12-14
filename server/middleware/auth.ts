@@ -56,21 +56,30 @@ passport.deserializeUser(async (id: string, done) => {
 // Setup auth middleware on Express app
 export function setupAuth(app: Express): void {
   const PgSession = connectPgSimple(session);
-  
+
+  // Determine if we're in production (HTTPS)
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // Require SESSION_SECRET in production for security
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (isProduction && !sessionSecret) {
+    throw new Error('SESSION_SECRET environment variable is required in production');
+  }
+
   app.use(session({
     store: new PgSession({
       conString: process.env.DATABASE_URL,
       tableName: 'session',
       createTableIfMissing: true,
     }),
-    secret: process.env.SESSION_SECRET || 'claims-iq-secret-key-change-in-production',
+    secret: sessionSecret || 'dev-only-insecure-key-do-not-use-in-production',
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true,
+      secure: isProduction, // Only require HTTPS in production
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000,
-      sameSite: 'none',
+      maxAge: 24 * 60 * 60 * 1000, // Default 24 hours, can be extended for "remember me"
+      sameSite: isProduction ? 'none' : 'lax', // Use 'lax' in development
     },
   }));
 
