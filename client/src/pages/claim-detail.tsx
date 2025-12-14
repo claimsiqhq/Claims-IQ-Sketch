@@ -231,7 +231,7 @@ export default function ClaimDetail() {
 
   if (!claim) return <div className="flex items-center justify-center h-screen">Loading...</div>;
 
-  const selectedRoom = claim.rooms.find(r => r.id === selectedRoomId);
+  const selectedRoom = (claim.rooms || []).find(r => r.id === selectedRoomId);
 
   const handleAddRoom = () => {
     addRoom(claim.id, {
@@ -286,7 +286,7 @@ export default function ClaimDetail() {
   };
 
   const handleGenerateEstimate = async () => {
-    if (claim.lineItems.length === 0) {
+    if ((claim.lineItems || []).length === 0) {
       setIsEstimateSettingsOpen(true);
       return;
     }
@@ -297,7 +297,7 @@ export default function ClaimDetail() {
   };
 
   const handleGenerateAISuggestions = async () => {
-    if (claim.damageZones.length === 0) {
+    if ((claim.damageZones || []).length === 0) {
       alert("Please add damage zones first in the Sketch tab before generating AI suggestions.");
       return;
     }
@@ -307,8 +307,8 @@ export default function ClaimDetail() {
 
     try {
       // Transform damage zones to the format expected by the API
-      const damageZones = claim.damageZones.map(dz => {
-        const room = claim.rooms.find(r => r.id === dz.roomId);
+      const damageZones = (claim.damageZones || []).map(dz => {
+        const room = (claim.rooms || []).find(r => r.id === dz.roomId);
         return {
           id: dz.id,
           roomName: room?.name || "Unknown Room",
@@ -504,7 +504,7 @@ export default function ClaimDetail() {
   }, [estimateBuilder.hierarchy]);
 
   // Calculate display totals - use API result if available, otherwise use local subtotal
-  const localSubtotal = claim.lineItems.reduce((sum, item) => sum + item.total, 0);
+  const localSubtotal = (claim.lineItems || []).reduce((sum, item) => sum + item.total, 0);
   const displaySubtotal = calculatedEstimate?.subtotal ?? localSubtotal;
   const displayOverhead = calculatedEstimate?.overheadAmount ?? (localSubtotal * (estimateSettings.overheadPct / 100));
   const displayProfit = calculatedEstimate?.profitAmount ?? (localSubtotal * (estimateSettings.profitPct / 100));
@@ -527,7 +527,7 @@ export default function ClaimDetail() {
         <div className="bg-white border-b border-border px-4 md:px-6 py-4 flex items-center justify-between shrink-0">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-lg md:text-xl font-display font-bold text-slate-900 truncate max-w-[200px] md:max-w-none">{claim.customerName}</h1>
+              <h1 className="text-lg md:text-xl font-display font-bold text-slate-900 truncate max-w-[200px] md:max-w-none">{claim.policyholder || 'Unknown'}</h1>
               <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs font-medium text-slate-600 border border-slate-200 hidden md:inline-block">
                 {claim.status.toUpperCase()}
               </span>
@@ -586,7 +586,7 @@ export default function ClaimDetail() {
             <Button
               size="sm"
               onClick={handleGenerateEstimate}
-              disabled={isCalculating || claim.lineItems.length === 0}
+              disabled={isCalculating || (claim.lineItems || []).length === 0}
             >
               {isCalculating ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -944,7 +944,7 @@ export default function ClaimDetail() {
                       </div>
                     </div>
                     <SketchCanvas
-                      rooms={claim.rooms}
+                      rooms={claim.rooms || []}
                       damageZones={claim.damageZones}
                       selectedRoomId={selectedRoomId}
                       onSelectRoom={setSelectedRoomId}
@@ -1052,7 +1052,7 @@ export default function ClaimDetail() {
                         </div>
                       </div>
                       <SketchCanvas 
-                        rooms={claim.rooms} 
+                        rooms={claim.rooms || []} 
                         damageZones={claim.damageZones}
                         selectedRoomId={selectedRoomId}
                         onSelectRoom={setSelectedRoomId}
@@ -1184,7 +1184,7 @@ export default function ClaimDetail() {
                             <div>
                               <h4 className="font-medium mb-3">Damage Zones</h4>
                               <div className="space-y-2 mb-3">
-                                {claim.damageZones.filter(dz => dz.roomId === selectedRoom.id).map(dz => (
+                                {(claim.damageZones || []).filter(dz => dz.roomId === selectedRoom.id).map(dz => (
                                   <div key={dz.id} className="bg-red-50 border border-red-100 p-2 rounded text-sm flex items-center justify-between">
                                     <span>{dz.type} - {dz.severity}</span>
                                     <Badge variant="outline" className="text-red-600 bg-white border-red-200">{dz.affectedArea} SF</Badge>
@@ -1220,12 +1220,12 @@ export default function ClaimDetail() {
                             <div className="p-4 bg-slate-50 rounded-lg border text-left space-y-2">
                               <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Total Rooms:</span>
-                                <span className="font-medium">{claim.rooms.length}</span>
+                                <span className="font-medium">{(claim.rooms || []).length}</span>
                               </div>
                               <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Total Area:</span>
                                 <span className="font-medium">
-                                  {claim.rooms.reduce((acc, r) => acc + (r.width * r.height), 0).toFixed(0)} SF
+                                  {(claim.rooms || []).reduce((acc, r) => acc + (r.width * r.height), 0).toFixed(0)} SF
                                 </span>
                               </div>
                             </div>
@@ -1434,7 +1434,7 @@ export default function ClaimDetail() {
                             variant="outline"
                             size="sm"
                             onClick={handleGenerateAISuggestions}
-                            disabled={isGeneratingAISuggestions || claim.damageZones.length === 0}
+                            disabled={isGeneratingAISuggestions || (claim.damageZones || []).length === 0}
                             className="text-purple-600 border-purple-200 hover:bg-purple-50"
                           >
                             {isGeneratingAISuggestions ? (
@@ -1657,7 +1657,7 @@ export default function ClaimDetail() {
                               <div className="col-span-1"></div>
                             </div>
 
-                            {claim.lineItems.length === 0 ? (
+                            {(claim.lineItems || []).length === 0 ? (
                               <div className="p-8 text-center text-muted-foreground">
                                 <ClipboardList className="h-12 w-12 text-slate-300 mx-auto mb-3" />
                                 <p>No line items added yet.</p>
@@ -1665,7 +1665,7 @@ export default function ClaimDetail() {
                               </div>
                             ) : (
                               <div className="divide-y">
-                                {claim.lineItems.map((item) => (
+                                {(claim.lineItems || []).map((item) => (
                                   <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50 group">
                                     <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.code}</div>
                                     <div className="col-span-4 md:col-span-3">
@@ -1774,7 +1774,7 @@ export default function ClaimDetail() {
                       variant="outline"
                       size="sm"
                       onClick={handleGenerateAISuggestions}
-                      disabled={isGeneratingAISuggestions || claim.damageZones.length === 0}
+                      disabled={isGeneratingAISuggestions || (claim.damageZones || []).length === 0}
                       className="text-purple-600 border-purple-200"
                     >
                       {isGeneratingAISuggestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -1813,13 +1813,13 @@ export default function ClaimDetail() {
 
                 {/* Mobile Line Items */}
                 <div className="space-y-2">
-                  {claim.lineItems.length === 0 ? (
+                  {(claim.lineItems || []).length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <ClipboardList className="h-10 w-10 text-slate-300 mx-auto mb-2" />
                       <p>No line items yet</p>
                     </div>
                   ) : (
-                    claim.lineItems.map((item) => (
+                    (claim.lineItems || []).map((item) => (
                       <div key={item.id} className="bg-white border rounded-lg p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
@@ -1876,22 +1876,21 @@ export default function ClaimDetail() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
                   <div>
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Insured</h3>
-                    <p className="font-medium">{claim.customerName}</p>
-                    <p>{claim.address.street}</p>
-                    <p>{claim.address.city}, {claim.address.state} {claim.address.zip}</p>
+                    <p className="font-medium">{claim.policyholder || 'Unknown'}</p>
+                    <p>{claim.riskLocation || 'Address not provided'}</p>
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Claim Info</h3>
                     <p><span className="text-muted-foreground">Claim #:</span> {claim.id.toUpperCase()}</p>
                     <p><span className="text-muted-foreground">Policy #:</span> {claim.policyNumber}</p>
-                    <p><span className="text-muted-foreground">Loss Date:</span> {new Date(claim.dateOfLoss).toLocaleDateString()}</p>
+                    <p><span className="text-muted-foreground">Loss Date:</span> {claim.dateOfLoss ? new Date(claim.dateOfLoss).toLocaleDateString() : 'Not specified'}</p>
                   </div>
                 </div>
 
                 <Separator className="my-8" />
 
                 <div className="space-y-8">
-                  <h3 className="font-bold text-lg">Room: {claim.rooms[0]?.name || "General"}</h3>
+                  <h3 className="font-bold text-lg">Room: {(claim.rooms || [])[0]?.name || "General"}</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[500px]">
                       <thead>
@@ -1905,7 +1904,7 @@ export default function ClaimDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {claim.lineItems.map((item) => (
+                        {(claim.lineItems || []).map((item) => (
                           <tr key={item.id}>
                             <td className="py-3 font-mono text-slate-600">{item.code}</td>
                             <td className="py-3">{item.description}</td>
@@ -2324,7 +2323,7 @@ export default function ClaimDetail() {
                   setActiveTab("estimate");
                 }
               }}
-              disabled={isCalculating || claim.lineItems.length === 0}
+              disabled={isCalculating || (claim.lineItems || []).length === 0}
             >
               {isCalculating ? (
                 <>
