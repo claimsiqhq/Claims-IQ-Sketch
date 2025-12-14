@@ -10,6 +10,7 @@ import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
 import Settings from "@/pages/settings";
 import Profile from "@/pages/profile";
+import EstimatePage from "@/pages/estimate";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
@@ -50,6 +51,11 @@ function Router() {
       <Route path="/voice-sketch/:claimId">
         <ProtectedRoute>
           <VoiceSketchPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/estimate/:id">
+        <ProtectedRoute>
+          <EstimatePage />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />
