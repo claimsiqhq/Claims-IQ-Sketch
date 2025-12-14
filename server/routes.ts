@@ -1966,10 +1966,10 @@ export async function registerRoutes(
   // List claims for organization
   app.get('/api/claims', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { status, loss_type, adjuster_id, search, limit, offset } = req.query;
+      const { status, cause_of_loss, adjuster_id, search, limit, offset } = req.query;
       const result = await listClaims(req.organizationId!, {
         status: status as string,
-        lossType: loss_type as string,
+        causeOfLoss: cause_of_loss as string,
         assignedAdjusterId: adjuster_id as string,
         search: search as string,
         limit: limit ? parseInt(limit as string) : undefined,
@@ -1996,18 +1996,18 @@ export async function registerRoutes(
   // Get claims for map display
   app.get('/api/claims/map', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { adjuster_id, status, loss_type, my_claims } = req.query;
-      
+      const { adjuster_id, status, cause_of_loss, my_claims } = req.query;
+
       // If my_claims=true and user is an adjuster, filter to their claims
       let assignedAdjusterId = adjuster_id as string | undefined;
       if (my_claims === 'true' && req.user?.id) {
         assignedAdjusterId = req.user.id;
       }
-      
+
       const claims = await getClaimsForMap(req.organizationId!, {
         assignedAdjusterId,
         status: status as string,
-        lossType: loss_type as string
+        causeOfLoss: cause_of_loss as string
       });
       res.json({ claims, total: claims.length });
     } catch (error) {
@@ -2086,6 +2086,262 @@ export async function registerRoutes(
     try {
       const documents = await getClaimDocuments(req.params.id, req.organizationId!);
       res.json(documents);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claim policy forms
+  app.get('/api/claims/:id/policy-forms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM policy_forms WHERE claim_id = $1 AND organization_id = $2 ORDER BY created_at`,
+          [req.params.id, req.organizationId]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claim endorsements
+  app.get('/api/claims/:id/endorsements', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM endorsements WHERE claim_id = $1 AND organization_id = $2 ORDER BY created_at`,
+          [req.params.id, req.organizationId]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // POLICY FORMS ROUTES
+  // ============================================
+
+  // Create policy form
+  app.post('/api/policy-forms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { claimId, formNumber, documentTitle, description, keyProvisions } = req.body;
+        if (!formNumber) {
+          return res.status(400).json({ error: 'formNumber required' });
+        }
+        const result = await client.query(
+          `INSERT INTO policy_forms (organization_id, claim_id, form_number, document_title, description, key_provisions)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyProvisions || {})]
+        );
+        res.status(201).json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get policy form
+  app.get('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM policy_forms WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Policy form not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update policy form
+  app.put('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { formNumber, documentTitle, description, keyProvisions, claimId } = req.body;
+        const result = await client.query(
+          `UPDATE policy_forms SET
+             form_number = COALESCE($1, form_number),
+             document_title = COALESCE($2, document_title),
+             description = COALESCE($3, description),
+             key_provisions = COALESCE($4, key_provisions),
+             claim_id = COALESCE($5, claim_id),
+             updated_at = NOW()
+           WHERE id = $6 AND organization_id = $7
+           RETURNING *`,
+          [formNumber, documentTitle, description, keyProvisions ? JSON.stringify(keyProvisions) : null, claimId, req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Policy form not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete policy form
+  app.delete('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `DELETE FROM policy_forms WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rowCount === 0) {
+          return res.status(404).json({ error: 'Policy form not found' });
+        }
+        res.json({ success: true });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // ENDORSEMENTS ROUTES
+  // ============================================
+
+  // Create endorsement
+  app.post('/api/endorsements', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { claimId, formNumber, documentTitle, description, keyChanges } = req.body;
+        if (!formNumber) {
+          return res.status(400).json({ error: 'formNumber required' });
+        }
+        const result = await client.query(
+          `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, key_changes)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyChanges || {})]
+        );
+        res.status(201).json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get endorsement
+  app.get('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM endorsements WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Endorsement not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update endorsement
+  app.put('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { formNumber, documentTitle, description, keyChanges, claimId } = req.body;
+        const result = await client.query(
+          `UPDATE endorsements SET
+             form_number = COALESCE($1, form_number),
+             document_title = COALESCE($2, document_title),
+             description = COALESCE($3, description),
+             key_changes = COALESCE($4, key_changes),
+             claim_id = COALESCE($5, claim_id),
+             updated_at = NOW()
+           WHERE id = $6 AND organization_id = $7
+           RETURNING *`,
+          [formNumber, documentTitle, description, keyChanges ? JSON.stringify(keyChanges) : null, claimId, req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Endorsement not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete endorsement
+  app.delete('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `DELETE FROM endorsements WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rowCount === 0) {
+          return res.status(404).json({ error: 'Endorsement not found' });
+        }
+        res.json({ success: true });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
