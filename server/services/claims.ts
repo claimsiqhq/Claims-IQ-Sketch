@@ -128,7 +128,7 @@ export async function getClaim(
     const result = await client.query(
       `SELECT c.*,
          (SELECT COUNT(*) FROM documents WHERE claim_id = c.id) as document_count,
-         (SELECT COUNT(*) FROM estimates WHERE claim_id = c.id::text) as estimate_count
+         (SELECT COUNT(*) FROM estimates WHERE claim_id = c.id) as estimate_count
        FROM claims c
        WHERE c.id = $1 AND c.organization_id = $2`,
       [id, organizationId]
@@ -210,7 +210,7 @@ export async function listClaims(
     const result = await client.query(
       `SELECT c.*,
          (SELECT COUNT(*) FROM documents WHERE claim_id = c.id) as document_count,
-         (SELECT COUNT(*) FROM estimates WHERE claim_id = c.id::text) as estimate_count
+         (SELECT COUNT(*) FROM estimates WHERE claim_id = c.id) as estimate_count
        FROM claims c
        ${whereClause}
        ORDER BY c.created_at DESC
