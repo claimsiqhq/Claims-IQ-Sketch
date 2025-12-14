@@ -10,7 +10,6 @@ import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
 import Settings from "@/pages/settings";
 import Profile from "@/pages/profile";
-import ClaimsMap from "@/pages/claims-map";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
@@ -31,11 +30,6 @@ function Router() {
       <Route path="/new-claim">
         <ProtectedRoute>
           <NewClaim />
-        </ProtectedRoute>
-      </Route>
-      <Route path="/map">
-        <ProtectedRoute>
-          <ClaimsMap />
         </ProtectedRoute>
       </Route>
       <Route path="/settings">
