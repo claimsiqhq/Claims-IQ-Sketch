@@ -23,7 +23,9 @@ import {
   ArrowRight,
   ArrowLeft,
   Plus,
-  Eye
+  Eye,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { uploadDocument, processDocument, createClaim, type Document } from "@/lib/api";
 
@@ -115,6 +117,10 @@ interface ExtractedData {
     dwellingLimit?: string;
     endorsementsListed?: string[];
   };
+  // Full text extraction fields
+  pageText?: string;
+  pageTexts?: string[];
+  fullText?: string;
 }
 
 // Endorsement record for database
@@ -865,8 +871,54 @@ export default function NewClaim() {
               <p className="text-sm text-slate-700 bg-white rounded p-2">{data.lossDescription}</p>
             </div>
           )}
+
+          {/* Full Document Text Section */}
+          {data.fullText && (
+            <FullTextViewer fullText={data.fullText} pageTexts={data.pageTexts} />
+          )}
         </div>
       </ScrollArea>
+    );
+  };
+
+  // Collapsible full text viewer component
+  const FullTextViewer = ({ fullText, pageTexts }: { fullText: string; pageTexts?: string[] }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    
+    return (
+      <div className="mb-4 border-t border-slate-200 pt-4">
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center justify-between text-xs font-semibold text-primary uppercase tracking-wide mb-2 hover:text-primary/80 transition-colors"
+          data-testid="button-toggle-full-text"
+        >
+          <span className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Full Document Text
+            {pageTexts && pageTexts.length > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {pageTexts.length} {pageTexts.length === 1 ? 'page' : 'pages'}
+              </Badge>
+            )}
+          </span>
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
+        </button>
+        
+        {isExpanded && (
+          <div className="bg-white rounded p-3 border border-slate-200" data-testid="full-text-content">
+            <ScrollArea className="max-h-96">
+              <pre className="text-xs text-slate-700 whitespace-pre-wrap font-mono leading-relaxed">
+                {fullText}
+              </pre>
+            </ScrollArea>
+          </div>
+        )}
+      </div>
     );
   };
 
