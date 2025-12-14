@@ -39,20 +39,74 @@ interface UploadedDocument {
   error?: string;
 }
 
-// Extracted data from documents
+// Coverage detail interface
+interface CoverageDetail {
+  code: string;
+  name: string;
+  limit?: string;
+  percentage?: string;
+  valuationMethod?: string;
+  deductible?: string;
+}
+
+// Scheduled structure interface
+interface ScheduledStructure {
+  description: string;
+  value: string;
+  articleNumber?: string;
+  valuationMethod?: string;
+}
+
+// Endorsement detail interface
+interface EndorsementDetailItem {
+  formNumber: string;
+  name: string;
+  additionalInfo?: string;
+}
+
+// Extracted data from documents - comprehensive interface
 interface ExtractedData {
   claimId?: string;
   policyholder?: string;
+  policyholderSecondary?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   dateOfLoss?: string;
   riskLocation?: string;
   causeOfLoss?: string;
   lossDescription?: string;
+  dwellingDamageDescription?: string;
+  otherStructureDamageDescription?: string;
+  damageLocation?: string;
+  yearBuilt?: string;
+  yearRoofInstall?: string;
+  isWoodRoof?: boolean;
   policyNumber?: string;
   state?: string;
-  yearRoofInstall?: string;
+  carrier?: string;
+  lineOfBusiness?: string;
+  policyInceptionDate?: string;
+  policyDeductible?: string;
   windHailDeductible?: string;
+  windHailDeductiblePercent?: string;
+  coverages?: CoverageDetail[];
   dwellingLimit?: string;
+  otherStructuresLimit?: string;
+  personalPropertyLimit?: string;
+  lossOfUseLimit?: string;
+  liabilityLimit?: string;
+  medicalLimit?: string;
+  scheduledStructures?: ScheduledStructure[];
+  unscheduledStructuresLimit?: string;
+  additionalCoverages?: { name: string; limit?: string; deductible?: string }[];
   endorsementsListed?: string[];
+  endorsementDetails?: EndorsementDetailItem[];
+  mortgagee?: string;
+  producer?: string;
+  producerPhone?: string;
+  producerEmail?: string;
+  reportedBy?: string;
+  reportedDate?: string;
   policyDetails?: {
     policyNumber?: string;
     state?: string;
@@ -487,24 +541,85 @@ export default function NewClaim() {
     );
   };
 
-  // Extracted data preview component
+  // Extracted data preview component - comprehensive display
   const ExtractedDataPreview = ({ data, title }: { data: ExtractedData | undefined; title: string }) => {
     if (!data) return null;
 
-    const fields = [
-      { label: 'Policyholder', value: data.policyholder },
-      { label: 'Risk Location', value: data.riskLocation },
+    // Basic claim info
+    const claimFields = [
+      { label: 'Claim ID', value: data.claimId },
       { label: 'Date of Loss', value: data.dateOfLoss },
       { label: 'Cause of Loss', value: data.causeOfLoss },
-      { label: 'Policy Number', value: data.policyNumber || data.policyDetails?.policyNumber },
-      { label: 'State', value: data.state || data.policyDetails?.state },
-      { label: 'Dwelling Limit', value: data.dwellingLimit || data.policyDetails?.dwellingLimit },
-      { label: 'Wind/Hail Deductible', value: data.windHailDeductible || data.policyDetails?.windHailDeductible },
+      { label: 'Damage Location', value: data.damageLocation },
     ].filter(f => f.value);
 
-    const endorsements = data.endorsementsListed || data.policyDetails?.endorsementsListed || [];
+    // Policyholder info
+    const policyholderFields = [
+      { label: 'Policyholder', value: data.policyholder },
+      { label: 'Second Insured', value: data.policyholderSecondary },
+      { label: 'Phone', value: data.contactPhone },
+      { label: 'Email', value: data.contactEmail },
+      { label: 'Risk Location', value: data.riskLocation },
+    ].filter(f => f.value);
 
-    if (fields.length === 0 && endorsements.length === 0) {
+    // Policy info
+    const policyFields = [
+      { label: 'Policy Number', value: data.policyNumber || data.policyDetails?.policyNumber },
+      { label: 'State', value: data.state || data.policyDetails?.state },
+      { label: 'Carrier', value: data.carrier },
+      { label: 'Line of Business', value: data.lineOfBusiness },
+      { label: 'In Force Since', value: data.policyInceptionDate },
+    ].filter(f => f.value);
+
+    // Property info
+    const propertyFields = [
+      { label: 'Year Built', value: data.yearBuilt },
+      { label: 'Roof Installed', value: data.yearRoofInstall || data.policyDetails?.yearRoofInstall },
+      { label: 'Wood Roof', value: data.isWoodRoof !== undefined ? (data.isWoodRoof ? 'Yes' : 'No') : undefined },
+    ].filter(f => f.value);
+
+    // Deductibles
+    const deductibleFields = [
+      { label: 'Policy Deductible', value: data.policyDeductible },
+      { label: 'Wind/Hail Deductible', value: data.windHailDeductible || data.policyDetails?.windHailDeductible },
+      { label: 'Wind/Hail %', value: data.windHailDeductiblePercent },
+    ].filter(f => f.value);
+
+    // Coverages
+    const coverages = data.coverages || [];
+    const coverageFields = [
+      { label: 'Cov A - Dwelling', value: data.dwellingLimit || data.policyDetails?.dwellingLimit },
+      { label: 'Cov B - Other Structures', value: data.otherStructuresLimit },
+      { label: 'Cov C - Personal Property', value: data.personalPropertyLimit },
+      { label: 'Cov D - Loss of Use', value: data.lossOfUseLimit },
+      { label: 'Cov E - Liability', value: data.liabilityLimit },
+      { label: 'Cov F - Medical', value: data.medicalLimit },
+    ].filter(f => f.value);
+
+    // Scheduled structures
+    const scheduledStructures = data.scheduledStructures || [];
+
+    // Additional coverages
+    const additionalCoverages = data.additionalCoverages || [];
+
+    // Third parties
+    const thirdPartyFields = [
+      { label: 'Mortgagee', value: data.mortgagee },
+      { label: 'Producer/Agent', value: data.producer },
+      { label: 'Producer Phone', value: data.producerPhone },
+      { label: 'Producer Email', value: data.producerEmail },
+    ].filter(f => f.value);
+
+    // Endorsements
+    const endorsements = data.endorsementsListed || data.policyDetails?.endorsementsListed || [];
+    const endorsementDetails = data.endorsementDetails || [];
+
+    const hasData = claimFields.length > 0 || policyholderFields.length > 0 || policyFields.length > 0 ||
+      propertyFields.length > 0 || deductibleFields.length > 0 || coverageFields.length > 0 ||
+      coverages.length > 0 || scheduledStructures.length > 0 || additionalCoverages.length > 0 ||
+      thirdPartyFields.length > 0 || endorsements.length > 0 || endorsementDetails.length > 0;
+
+    if (!hasData) {
       return (
         <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-sm text-amber-700">No data could be extracted from this document.</p>
@@ -512,31 +627,121 @@ export default function NewClaim() {
       );
     }
 
-    return (
-      <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-        <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-          <Eye className="w-4 h-4" />
-          {title}
-        </h4>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          {fields.map((field, idx) => (
-            <div key={idx} className="flex flex-col">
-              <span className="text-slate-500 text-xs">{field.label}</span>
-              <span className="text-slate-900 font-medium truncate">{field.value}</span>
-            </div>
-          ))}
-        </div>
-        {endorsements.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-slate-200">
-            <span className="text-slate-500 text-xs">Endorsements Found</span>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {endorsements.map((e, idx) => (
-                <Badge key={idx} variant="secondary" className="text-xs">{e}</Badge>
-              ))}
-            </div>
+    const FieldSection = ({ title, fields }: { title: string; fields: { label: string; value: string | undefined }[] }) => {
+      if (fields.length === 0) return null;
+      return (
+        <div className="mb-4">
+          <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">{title}</h5>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {fields.map((field, idx) => (
+              <div key={idx} className="flex flex-col">
+                <span className="text-slate-500 text-xs">{field.label}</span>
+                <span className="text-slate-900 text-sm font-medium truncate">{field.value}</span>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      );
+    };
+
+    return (
+      <ScrollArea className="mt-4 max-h-96">
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            {title}
+          </h4>
+
+          <FieldSection title="Claim Information" fields={claimFields} />
+          <FieldSection title="Policyholder" fields={policyholderFields} />
+          <FieldSection title="Policy Details" fields={policyFields} />
+          <FieldSection title="Property" fields={propertyFields} />
+          <FieldSection title="Deductibles" fields={deductibleFields} />
+          <FieldSection title="Coverage Limits" fields={coverageFields} />
+          
+          {coverages.length > 0 && (
+            <div className="mb-4">
+              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Coverages (Detailed)</h5>
+              <div className="space-y-1">
+                {coverages.map((cov, idx) => (
+                  <div key={idx} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
+                    <span className="text-slate-700">{cov.name || `Coverage ${cov.code}`}</span>
+                    <div className="flex gap-2 items-center">
+                      {cov.limit && <span className="font-medium text-slate-900">{cov.limit}</span>}
+                      {cov.percentage && <Badge variant="secondary" className="text-xs">{cov.percentage}</Badge>}
+                      {cov.valuationMethod && <Badge variant="outline" className="text-xs">{cov.valuationMethod}</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {scheduledStructures.length > 0 && (
+            <div className="mb-4">
+              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Scheduled Structures</h5>
+              <div className="space-y-1">
+                {scheduledStructures.map((struct, idx) => (
+                  <div key={idx} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
+                    <span className="text-slate-700">{struct.description}</span>
+                    <span className="font-medium text-slate-900">{struct.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {additionalCoverages.length > 0 && (
+            <div className="mb-4">
+              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Additional Coverages</h5>
+              <div className="space-y-1">
+                {additionalCoverages.map((cov, idx) => (
+                  <div key={idx} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
+                    <span className="text-slate-700">{cov.name}</span>
+                    <div className="flex gap-2">
+                      {cov.limit && <span className="font-medium text-slate-900">{cov.limit}</span>}
+                      {cov.deductible && <Badge variant="secondary" className="text-xs">Ded: {cov.deductible}</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <FieldSection title="Third Parties" fields={thirdPartyFields} />
+
+          {(endorsements.length > 0 || endorsementDetails.length > 0) && (
+            <div className="mb-4">
+              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">
+                Endorsements ({endorsementDetails.length || endorsements.length})
+              </h5>
+              {endorsementDetails.length > 0 ? (
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {endorsementDetails.map((e, idx) => (
+                    <div key={idx} className="text-xs bg-white rounded px-2 py-1">
+                      <span className="font-medium text-slate-900">{e.formNumber}</span>
+                      <span className="text-slate-600 ml-2">{e.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {endorsements.map((e, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">{e}</Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {data.lossDescription && (
+            <div className="mb-4">
+              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Loss Description</h5>
+              <p className="text-sm text-slate-700 bg-white rounded p-2">{data.lossDescription}</p>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
     );
   };
 
