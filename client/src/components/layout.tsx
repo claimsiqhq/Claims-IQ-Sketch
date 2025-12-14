@@ -9,9 +9,19 @@ import {
   X,
   PlusCircle,
   Bell,
-  Mic
+  Mic,
+  User,
+  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import logoWordmark from "../assets/logo-wordmark.png";
@@ -56,11 +66,42 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Button variant="ghost" size="icon">
             <Bell className="h-5 w-5 text-muted-foreground" />
           </Button>
-          <img
-            src={displayAvatar}
-            alt={displayName}
-            className="h-8 w-8 rounded-full border border-border"
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-full p-0 h-8 w-8">
+                <img
+                  src={displayAvatar}
+                  alt={displayName}
+                  className="h-8 w-8 rounded-full border border-border"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium">{displayName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {authUser ? 'Administrator' : user.email}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="cursor-pointer">
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile & Settings</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive cursor-pointer"
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Sign Out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -75,19 +116,42 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="p-4">
-            <div className="flex items-center gap-3 p-3 mb-6 bg-muted/50 rounded-lg">
-              <img
-                src={displayAvatar}
-                alt={displayName}
-                className="h-10 w-10 rounded-full border border-white shadow-sm"
-              />
-              <div className="overflow-hidden">
-                <p className="font-medium text-sm truncate">{displayName}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {authUser ? 'Administrator' : user.email}
-                </p>
-              </div>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-3 p-3 mb-6 bg-muted/50 rounded-lg w-full hover:bg-muted transition-colors cursor-pointer">
+                  <img
+                    src={displayAvatar}
+                    alt={displayName}
+                    className="h-10 w-10 rounded-full border border-white shadow-sm"
+                  />
+                  <div className="overflow-hidden flex-1 text-left">
+                    <p className="font-medium text-sm truncate">{displayName}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {authUser ? 'Administrator' : user.email}
+                    </p>
+                  </div>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/settings" className="cursor-pointer">
+                    <User className="mr-2 h-4 w-4" />
+                    <span>Profile & Settings</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive cursor-pointer"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Sign Out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <nav className="space-y-1">
               {navItems.map((item) => {
