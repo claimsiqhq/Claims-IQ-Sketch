@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   Upload,
   FileText,
@@ -33,21 +32,20 @@ interface UploadedFile {
   error?: string;
 }
 
+// Updated to match new FNOL JSON format
 interface ExtractedData {
-  insuredName?: string;
-  policyNumber?: string;
-  propertyAddress?: string;
-  propertyCity?: string;
-  propertyState?: string;
-  propertyZip?: string;
-  dateOfLoss?: string;
-  lossType?: string;
+  claimId?: string;
+  policyholder?: string;
+  dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
+  riskLocation?: string;
+  causeOfLoss?: string;
   lossDescription?: string;
-  coverageA?: string;
-  coverageB?: string;
-  coverageC?: string;
-  coverageD?: string;
-  deductible?: string;
+  policyNumber?: string;
+  state?: string;
+  yearRoofInstall?: string;
+  windHailDeductible?: string;
+  dwellingLimit?: string;
+  endorsementsListed?: string[];
 }
 
 export default function NewClaim() {
@@ -151,42 +149,52 @@ export default function NewClaim() {
         }
       }
 
-      // Merge extracted data from all documents
+      // Merge extracted data from all documents - using new FNOL format
       const mergedData: ExtractedData = {
-        insuredName: '',
-        policyNumber: '',
-        propertyAddress: '',
-        propertyCity: '',
-        propertyState: '',
-        propertyZip: '',
-        dateOfLoss: new Date().toISOString().split('T')[0],
-        lossType: 'Water',
+        claimId: '',
+        policyholder: '',
+        dateOfLoss: '',
+        riskLocation: '',
+        causeOfLoss: 'Hail',
         lossDescription: '',
-        coverageA: '',
-        coverageB: '',
-        coverageC: '',
-        coverageD: '',
-        deductible: '',
+        policyNumber: '',
+        state: '',
+        yearRoofInstall: '',
+        windHailDeductible: '',
+        dwellingLimit: '',
+        endorsementsListed: [],
       };
 
       // Populate from extracted data (prefer non-empty values)
       for (const doc of uploadedDocs) {
         if (doc.extractedData) {
           const ed = doc.extractedData;
-          if (ed.insuredName && !mergedData.insuredName) mergedData.insuredName = ed.insuredName;
-          if (ed.policyNumber && !mergedData.policyNumber) mergedData.policyNumber = ed.policyNumber;
-          if (ed.propertyAddress && !mergedData.propertyAddress) mergedData.propertyAddress = ed.propertyAddress;
-          if (ed.propertyCity && !mergedData.propertyCity) mergedData.propertyCity = ed.propertyCity;
-          if (ed.propertyState && !mergedData.propertyState) mergedData.propertyState = ed.propertyState;
-          if (ed.propertyZip && !mergedData.propertyZip) mergedData.propertyZip = ed.propertyZip;
+          // Map new field names
+          if (ed.claimId && !mergedData.claimId) mergedData.claimId = ed.claimId;
+          if (ed.policyholder && !mergedData.policyholder) mergedData.policyholder = ed.policyholder;
           if (ed.dateOfLoss && !mergedData.dateOfLoss) mergedData.dateOfLoss = ed.dateOfLoss;
-          if (ed.lossType && !mergedData.lossType) mergedData.lossType = ed.lossType;
+          if (ed.riskLocation && !mergedData.riskLocation) mergedData.riskLocation = ed.riskLocation;
+          if (ed.causeOfLoss && !mergedData.causeOfLoss) mergedData.causeOfLoss = ed.causeOfLoss;
           if (ed.lossDescription && !mergedData.lossDescription) mergedData.lossDescription = ed.lossDescription;
-          if (ed.coverageA && !mergedData.coverageA) mergedData.coverageA = String(ed.coverageA);
-          if (ed.coverageB && !mergedData.coverageB) mergedData.coverageB = String(ed.coverageB);
-          if (ed.coverageC && !mergedData.coverageC) mergedData.coverageC = String(ed.coverageC);
-          if (ed.coverageD && !mergedData.coverageD) mergedData.coverageD = String(ed.coverageD);
-          if (ed.deductible && !mergedData.deductible) mergedData.deductible = String(ed.deductible);
+
+          // Policy details - check both flattened and nested
+          const pd = ed.policyDetails || {};
+          if ((ed.policyNumber || pd.policyNumber) && !mergedData.policyNumber)
+            mergedData.policyNumber = ed.policyNumber || pd.policyNumber;
+          if ((ed.state || pd.state) && !mergedData.state)
+            mergedData.state = ed.state || pd.state;
+          if ((ed.yearRoofInstall || pd.yearRoofInstall) && !mergedData.yearRoofInstall)
+            mergedData.yearRoofInstall = ed.yearRoofInstall || pd.yearRoofInstall;
+          if ((ed.windHailDeductible || pd.windHailDeductible) && !mergedData.windHailDeductible)
+            mergedData.windHailDeductible = ed.windHailDeductible || pd.windHailDeductible;
+          if ((ed.dwellingLimit || pd.dwellingLimit) && !mergedData.dwellingLimit)
+            mergedData.dwellingLimit = ed.dwellingLimit || pd.dwellingLimit;
+
+          // Merge endorsements arrays
+          const endorsements = ed.endorsementsListed || pd.endorsementsListed || [];
+          if (endorsements.length > 0) {
+            mergedData.endorsementsListed = [...new Set([...(mergedData.endorsementsListed || []), ...endorsements])];
+          }
         }
       }
 
@@ -206,20 +214,18 @@ export default function NewClaim() {
 
     try {
       const claim = await createClaim({
-        insuredName: extractedData.insuredName,
-        policyNumber: extractedData.policyNumber,
-        propertyAddress: extractedData.propertyAddress,
-        propertyCity: extractedData.propertyCity,
-        propertyState: extractedData.propertyState,
-        propertyZip: extractedData.propertyZip,
+        claimId: extractedData.claimId,
+        policyholder: extractedData.policyholder,
         dateOfLoss: extractedData.dateOfLoss,
-        lossType: extractedData.lossType,
+        riskLocation: extractedData.riskLocation,
+        causeOfLoss: extractedData.causeOfLoss,
         lossDescription: extractedData.lossDescription,
-        coverageA: extractedData.coverageA,
-        coverageB: extractedData.coverageB,
-        coverageC: extractedData.coverageC,
-        coverageD: extractedData.coverageD,
-        deductible: extractedData.deductible,
+        policyNumber: extractedData.policyNumber,
+        state: extractedData.state,
+        yearRoofInstall: extractedData.yearRoofInstall,
+        windHailDeductible: extractedData.windHailDeductible,
+        dwellingLimit: extractedData.dwellingLimit,
+        endorsementsListed: extractedData.endorsementsListed,
         status: 'fnol',
       });
 
@@ -423,23 +429,83 @@ export default function NewClaim() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <Tabs defaultValue="insured" className="w-full">
+              <Tabs defaultValue="claim" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="insured">Insured Info</TabsTrigger>
-                  <TabsTrigger value="loss">Loss Details</TabsTrigger>
-                  <TabsTrigger value="coverage">Coverage</TabsTrigger>
+                  <TabsTrigger value="claim">Claim Info</TabsTrigger>
+                  <TabsTrigger value="policy">Policy Details</TabsTrigger>
+                  <TabsTrigger value="endorsements">Endorsements</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="insured" className="space-y-4 mt-4">
+                <TabsContent value="claim" className="space-y-4 mt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="insuredName">Insured Name</Label>
+                      <Label htmlFor="claimId">Claim ID</Label>
                       <Input
-                        id="insuredName"
-                        value={extractedData.insuredName || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, insuredName: e.target.value })}
+                        id="claimId"
+                        placeholder="01-XXX-XXXXXX"
+                        value={extractedData.claimId || ''}
+                        onChange={(e) => setExtractedData({ ...extractedData, claimId: e.target.value })}
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="policyholder">Policyholder</Label>
+                      <Input
+                        id="policyholder"
+                        value={extractedData.policyholder || ''}
+                        onChange={(e) => setExtractedData({ ...extractedData, policyholder: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="riskLocation">Risk Location (Full Address)</Label>
+                    <Input
+                      id="riskLocation"
+                      placeholder="123 Main St, City, ST 12345"
+                      value={extractedData.riskLocation || ''}
+                      onChange={(e) => setExtractedData({ ...extractedData, riskLocation: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="dateOfLoss">Date of Loss</Label>
+                      <Input
+                        id="dateOfLoss"
+                        placeholder="MM/DD/YYYY@HH:MM AM/PM"
+                        value={extractedData.dateOfLoss || ''}
+                        onChange={(e) => setExtractedData({ ...extractedData, dateOfLoss: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cause of Loss</Label>
+                      <Select
+                        value={extractedData.causeOfLoss || 'Hail'}
+                        onValueChange={(v) => setExtractedData({ ...extractedData, causeOfLoss: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {["Hail", "Wind", "Fire", "Water", "Impact", "Other"].map(t => (
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lossDescription">Loss Description</Label>
+                    <Textarea
+                      id="lossDescription"
+                      className="min-h-[100px]"
+                      placeholder="Describe the damage..."
+                      value={extractedData.lossDescription || ''}
+                      onChange={(e) => setExtractedData({ ...extractedData, lossDescription: e.target.value })}
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="policy" className="space-y-4 mt-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="policyNumber">Policy Number</Label>
                       <Input
@@ -448,134 +514,110 @@ export default function NewClaim() {
                         onChange={(e) => setExtractedData({ ...extractedData, policyNumber: e.target.value })}
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="state">State</Label>
+                      <Input
+                        id="state"
+                        placeholder="CO"
+                        maxLength={2}
+                        value={extractedData.state || ''}
+                        onChange={(e) => setExtractedData({ ...extractedData, state: e.target.value.toUpperCase() })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="dwellingLimit">Dwelling Limit</Label>
+                      <Input
+                        id="dwellingLimit"
+                        placeholder="$XXX,XXX"
+                        value={extractedData.dwellingLimit || ''}
+                        onChange={(e) => setExtractedData({ ...extractedData, dwellingLimit: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="windHailDeductible">Wind/Hail Deductible</Label>
+                      <Input
+                        id="windHailDeductible"
+                        placeholder="$X,XXX X%"
+                        value={extractedData.windHailDeductible || ''}
+                        onChange={(e) => setExtractedData({ ...extractedData, windHailDeductible: e.target.value })}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="propertyAddress">Property Address</Label>
+                    <Label htmlFor="yearRoofInstall">Year Roof Installed</Label>
                     <Input
-                      id="propertyAddress"
-                      value={extractedData.propertyAddress || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, propertyAddress: e.target.value })}
+                      id="yearRoofInstall"
+                      placeholder="MM-DD-YYYY"
+                      value={extractedData.yearRoofInstall || ''}
+                      onChange={(e) => setExtractedData({ ...extractedData, yearRoofInstall: e.target.value })}
                     />
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="propertyCity">City</Label>
-                      <Input
-                        id="propertyCity"
-                        value={extractedData.propertyCity || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, propertyCity: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="propertyState">State</Label>
-                      <Input
-                        id="propertyState"
-                        value={extractedData.propertyState || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, propertyState: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="propertyZip">ZIP Code</Label>
-                      <Input
-                        id="propertyZip"
-                        value={extractedData.propertyZip || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, propertyZip: e.target.value })}
-                      />
-                    </div>
                   </div>
                 </TabsContent>
 
-                <TabsContent value="loss" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="dateOfLoss">Date of Loss</Label>
-                      <Input
-                        id="dateOfLoss"
-                        type="date"
-                        value={extractedData.dateOfLoss || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, dateOfLoss: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Loss Type</Label>
-                      <Select
-                        value={extractedData.lossType || 'Water'}
-                        onValueChange={(v) => setExtractedData({ ...extractedData, lossType: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {["Water", "Fire", "Wind/Hail", "Impact", "Other"].map(t => (
-                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                <TabsContent value="endorsements" className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <Label>Endorsements Listed</Label>
+                    <div className="border rounded-lg p-4 min-h-[150px]">
+                      {(extractedData.endorsementsListed || []).length > 0 ? (
+                        <div className="space-y-2">
+                          {extractedData.endorsementsListed?.map((endorsement, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded p-2">
+                              <FileCheck className="w-4 h-4 text-green-500" />
+                              <span className="flex-1 text-sm">{endorsement}</span>
+                              <button
+                                onClick={() => {
+                                  const newList = [...(extractedData.endorsementsListed || [])];
+                                  newList.splice(idx, 1);
+                                  setExtractedData({ ...extractedData, endorsementsListed: newList });
+                                }}
+                                className="text-slate-400 hover:text-red-500"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
                           ))}
-                        </SelectContent>
-                      </Select>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-400 text-center py-8">
+                          No endorsements extracted. Add them manually below.
+                        </p>
+                      )}
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lossDescription">Description of Loss</Label>
-                    <Textarea
-                      id="lossDescription"
-                      className="min-h-[100px]"
-                      value={extractedData.lossDescription || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, lossDescription: e.target.value })}
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="coverage" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="coverageA">Coverage A (Dwelling)</Label>
+                    <div className="flex gap-2 mt-2">
                       <Input
-                        id="coverageA"
-                        type="number"
-                        placeholder="$0.00"
-                        value={extractedData.coverageA || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, coverageA: e.target.value })}
+                        id="newEndorsement"
+                        placeholder="HO 84 28 - Hidden Water Coverage"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const input = e.target as HTMLInputElement;
+                            if (input.value.trim()) {
+                              setExtractedData({
+                                ...extractedData,
+                                endorsementsListed: [...(extractedData.endorsementsListed || []), input.value.trim()]
+                              });
+                              input.value = '';
+                            }
+                          }
+                        }}
                       />
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          const input = document.getElementById('newEndorsement') as HTMLInputElement;
+                          if (input?.value.trim()) {
+                            setExtractedData({
+                              ...extractedData,
+                              endorsementsListed: [...(extractedData.endorsementsListed || []), input.value.trim()]
+                            });
+                            input.value = '';
+                          }
+                        }}
+                      >
+                        Add
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="coverageB">Coverage B (Other Structures)</Label>
-                      <Input
-                        id="coverageB"
-                        type="number"
-                        placeholder="$0.00"
-                        value={extractedData.coverageB || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, coverageB: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="coverageC">Coverage C (Personal Property)</Label>
-                      <Input
-                        id="coverageC"
-                        type="number"
-                        placeholder="$0.00"
-                        value={extractedData.coverageC || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, coverageC: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="coverageD">Coverage D (Loss of Use)</Label>
-                      <Input
-                        id="coverageD"
-                        type="number"
-                        placeholder="$0.00"
-                        value={extractedData.coverageD || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, coverageD: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="deductible">Deductible</Label>
-                    <Input
-                      id="deductible"
-                      type="number"
-                      placeholder="$0.00"
-                      value={extractedData.deductible || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, deductible: e.target.value })}
-                    />
                   </div>
                 </TabsContent>
               </Tabs>
