@@ -100,31 +100,25 @@ export const claims = pgTable("claims", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: uuid("organization_id").notNull(),
 
-  // Claim identifiers
-  claimNumber: varchar("claim_number", { length: 50 }).notNull(),
-  policyNumber: varchar("policy_number", { length: 50 }),
+  // Claim identifier
+  claimId: varchar("claim_id", { length: 50 }).notNull(),
 
-  // Insured info
-  insuredName: varchar("insured_name", { length: 255 }),
-  insuredEmail: varchar("insured_email", { length: 255 }),
-  insuredPhone: varchar("insured_phone", { length: 50 }),
-
-  // Property address
-  propertyAddress: text("property_address"),
-  propertyCity: varchar("property_city", { length: 100 }),
-  propertyState: varchar("property_state", { length: 50 }),
-  propertyZip: varchar("property_zip", { length: 20 }),
-
-  // Geocoding data
-  propertyLatitude: decimal("property_latitude", { precision: 10, scale: 7 }),
-  propertyLongitude: decimal("property_longitude", { precision: 10, scale: 7 }),
-  geocodeStatus: varchar("geocode_status", { length: 20 }).default("pending"), // pending, success, failed, skipped
-  geocodedAt: timestamp("geocoded_at"),
+  // Policyholder info
+  policyholder: varchar("policyholder", { length: 255 }),
 
   // Loss details
-  dateOfLoss: date("date_of_loss"),
-  lossType: varchar("loss_type", { length: 50 }), // Water, Fire, Wind/Hail, Impact, Other
+  dateOfLoss: varchar("date_of_loss", { length: 50 }), // Format: "MM/DD/YYYY@HH:MM AM/PM"
+  riskLocation: text("risk_location"), // Full address string
+  causeOfLoss: varchar("cause_of_loss", { length: 100 }), // Hail, Fire, Water, Wind, etc.
   lossDescription: text("loss_description"),
+
+  // Policy details (nested in JSON format for flexibility)
+  policyNumber: varchar("policy_number", { length: 50 }),
+  state: varchar("state", { length: 10 }),
+  yearRoofInstall: varchar("year_roof_install", { length: 20 }), // Format: "MM-DD-YYYY"
+  windHailDeductible: varchar("wind_hail_deductible", { length: 50 }), // Format: "$X,XXX X%"
+  dwellingLimit: varchar("dwelling_limit", { length: 50 }), // Format: "$XXX,XXX"
+  endorsementsListed: jsonb("endorsements_listed").default(sql`'[]'::jsonb`), // Array of endorsement strings
 
   // Status tracking
   status: varchar("status", { length: 30 }).notNull().default("fnol"), // fnol, open, in_progress, review, approved, closed
@@ -132,19 +126,12 @@ export const claims = pgTable("claims", {
   // Assignment
   assignedAdjusterId: varchar("assigned_adjuster_id"),
 
-  // Coverage
-  coverageA: decimal("coverage_a", { precision: 12, scale: 2 }),
-  coverageB: decimal("coverage_b", { precision: 12, scale: 2 }),
-  coverageC: decimal("coverage_c", { precision: 12, scale: 2 }),
-  coverageD: decimal("coverage_d", { precision: 12, scale: 2 }),
-  deductible: decimal("deductible", { precision: 12, scale: 2 }),
-
   // Totals (calculated from estimates)
   totalRcv: decimal("total_rcv", { precision: 12, scale: 2 }).default("0"),
   totalAcv: decimal("total_acv", { precision: 12, scale: 2 }).default("0"),
   totalPaid: decimal("total_paid", { precision: 12, scale: 2 }).default("0"),
 
-  // Metadata
+  // Metadata for additional fields
   metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
 
   // Timestamps
@@ -153,7 +140,7 @@ export const claims = pgTable("claims", {
   closedAt: timestamp("closed_at"),
 }, (table) => ({
   orgIdx: index("claims_org_idx").on(table.organizationId),
-  claimNumberIdx: index("claims_claim_number_idx").on(table.claimNumber),
+  claimIdIdx: index("claims_claim_id_idx").on(table.claimId),
   statusIdx: index("claims_status_idx").on(table.status),
 }));
 
@@ -166,6 +153,93 @@ export const insertClaimSchema = createInsertSchema(claims).omit({
 
 export type InsertClaim = z.infer<typeof insertClaimSchema>;
 export type Claim = typeof claims.$inferSelect;
+
+// ============================================
+// POLICY FORMS TABLE
+// ============================================
+
+export const policyForms = pgTable("policy_forms", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id"), // Link to claim
+
+  // Form identification
+  formType: varchar("form_type", { length: 50 }).notNull().default("Policy Form"),
+  formNumber: varchar("form_number", { length: 50 }).notNull(), // e.g., "HO 80 03 01 14"
+  documentTitle: varchar("document_title", { length: 255 }), // e.g., "HOMEOWNERS FORM"
+  description: text("description"),
+
+  // Key provisions stored as JSONB for flexibility
+  keyProvisions: jsonb("key_provisions").default(sql`'{}'::jsonb`),
+  // Structure: {
+  //   sections: string[],
+  //   loss_settlement_roofing_system_wind_hail: string,
+  //   dwelling_unoccupied_exclusion_period: string,
+  //   ...other provisions
+  // }
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("policy_forms_org_idx").on(table.organizationId),
+  claimIdx: index("policy_forms_claim_idx").on(table.claimId),
+  formNumberIdx: index("policy_forms_form_number_idx").on(table.formNumber),
+}));
+
+export const insertPolicyFormSchema = createInsertSchema(policyForms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPolicyForm = z.infer<typeof insertPolicyFormSchema>;
+export type PolicyForm = typeof policyForms.$inferSelect;
+
+// ============================================
+// ENDORSEMENTS TABLE
+// ============================================
+
+export const endorsements = pgTable("endorsements", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id"), // Link to claim
+
+  // Endorsement identification
+  formType: varchar("form_type", { length: 50 }).notNull().default("Endorsement"),
+  formNumber: varchar("form_number", { length: 50 }).notNull(), // e.g., "HO 81 53 12 22"
+  documentTitle: varchar("document_title", { length: 255 }), // e.g., "WISCONSIN AMENDATORY ENDORSEMENT"
+  description: text("description"),
+
+  // Key changes stored as JSONB for flexibility
+  keyChanges: jsonb("key_changes").default(sql`'{}'::jsonb`),
+  // Structure: {
+  //   actual_cash_value_definition: string,
+  //   dwelling_unoccupied_exclusion_period: string,
+  //   metal_siding_and_trim_loss_settlement_wind_hail: string,
+  //   loss_settlement_wind_hail: string,
+  //   roofing_schedule_application: string,
+  //   metal_roofing_loss_settlement: string,
+  //   ...other changes
+  // }
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("endorsements_org_idx").on(table.organizationId),
+  claimIdx: index("endorsements_claim_idx").on(table.claimId),
+  formNumberIdx: index("endorsements_form_number_idx").on(table.formNumber),
+}));
+
+export const insertEndorsementSchema = createInsertSchema(endorsements).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEndorsement = z.infer<typeof insertEndorsementSchema>;
+export type Endorsement = typeof endorsements.$inferSelect;
 
 // ============================================
 // DOCUMENTS TABLE

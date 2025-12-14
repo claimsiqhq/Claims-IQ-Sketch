@@ -1966,10 +1966,10 @@ export async function registerRoutes(
   // List claims for organization
   app.get('/api/claims', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { status, loss_type, adjuster_id, search, limit, offset } = req.query;
+      const { status, cause_of_loss, adjuster_id, search, limit, offset } = req.query;
       const result = await listClaims(req.organizationId!, {
         status: status as string,
-        lossType: loss_type as string,
+        causeOfLoss: cause_of_loss as string,
         assignedAdjusterId: adjuster_id as string,
         search: search as string,
         limit: limit ? parseInt(limit as string) : undefined,
@@ -1996,18 +1996,18 @@ export async function registerRoutes(
   // Get claims for map display
   app.get('/api/claims/map', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { adjuster_id, status, loss_type, my_claims } = req.query;
-      
+      const { adjuster_id, status, cause_of_loss, my_claims } = req.query;
+
       // If my_claims=true and user is an adjuster, filter to their claims
       let assignedAdjusterId = adjuster_id as string | undefined;
       if (my_claims === 'true' && req.user?.id) {
         assignedAdjusterId = req.user.id;
       }
-      
+
       const claims = await getClaimsForMap(req.organizationId!, {
         assignedAdjusterId,
         status: status as string,
-        lossType: loss_type as string
+        causeOfLoss: cause_of_loss as string
       });
       res.json({ claims, total: claims.length });
     } catch (error) {
@@ -2086,6 +2086,262 @@ export async function registerRoutes(
     try {
       const documents = await getClaimDocuments(req.params.id, req.organizationId!);
       res.json(documents);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claim policy forms
+  app.get('/api/claims/:id/policy-forms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM policy_forms WHERE claim_id = $1 AND organization_id = $2 ORDER BY created_at`,
+          [req.params.id, req.organizationId]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claim endorsements
+  app.get('/api/claims/:id/endorsements', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM endorsements WHERE claim_id = $1 AND organization_id = $2 ORDER BY created_at`,
+          [req.params.id, req.organizationId]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // POLICY FORMS ROUTES
+  // ============================================
+
+  // Create policy form
+  app.post('/api/policy-forms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { claimId, formNumber, documentTitle, description, keyProvisions } = req.body;
+        if (!formNumber) {
+          return res.status(400).json({ error: 'formNumber required' });
+        }
+        const result = await client.query(
+          `INSERT INTO policy_forms (organization_id, claim_id, form_number, document_title, description, key_provisions)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyProvisions || {})]
+        );
+        res.status(201).json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get policy form
+  app.get('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM policy_forms WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Policy form not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update policy form
+  app.put('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { formNumber, documentTitle, description, keyProvisions, claimId } = req.body;
+        const result = await client.query(
+          `UPDATE policy_forms SET
+             form_number = COALESCE($1, form_number),
+             document_title = COALESCE($2, document_title),
+             description = COALESCE($3, description),
+             key_provisions = COALESCE($4, key_provisions),
+             claim_id = COALESCE($5, claim_id),
+             updated_at = NOW()
+           WHERE id = $6 AND organization_id = $7
+           RETURNING *`,
+          [formNumber, documentTitle, description, keyProvisions ? JSON.stringify(keyProvisions) : null, claimId, req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Policy form not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete policy form
+  app.delete('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `DELETE FROM policy_forms WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rowCount === 0) {
+          return res.status(404).json({ error: 'Policy form not found' });
+        }
+        res.json({ success: true });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // ENDORSEMENTS ROUTES
+  // ============================================
+
+  // Create endorsement
+  app.post('/api/endorsements', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { claimId, formNumber, documentTitle, description, keyChanges } = req.body;
+        if (!formNumber) {
+          return res.status(400).json({ error: 'formNumber required' });
+        }
+        const result = await client.query(
+          `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, key_changes)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyChanges || {})]
+        );
+        res.status(201).json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get endorsement
+  app.get('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM endorsements WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Endorsement not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update endorsement
+  app.put('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const { formNumber, documentTitle, description, keyChanges, claimId } = req.body;
+        const result = await client.query(
+          `UPDATE endorsements SET
+             form_number = COALESCE($1, form_number),
+             document_title = COALESCE($2, document_title),
+             description = COALESCE($3, description),
+             key_changes = COALESCE($4, key_changes),
+             claim_id = COALESCE($5, claim_id),
+             updated_at = NOW()
+           WHERE id = $6 AND organization_id = $7
+           RETURNING *`,
+          [formNumber, documentTitle, description, keyChanges ? JSON.stringify(keyChanges) : null, claimId, req.params.id, req.organizationId]
+        );
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Endorsement not found' });
+        }
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete endorsement
+  app.delete('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `DELETE FROM endorsements WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (result.rowCount === 0) {
+          return res.status(404).json({ error: 'Endorsement not found' });
+        }
+        res.json({ success: true });
+      } finally {
+        client.release();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -2227,6 +2483,130 @@ export async function registerRoutes(
 
       const filePath = getDocumentFilePath(doc.storagePath);
       res.download(filePath, doc.fileName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get document as images (for viewing PDFs and images)
+  app.get('/api/documents/:id/images', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      const filePath = path.join(uploadDir, doc.storagePath);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Document file not found on disk' });
+      }
+
+      // For images, return a single image reference
+      if (doc.mimeType.startsWith('image/')) {
+        return res.json({
+          pages: 1,
+          images: [`/api/documents/${req.params.id}/image/1`]
+        });
+      }
+
+      // For PDFs, convert to images and return page count
+      if (doc.mimeType === 'application/pdf') {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        // Get page count using pdfinfo
+        try {
+          const { stdout } = await execAsync(`pdfinfo "${filePath}" | grep Pages`);
+          const pageMatch = stdout.match(/Pages:\s*(\d+)/);
+          const pageCount = pageMatch ? parseInt(pageMatch[1]) : 1;
+
+          const images = [];
+          for (let i = 1; i <= pageCount; i++) {
+            images.push(`/api/documents/${req.params.id}/image/${i}`);
+          }
+
+          return res.json({
+            pages: pageCount,
+            images
+          });
+        } catch (pdfError) {
+          // Fallback: assume 1 page
+          return res.json({
+            pages: 1,
+            images: [`/api/documents/${req.params.id}/image/1`]
+          });
+        }
+      }
+
+      res.status(400).json({ error: 'Unsupported document type for image viewing' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get specific page image from document
+  app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      const pageNum = parseInt(req.params.page) || 1;
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      const filePath = path.join(uploadDir, doc.storagePath);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Document file not found on disk' });
+      }
+
+      // For images, serve directly
+      if (doc.mimeType.startsWith('image/')) {
+        res.setHeader('Content-Type', doc.mimeType);
+        return res.sendFile(path.resolve(filePath));
+      }
+
+      // For PDFs, convert to image and serve
+      if (doc.mimeType === 'application/pdf') {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const os = await import('os');
+        const execAsync = promisify(exec);
+
+        const tempDir = path.join(os.tmpdir(), 'claimsiq-view');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const outputFile = path.join(tempDir, `${req.params.id}-page${pageNum}.png`);
+
+        // Check if already cached
+        if (!fs.existsSync(outputFile)) {
+          // Convert specific page
+          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${filePath}" "${outputFile.replace('.png', '')}"`);
+
+          // pdftoppm adds page number suffix
+          const generatedFile = `${outputFile.replace('.png', '')}-${pageNum}.png`;
+          if (fs.existsSync(generatedFile)) {
+            fs.renameSync(generatedFile, outputFile);
+          }
+        }
+
+        if (fs.existsSync(outputFile)) {
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          return res.sendFile(path.resolve(outputFile));
+        }
+
+        return res.status(500).json({ error: 'Failed to convert PDF page to image' });
+      }
+
+      res.status(400).json({ error: 'Unsupported document type' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });

@@ -14,49 +14,37 @@ const openai = new OpenAI({
 
 const TEMP_DIR = path.join(os.tmpdir(), 'claimsiq-pdf');
 
-// Document type definitions
+// Document type definitions - matches FNOL JSON format
 export interface ExtractedClaimData {
-  // Insured Information
-  insuredName?: string;
-  insuredEmail?: string;
-  insuredPhone?: string;
+  // Claim identifier
+  claimId?: string;
 
-  // Policy Information
-  policyNumber?: string;
-  policyEffectiveDate?: string;
-  policyExpirationDate?: string;
+  // Policyholder info
+  policyholder?: string;
 
-  // Property Information
-  propertyAddress?: string;
-  propertyCity?: string;
-  propertyState?: string;
-  propertyZip?: string;
-
-  // Loss Information
-  dateOfLoss?: string;
-  timeOfLoss?: string;
-  lossType?: string;
+  // Loss details
+  dateOfLoss?: string; // Format: "MM/DD/YYYY@HH:MM AM/PM"
+  riskLocation?: string; // Full address string
+  causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
   lossDescription?: string;
-  causeOfLoss?: string;
 
-  // Coverage Information
-  coverageA?: number;
-  coverageB?: number;
-  coverageC?: number;
-  coverageD?: number;
-  deductible?: number;
+  // Policy details
+  policyDetails?: {
+    policyNumber?: string;
+    state?: string;
+    yearRoofInstall?: string; // Format: "MM-DD-YYYY"
+    windHailDeductible?: string; // Format: "$X,XXX X%"
+    dwellingLimit?: string; // Format: "$XXX,XXX"
+    endorsementsListed?: string[]; // Array of endorsement strings
+  };
 
-  // Additional fields
-  claimNumber?: string;
-  reportedBy?: string;
-  reportedDate?: string;
-
-  // Endorsements
-  endorsements?: Array<{
-    code: string;
-    name: string;
-    premium?: number;
-  }>;
+  // Flattened policy details for direct access
+  policyNumber?: string;
+  state?: string;
+  yearRoofInstall?: string;
+  windHailDeductible?: string;
+  dwellingLimit?: string;
+  endorsementsListed?: string[];
 
   // Raw text (for reference)
   rawText?: string;
@@ -349,62 +337,54 @@ Return a JSON object with the following fields (use null for missing values):`;
     case 'fnol':
       return `${basePrompt}
 {
-  "insuredName": "Full name of the insured",
-  "insuredPhone": "Phone number",
-  "insuredEmail": "Email address",
-  "policyNumber": "Policy number",
-  "propertyAddress": "Street address of the property",
-  "propertyCity": "City",
-  "propertyState": "State (2-letter code)",
-  "propertyZip": "ZIP code",
-  "dateOfLoss": "Date of loss (YYYY-MM-DD format)",
-  "timeOfLoss": "Time of loss if available",
-  "lossType": "Type of loss (Water, Fire, Wind/Hail, Impact, Other)",
-  "lossDescription": "Detailed description of the loss",
-  "causeOfLoss": "Cause of the damage",
-  "reportedBy": "Person who reported the claim",
-  "reportedDate": "Date reported (YYYY-MM-DD format)",
-  "claimNumber": "Claim number if assigned"
+  "claimId": "Claim ID/number (format: XX-XXX-XXXXXX)",
+  "policyholder": "Full name(s) of the policyholder(s)",
+  "dateOfLoss": "Date and time of loss (format: MM/DD/YYYY@HH:MM AM/PM)",
+  "riskLocation": "Full property address including street, city, state, and ZIP",
+  "causeOfLoss": "Cause of loss (e.g., Hail, Fire, Water, Wind, Impact)",
+  "lossDescription": "Detailed description of the loss/damage",
+  "policyDetails": {
+    "policyNumber": "Policy number",
+    "state": "State code (2-letter)",
+    "yearRoofInstall": "Roof installation date (format: MM-DD-YYYY)",
+    "windHailDeductible": "Wind/hail deductible with percentage (format: $X,XXX X%)",
+    "dwellingLimit": "Dwelling coverage limit (format: $XXX,XXX)",
+    "endorsementsListed": ["Array of endorsement codes and names"]
+  }
 }`;
 
     case 'policy':
       return `${basePrompt}
 {
-  "insuredName": "Named insured on the policy",
-  "policyNumber": "Policy number",
-  "policyEffectiveDate": "Effective date (YYYY-MM-DD)",
-  "policyExpirationDate": "Expiration date (YYYY-MM-DD)",
-  "propertyAddress": "Insured property address",
-  "propertyCity": "City",
-  "propertyState": "State (2-letter code)",
-  "propertyZip": "ZIP code",
-  "coverageA": "Coverage A (Dwelling) limit as number",
-  "coverageB": "Coverage B (Other Structures) limit as number",
-  "coverageC": "Coverage C (Personal Property) limit as number",
-  "coverageD": "Coverage D (Loss of Use) limit as number",
-  "deductible": "Deductible amount as number"
+  "policyholder": "Named insured on the policy",
+  "riskLocation": "Full insured property address",
+  "policyDetails": {
+    "policyNumber": "Policy number",
+    "state": "State code (2-letter)",
+    "yearRoofInstall": "Roof installation date if available (format: MM-DD-YYYY)",
+    "windHailDeductible": "Wind/hail deductible (format: $X,XXX X%)",
+    "dwellingLimit": "Coverage A/Dwelling limit (format: $XXX,XXX)",
+    "endorsementsListed": ["Array of endorsement codes and names"]
+  }
 }`;
 
     case 'endorsement':
       return `${basePrompt}
 {
-  "policyNumber": "Policy number this endorsement applies to",
-  "endorsements": [
-    {
-      "code": "Endorsement form number/code",
-      "name": "Endorsement name/description",
-      "premium": "Additional premium if any"
-    }
-  ]
+  "policyDetails": {
+    "policyNumber": "Policy number this endorsement applies to",
+    "endorsementsListed": ["Array of endorsement form numbers and names, e.g., 'HO 84 28 - Hidden Water Coverage'"]
+  }
 }`;
 
     default:
       return `${basePrompt}
 Extract any insurance-related information you can find including:
-- Insured name, address, contact info
-- Policy number, dates, coverage limits
+- Policyholder name(s)
+- Risk location/property address
+- Policy number, state, coverage limits
 - Claim/loss information if present
-- Any endorsements or special conditions`;
+- Any endorsements listed`;
   }
 }
 
@@ -468,52 +448,45 @@ export async function createClaimFromDocuments(
       claimData = { ...claimData, ...overrides };
     }
 
-    // Generate claim number
-    const year = new Date().getFullYear();
-    const countResult = await client.query(
-      `SELECT COUNT(*) + 1 as next_num FROM claims
-       WHERE organization_id = $1
-       AND EXTRACT(YEAR FROM created_at) = $2`,
-      [organizationId, year]
-    );
-    const claimNumber = `CLM-${year}-${String(countResult.rows[0].next_num).padStart(6, '0')}`;
+    // Flatten policy details if nested
+    const policyDetails = claimData.policyDetails || {};
+    const policyNumber = claimData.policyNumber || policyDetails.policyNumber || null;
+    const state = claimData.state || policyDetails.state || null;
+    const yearRoofInstall = claimData.yearRoofInstall || policyDetails.yearRoofInstall || null;
+    const windHailDeductible = claimData.windHailDeductible || policyDetails.windHailDeductible || null;
+    const dwellingLimit = claimData.dwellingLimit || policyDetails.dwellingLimit || null;
+    const endorsementsListed = claimData.endorsementsListed || policyDetails.endorsementsListed || [];
 
-    // Create claim
+    // Generate claim ID if not provided
+    const generatedClaimId = claimData.claimId || await generateClaimId(client, organizationId);
+
+    // Create claim with new schema
     const claimResult = await client.query(
       `INSERT INTO claims (
-        organization_id, claim_number, policy_number,
-        insured_name, insured_email, insured_phone,
-        property_address, property_city, property_state, property_zip,
-        date_of_loss, loss_type, loss_description,
-        coverage_a, coverage_b, coverage_c, coverage_d, deductible,
+        organization_id, claim_id, policyholder,
+        date_of_loss, risk_location, cause_of_loss, loss_description,
+        policy_number, state, year_roof_install, wind_hail_deductible,
+        dwelling_limit, endorsements_listed,
         status, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING id`,
       [
         organizationId,
-        claimNumber,
-        claimData.policyNumber || null,
-        claimData.insuredName || null,
-        claimData.insuredEmail || null,
-        claimData.insuredPhone || null,
-        claimData.propertyAddress || null,
-        claimData.propertyCity || null,
-        claimData.propertyState || null,
-        claimData.propertyZip || null,
+        generatedClaimId,
+        claimData.policyholder || null,
         claimData.dateOfLoss || null,
-        claimData.lossType || null,
+        claimData.riskLocation || null,
+        claimData.causeOfLoss || null,
         claimData.lossDescription || null,
-        claimData.coverageA || null,
-        claimData.coverageB || null,
-        claimData.coverageC || null,
-        claimData.coverageD || null,
-        claimData.deductible || null,
+        policyNumber,
+        state,
+        yearRoofInstall,
+        windHailDeductible,
+        dwellingLimit,
+        JSON.stringify(endorsementsListed),
         'fnol',
         JSON.stringify({
-          extractedFrom: documentIds,
-          reportedBy: claimData.reportedBy,
-          reportedDate: claimData.reportedDate,
-          endorsements: claimData.endorsements
+          extractedFrom: documentIds
         })
       ]
     );
@@ -531,4 +504,20 @@ export async function createClaimFromDocuments(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Generate a unique claim ID in format XX-XXX-XXXXXX
+ */
+async function generateClaimId(client: any, organizationId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const countResult = await client.query(
+    `SELECT COUNT(*) + 1 as next_num FROM claims
+     WHERE organization_id = $1
+     AND EXTRACT(YEAR FROM created_at) = $2`,
+    [organizationId, year]
+  );
+  const seq = String(countResult.rows[0].next_num).padStart(6, '0');
+  // Format: 01-XXX-XXXXXX where XXX is derived from year
+  return `01-${String(year).slice(-3)}-${seq}`;
 }
