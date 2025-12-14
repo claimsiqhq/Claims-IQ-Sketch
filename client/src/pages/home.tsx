@@ -106,7 +106,9 @@ function ClaimCard({ claim }: { claim: Claim }) {
               {claim.documentCount || 0} docs • {claim.estimateCount || 0} estimates
             </span>
             <span>
-              {formatDistanceToNow(new Date(claim.createdAt), { addSuffix: true })}
+              {claim.createdAt && !isNaN(new Date(claim.createdAt).getTime())
+                ? formatDistanceToNow(new Date(claim.createdAt), { addSuffix: true })
+                : "—"}
             </span>
           </div>
         </CardContent>
