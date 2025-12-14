@@ -68,6 +68,31 @@ import {
   processDocument as processDocumentAI,
   createClaimFromDocuments
 } from "./services/documentProcessor";
+import {
+  createStructure,
+  getStructure,
+  updateStructure,
+  deleteStructure,
+  createArea,
+  getArea,
+  updateArea,
+  deleteArea,
+  createZone,
+  getZone,
+  getZoneWithChildren,
+  updateZone,
+  deleteZone,
+  recalculateZoneDimensions,
+  createMissingWall,
+  getMissingWall,
+  updateMissingWall,
+  deleteMissingWall,
+  createSubroom,
+  deleteSubroom,
+  getEstimateHierarchy,
+  initializeEstimateHierarchy,
+  addLineItemToZone,
+} from "./services/estimateHierarchy";
 
 // Configure multer for file uploads (memory storage for processing)
 const upload = multer({
@@ -1095,6 +1120,497 @@ export async function registerRoutes(
       } else {
         res.status(500).json({ error: message });
       }
+    }
+  });
+
+  // ============================================
+  // ESTIMATE HIERARCHY ROUTES
+  // Structure -> Area -> Zone -> Line Items
+  // ============================================
+
+  // Get full estimate hierarchy
+  app.get('/api/estimates/:id/hierarchy', async (req, res) => {
+    try {
+      const hierarchy = await getEstimateHierarchy(req.params.id);
+      res.json(hierarchy);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Initialize estimate hierarchy with defaults
+  app.post('/api/estimates/:id/hierarchy/initialize', async (req, res) => {
+    try {
+      const { structureName, includeInterior, includeExterior, includeRoofing } = req.body;
+      const hierarchy = await initializeEstimateHierarchy(req.params.id, {
+        structureName,
+        includeInterior,
+        includeExterior,
+        includeRoofing,
+      });
+      res.status(201).json(hierarchy);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Recalculate estimate totals
+  app.post('/api/estimates/:id/recalculate', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        await client.query('SELECT recalculate_estimate_totals($1)', [req.params.id]);
+        const estimate = await getEstimate(req.params.id);
+        res.json(estimate);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // STRUCTURE ROUTES
+  // ============================================
+
+  // Create structure
+  app.post('/api/estimates/:id/structures', async (req, res) => {
+    try {
+      const structure = await createStructure({
+        estimateId: req.params.id,
+        ...req.body,
+      });
+      res.status(201).json(structure);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get structure
+  app.get('/api/structures/:id', async (req, res) => {
+    try {
+      const structure = await getStructure(req.params.id);
+      if (!structure) {
+        return res.status(404).json({ error: 'Structure not found' });
+      }
+      res.json(structure);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update structure
+  app.put('/api/structures/:id', async (req, res) => {
+    try {
+      const structure = await updateStructure(req.params.id, req.body);
+      if (!structure) {
+        return res.status(404).json({ error: 'Structure not found' });
+      }
+      res.json(structure);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete structure
+  app.delete('/api/structures/:id', async (req, res) => {
+    try {
+      const success = await deleteStructure(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Structure not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // AREA ROUTES
+  // ============================================
+
+  // Create area in structure
+  app.post('/api/structures/:id/areas', async (req, res) => {
+    try {
+      const area = await createArea({
+        structureId: req.params.id,
+        ...req.body,
+      });
+      res.status(201).json(area);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get area
+  app.get('/api/areas/:id', async (req, res) => {
+    try {
+      const area = await getArea(req.params.id);
+      if (!area) {
+        return res.status(404).json({ error: 'Area not found' });
+      }
+      res.json(area);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update area
+  app.put('/api/areas/:id', async (req, res) => {
+    try {
+      const area = await updateArea(req.params.id, req.body);
+      if (!area) {
+        return res.status(404).json({ error: 'Area not found' });
+      }
+      res.json(area);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete area
+  app.delete('/api/areas/:id', async (req, res) => {
+    try {
+      const success = await deleteArea(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Area not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // ZONE ROUTES
+  // ============================================
+
+  // Create zone in area
+  app.post('/api/areas/:id/zones', async (req, res) => {
+    try {
+      const zone = await createZone({
+        areaId: req.params.id,
+        ...req.body,
+      });
+      res.status(201).json(zone);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get zone
+  app.get('/api/zones/:id', async (req, res) => {
+    try {
+      const zone = await getZone(req.params.id);
+      if (!zone) {
+        return res.status(404).json({ error: 'Zone not found' });
+      }
+      res.json(zone);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get zone with children (missing walls, subrooms, line items)
+  app.get('/api/zones/:id/full', async (req, res) => {
+    try {
+      const zone = await getZoneWithChildren(req.params.id);
+      if (!zone) {
+        return res.status(404).json({ error: 'Zone not found' });
+      }
+      res.json(zone);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update zone
+  app.put('/api/zones/:id', async (req, res) => {
+    try {
+      const zone = await updateZone(req.params.id, req.body);
+      if (!zone) {
+        return res.status(404).json({ error: 'Zone not found' });
+      }
+      res.json(zone);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Recalculate zone dimensions
+  app.post('/api/zones/:id/calculate-dimensions', async (req, res) => {
+    try {
+      const dimensions = await recalculateZoneDimensions(req.params.id);
+      res.json({ dimensions });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete zone
+  app.delete('/api/zones/:id', async (req, res) => {
+    try {
+      const success = await deleteZone(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Zone not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // MISSING WALL ROUTES
+  // ============================================
+
+  // Add missing wall to zone
+  app.post('/api/zones/:id/missing-walls', async (req, res) => {
+    try {
+      const { widthFt, heightFt } = req.body;
+      if (!widthFt || !heightFt) {
+        return res.status(400).json({ error: 'widthFt and heightFt required' });
+      }
+      const wall = await createMissingWall({
+        zoneId: req.params.id,
+        ...req.body,
+      });
+      res.status(201).json(wall);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get missing wall
+  app.get('/api/missing-walls/:id', async (req, res) => {
+    try {
+      const wall = await getMissingWall(req.params.id);
+      if (!wall) {
+        return res.status(404).json({ error: 'Missing wall not found' });
+      }
+      res.json(wall);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update missing wall
+  app.put('/api/missing-walls/:id', async (req, res) => {
+    try {
+      const wall = await updateMissingWall(req.params.id, req.body);
+      if (!wall) {
+        return res.status(404).json({ error: 'Missing wall not found' });
+      }
+      res.json(wall);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete missing wall
+  app.delete('/api/missing-walls/:id', async (req, res) => {
+    try {
+      const success = await deleteMissingWall(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Missing wall not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // SUBROOM ROUTES
+  // ============================================
+
+  // Add subroom to zone
+  app.post('/api/zones/:id/subrooms', async (req, res) => {
+    try {
+      const { name, lengthFt, widthFt } = req.body;
+      if (!name || !lengthFt || !widthFt) {
+        return res.status(400).json({ error: 'name, lengthFt, and widthFt required' });
+      }
+      const subroom = await createSubroom({
+        zoneId: req.params.id,
+        ...req.body,
+      });
+      res.status(201).json(subroom);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete subroom
+  app.delete('/api/subrooms/:id', async (req, res) => {
+    try {
+      const success = await deleteSubroom(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Subroom not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // ZONE LINE ITEM ROUTES
+  // ============================================
+
+  // Get zone line items
+  app.get('/api/zones/:id/line-items', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          `SELECT * FROM estimate_line_items WHERE zone_id = $1 ORDER BY sort_order`,
+          [req.params.id]
+        );
+        res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Add line item to zone
+  app.post('/api/zones/:id/line-items', async (req, res) => {
+    try {
+      const { lineItemCode, quantity } = req.body;
+      if (!lineItemCode || !quantity) {
+        return res.status(400).json({ error: 'lineItemCode and quantity required' });
+      }
+      await addLineItemToZone(req.params.id, req.body);
+      const zone = await getZoneWithChildren(req.params.id);
+      res.status(201).json(zone);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Delete line item from zone
+  app.delete('/api/line-items/:id', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const result = await client.query(
+          'DELETE FROM estimate_line_items WHERE id = $1',
+          [req.params.id]
+        );
+        if (result.rowCount === 0) {
+          return res.status(404).json({ error: 'Line item not found' });
+        }
+        res.json({ success: true });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update line item
+  app.put('/api/line-items/:id', async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        const setClauses: string[] = [];
+        const values: any[] = [];
+        let paramIndex = 1;
+
+        const allowedFields = [
+          'quantity', 'notes', 'is_homeowner', 'is_credit', 'is_non_op',
+          'depreciation_pct', 'depreciation_amount', 'age_years', 'life_expectancy_years',
+          'is_recoverable', 'calc_ref'
+        ];
+
+        for (const field of allowedFields) {
+          const camelField = field.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          if (req.body[camelField] !== undefined) {
+            setClauses.push(`${field} = $${paramIndex++}`);
+            values.push(req.body[camelField]);
+          }
+        }
+
+        if (setClauses.length === 0) {
+          const result = await client.query(
+            'SELECT * FROM estimate_line_items WHERE id = $1',
+            [req.params.id]
+          );
+          if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Line item not found' });
+          }
+          return res.json(result.rows[0]);
+        }
+
+        setClauses.push('updated_at = NOW()');
+        values.push(req.params.id);
+
+        const result = await client.query(
+          `UPDATE estimate_line_items SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+          values
+        );
+
+        if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Line item not found' });
+        }
+
+        // Recalculate subtotal if quantity changed
+        if (req.body.quantity !== undefined) {
+          await client.query(
+            `UPDATE estimate_line_items
+             SET subtotal = quantity * unit_price,
+                 acv = (quantity * unit_price + COALESCE(tax_amount, 0)) * (1 - COALESCE(depreciation_pct, 0) / 100)
+             WHERE id = $1`,
+            [req.params.id]
+          );
+        }
+
+        res.json(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
     }
   });
 
