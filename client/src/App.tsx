@@ -9,6 +9,7 @@ import Auth from "@/pages/auth";
 import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
 import Settings from "@/pages/settings";
+import Profile from "@/pages/profile";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
@@ -34,6 +35,11 @@ function Router() {
       <Route path="/settings">
         <ProtectedRoute>
           <Settings />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/profile">
+        <ProtectedRoute>
+          <Profile />
         </ProtectedRoute>
       </Route>
       <Route path="/voice-sketch">
