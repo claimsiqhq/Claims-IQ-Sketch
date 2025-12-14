@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRoute } from "wouter";
 import { useStore } from "@/lib/store";
 import Layout from "@/components/layout";
@@ -12,7 +12,9 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Home,
   PenTool,
@@ -34,8 +36,32 @@ import {
   Download,
   File,
   Eye,
-  AlertCircle
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Building2,
+  Layers,
+  Square,
+  Ruler,
+  Calculator,
+  DollarSign,
+  LayoutGrid,
+  Check,
+  Play
 } from "lucide-react";
+import {
+  useEstimateBuilder,
+  DIMENSION_LABELS,
+  ZONE_TYPE_LABELS,
+  ZONE_STATUS_LABELS,
+  getDimensionsForZoneType,
+  type ZoneWithChildren,
+  type StructureWithChildren,
+  type AreaWithChildren,
+  type CreateZoneInput,
+  type CreateMissingWallInput,
+  type AddLineItemInput,
+} from "@/hooks/useEstimateBuilder";
 import { Link } from "wouter";
 import { getClaim, getClaimDocuments, uploadDocument, getDocumentDownloadUrl, type Claim, type Document } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
@@ -97,6 +123,19 @@ export default function ClaimDetail() {
     reasoning: string;
     priority: string;
   }> | null>(null);
+
+  // Xactimate hierarchy state
+  const [isAddZoneDialogOpen, setIsAddZoneDialogOpen] = useState(false);
+  const [isAddMissingWallDialogOpen, setIsAddMissingWallDialogOpen] = useState(false);
+  const [expandedStructures, setExpandedStructures] = useState<Set<string>>(new Set());
+  const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
+  const [selectedZoneForLineItem, setSelectedZoneForLineItem] = useState<string | null>(null);
+  const [newZoneData, setNewZoneData] = useState<Partial<CreateZoneInput>>({});
+  const [newMissingWallData, setNewMissingWallData] = useState<Partial<CreateMissingWallInput>>({});
+  const [selectedAreaForNewZone, setSelectedAreaForNewZone] = useState<string | null>(null);
+
+  // Initialize estimate builder hook with claim id as estimate id
+  const estimateBuilder = useEstimateBuilder(params?.id || "");
 
   useEffect(() => {
     if (params?.id) {
@@ -310,6 +349,128 @@ export default function ClaimDetail() {
 
     setAiSuggestions(null);
   };
+
+  // Estimate Builder Helper Functions
+  const handleInitializeHierarchy = async () => {
+    try {
+      await estimateBuilder.initialize({
+        structureName: "Main Building",
+        includeInterior: true,
+        includeExterior: true,
+        includeRoofing: true,
+      });
+    } catch (error) {
+      console.error("Failed to initialize hierarchy:", error);
+    }
+  };
+
+  const toggleStructure = (structureId: string) => {
+    setExpandedStructures(prev => {
+      const newSet = new Set(Array.from(prev));
+      if (newSet.has(structureId)) {
+        newSet.delete(structureId);
+      } else {
+        newSet.add(structureId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleArea = (areaId: string) => {
+    setExpandedAreas(prev => {
+      const newSet = new Set(Array.from(prev));
+      if (newSet.has(areaId)) {
+        newSet.delete(areaId);
+      } else {
+        newSet.add(areaId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleAddZone = async () => {
+    if (!selectedAreaForNewZone || !newZoneData.name) return;
+    try {
+      await estimateBuilder.createZone(selectedAreaForNewZone, {
+        name: newZoneData.name,
+        zoneType: newZoneData.zoneType || 'room',
+        lengthFt: newZoneData.lengthFt,
+        widthFt: newZoneData.widthFt,
+        heightFt: newZoneData.heightFt || 8,
+        roomType: newZoneData.roomType,
+        notes: newZoneData.notes,
+      });
+      setIsAddZoneDialogOpen(false);
+      setNewZoneData({});
+      setSelectedAreaForNewZone(null);
+    } catch (error) {
+      console.error("Failed to create zone:", error);
+    }
+  };
+
+  const handleAddMissingWall = async () => {
+    const zoneId = estimateBuilder.activeZoneId;
+    if (!zoneId || !newMissingWallData.widthFt || !newMissingWallData.heightFt) return;
+    try {
+      await estimateBuilder.createMissingWall(zoneId, {
+        name: newMissingWallData.name,
+        openingType: newMissingWallData.openingType || 'opening',
+        widthFt: newMissingWallData.widthFt,
+        heightFt: newMissingWallData.heightFt,
+        quantity: newMissingWallData.quantity || 1,
+        opensInto: newMissingWallData.opensInto,
+      });
+      // Recalculate zone dimensions after adding missing wall
+      await estimateBuilder.recalcZoneDimensions(zoneId);
+      setIsAddMissingWallDialogOpen(false);
+      setNewMissingWallData({});
+    } catch (error) {
+      console.error("Failed to add missing wall:", error);
+    }
+  };
+
+  const handleAddLineItemToZone = async (lineItemCode: string, quantity: number) => {
+    const zoneId = selectedZoneForLineItem || estimateBuilder.activeZoneId;
+    if (!zoneId) return;
+    try {
+      await estimateBuilder.addLineItem(zoneId, {
+        lineItemCode,
+        quantity,
+      });
+    } catch (error) {
+      console.error("Failed to add line item:", error);
+    }
+  };
+
+  const getZoneStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return 'bg-slate-100 text-slate-600';
+      case 'measured': return 'bg-blue-100 text-blue-600';
+      case 'scoped': return 'bg-amber-100 text-amber-600';
+      case 'complete': return 'bg-green-100 text-green-600';
+      default: return 'bg-slate-100 text-slate-600';
+    }
+  };
+
+  // Calculate totals from hierarchy
+  const hierarchyTotals = useMemo(() => {
+    if (!estimateBuilder.hierarchy) return { rcv: 0, acv: 0, depreciation: 0, lineItems: 0, zones: 0 };
+
+    let rcv = 0, acv = 0, lineItems = 0, zones = 0;
+
+    estimateBuilder.hierarchy.structures.forEach(structure => {
+      structure.areas.forEach(area => {
+        area.zones.forEach(zone => {
+          zones++;
+          rcv += zone.zoneTotals.rcvTotal;
+          acv += zone.zoneTotals.acvTotal;
+          lineItems += zone.lineItemCount;
+        });
+      });
+    });
+
+    return { rcv, acv, depreciation: rcv - acv, lineItems, zones };
+  }, [estimateBuilder.hierarchy]);
 
   // Calculate display totals - use API result if available, otherwise use local subtotal
   const localSubtotal = claim.lineItems.reduce((sum, item) => sum + item.total, 0);
@@ -962,47 +1123,561 @@ export default function ClaimDetail() {
               </div>
             </TabsContent>
 
-            {/* TAB: SCOPE */}
-            <TabsContent value="scope" className="h-full p-4 md:p-6 m-0 overflow-auto">
-              <div className="max-w-5xl mx-auto space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <h2 className="text-lg font-semibold">Scope of Work</h2>
-                  <div className="flex items-center gap-2 flex-wrap">
+            {/* TAB: SCOPE - Enhanced with Xactimate Hierarchy */}
+            <TabsContent value="scope" className="h-full m-0 overflow-hidden">
+              <div className="h-full hidden md:block">
+                <ResizablePanelGroup direction="horizontal">
+                  {/* Left Panel: Structure Tree */}
+                  <ResizablePanel defaultSize={30} minSize={20}>
+                    <div className="h-full bg-white border-r flex flex-col">
+                      <div className="p-4 border-b bg-slate-50 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-slate-500" />
+                          <h3 className="font-semibold text-sm">Structure</h3>
+                        </div>
+                        {!estimateBuilder.hierarchy?.structures?.length ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleInitializeHierarchy}
+                            disabled={estimateBuilder.isInitializing}
+                          >
+                            {estimateBuilder.isInitializing ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => estimateBuilder.recalculate()}
+                            disabled={estimateBuilder.isRecalculating}
+                          >
+                            {estimateBuilder.isRecalculating ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Calculator className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+
+                      <ScrollArea className="flex-1 p-2">
+                        {estimateBuilder.isLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                          </div>
+                        ) : !estimateBuilder.hierarchy?.structures?.length ? (
+                          <div className="text-center py-8 px-4">
+                            <LayoutGrid className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                            <p className="text-sm text-muted-foreground mb-3">
+                              Initialize the estimate hierarchy to start building your scope
+                            </p>
+                            <Button size="sm" onClick={handleInitializeHierarchy} disabled={estimateBuilder.isInitializing}>
+                              {estimateBuilder.isInitializing ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Plus className="h-4 w-4 mr-2" />
+                              )}
+                              Initialize Structure
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {estimateBuilder.hierarchy.structures.map((structure) => (
+                              <Collapsible
+                                key={structure.id}
+                                open={expandedStructures.has(structure.id)}
+                                onOpenChange={() => toggleStructure(structure.id)}
+                              >
+                                <CollapsibleTrigger asChild>
+                                  <button className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-slate-100 text-left">
+                                    {expandedStructures.has(structure.id) ? (
+                                      <ChevronDown className="h-4 w-4 text-slate-400" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4 text-slate-400" />
+                                    )}
+                                    <Building2 className="h-4 w-4 text-slate-500" />
+                                    <span className="font-medium text-sm flex-1 truncate">{structure.name}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {structure.areas.reduce((sum, a) => sum + a.zones.length, 0)}
+                                    </Badge>
+                                  </button>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="ml-6 border-l pl-2 space-y-1">
+                                    {structure.areas.map((area) => (
+                                      <Collapsible
+                                        key={area.id}
+                                        open={expandedAreas.has(area.id)}
+                                        onOpenChange={() => toggleArea(area.id)}
+                                      >
+                                        <CollapsibleTrigger asChild>
+                                          <button className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-slate-100 text-left">
+                                            {expandedAreas.has(area.id) ? (
+                                              <ChevronDown className="h-3 w-3 text-slate-400" />
+                                            ) : (
+                                              <ChevronRight className="h-3 w-3 text-slate-400" />
+                                            )}
+                                            <Layers className="h-4 w-4 text-blue-500" />
+                                            <span className="text-sm flex-1 truncate">{area.name}</span>
+                                            <Badge variant="outline" className="text-xs">
+                                              {area.zones.length}
+                                            </Badge>
+                                          </button>
+                                        </CollapsibleTrigger>
+                                        <CollapsibleContent>
+                                          <div className="ml-5 space-y-1 mt-1">
+                                            {area.zones.map((zone) => (
+                                              <button
+                                                key={zone.id}
+                                                onClick={() => estimateBuilder.setActiveZoneId(zone.id)}
+                                                className={cn(
+                                                  "w-full flex items-center gap-2 p-2 rounded-md text-left transition-colors",
+                                                  estimateBuilder.activeZoneId === zone.id
+                                                    ? "bg-primary/10 border border-primary/20"
+                                                    : "hover:bg-slate-100"
+                                                )}
+                                              >
+                                                <Square className="h-3 w-3 text-amber-500" />
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-sm truncate">{zone.name}</p>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    {ZONE_TYPE_LABELS[zone.zoneType as keyof typeof ZONE_TYPE_LABELS] || zone.zoneType}
+                                                  </p>
+                                                </div>
+                                                <Badge className={cn("text-[10px]", getZoneStatusColor(zone.status))}>
+                                                  {zone.status}
+                                                </Badge>
+                                              </button>
+                                            ))}
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="w-full justify-start text-muted-foreground"
+                                              onClick={() => {
+                                                setSelectedAreaForNewZone(area.id);
+                                                setIsAddZoneDialogOpen(true);
+                                              }}
+                                            >
+                                              <Plus className="h-3 w-3 mr-2" />
+                                              Add Zone
+                                            </Button>
+                                          </div>
+                                        </CollapsibleContent>
+                                      </Collapsible>
+                                    ))}
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            ))}
+                          </div>
+                        )}
+                      </ScrollArea>
+
+                      {/* Summary Footer */}
+                      {estimateBuilder.hierarchy?.structures?.length ? (
+                        <div className="p-3 border-t bg-slate-50 space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">Zones</span>
+                            <span className="font-medium">{hierarchyTotals.zones}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">Line Items</span>
+                            <span className="font-medium">{hierarchyTotals.lineItems}</span>
+                          </div>
+                          <Separator className="my-2" />
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">RCV Total</span>
+                            <span className="font-semibold text-green-600">${hierarchyTotals.rcv.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">ACV Total</span>
+                            <span className="font-semibold">${hierarchyTotals.acv.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">Depreciation</span>
+                            <span className="font-semibold text-amber-600">${hierarchyTotals.depreciation.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </ResizablePanel>
+
+                  <ResizableHandle />
+
+                  {/* Right Panel: Zone Details & Line Items */}
+                  <ResizablePanel defaultSize={70}>
+                    <div className="h-full flex flex-col overflow-hidden">
+                      {/* Toolbar */}
+                      <div className="p-4 border-b bg-white flex items-center justify-between gap-3 flex-wrap">
+                        <h2 className="text-lg font-semibold">Scope of Work</h2>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGenerateAISuggestions}
+                            disabled={isGeneratingAISuggestions || claim.damageZones.length === 0}
+                            className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                          >
+                            {isGeneratingAISuggestions ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Wand2 className="h-4 w-4 mr-2" />
+                            )}
+                            AI Suggest
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setIsVoiceScopeOpen(!isVoiceScopeOpen)}
+                            className={cn(isVoiceScopeOpen && "bg-primary/10 border-primary")}
+                          >
+                            <Mic className="h-4 w-4 mr-2" />
+                            Voice
+                          </Button>
+                          <Button size="sm" onClick={() => setIsLineItemPickerOpen(true)}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Item
+                          </Button>
+                        </div>
+                      </div>
+
+                      <ScrollArea className="flex-1 p-4">
+                        <div className="space-y-6">
+                          {/* Voice Scope Controller */}
+                          {isVoiceScopeOpen && (
+                            <VoiceScopeController
+                              onClose={() => setIsVoiceScopeOpen(false)}
+                              onLineItemAdded={(item) => {
+                                addLineItem(claim.id, {
+                                  id: `li${Date.now()}`,
+                                  code: item.code,
+                                  description: item.description,
+                                  quantity: item.quantity,
+                                  unit: item.unit,
+                                  unitPrice: 0,
+                                  total: 0,
+                                  category: "Voice Added",
+                                });
+                              }}
+                              className="max-h-[350px]"
+                            />
+                          )}
+
+                          {/* AI Suggestions Panel */}
+                          {aiSuggestions && aiSuggestions.length > 0 && (
+                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <Sparkles className="h-5 w-5 text-purple-600" />
+                                  <h3 className="font-semibold text-purple-900">AI Suggestions ({aiSuggestions.length})</h3>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => setAiSuggestions(null)} className="text-purple-600">
+                                    Dismiss
+                                  </Button>
+                                  <Button size="sm" onClick={handleAddAllAISuggestions} className="bg-purple-600 hover:bg-purple-700">
+                                    Add All
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="space-y-2 max-h-[200px] overflow-auto">
+                                {aiSuggestions.map((suggestion, index) => (
+                                  <div
+                                    key={`${suggestion.lineItemCode}-${index}`}
+                                    className="bg-white border border-purple-100 rounded p-3 flex items-center justify-between gap-3"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs text-purple-600">{suggestion.lineItemCode}</span>
+                                        <Badge
+                                          variant="outline"
+                                          className={cn(
+                                            "text-xs",
+                                            suggestion.priority === "required" && "border-red-300 text-red-600",
+                                            suggestion.priority === "recommended" && "border-amber-300 text-amber-600",
+                                            suggestion.priority === "optional" && "border-slate-300 text-slate-600"
+                                          )}
+                                        >
+                                          {suggestion.priority}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm font-medium truncate">{suggestion.description}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {suggestion.quantity} {suggestion.unit}
+                                        {suggestion.unitPrice && ` • $${(suggestion.unitPrice * suggestion.quantity).toFixed(2)}`}
+                                      </p>
+                                    </div>
+                                    <Button size="sm" variant="ghost" onClick={() => handleAddAISuggestion(suggestion)}>
+                                      <Plus className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Active Zone Details */}
+                          {estimateBuilder.activeZone && (
+                            <Card>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                  <CardTitle className="text-base flex items-center gap-2">
+                                    <Square className="h-4 w-4 text-amber-500" />
+                                    {estimateBuilder.activeZone.name}
+                                  </CardTitle>
+                                  <Badge className={getZoneStatusColor(estimateBuilder.activeZone.status)}>
+                                    {ZONE_STATUS_LABELS[estimateBuilder.activeZone.status as keyof typeof ZONE_STATUS_LABELS] || estimateBuilder.activeZone.status}
+                                  </Badge>
+                                </div>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                {/* Zone Dimensions */}
+                                <div>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-sm font-medium flex items-center gap-2">
+                                      <Ruler className="h-4 w-4 text-slate-500" />
+                                      Dimensions
+                                    </h4>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => estimateBuilder.recalcZoneDimensions(estimateBuilder.activeZone!.id)}
+                                    >
+                                      <Calculator className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {estimateBuilder.activeZone.dimensions &&
+                                      getDimensionsForZoneType(estimateBuilder.activeZone.zoneType as any).map((key) => {
+                                        const value = estimateBuilder.activeZone!.dimensions[key as keyof typeof estimateBuilder.activeZone.dimensions];
+                                        if (value === null || value === undefined || value === 0) return null;
+                                        return (
+                                          <div key={key} className="bg-slate-50 p-2 rounded text-center">
+                                            <p className="text-xs text-muted-foreground">{DIMENSION_LABELS[key as keyof typeof DIMENSION_LABELS]}</p>
+                                            <p className="font-semibold text-sm">{typeof value === 'number' ? value.toFixed(2) : value}</p>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                </div>
+
+                                {/* Missing Walls */}
+                                <div>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-sm font-medium flex items-center gap-2">
+                                      <DoorOpen className="h-4 w-4 text-slate-500" />
+                                      Missing Walls / Openings
+                                    </h4>
+                                    <Button size="sm" variant="outline" onClick={() => setIsAddMissingWallDialogOpen(true)}>
+                                      <Plus className="h-4 w-4 mr-1" /> Add
+                                    </Button>
+                                  </div>
+                                  {estimateBuilder.activeZone.missingWalls.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground text-center py-2">No openings defined</p>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      {estimateBuilder.activeZone.missingWalls.map((wall) => (
+                                        <div
+                                          key={wall.id}
+                                          className="flex items-center justify-between p-2 bg-amber-50 border border-amber-100 rounded text-sm"
+                                        >
+                                          <div>
+                                            <span className="font-medium">{wall.name || wall.openingType}</span>
+                                            {wall.opensInto && (
+                                              <span className="text-muted-foreground ml-2">→ {wall.opensInto}</span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className="text-amber-600 border-amber-200">
+                                              {wall.widthFt}' × {wall.heightFt}' = {(Number(wall.widthFt) * Number(wall.heightFt)).toFixed(0)} SF
+                                            </Badge>
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                              onClick={() => estimateBuilder.deleteMissingWall(wall.id)}
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Zone Totals */}
+                                <div className="bg-slate-50 p-3 rounded-lg">
+                                  <div className="grid grid-cols-3 gap-4 text-center">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">RCV</p>
+                                      <p className="font-semibold text-green-600">${estimateBuilder.activeZone.zoneTotals.rcvTotal.toFixed(2)}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">ACV</p>
+                                      <p className="font-semibold">${estimateBuilder.activeZone.zoneTotals.acvTotal.toFixed(2)}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Line Items</p>
+                                      <p className="font-semibold">{estimateBuilder.activeZone.lineItemCount}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+
+                          {/* Line Items Table (Legacy + Zone) */}
+                          <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
+                            <div className="grid grid-cols-12 gap-2 md:gap-4 p-4 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                              <div className="col-span-3 md:col-span-2">Code</div>
+                              <div className="col-span-4 md:col-span-3">Description</div>
+                              <div className="col-span-2 text-center">Qty</div>
+                              <div className="hidden md:block col-span-2 text-right">Unit Price</div>
+                              <div className="col-span-2 text-right">Total</div>
+                              <div className="col-span-1"></div>
+                            </div>
+
+                            {claim.lineItems.length === 0 ? (
+                              <div className="p-8 text-center text-muted-foreground">
+                                <ClipboardList className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                                <p>No line items added yet.</p>
+                                <p className="text-sm mt-1">Use "Add Item" or "AI Suggest" to start building the scope.</p>
+                              </div>
+                            ) : (
+                              <div className="divide-y">
+                                {claim.lineItems.map((item) => (
+                                  <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50 group">
+                                    <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.code}</div>
+                                    <div className="col-span-4 md:col-span-3">
+                                      <p className="font-medium truncate">{item.description}</p>
+                                      <p className="text-xs text-muted-foreground">{item.category}</p>
+                                    </div>
+                                    <div className="col-span-2 flex items-center justify-center gap-1">
+                                      <div className="flex items-center border rounded-md">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0 rounded-r-none"
+                                          onClick={() => {
+                                            const newQty = Math.max(1, item.quantity - 1);
+                                            updateLineItem(claim.id, item.id, { quantity: newQty, total: newQty * item.unitPrice });
+                                          }}
+                                        >
+                                          -
+                                        </Button>
+                                        <Input
+                                          type="number"
+                                          min="1"
+                                          value={item.quantity}
+                                          onChange={(e) => {
+                                            const newQty = Math.max(1, Number(e.target.value) || 1);
+                                            updateLineItem(claim.id, item.id, { quantity: newQty, total: newQty * item.unitPrice });
+                                          }}
+                                          className="h-8 w-14 text-center border-0 rounded-none focus-visible:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        />
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0 rounded-l-none"
+                                          onClick={() => {
+                                            const newQty = item.quantity + 1;
+                                            updateLineItem(claim.id, item.id, { quantity: newQty, total: newQty * item.unitPrice });
+                                          }}
+                                        >
+                                          +
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    <div className="hidden md:block col-span-2 text-right text-slate-600">
+                                      ${item.unitPrice.toFixed(2)}
+                                    </div>
+                                    <div className="col-span-2 text-right font-semibold">
+                                      ${item.total.toFixed(2)}
+                                    </div>
+                                    <div className="col-span-1 flex justify-end">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={() => deleteLineItem(claim.id, item.id)}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="p-4 bg-slate-50 border-t flex justify-end">
+                              <div className="w-full md:w-80 space-y-2">
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-muted-foreground">Subtotal (Local)</span>
+                                  <span>${displaySubtotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-muted-foreground">Overhead ({estimateSettings.overheadPct}%)</span>
+                                  <span>${displayOverhead.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-muted-foreground">Profit ({estimateSettings.profitPct}%)</span>
+                                  <span>${displayProfit.toFixed(2)}</span>
+                                </div>
+                                {displayTax > 0 && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Tax</span>
+                                    <span>${displayTax.toFixed(2)}</span>
+                                  </div>
+                                )}
+                                <Separator />
+                                <div className="flex justify-between font-bold text-lg">
+                                  <span>Total</span>
+                                  <span>${displayTotal.toFixed(2)}</span>
+                                </div>
+                                {estimateError && <p className="text-xs text-destructive">{estimateError}</p>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </div>
+
+              {/* Mobile Scope View */}
+              <div className="md:hidden h-full overflow-auto p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="text-lg font-semibold">Scope</h2>
+                  <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={handleGenerateAISuggestions}
                       disabled={isGeneratingAISuggestions || claim.damageZones.length === 0}
-                      className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                      className="text-purple-600 border-purple-200"
                     >
-                      {isGeneratingAISuggestions ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Wand2 className="h-4 w-4 mr-2" />
-                      )}
-                      <span className="hidden sm:inline">AI Suggest</span>
-                      <span className="sm:hidden">AI</span>
+                      {isGeneratingAISuggestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setIsVoiceScopeOpen(!isVoiceScopeOpen)}
-                      className={cn(
-                        isVoiceScopeOpen && "bg-primary/10 border-primary"
-                      )}
+                      className={cn(isVoiceScopeOpen && "bg-primary/10 border-primary")}
                     >
-                      <Mic className="h-4 w-4 mr-2" />
-                      <span className="hidden sm:inline">Voice</span>
+                      <Mic className="h-4 w-4" />
                     </Button>
                     <Button size="sm" onClick={() => setIsLineItemPickerOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      <span className="hidden sm:inline">Add Item</span>
-                      <span className="sm:hidden">Add</span>
+                      <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
 
-                {/* Voice Scope Controller */}
                 {isVoiceScopeOpen && (
                   <VoiceScopeController
                     onClose={() => setIsVoiceScopeOpen(false)}
@@ -1018,204 +1693,53 @@ export default function ClaimDetail() {
                         category: "Voice Added",
                       });
                     }}
-                    className="max-h-[350px]"
                   />
                 )}
 
-                {/* AI Suggestions Panel */}
-                {aiSuggestions && aiSuggestions.length > 0 && (
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-5 w-5 text-purple-600" />
-                        <h3 className="font-semibold text-purple-900">AI Suggestions ({aiSuggestions.length})</h3>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setAiSuggestions(null)}
-                          className="text-purple-600"
-                        >
-                          Dismiss
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={handleAddAllAISuggestions}
-                          className="bg-purple-600 hover:bg-purple-700"
-                        >
-                          Add All
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 max-h-[300px] overflow-auto">
-                      {aiSuggestions.map((suggestion, index) => (
-                        <div
-                          key={`${suggestion.lineItemCode}-${index}`}
-                          className="bg-white border border-purple-100 rounded p-3 flex items-center justify-between gap-3"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs text-purple-600">{suggestion.lineItemCode}</span>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-xs",
-                                  suggestion.priority === "required" && "border-red-300 text-red-600",
-                                  suggestion.priority === "recommended" && "border-amber-300 text-amber-600",
-                                  suggestion.priority === "optional" && "border-slate-300 text-slate-600"
-                                )}
-                              >
-                                {suggestion.priority}
-                              </Badge>
-                            </div>
-                            <p className="text-sm font-medium truncate">{suggestion.description}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {suggestion.quantity} {suggestion.unit}
-                              {suggestion.unitPrice && ` • $${(suggestion.unitPrice * suggestion.quantity).toFixed(2)}`}
-                            </p>
-                            {suggestion.reasoning && (
-                              <p className="text-xs text-purple-600 mt-1 italic">{suggestion.reasoning}</p>
-                            )}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleAddAISuggestion(suggestion)}
-                            className="shrink-0"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-                  <div className="grid grid-cols-12 gap-2 md:gap-4 p-4 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    <div className="col-span-3 md:col-span-2">Code</div>
-                    <div className="col-span-5 md:col-span-3">Description</div>
-                    <div className="col-span-2 md:col-span-2 text-center">Qty</div>
-                    <div className="hidden md:block col-span-2 text-right">Unit Price</div>
-                    <div className="col-span-2 md:col-span-2 text-right">Total</div>
-                    <div className="hidden md:block col-span-1"></div>
-                  </div>
-
+                {/* Mobile Line Items */}
+                <div className="space-y-2">
                   {claim.lineItems.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground">
-                      No line items added yet. Use the "Add Line Item" button to start building the estimate.
+                    <div className="text-center py-8 text-muted-foreground">
+                      <ClipboardList className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+                      <p>No line items yet</p>
                     </div>
                   ) : (
-                    <div className="divide-y">
-                      {claim.lineItems.map((item) => (
-                        <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50 group">
-                          <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.code}</div>
-                          <div className="col-span-5 md:col-span-3">
-                            <p className="font-medium truncate">{item.description}</p>
-                            <p className="text-xs text-muted-foreground">{item.category}</p>
+                    claim.lineItems.map((item) => (
+                      <div key={item.id} className="bg-white border rounded-lg p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-mono text-xs text-slate-500">{item.code}</span>
+                            <p className="font-medium text-sm truncate">{item.description}</p>
                           </div>
-                          <div className="col-span-2 md:col-span-2 flex items-center justify-center gap-1">
-                            <div className="flex items-center border rounded-md">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0 rounded-r-none"
-                                onClick={() => {
-                                  const newQty = Math.max(1, item.quantity - 1);
-                                  updateLineItem(claim.id, item.id, {
-                                    quantity: newQty,
-                                    total: newQty * item.unitPrice
-                                  });
-                                }}
-                              >
-                                -
-                              </Button>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => {
-                                  const newQty = Math.max(1, Number(e.target.value) || 1);
-                                  updateLineItem(claim.id, item.id, {
-                                    quantity: newQty,
-                                    total: newQty * item.unitPrice
-                                  });
-                                }}
-                                className="h-8 w-14 text-center border-0 rounded-none focus-visible:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              />
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0 rounded-l-none"
-                                onClick={() => {
-                                  const newQty = item.quantity + 1;
-                                  updateLineItem(claim.id, item.id, {
-                                    quantity: newQty,
-                                    total: newQty * item.unitPrice
-                                  });
-                                }}
-                              >
-                                +
-                              </Button>
-                            </div>
-                            <span className="text-xs text-muted-foreground hidden md:inline">{item.unit}</span>
-                          </div>
-                          <div className="hidden md:block col-span-2 text-right text-slate-600">
-                            ${item.unitPrice.toFixed(2)}
-                          </div>
-                          <div className="col-span-2 md:col-span-2 text-right font-semibold">
-                            ${item.total.toFixed(2)}
-                          </div>
-                          <div className="hidden md:flex col-span-1 justify-end">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() => deleteLineItem(claim.id, item.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          <Badge variant="outline">{item.quantity} {item.unit}</Badge>
                         </div>
-                      ))}
-                    </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-sm text-muted-foreground">${item.unitPrice.toFixed(2)} / {item.unit}</span>
+                          <span className="font-semibold">${item.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))
                   )}
-                  
-                  <div className="p-4 bg-slate-50 border-t flex justify-end">
-                    <div className="w-full md:w-72 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Subtotal</span>
-                        <span>${displaySubtotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Overhead ({estimateSettings.overheadPct}%)</span>
-                        <span>${displayOverhead.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Profit ({estimateSettings.profitPct}%)</span>
-                        <span>${displayProfit.toFixed(2)}</span>
-                      </div>
-                      {displayTax > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Tax</span>
-                          <span>${displayTax.toFixed(2)}</span>
-                        </div>
-                      )}
-                      <Separator />
-                      <div className="flex justify-between font-bold text-lg">
-                        <span>Total</span>
-                        <span>${displayTotal.toFixed(2)}</span>
-                      </div>
-                      {estimateError && (
-                        <p className="text-xs text-destructive">{estimateError}</p>
-                      )}
-                      {!calculatedEstimate && claim.lineItems.length > 0 && (
-                        <p className="text-xs text-muted-foreground">Click "Generate Estimate" to calculate with regional pricing</p>
-                      )}
-                    </div>
-                  </div>
                 </div>
+
+                {/* Mobile Total */}
+                <Card>
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span>${displaySubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">O&P ({estimateSettings.overheadPct + estimateSettings.profitPct}%)</span>
+                      <span>${(displayOverhead + displayProfit).toFixed(2)}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between font-bold">
+                      <span>Total</span>
+                      <span>${displayTotal.toFixed(2)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
 
@@ -1367,6 +1891,239 @@ export default function ClaimDetail() {
           setIsLineItemPickerOpen(false);
         }}
       />
+
+      {/* Add Zone Dialog */}
+      <Dialog open={isAddZoneDialogOpen} onOpenChange={setIsAddZoneDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add New Zone</DialogTitle>
+            <DialogDescription>
+              Create a new zone (room, elevation, roof section, etc.) to scope.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="zone-name">Zone Name</Label>
+              <Input
+                id="zone-name"
+                placeholder="e.g., Living Room, Front Elevation, Roof Section A"
+                value={newZoneData.name || ""}
+                onChange={(e) => setNewZoneData(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="zone-type">Zone Type</Label>
+                <Select
+                  value={newZoneData.zoneType || "room"}
+                  onValueChange={(value) => setNewZoneData(prev => ({ ...prev, zoneType: value as any }))}
+                >
+                  <SelectTrigger id="zone-type">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="room">Room</SelectItem>
+                    <SelectItem value="elevation">Elevation</SelectItem>
+                    <SelectItem value="roof">Roof</SelectItem>
+                    <SelectItem value="deck">Deck</SelectItem>
+                    <SelectItem value="linear">Linear</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="room-type">Room Type</Label>
+                <Select
+                  value={newZoneData.roomType || ""}
+                  onValueChange={(value) => setNewZoneData(prev => ({ ...prev, roomType: value }))}
+                >
+                  <SelectTrigger id="room-type">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Bedroom">Bedroom</SelectItem>
+                    <SelectItem value="Bathroom">Bathroom</SelectItem>
+                    <SelectItem value="Kitchen">Kitchen</SelectItem>
+                    <SelectItem value="Living Room">Living Room</SelectItem>
+                    <SelectItem value="Dining Room">Dining Room</SelectItem>
+                    <SelectItem value="Hallway">Hallway</SelectItem>
+                    <SelectItem value="Garage">Garage</SelectItem>
+                    <SelectItem value="Utility">Utility</SelectItem>
+                    <SelectItem value="Office">Office</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="zone-length">Length (ft)</Label>
+                <Input
+                  id="zone-length"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="0"
+                  value={newZoneData.lengthFt || ""}
+                  onChange={(e) => setNewZoneData(prev => ({ ...prev, lengthFt: Number(e.target.value) || undefined }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zone-width">Width (ft)</Label>
+                <Input
+                  id="zone-width"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="0"
+                  value={newZoneData.widthFt || ""}
+                  onChange={(e) => setNewZoneData(prev => ({ ...prev, widthFt: Number(e.target.value) || undefined }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zone-height">Height (ft)</Label>
+                <Input
+                  id="zone-height"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="8"
+                  value={newZoneData.heightFt || ""}
+                  onChange={(e) => setNewZoneData(prev => ({ ...prev, heightFt: Number(e.target.value) || undefined }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="zone-notes">Notes</Label>
+              <Input
+                id="zone-notes"
+                placeholder="Optional notes..."
+                value={newZoneData.notes || ""}
+                onChange={(e) => setNewZoneData(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddZoneDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddZone} disabled={!newZoneData.name || estimateBuilder.isSaving}>
+              {estimateBuilder.isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Add Zone
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Missing Wall Dialog */}
+      <Dialog open={isAddMissingWallDialogOpen} onOpenChange={setIsAddMissingWallDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add Missing Wall / Opening</DialogTitle>
+            <DialogDescription>
+              Openings subtract from wall square footage calculations.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="opening-type">Opening Type</Label>
+                <Select
+                  value={newMissingWallData.openingType || "opening"}
+                  onValueChange={(value) => setNewMissingWallData(prev => ({ ...prev, openingType: value }))}
+                >
+                  <SelectTrigger id="opening-type">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="opening">Opening</SelectItem>
+                    <SelectItem value="doorway">Doorway</SelectItem>
+                    <SelectItem value="archway">Archway</SelectItem>
+                    <SelectItem value="pass-through">Pass-Through</SelectItem>
+                    <SelectItem value="window">Window</SelectItem>
+                    <SelectItem value="missing_wall">Missing Wall</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="opening-name">Name (optional)</Label>
+                <Input
+                  id="opening-name"
+                  placeholder="e.g., North Wall Opening"
+                  value={newMissingWallData.name || ""}
+                  onChange={(e) => setNewMissingWallData(prev => ({ ...prev, name: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="opening-width">Width (ft)</Label>
+                <Input
+                  id="opening-width"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="3"
+                  value={newMissingWallData.widthFt || ""}
+                  onChange={(e) => setNewMissingWallData(prev => ({ ...prev, widthFt: Number(e.target.value) || undefined }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="opening-height">Height (ft)</Label>
+                <Input
+                  id="opening-height"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="7"
+                  value={newMissingWallData.heightFt || ""}
+                  onChange={(e) => setNewMissingWallData(prev => ({ ...prev, heightFt: Number(e.target.value) || undefined }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="opening-qty">Qty</Label>
+                <Input
+                  id="opening-qty"
+                  type="number"
+                  min="1"
+                  placeholder="1"
+                  value={newMissingWallData.quantity || ""}
+                  onChange={(e) => setNewMissingWallData(prev => ({ ...prev, quantity: Number(e.target.value) || undefined }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="opens-into">Opens Into (optional)</Label>
+              <Input
+                id="opens-into"
+                placeholder="e.g., Hallway, Kitchen"
+                value={newMissingWallData.opensInto || ""}
+                onChange={(e) => setNewMissingWallData(prev => ({ ...prev, opensInto: e.target.value }))}
+              />
+            </div>
+            {newMissingWallData.widthFt && newMissingWallData.heightFt && (
+              <div className="bg-slate-50 p-3 rounded-lg text-center">
+                <p className="text-sm text-muted-foreground">Deducted Area</p>
+                <p className="text-xl font-bold text-amber-600">
+                  {((newMissingWallData.widthFt || 0) * (newMissingWallData.heightFt || 0) * (newMissingWallData.quantity || 1)).toFixed(1)} SF
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddMissingWallDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddMissingWall}
+              disabled={!newMissingWallData.widthFt || !newMissingWallData.heightFt || estimateBuilder.isSaving}
+            >
+              {estimateBuilder.isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Add Opening
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Estimate Settings Dialog */}
       <Dialog open={isEstimateSettingsOpen} onOpenChange={setIsEstimateSettingsOpen}>

@@ -540,3 +540,328 @@ export const estimateCoverageSummary = pgTable("estimate_coverage_summary", {
 });
 
 export type EstimateCoverageSummary = typeof estimateCoverageSummary.$inferSelect;
+
+// ============================================
+// ESTIMATE COVERAGES TABLE (Xactimate hierarchy)
+// ============================================
+
+export const estimateCoverages = pgTable("estimate_coverages", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull(),
+
+  // Coverage type: 0=Dwelling, 1=Other Structures, 2=Contents
+  coverageType: varchar("coverage_type", { length: 1 }).notNull().default("0"),
+  coverageName: varchar("coverage_name", { length: 100 }).notNull(),
+
+  // Policy limits
+  policyLimit: decimal("policy_limit", { precision: 12, scale: 2 }).default("0"),
+  deductible: decimal("deductible", { precision: 12, scale: 2 }).default("0"),
+
+  // Calculated totals
+  lineItemTotal: decimal("line_item_total", { precision: 12, scale: 2 }).default("0"),
+  taxTotal: decimal("tax_total", { precision: 12, scale: 2 }).default("0"),
+  overheadTotal: decimal("overhead_total", { precision: 12, scale: 2 }).default("0"),
+  profitTotal: decimal("profit_total", { precision: 12, scale: 2 }).default("0"),
+  rcvTotal: decimal("rcv_total", { precision: 12, scale: 2 }).default("0"),
+  depreciationTotal: decimal("depreciation_total", { precision: 12, scale: 2 }).default("0"),
+  acvTotal: decimal("acv_total", { precision: 12, scale: 2 }).default("0"),
+  recoverableDepreciation: decimal("recoverable_depreciation", { precision: 12, scale: 2 }).default("0"),
+  nonRecoverableDepreciation: decimal("non_recoverable_depreciation", { precision: 12, scale: 2 }).default("0"),
+  netClaim: decimal("net_claim", { precision: 12, scale: 2 }).default("0"),
+
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  estimateIdx: index("estimate_coverages_estimate_idx").on(table.estimateId),
+}));
+
+export type EstimateCoverage = typeof estimateCoverages.$inferSelect;
+export type InsertEstimateCoverage = typeof estimateCoverages.$inferInsert;
+
+// ============================================
+// ESTIMATE STRUCTURES TABLE
+// ============================================
+
+export const estimateStructures = pgTable("estimate_structures", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull(),
+  coverageId: uuid("coverage_id"),
+
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+
+  // Link to sketch
+  sketchName: varchar("sketch_name", { length: 100 }),
+  sketchPage: integer("sketch_page").default(1),
+
+  // Structure metadata
+  yearBuilt: integer("year_built"),
+  constructionType: varchar("construction_type", { length: 50 }),
+  stories: integer("stories").default(1),
+
+  // Calculated totals
+  totalSf: decimal("total_sf", { precision: 12, scale: 2 }).default("0"),
+  rcvTotal: decimal("rcv_total", { precision: 12, scale: 2 }).default("0"),
+  acvTotal: decimal("acv_total", { precision: 12, scale: 2 }).default("0"),
+
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  estimateIdx: index("estimate_structures_estimate_idx").on(table.estimateId),
+  coverageIdx: index("estimate_structures_coverage_idx").on(table.coverageId),
+}));
+
+export type EstimateStructure = typeof estimateStructures.$inferSelect;
+export type InsertEstimateStructure = typeof estimateStructures.$inferInsert;
+
+// ============================================
+// ESTIMATE AREAS TABLE
+// ============================================
+
+export const estimateAreas = pgTable("estimate_areas", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  structureId: uuid("structure_id").notNull(),
+
+  name: varchar("name", { length: 100 }).notNull(),
+  areaType: varchar("area_type", { length: 50 }).notNull(), // exterior, interior, roofing, specialty
+
+  // Calculated totals
+  totalSf: decimal("total_sf", { precision: 12, scale: 2 }).default("0"),
+  rcvTotal: decimal("rcv_total", { precision: 12, scale: 2 }).default("0"),
+  acvTotal: decimal("acv_total", { precision: 12, scale: 2 }).default("0"),
+
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  structureIdx: index("estimate_areas_structure_idx").on(table.structureId),
+}));
+
+export type EstimateArea = typeof estimateAreas.$inferSelect;
+export type InsertEstimateArea = typeof estimateAreas.$inferInsert;
+
+// ============================================
+// ESTIMATE ZONES TABLE (Enhanced)
+// ============================================
+
+export const estimateZones = pgTable("estimate_zones", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  areaId: uuid("area_id").notNull(),
+
+  // Zone identification
+  name: varchar("name", { length: 100 }).notNull(),
+  zoneCode: varchar("zone_code", { length: 20 }),
+  zoneType: varchar("zone_type", { length: 20 }).notNull().default("room"), // room, elevation, roof, deck, linear
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, measured, scoped, complete
+
+  // Room type for interior zones
+  roomType: varchar("room_type", { length: 50 }),
+  floorLevel: varchar("floor_level", { length: 20 }).default("main"),
+
+  // Manual entry dimensions
+  lengthFt: decimal("length_ft", { precision: 8, scale: 2 }),
+  widthFt: decimal("width_ft", { precision: 8, scale: 2 }),
+  heightFt: decimal("height_ft", { precision: 8, scale: 2 }).default("8.0"),
+  pitch: varchar("pitch", { length: 10 }),
+  pitchMultiplier: decimal("pitch_multiplier", { precision: 6, scale: 4 }).default("1.0"),
+
+  // Calculated dimensions stored as JSONB
+  dimensions: jsonb("dimensions").default(sql`'{}'::jsonb`),
+
+  // Room info for Xactimate
+  roomInfo: jsonb("room_info").default(sql`'{}'::jsonb`),
+
+  // Sketch polygon data
+  sketchPolygon: jsonb("sketch_polygon").default(sql`'null'::jsonb`),
+
+  // Damage info
+  damageType: varchar("damage_type", { length: 50 }),
+  damageSeverity: varchar("damage_severity", { length: 20 }),
+  waterCategory: integer("water_category"),
+  waterClass: integer("water_class"),
+  affectedSurfaces: jsonb("affected_surfaces").default(sql`'[]'::jsonb`),
+
+  // Photo references
+  photoIds: jsonb("photo_ids").default(sql`'[]'::jsonb`),
+
+  // Calculated totals
+  lineItemCount: integer("line_item_count").default(0),
+  rcvTotal: decimal("rcv_total", { precision: 12, scale: 2 }).default("0"),
+  acvTotal: decimal("acv_total", { precision: 12, scale: 2 }).default("0"),
+
+  // Notes
+  notes: text("notes"),
+  sortOrder: integer("sort_order").default(0),
+
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  areaIdx: index("estimate_zones_area_idx").on(table.areaId),
+  statusIdx: index("estimate_zones_status_idx").on(table.status),
+  typeIdx: index("estimate_zones_type_idx").on(table.zoneType),
+}));
+
+export const insertEstimateZoneSchema = createInsertSchema(estimateZones).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type EstimateZone = typeof estimateZones.$inferSelect;
+export type InsertEstimateZone = z.infer<typeof insertEstimateZoneSchema>;
+
+// ============================================
+// ESTIMATE MISSING WALLS TABLE
+// ============================================
+
+export const estimateMissingWalls = pgTable("estimate_missing_walls", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  zoneId: uuid("zone_id").notNull(),
+
+  name: varchar("name", { length: 100 }),
+  openingType: varchar("opening_type", { length: 50 }).notNull().default("door"), // door, window, opening
+
+  // Dimensions
+  widthFt: decimal("width_ft", { precision: 6, scale: 2 }).notNull(),
+  heightFt: decimal("height_ft", { precision: 6, scale: 2 }).notNull(),
+  quantity: integer("quantity").default(1),
+
+  // Where does it go
+  goesToFloor: boolean("goes_to_floor").default(true),
+  goesToCeiling: boolean("goes_to_ceiling").default(false),
+  opensInto: varchar("opens_into", { length: 100 }), // "Exterior" or zone name
+
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  zoneIdx: index("missing_walls_zone_idx").on(table.zoneId),
+}));
+
+export type EstimateMissingWall = typeof estimateMissingWalls.$inferSelect;
+export type InsertEstimateMissingWall = typeof estimateMissingWalls.$inferInsert;
+
+// ============================================
+// ESTIMATE SUBROOMS TABLE
+// ============================================
+
+export const estimateSubrooms = pgTable("estimate_subrooms", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  zoneId: uuid("zone_id").notNull(),
+
+  name: varchar("name", { length: 100 }).notNull(),
+  subroomType: varchar("subroom_type", { length: 50 }), // closet, bump_out, bay_window
+
+  // Dimensions
+  lengthFt: decimal("length_ft", { precision: 8, scale: 2 }).notNull(),
+  widthFt: decimal("width_ft", { precision: 8, scale: 2 }).notNull(),
+  heightFt: decimal("height_ft", { precision: 8, scale: 2 }),
+
+  // Calculated dimensions
+  dimensions: jsonb("dimensions").default(sql`'{}'::jsonb`),
+
+  // Whether to add or subtract from parent zone
+  isAddition: boolean("is_addition").default(true),
+
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  zoneIdx: index("subrooms_zone_idx").on(table.zoneId),
+}));
+
+export type EstimateSubroom = typeof estimateSubrooms.$inferSelect;
+export type InsertEstimateSubroom = typeof estimateSubrooms.$inferInsert;
+
+// ============================================
+// ESTIMATE TOTALS TABLE
+// ============================================
+
+export const estimateTotals = pgTable("estimate_totals", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull().unique(),
+
+  // Line item subtotals
+  lineItemTotal: decimal("line_item_total", { precision: 12, scale: 2 }).default("0"),
+  materialTotal: decimal("material_total", { precision: 12, scale: 2 }).default("0"),
+  laborTotal: decimal("labor_total", { precision: 12, scale: 2 }).default("0"),
+  equipmentTotal: decimal("equipment_total", { precision: 12, scale: 2 }).default("0"),
+
+  // Tax
+  taxTotal: decimal("tax_total", { precision: 12, scale: 2 }).default("0"),
+
+  // O&P
+  opBase: decimal("op_base", { precision: 12, scale: 2 }).default("0"),
+  overheadTotal: decimal("overhead_total", { precision: 12, scale: 2 }).default("0"),
+  profitTotal: decimal("profit_total", { precision: 12, scale: 2 }).default("0"),
+
+  // RCV/ACV
+  rcvTotal: decimal("rcv_total", { precision: 12, scale: 2 }).default("0"),
+  depreciationTotal: decimal("depreciation_total", { precision: 12, scale: 2 }).default("0"),
+  recoverableDepreciation: decimal("recoverable_depreciation", { precision: 12, scale: 2 }).default("0"),
+  nonRecoverableDepreciation: decimal("non_recoverable_depreciation", { precision: 12, scale: 2 }).default("0"),
+  acvTotal: decimal("acv_total", { precision: 12, scale: 2 }).default("0"),
+
+  // Homeowner items
+  homeownerTotal: decimal("homeowner_total", { precision: 12, scale: 2 }).default("0"),
+  contractorTotal: decimal("contractor_total", { precision: 12, scale: 2 }).default("0"),
+
+  // Net claim
+  deductibleTotal: decimal("deductible_total", { precision: 12, scale: 2 }).default("0"),
+  netClaim: decimal("net_claim", { precision: 12, scale: 2 }).default("0"),
+
+  // Trade counts for O&P eligibility
+  tradeCount: integer("trade_count").default(0),
+  qualifiesForOp: boolean("qualifies_for_op").default(false),
+
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  estimateIdx: index("estimate_totals_estimate_idx").on(table.estimateId),
+}));
+
+export type EstimateTotals = typeof estimateTotals.$inferSelect;
+
+// ============================================
+// DIMENSION TYPES (TypeScript)
+// ============================================
+
+export interface ZoneDimensions {
+  sfFloor?: number;
+  syFloor?: number;
+  lfFloorPerim?: number;
+  sfCeiling?: number;
+  lfCeilingPerim?: number;
+  sfWalls?: number;
+  sfWallsCeiling?: number;
+  sfLongWall?: number;
+  sfShortWall?: number;
+  sfTotal?: number;
+  // Roof-specific
+  sfSkRoof?: number;
+  skRoofSquares?: number;
+  lfSkRoofPerim?: number;
+  lfSkRoofRidge?: number;
+  lfSkRoofEave?: number;
+  lfSkRoofRake?: number;
+  // Linear-specific
+  lfTotal?: number;
+  // Deck-specific
+  lfRailing?: number;
+}
+
+export interface RoomInfo {
+  ceilingHeight?: number;
+  shape?: string;
+  dimString?: string;
+  hasVaultedCeiling?: boolean;
+  vaultPitch?: string;
+}
+
+// ============================================
+// WORKFLOW STATUS TYPES
+// ============================================
+
+export type EstimateStatus = 'draft' | 'sketching' | 'scoping' | 'pricing' | 'review' | 'approved' | 'exported';
+export type ZoneStatus = 'pending' | 'measured' | 'scoped' | 'complete';
+export type ZoneType = 'room' | 'elevation' | 'roof' | 'deck' | 'linear' | 'custom';
