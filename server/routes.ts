@@ -169,6 +169,12 @@ export async function registerRoutes(
             console.error('Session save error:', saveErr);
             return res.status(500).json({ error: 'Session save error' });
           }
+          // Disable caching for login response to prevent 304 issues
+          res.set({
+            'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          });
           return res.json({
             user: { id: user.id, username: user.username },
             message: 'Login successful'
