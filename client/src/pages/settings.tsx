@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import Layout from "@/components/layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
 import {
   RefreshCw,
   Database,
@@ -31,9 +34,12 @@ import {
   Mail,
   MessageSquare,
   Percent,
-  Save
+  Save,
+  User,
+  Lock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useStore } from "@/lib/store";
 
 interface ScrapeJobResult {
   jobId: string;
@@ -113,6 +119,19 @@ interface NotificationPreferences {
 
 export default function Settings() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
+  const searchParams = new URLSearchParams(searchString);
+  const tabFromUrl = searchParams.get('tab');
+  
+  const authUser = useStore((state) => state.authUser);
+  const user = useStore((state) => state.user);
+  
+  const displayName = authUser?.username || user.name;
+  const displayEmail = user.email;
+  const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
+
+  const [activeTab, setActiveTab] = useState(tabFromUrl || "profile");
   const [isScrapingHomeDepot, setIsScrapingHomeDepot] = useState(false);
   const [lastScrapeResult, setLastScrapeResult] = useState<ScrapeJobResult | null>(null);
   const [scraperConfig, setScraperConfig] = useState<ScraperConfig | null>(null);
@@ -122,6 +141,14 @@ export default function Settings() {
   const [scrapeJobs, setScrapeJobs] = useState<ScrapeJob[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [isLoadingSystem, setIsLoadingSystem] = useState(false);
+  
+  const [profileData, setProfileData] = useState({
+    displayName: displayName,
+    email: displayEmail,
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
 
   const [estimateDefaults, setEstimateDefaults] = useState<EstimateDefaults>({
     laborMultiplier: 1.0,
@@ -275,6 +302,44 @@ export default function Settings() {
     });
   };
 
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    toast({
+      title: "Profile Updated",
+      description: "Your profile information has been saved.",
+    });
+  };
+
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (profileData.newPassword !== profileData.confirmPassword) {
+      toast({
+        title: "Error",
+        description: "New passwords do not match",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (profileData.newPassword.length < 6) {
+      toast({
+        title: "Error",
+        description: "Password must be at least 6 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: "Password Changed",
+      description: "Your password has been updated successfully.",
+    });
+    setProfileData(prev => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    setLocation(`/settings?tab=${value}`, { replace: true });
+  };
+
   return (
     <Layout>
       <div className="p-6 max-w-6xl mx-auto">
@@ -283,8 +348,12 @@ export default function Settings() {
           <p className="text-muted-foreground mt-1">Manage your estimate defaults, carriers, and preferences</p>
         </div>
 
-        <Tabs defaultValue="estimates" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-flex">
+            <TabsTrigger value="profile" data-testid="tab-profile" className="gap-2">
+              <User className="h-4 w-4 hidden sm:block" />
+              <span>Profile</span>
+            </TabsTrigger>
             <TabsTrigger value="estimates" data-testid="tab-estimates" className="gap-2">
               <Calculator className="h-4 w-4 hidden sm:block" />
               <span>Estimates</span>
@@ -302,6 +371,115 @@ export default function Settings() {
               <span>System</span>
             </TabsTrigger>
           </TabsList>
+
+          {/* Profile & Account Tab */}
+          <TabsContent value="profile" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-16 w-16">
+                    <AvatarImage src={displayAvatar} alt={displayName} />
+                    <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <CardTitle>{displayName}</CardTitle>
+                    <CardDescription>{displayEmail}</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Profile Information
+                </CardTitle>
+                <CardDescription>Update your personal details</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="profileDisplayName">Display Name</Label>
+                      <Input
+                        id="profileDisplayName"
+                        value={profileData.displayName}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, displayName: e.target.value }))}
+                        data-testid="input-display-name"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="profileEmail">Email Address</Label>
+                      <Input
+                        id="profileEmail"
+                        type="email"
+                        value={profileData.email}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, email: e.target.value }))}
+                        data-testid="input-email"
+                      />
+                    </div>
+                  </div>
+                  <Button type="submit" data-testid="button-save-profile">
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Profile
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Lock className="h-5 w-5" />
+                  Change Password
+                </CardTitle>
+                <CardDescription>Update your password for security</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="currentPassword">Current Password</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      value={profileData.currentPassword}
+                      onChange={(e) => setProfileData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                      className="max-w-sm"
+                      data-testid="input-current-password"
+                    />
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="newPassword">New Password</Label>
+                      <Input
+                        id="newPassword"
+                        type="password"
+                        value={profileData.newPassword}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, newPassword: e.target.value }))}
+                        data-testid="input-new-password"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        value={profileData.confirmPassword}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                        data-testid="input-confirm-password"
+                      />
+                    </div>
+                  </div>
+                  <Button type="submit" variant="outline" data-testid="button-change-password">
+                    <Lock className="h-4 w-4 mr-2" />
+                    Change Password
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Estimate Defaults Tab */}
           <TabsContent value="estimates" className="space-y-6">

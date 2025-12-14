@@ -79,7 +79,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem
                 className="cursor-pointer"
-                onClick={() => setLocation("/profile")}
+                onClick={() => setLocation("/settings?tab=profile")}
               >
                 <User className="mr-2 h-4 w-4" />
                 <span>My Profile</span>
@@ -129,7 +129,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="cursor-pointer"
-                  onClick={() => setLocation("/profile")}
+                  onClick={() => setLocation("/settings?tab=profile")}
                 >
                   <User className="mr-2 h-4 w-4" />
                   <span>My Profile</span>
