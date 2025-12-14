@@ -288,22 +288,6 @@ export async function registerRoutes(
     }
   });
 
-  // Helper to normalize preferences (handle legacy string-encoded JSON)
-  const normalizePreferences = (prefs: unknown): Record<string, unknown> => {
-    if (!prefs) return {};
-    if (typeof prefs === 'string') {
-      try {
-        return JSON.parse(prefs);
-      } catch {
-        return {};
-      }
-    }
-    if (typeof prefs === 'object' && prefs !== null) {
-      return prefs as Record<string, unknown>;
-    }
-    return {};
-  };
-
   // Get user preferences
   app.get('/api/users/preferences', requireAuth, async (req, res) => {
     try {
@@ -318,8 +302,7 @@ export async function registerRoutes(
         if (result.rows.length === 0) {
           return res.status(404).json({ error: 'User not found' });
         }
-        const prefs = normalizePreferences(result.rows[0].preferences);
-        res.json(prefs);
+        res.json(result.rows[0].preferences || {});
       } finally {
         client.release();
       }
@@ -338,7 +321,6 @@ export async function registerRoutes(
       const { pool } = await import('./db');
       const client = await pool.connect();
       try {
-        // Merge new preferences with existing
         const existingResult = await client.query(
           'SELECT preferences FROM users WHERE id = $1',
           [userId]
@@ -347,7 +329,7 @@ export async function registerRoutes(
           return res.status(404).json({ error: 'User not found' });
         }
         
-        const existingPrefs = normalizePreferences(existingResult.rows[0].preferences);
+        const existingPrefs = existingResult.rows[0].preferences || {};
         const mergedPrefs = { ...existingPrefs, ...preferences };
         
         await client.query(
