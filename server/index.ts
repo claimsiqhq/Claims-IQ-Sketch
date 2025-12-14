@@ -6,6 +6,13 @@ import { setupAuth } from "./middleware/auth";
 
 const app = express();
 app.set('trust proxy', 1);
+
+// Disable ETags for auth endpoints to prevent 304 caching issues
+app.use('/api/auth', (req, res, next) => {
+  app.set('etag', false);
+  next();
+});
+
 const httpServer = createServer(app);
 
 declare module "http" {

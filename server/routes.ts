@@ -98,22 +98,34 @@ export async function registerRoutes(
 
   // Get current user endpoint
   app.get('/api/auth/me', (req, res) => {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.set('Pragma', 'no-cache');
-    if (req.isAuthenticated() && req.user) {
-      return res.json({
-        user: { id: req.user.id, username: req.user.username },
-        authenticated: true
-      });
-    }
-    return res.json({ user: null, authenticated: false });
+    // Disable all caching for auth endpoints
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Content-Type': 'application/json; charset=utf-8'
+    });
+    
+    const data = req.isAuthenticated() && req.user
+      ? { user: { id: req.user.id, username: req.user.username }, authenticated: true }
+      : { user: null, authenticated: false };
+    
+    // Use send() instead of json() to bypass ETag generation
+    res.status(200).send(JSON.stringify(data));
   });
 
   // Check authentication status
   app.get('/api/auth/check', (req, res) => {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.json({ authenticated: req.isAuthenticated() });
+    // Disable all caching for auth endpoints
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Content-Type': 'application/json; charset=utf-8'
+    });
+    
+    // Use send() instead of json() to bypass ETag generation
+    res.status(200).send(JSON.stringify({ authenticated: req.isAuthenticated() }));
   });
 
   // ============================================

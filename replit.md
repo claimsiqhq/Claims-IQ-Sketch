@@ -8,6 +8,21 @@ Claims IQ is a modern, mobile-first web application for property insurance claim
 
 Preferred communication style: Simple, everyday language.
 
+## Branding
+
+### Logo Assets
+- **Wordmark Logo**: `client/src/assets/logo-wordmark.png` - Full logo with text
+- **Icon Logo**: `client/src/assets/logo-icon.png` - Square icon only
+
+### Brand Colors
+- **Primary Purple**: `#7763B7` (Tailwind: `primary`)
+- **Accent Gold**: `#C6A54E` (Tailwind: `accent`)
+
+### Brand Fonts
+- **Headings**: Work Sans (font-display class)
+- **Body**: Source Sans 3 (font-body class)
+- **Monospace**: Space Mono (font-mono class)
+
 ## System Architecture
 
 ### Frontend Architecture
@@ -28,8 +43,41 @@ The frontend follows a page-based structure under `client/src/pages/` with reusa
 
 Key backend services:
 - `server/services/pricing.ts`: Line item search, price calculation with regional adjustments
-- `server/scraper/homeDepot.ts`: Material price scraping for cost validation
+- `server/services/auth.ts`: User authentication and password hashing
+- `server/middleware/auth.ts`: Passport.js session configuration
+- `server/scraper/homeDepot.ts`: Material price scraping (demo only - not production-ready)
 - `server/routes.ts`: API endpoint registration
+
+### Authentication System
+
+The application uses session-based authentication with Passport.js:
+
+**Key Files:**
+- `server/middleware/auth.ts` - Session configuration and Passport setup
+- `server/services/auth.ts` - User validation, password hashing with bcrypt
+- `server/routes.ts` - Auth API endpoints
+- `client/src/lib/api.ts` - Frontend API functions
+- `client/src/lib/store.ts` - Zustand auth state management
+
+**Session Configuration (Required for Replit):**
+```typescript
+cookie: {
+  secure: true,           // Required for HTTPS
+  httpOnly: true,         // Security best practice
+  maxAge: 24 * 60 * 60 * 1000,  // 24 hours
+  sameSite: 'none',       // Required for Replit iframe
+}
+```
+
+**Important Notes:**
+- Replit hosts apps in an HTTPS iframe, requiring `sameSite: 'none'` and `secure: true`
+- Sessions are stored in PostgreSQL via `connect-pg-simple`
+- Auth endpoints must include `Cache-Control: no-store` headers to prevent 304 responses
+- Frontend must use `credentials: 'include'` on all fetch requests
+
+**Default Admin Credentials:**
+- Username: `admin`
+- Password: `admin123`
 
 ### Data Storage
 - **ORM**: Drizzle ORM with PostgreSQL dialect
@@ -39,10 +87,11 @@ Key backend services:
 
 The database schema supports:
 - Organizations (carriers, adjusting firms, contractors)
-- Users with role-based access
+- Users with role-based access (username/password columns for auth)
 - Geographic pricing regions with indices
 - Line item catalog with hierarchical categories
 - Material, labor, and equipment components
+- Session storage table (auto-created by connect-pg-simple)
 
 ### Build and Deployment
 - **Client Build**: Vite outputs to `dist/public`
@@ -55,22 +104,64 @@ The database schema supports:
 ### Database
 - PostgreSQL database (required, connection via `DATABASE_URL` environment variable)
 - Drizzle ORM for database operations
-- connect-pg-simple for session storage capability
+- connect-pg-simple for session storage
 
 ### Third-Party Services
-- No external authentication provider (mock auth for PoC)
-- Material pricing scraper designed for Home Depot (research/validation purposes)
+- Session-based authentication with Passport.js (local strategy)
+- Material pricing scraper designed for Home Depot (demo/research only - web scraping is unreliable)
 
 ### Key NPM Packages
-- Radix UI primitives for accessible components
-- date-fns for date formatting
-- drizzle-zod for schema validation
-- embla-carousel-react for carousels
-- class-variance-authority for variant styling
-- Lucide React for icons
+- **Authentication**: passport, passport-local, bcryptjs, express-session, connect-pg-simple
+- **UI**: Radix UI primitives, Lucide React icons, shadcn/ui components
+- **State**: Zustand, TanStack React Query
+- **Styling**: Tailwind CSS, class-variance-authority
+- **Utilities**: date-fns, drizzle-zod, zod
 
-### API Structure
-- `GET /api/line-items`: Search line items with filtering
-- `GET /api/line-items/categories`: Retrieve category hierarchy
-- `POST /api/pricing/calculate`: Calculate prices with regional adjustments
-- `POST /api/scrape/home-depot`: Trigger material price scraping job
+## API Structure
+
+### Authentication
+- `POST /api/auth/login` - Login with username/password (supports rememberMe flag)
+- `POST /api/auth/logout` - Logout and destroy session
+- `GET /api/auth/me` - Get current authenticated user
+- `GET /api/auth/check` - Check if authenticated
+
+### Line Items & Pricing
+- `GET /api/line-items` - Search line items with filtering
+- `GET /api/line-items/categories` - Retrieve category hierarchy
+- `POST /api/pricing/calculate` - Calculate prices with regional adjustments
+- `GET /api/regions` - Get all pricing regions
+- `GET /api/carrier-profiles` - Get carrier profit/overhead profiles
+
+### Estimates
+- `POST /api/estimates/calculate` - Calculate estimate without saving
+- `POST /api/estimates` - Create and save estimate
+- `GET /api/estimates` - List estimates
+- `GET /api/estimates/:id` - Get specific estimate
+
+### System/Admin
+- `GET /api/system/status` - Database status and counts
+- `POST /api/scrape/home-depot` - Trigger price scraper (demo only)
+- `GET /api/scrape/prices` - View scraped prices
+- `GET /api/scrape/config` - View scraper configuration
+
+## Development Notes
+
+### Running Locally
+```bash
+npm run dev  # Starts both frontend and backend
+```
+
+### Database Migrations
+```bash
+npm run db:push  # Push schema changes to database
+```
+
+### Adding New Pages
+1. Create component in `client/src/pages/`
+2. Register route in `client/src/App.tsx`
+3. Add to navigation in `client/src/components/layout.tsx`
+
+### Environment Variables
+- `DATABASE_URL` - PostgreSQL connection string (required)
+- `SESSION_SECRET` - Session encryption key (defaults to dev key)
+- `OPENAI_API_KEY` - For AI features (optional)
