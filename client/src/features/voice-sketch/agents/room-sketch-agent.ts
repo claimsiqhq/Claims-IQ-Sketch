@@ -59,6 +59,7 @@ DAMAGE DOCUMENTATION (CRITICAL FOR INSURANCE):
   - Category 2: Gray water (washing machine overflow, toilet overflow with urine)
   - Category 3: Black water (sewage, rising floodwater, toilet with feces)
 - Document source and extent clearly
+- EXTENT DEFAULT: If the adjuster does not specify how far the damage extends, use 2 feet as default. Only use larger values if explicitly stated (e.g., "damage extends 6 feet into the room")
 
 EDITING AND CORRECTIONS:
 - When the adjuster says "actually" or "wait" or "change that", they're making a correction
@@ -158,14 +159,14 @@ const addFeatureTool = tool({
 // Tool: Mark damage zone (critical for insurance claims)
 const markDamageTool = tool({
   name: 'mark_damage',
-  description: 'Define a damage zone for insurance claim documentation. CRITICAL: For water damage, always determine the IICRC category (1, 2, or 3).',
+  description: 'Define a damage zone for insurance claim documentation. CRITICAL: For water damage, always determine the IICRC category (1, 2, or 3). IMPORTANT: If user does not specify extent, use 2 feet as default.',
   parameters: z.object({
     type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).describe('Type of damage'),
     category: z.enum(['1', '2', '3']).optional().describe('IICRC category for water damage: 1=clean water, 2=gray water, 3=black water'),
     affected_walls: z.array(z.enum(['north', 'south', 'east', 'west'])).describe('Which walls are affected'),
     floor_affected: z.boolean().default(true).describe('Is the floor affected?'),
     ceiling_affected: z.boolean().default(false).describe('Is the ceiling affected?'),
-    extent_ft: z.number().describe('How far the damage extends from the source in feet'),
+    extent_ft: z.number().default(2).describe('How far the damage extends from the wall in feet. Default 2 feet if not specified by user.'),
     source: z.string().optional().describe('Source of damage, e.g., "burst pipe under sink", "roof leak", "adjacent bathroom"'),
   }),
   execute: async (params) => {
