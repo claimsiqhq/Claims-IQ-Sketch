@@ -106,6 +106,37 @@ export async function saveUserPreferences(preferences: Partial<UserPreferences>)
   return response.json();
 }
 
+export interface UpdateProfileData {
+  displayName: string;
+  email: string;
+}
+
+export interface UpdateProfileResponse {
+  user: {
+    id: string;
+    username: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    displayName: string;
+  };
+  message: string;
+}
+
+export async function updateUserProfile(data: UpdateProfileData): Promise<UpdateProfileResponse> {
+  const response = await fetch(`${API_BASE}/users/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update profile');
+  }
+  return response.json();
+}
+
 // ============================================
 // TYPES
 // ============================================

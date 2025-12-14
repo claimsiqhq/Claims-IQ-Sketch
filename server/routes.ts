@@ -347,6 +347,61 @@ export async function registerRoutes(
     }
   });
 
+  // Update user profile (display name, email)
+  app.put('/api/users/profile', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { displayName, email } = req.body;
+      
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        // Parse display name into first/last name
+        let firstName = displayName || '';
+        let lastName = '';
+        if (displayName && displayName.includes(' ')) {
+          const parts = displayName.trim().split(' ');
+          firstName = parts[0];
+          lastName = parts.slice(1).join(' ');
+        }
+        
+        await client.query(
+          `UPDATE users SET 
+            first_name = $1, 
+            last_name = $2, 
+            email = $3, 
+            updated_at = NOW() 
+          WHERE id = $4`,
+          [firstName, lastName, email || null, userId]
+        );
+        
+        // Fetch updated user data
+        const result = await client.query(
+          'SELECT id, username, first_name, last_name, email FROM users WHERE id = $1',
+          [userId]
+        );
+        
+        const user = result.rows[0];
+        res.json({ 
+          user: {
+            id: user.id,
+            username: user.username,
+            firstName: user.first_name,
+            lastName: user.last_name,
+            email: user.email,
+            displayName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username
+          },
+          message: 'Profile updated successfully' 
+        });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // LINE ITEMS ROUTES
   // ============================================

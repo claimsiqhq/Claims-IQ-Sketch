@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store";
-import { getUserPreferences, saveUserPreferences } from "@/lib/api";
+import { getUserPreferences, saveUserPreferences, updateUserProfile } from "@/lib/api";
 
 interface ScrapeJobResult {
   jobId: string;
@@ -367,11 +367,25 @@ export default function Settings() {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Profile update API not yet implemented
-    toast({
-      title: "Profile Applied",
-      description: "Profile settings applied for this session.",
-    });
+    setIsSavingPreferences(true);
+    try {
+      const result = await updateUserProfile({
+        displayName: profileData.displayName,
+        email: profileData.email,
+      });
+      toast({
+        title: "Profile Saved",
+        description: result.message || "Your profile has been updated.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save profile",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPreferences(false);
+    }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
