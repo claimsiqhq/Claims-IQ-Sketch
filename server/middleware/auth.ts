@@ -49,7 +49,7 @@ passport.deserializeUser(async (id: string, done) => {
 export function setupAuth(app: Express): void {
   const PgSession = connectPgSimple(session);
   
-  const sessionConfig: session.SessionOptions = {
+  app.use(session({
     store: new PgSession({
       conString: process.env.DATABASE_URL,
       tableName: 'session',
@@ -59,14 +59,13 @@ export function setupAuth(app: Express): void {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === 'production',
+      secure: true,
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000,
+      sameSite: 'none',
     },
-  };
+  }));
 
-  app.use(session(sessionConfig));
   app.use(passport.initialize());
   app.use(passport.session());
 

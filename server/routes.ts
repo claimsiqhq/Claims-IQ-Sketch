@@ -98,6 +98,8 @@ export async function registerRoutes(
 
   // Get current user endpoint
   app.get('/api/auth/me', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
     if (req.isAuthenticated() && req.user) {
       return res.json({
         user: { id: req.user.id, username: req.user.username },
@@ -109,6 +111,8 @@ export async function registerRoutes(
 
   // Check authentication status
   app.get('/api/auth/check', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
     res.json({ authenticated: req.isAuthenticated() });
   });
 
