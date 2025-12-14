@@ -1966,10 +1966,10 @@ export async function registerRoutes(
   // List claims for organization
   app.get('/api/claims', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { status, cause_of_loss, adjuster_id, search, limit, offset } = req.query;
+      const { status, loss_type, adjuster_id, search, limit, offset } = req.query;
       const result = await listClaims(req.organizationId!, {
         status: status as string,
-        causeOfLoss: cause_of_loss as string,
+        lossType: loss_type as string,
         assignedAdjusterId: adjuster_id as string,
         search: search as string,
         limit: limit ? parseInt(limit as string) : undefined,
@@ -1996,7 +1996,7 @@ export async function registerRoutes(
   // Get claims for map display
   app.get('/api/claims/map', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { adjuster_id, status, cause_of_loss, my_claims } = req.query;
+      const { adjuster_id, status, loss_type, my_claims } = req.query;
 
       // If my_claims=true and user is an adjuster, filter to their claims
       let assignedAdjusterId = adjuster_id as string | undefined;
@@ -2007,7 +2007,7 @@ export async function registerRoutes(
       const claims = await getClaimsForMap(req.organizationId!, {
         assignedAdjusterId,
         status: status as string,
-        causeOfLoss: cause_of_loss as string
+        lossType: loss_type as string
       });
       res.json({ claims, total: claims.length });
     } catch (error) {
