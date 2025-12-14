@@ -33,6 +33,7 @@ import {
   generateCsvExport
 } from "./services/reportGenerator";
 import { passport, requireAuth } from "./middleware/auth";
+import { updateUserProfile, changeUserPassword } from "./services/auth";
 import { tenantMiddleware, requireOrganization, requireOrgRole, requireSuperAdmin } from "./middleware/tenant";
 import {
   createOrganization,
@@ -235,6 +236,54 @@ export async function registerRoutes(
     
     // Use send() instead of json() to bypass ETag generation
     res.status(200).send(JSON.stringify({ authenticated: req.isAuthenticated() }));
+  });
+
+  // ============================================
+  // USER PROFILE ROUTES
+  // ============================================
+
+  // Update user profile
+  app.put('/api/users/profile', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { name, email } = req.body;
+      
+      const updatedUser = await updateUserProfile(userId, { name, email });
+      if (!updatedUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json({ user: updatedUser, message: 'Profile updated successfully' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Change user password
+  app.put('/api/users/password', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Current password and new password are required' });
+      }
+      
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
+      
+      const result = await changeUserPassword(userId, currentPassword, newPassword);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
   });
 
   // ============================================

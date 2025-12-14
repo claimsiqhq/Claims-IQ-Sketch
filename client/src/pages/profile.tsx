@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { User, Mail, Lock, Save } from "lucide-react";
+import { User, Mail, Lock, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Profile() {
@@ -24,14 +24,42 @@ export default function Profile() {
     newPassword: "",
     confirmPassword: "",
   });
+  
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success("Profile updated successfully");
+    setSavingProfile(true);
+    
+    try {
+      const response = await fetch('/api/users/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: formData.displayName,
+          email: formData.email,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update profile');
+      }
+      
+      toast.success("Profile updated successfully");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update profile');
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (formData.newPassword !== formData.confirmPassword) {
       toast.error("New passwords do not match");
       return;
@@ -40,8 +68,33 @@ export default function Profile() {
       toast.error("Password must be at least 6 characters");
       return;
     }
-    toast.success("Password changed successfully");
-    setFormData(prev => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
+    
+    setSavingPassword(true);
+    
+    try {
+      const response = await fetch('/api/users/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword: formData.currentPassword,
+          newPassword: formData.newPassword,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to change password');
+      }
+      
+      toast.success("Password changed successfully");
+      setFormData(prev => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to change password');
+    } finally {
+      setSavingPassword(false);
+    }
   };
 
   return (
@@ -95,9 +148,9 @@ export default function Profile() {
                 data-testid="input-email"
               />
             </div>
-            <Button type="submit" data-testid="button-save-profile">
-              <Save className="h-4 w-4 mr-2" />
-              Save Changes
+            <Button type="submit" disabled={savingProfile} data-testid="button-save-profile">
+              {savingProfile ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              {savingProfile ? "Saving..." : "Save Changes"}
             </Button>
           </form>
         </CardContent>
@@ -144,9 +197,9 @@ export default function Profile() {
                 data-testid="input-confirm-password"
               />
             </div>
-            <Button type="submit" variant="outline" data-testid="button-change-password">
-              <Lock className="h-4 w-4 mr-2" />
-              Change Password
+            <Button type="submit" variant="outline" disabled={savingPassword} data-testid="button-change-password">
+              {savingPassword ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}
+              {savingPassword ? "Changing..." : "Change Password"}
             </Button>
           </form>
         </CardContent>

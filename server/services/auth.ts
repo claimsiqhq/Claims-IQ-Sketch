@@ -48,6 +48,60 @@ export async function findUserById(id: string): Promise<User | null> {
   }
 }
 
+export async function updateUserProfile(
+  userId: string,
+  updates: { name?: string; email?: string }
+): Promise<AuthUser | null> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `UPDATE users 
+       SET name = COALESCE($2, name), 
+           email = COALESCE($3, email),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, username, email, name, role, current_organization_id as "currentOrganizationId"`,
+      [userId, updates.name || null, updates.email || null]
+    );
+    return result.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function changeUserPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const client = await pool.connect();
+  try {
+    const userResult = await client.query(
+      'SELECT password FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return { success: false, error: 'User not found' };
+    }
+    
+    const isValid = await verifyPassword(currentPassword, userResult.rows[0].password);
+    if (!isValid) {
+      return { success: false, error: 'Current password is incorrect' };
+    }
+    
+    const hashedPassword = await hashPassword(newPassword);
+    await client.query(
+      'UPDATE users SET password = $2, updated_at = NOW() WHERE id = $1',
+      [userId, hashedPassword]
+    );
+    
+    return { success: true };
+  } finally {
+    client.release();
+  }
+}
+
 export async function createUser(
   username: string,
   password: string,
