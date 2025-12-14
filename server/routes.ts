@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import path from "path";
+import fs from "fs";
 import multer from "multer";
 import { storage } from "./storage";
 import { runScrapeJob, testScrape, PRODUCT_MAPPINGS, STORE_REGIONS } from "./scraper/homeDepot";
@@ -286,6 +288,22 @@ export async function registerRoutes(
     }
   });
 
+  // Helper to normalize preferences (handle legacy string-encoded JSON)
+  const normalizePreferences = (prefs: unknown): Record<string, unknown> => {
+    if (!prefs) return {};
+    if (typeof prefs === 'string') {
+      try {
+        return JSON.parse(prefs);
+      } catch {
+        return {};
+      }
+    }
+    if (typeof prefs === 'object' && prefs !== null) {
+      return prefs as Record<string, unknown>;
+    }
+    return {};
+  };
+
   // Get user preferences
   app.get('/api/users/preferences', requireAuth, async (req, res) => {
     try {
@@ -300,7 +318,8 @@ export async function registerRoutes(
         if (result.rows.length === 0) {
           return res.status(404).json({ error: 'User not found' });
         }
-        res.json(result.rows[0].preferences || {});
+        const prefs = normalizePreferences(result.rows[0].preferences);
+        res.json(prefs);
       } finally {
         client.release();
       }
@@ -328,12 +347,12 @@ export async function registerRoutes(
           return res.status(404).json({ error: 'User not found' });
         }
         
-        const existingPrefs = existingResult.rows[0].preferences || {};
+        const existingPrefs = normalizePreferences(existingResult.rows[0].preferences);
         const mergedPrefs = { ...existingPrefs, ...preferences };
         
         await client.query(
-          'UPDATE users SET preferences = $1, updated_at = NOW() WHERE id = $2',
-          [JSON.stringify(mergedPrefs), userId]
+          'UPDATE users SET preferences = $1::jsonb, updated_at = NOW() WHERE id = $2',
+          [mergedPrefs, userId]
         );
         
         res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
