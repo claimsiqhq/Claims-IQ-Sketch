@@ -216,10 +216,13 @@ export default function ClaimDetail() {
     setIsDeleting(true);
     try {
       await deleteClaim(params.id);
+      setActiveClaim(null);
       toast.success("Claim deleted successfully");
       setLocation("/");
     } catch (err) {
-      toast.error((err as Error).message || "Failed to delete claim");
+      const errorMessage = err instanceof Error ? err.message : "Failed to delete claim";
+      toast.error(errorMessage);
+      console.error("Delete claim error:", err);
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
