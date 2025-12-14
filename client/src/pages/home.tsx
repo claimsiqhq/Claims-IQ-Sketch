@@ -24,7 +24,8 @@ import {
   DollarSign,
   Loader2,
   AlertCircle,
-  Building2
+  Building2,
+  Shield
 } from "lucide-react";
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
@@ -86,6 +87,16 @@ function ClaimCard({ claim }: { claim: Claim }) {
               <div className="flex items-center gap-2">
                 <DollarSign className="w-4 h-4" />
                 <span>RCV: ${parseFloat(claim.totalRcv).toLocaleString()}</span>
+              </div>
+            )}
+            {claim.coverageA && (
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                <span>
+                  Coverage A: {Number.isFinite(Number(claim.coverageA)) 
+                    ? `$${Number(claim.coverageA).toLocaleString()}` 
+                    : "—"}
+                </span>
               </div>
             )}
           </div>
