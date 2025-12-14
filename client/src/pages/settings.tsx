@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store";
+import { getUserPreferences, saveUserPreferences } from "@/lib/api";
 
 interface ScrapeJobResult {
   jobId: string;
@@ -173,6 +174,8 @@ export default function Settings() {
 
   const [defaultCarrier, setDefaultCarrier] = useState("state-farm");
   const [approvalThreshold, setApprovalThreshold] = useState(10000);
+  const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
   const runHomeDepotScraper = async () => {
     setIsScrapingHomeDepot(true);
@@ -263,7 +266,29 @@ export default function Settings() {
 
   useEffect(() => {
     loadSystemStatus();
+    loadUserPreferences();
   }, []);
+
+  const loadUserPreferences = async () => {
+    setIsLoadingPreferences(true);
+    try {
+      const prefs = await getUserPreferences();
+      if (prefs.estimateDefaults) {
+        setEstimateDefaults(prev => ({ ...prev, ...prefs.estimateDefaults }));
+      }
+      if (prefs.notifications) {
+        setNotifications(prev => ({ ...prev, ...prefs.notifications }));
+      }
+      if (prefs.carrier) {
+        setDefaultCarrier(prefs.carrier.defaultCarrier || "state-farm");
+        setApprovalThreshold(prefs.carrier.approvalThreshold || 10000);
+      }
+    } catch (error) {
+      console.error("Failed to load preferences:", error);
+    } finally {
+      setIsLoadingPreferences(false);
+    }
+  };
 
   const groupedPrices = scrapedPrices.reduce((acc, price) => {
     if (!acc[price.sku]) {
@@ -281,28 +306,63 @@ export default function Settings() {
     return acc;
   }, {} as Record<string, { sku: string; name: string; unit: string; regions: Record<string, { price: number; date: string }> }>);
 
-  const handleSaveEstimateDefaults = () => {
-    // Note: These settings are stored locally and will be saved when backend API is available
-    toast({
-      title: "Settings Applied",
-      description: "Estimate defaults applied for this session.",
-    });
+  const handleSaveEstimateDefaults = async () => {
+    setIsSavingPreferences(true);
+    try {
+      await saveUserPreferences({ estimateDefaults });
+      toast({
+        title: "Settings Saved",
+        description: "Estimate defaults have been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save settings",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPreferences(false);
+    }
   };
 
-  const handleSaveCarrierSettings = () => {
-    // Note: These settings are stored locally and will be saved when backend API is available
-    toast({
-      title: "Settings Applied",
-      description: "Carrier settings applied for this session.",
-    });
+  const handleSaveCarrierSettings = async () => {
+    setIsSavingPreferences(true);
+    try {
+      await saveUserPreferences({ 
+        carrier: { defaultCarrier, approvalThreshold } 
+      });
+      toast({
+        title: "Settings Saved",
+        description: "Carrier settings have been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save settings",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPreferences(false);
+    }
   };
 
-  const handleSaveNotifications = () => {
-    // Note: These settings are stored locally and will be saved when backend API is available
-    toast({
-      title: "Settings Applied",
-      description: "Notification preferences applied for this session.",
-    });
+  const handleSaveNotifications = async () => {
+    setIsSavingPreferences(true);
+    try {
+      await saveUserPreferences({ notifications });
+      toast({
+        title: "Settings Saved",
+        description: "Notification preferences have been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save settings",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPreferences(false);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {

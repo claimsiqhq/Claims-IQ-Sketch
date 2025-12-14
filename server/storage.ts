@@ -37,6 +37,7 @@ export class MemStorage implements IStorage {
       firstName: insertUser.firstName || null,
       lastName: insertUser.lastName || null,
       currentOrganizationId: null,
+      preferences: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     };
