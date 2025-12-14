@@ -14,6 +14,31 @@ const openai = new OpenAI({
 
 const TEMP_DIR = path.join(os.tmpdir(), 'claimsiq-pdf');
 
+// Coverage details interface
+export interface CoverageDetail {
+  code: string; // A, B, C, D, E, F
+  name: string;
+  limit?: string;
+  percentage?: string;
+  valuationMethod?: string;
+  deductible?: string;
+}
+
+// Scheduled structure interface
+export interface ScheduledStructure {
+  description: string;
+  value: string;
+  articleNumber?: string;
+  valuationMethod?: string;
+}
+
+// Endorsement detail interface
+export interface EndorsementDetail {
+  formNumber: string;
+  name: string;
+  additionalInfo?: string;
+}
+
 // Document type definitions - matches FNOL JSON format
 export interface ExtractedClaimData {
   // Claim identifier
@@ -21,30 +46,81 @@ export interface ExtractedClaimData {
 
   // Policyholder info
   policyholder?: string;
+  policyholderSecondary?: string; // Second named insured
+  contactPhone?: string;
+  contactEmail?: string;
 
   // Loss details
   dateOfLoss?: string; // Format: "MM/DD/YYYY@HH:MM AM/PM"
-  riskLocation?: string; // Full address string
+  riskLocation?: string; // Full property address string
   causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
   lossDescription?: string;
+  dwellingDamageDescription?: string;
+  otherStructureDamageDescription?: string;
+  damageLocation?: string; // Interior, Exterior, Both
 
-  // Policy details
+  // Property details
+  yearBuilt?: string;
+  yearRoofInstall?: string; // Format: "MM-DD-YYYY" or year
+  isWoodRoof?: boolean;
+
+  // Policy info
+  policyNumber?: string;
+  state?: string;
+  carrier?: string;
+  lineOfBusiness?: string;
+  policyStatus?: string;
+  policyInceptionDate?: string;
+
+  // Deductibles
+  policyDeductible?: string;
+  windHailDeductible?: string;
+  windHailDeductiblePercent?: string;
+
+  // Coverages (comprehensive)
+  coverages?: CoverageDetail[];
+  dwellingLimit?: string; // Coverage A
+  otherStructuresLimit?: string; // Coverage B
+  personalPropertyLimit?: string; // Coverage C
+  lossOfUseLimit?: string; // Coverage D
+  liabilityLimit?: string; // Coverage E
+  medicalLimit?: string; // Coverage F
+
+  // Scheduled structures (Coverage B - Scheduled)
+  scheduledStructures?: ScheduledStructure[];
+  unscheduledStructuresLimit?: string;
+
+  // Additional coverages
+  additionalCoverages?: {
+    name: string;
+    limit?: string;
+    deductible?: string;
+  }[];
+
+  // Endorsements
+  endorsementsListed?: string[]; // Simple list of endorsement codes
+  endorsementDetails?: EndorsementDetail[]; // Detailed endorsement info
+
+  // Third parties
+  mortgagee?: string;
+  producer?: string;
+  producerPhone?: string;
+  producerEmail?: string;
+
+  // Assignment info
+  reportedBy?: string;
+  reportedDate?: string;
+  droneEligible?: boolean;
+
+  // Legacy policyDetails for backward compatibility
   policyDetails?: {
     policyNumber?: string;
     state?: string;
-    yearRoofInstall?: string; // Format: "MM-DD-YYYY"
-    windHailDeductible?: string; // Format: "$X,XXX X%"
-    dwellingLimit?: string; // Format: "$XXX,XXX"
-    endorsementsListed?: string[]; // Array of endorsement strings
+    yearRoofInstall?: string;
+    windHailDeductible?: string;
+    dwellingLimit?: string;
+    endorsementsListed?: string[];
   };
-
-  // Flattened policy details for direct access
-  policyNumber?: string;
-  state?: string;
-  yearRoofInstall?: string;
-  windHailDeductible?: string;
-  dwellingLimit?: string;
-  endorsementsListed?: string[];
 
   // Raw text (for reference)
   rawText?: string;
@@ -338,53 +414,103 @@ Return a JSON object with the following fields (use null for missing values):`;
       return `${basePrompt}
 {
   "claimId": "Claim ID/number (format: XX-XXX-XXXXXX)",
-  "policyholder": "Full name(s) of the policyholder(s)",
+  "policyholder": "Primary policyholder full name",
+  "policyholderSecondary": "Second named insured if any",
+  "contactPhone": "Mobile or primary phone number",
+  "contactEmail": "Email address",
   "dateOfLoss": "Date and time of loss (format: MM/DD/YYYY@HH:MM AM/PM)",
   "riskLocation": "Full property address including street, city, state, and ZIP",
-  "causeOfLoss": "Cause of loss (e.g., Hail, Fire, Water, Wind, Impact)",
+  "causeOfLoss": "Cause of loss (e.g., Hail, Fire, Water, Wind)",
   "lossDescription": "Detailed description of the loss/damage",
-  "policyDetails": {
-    "policyNumber": "Policy number",
-    "state": "State code (2-letter)",
-    "yearRoofInstall": "Roof installation date (format: MM-DD-YYYY)",
-    "windHailDeductible": "Wind/hail deductible with percentage (format: $X,XXX X%)",
-    "dwellingLimit": "Dwelling coverage limit (format: $XXX,XXX)",
-    "endorsementsListed": ["Array of endorsement codes and names"]
-  }
+  "dwellingDamageDescription": "Description of dwelling damage",
+  "otherStructureDamageDescription": "Description of other structure damage",
+  "damageLocation": "Interior, Exterior, or Both",
+  "yearBuilt": "Year property was built",
+  "yearRoofInstall": "Year or date roof was installed",
+  "isWoodRoof": "Whether roof is wood (true/false)",
+  "policyNumber": "Policy number",
+  "state": "State code (2-letter)",
+  "carrier": "Insurance carrier/company name",
+  "lineOfBusiness": "Line of business (Homeowners, etc.)",
+  "policyInceptionDate": "Policy inception/in-force date",
+  "policyDeductible": "Policy deductible amount ($X,XXX)",
+  "windHailDeductible": "Wind/hail deductible amount ($X,XXX)",
+  "windHailDeductiblePercent": "Wind/hail deductible percentage (X%)",
+  "coverages": [
+    {"code": "A", "name": "Coverage A - Dwelling", "limit": "$XXX,XXX", "percentage": "XX%", "valuationMethod": "RCV or ACV"},
+    {"code": "B", "name": "Coverage B - Other Structures", "limit": "$XXX,XXX"},
+    {"code": "C", "name": "Coverage C - Personal Property", "limit": "$XXX,XXX", "percentage": "XX%"},
+    {"code": "D", "name": "Coverage D - Loss of Use", "limit": "$XXX,XXX", "percentage": "XX%"},
+    {"code": "E", "name": "Coverage E - Personal Liability", "limit": "$XXX,XXX"},
+    {"code": "F", "name": "Coverage F - Medical Expense", "limit": "$X,XXX"}
+  ],
+  "dwellingLimit": "Coverage A limit",
+  "scheduledStructures": [
+    {"description": "Structure description (shed, garage, etc.)", "value": "$XX,XXX", "articleNumber": "Article number if any", "valuationMethod": "RCV or ACV"}
+  ],
+  "unscheduledStructuresLimit": "Coverage B unscheduled limit",
+  "additionalCoverages": [
+    {"name": "Coverage name (Ordinance/Law, Fungi, etc.)", "limit": "$XX,XXX", "deductible": "$X,XXX if any"}
+  ],
+  "endorsementDetails": [
+    {"formNumber": "HO XX XX", "name": "Endorsement name", "additionalInfo": "Any notes"}
+  ],
+  "endorsementsListed": ["Array of endorsement form numbers"],
+  "mortgagee": "Mortgagee/lender name and info",
+  "producer": "Agent/producer name",
+  "producerPhone": "Agent phone",
+  "producerEmail": "Agent email",
+  "reportedBy": "Who reported the claim",
+  "reportedDate": "Date claim was reported"
 }`;
 
     case 'policy':
       return `${basePrompt}
 {
   "policyholder": "Named insured on the policy",
+  "policyholderSecondary": "Second named insured",
   "riskLocation": "Full insured property address",
-  "policyDetails": {
-    "policyNumber": "Policy number",
-    "state": "State code (2-letter)",
-    "yearRoofInstall": "Roof installation date if available (format: MM-DD-YYYY)",
-    "windHailDeductible": "Wind/hail deductible (format: $X,XXX X%)",
-    "dwellingLimit": "Coverage A/Dwelling limit (format: $XXX,XXX)",
-    "endorsementsListed": ["Array of endorsement codes and names"]
-  }
+  "policyNumber": "Policy number",
+  "state": "State code (2-letter)",
+  "carrier": "Insurance company name",
+  "yearRoofInstall": "Roof installation date if available",
+  "policyDeductible": "Policy deductible ($X,XXX)",
+  "windHailDeductible": "Wind/hail deductible ($X,XXX X%)",
+  "coverages": [
+    {"code": "A", "name": "Coverage A - Dwelling", "limit": "$XXX,XXX", "valuationMethod": "RCV or ACV"},
+    {"code": "B", "name": "Coverage B - Other Structures", "limit": "$XXX,XXX"},
+    {"code": "C", "name": "Coverage C - Personal Property", "limit": "$XXX,XXX"},
+    {"code": "D", "name": "Coverage D - Loss of Use", "limit": "$XXX,XXX"}
+  ],
+  "dwellingLimit": "Coverage A limit",
+  "scheduledStructures": [{"description": "Description", "value": "$XX,XXX"}],
+  "endorsementDetails": [{"formNumber": "HO XX XX", "name": "Endorsement name"}],
+  "endorsementsListed": ["Array of endorsement form numbers"],
+  "mortgagee": "Mortgagee/lender info"
 }`;
 
     case 'endorsement':
       return `${basePrompt}
 {
-  "policyDetails": {
-    "policyNumber": "Policy number this endorsement applies to",
-    "endorsementsListed": ["Array of endorsement form numbers and names, e.g., 'HO 84 28 - Hidden Water Coverage'"]
-  }
+  "policyNumber": "Policy number this endorsement applies to",
+  "endorsementDetails": [
+    {"formNumber": "HO XX XX", "name": "Full endorsement name", "additionalInfo": "Key provisions or limits"}
+  ],
+  "endorsementsListed": ["Array of endorsement form numbers, e.g., 'HO 84 28'"]
 }`;
 
     default:
       return `${basePrompt}
 Extract any insurance-related information you can find including:
-- Policyholder name(s)
+- Policyholder name(s) and contact info
 - Risk location/property address
-- Policy number, state, coverage limits
+- Policy number, state, carrier
+- All coverage limits (A through F)
+- Deductibles (policy, wind/hail)
+- Scheduled structures with values
+- All endorsements listed
 - Claim/loss information if present
-- Any endorsements listed`;
+- Mortgagee and producer info`;
   }
 }
 
