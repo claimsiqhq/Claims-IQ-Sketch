@@ -69,6 +69,11 @@ import {
   createClaimFromDocuments
 } from "./services/documentProcessor";
 import {
+  getClaimsForMap,
+  getMapStats,
+  geocodePendingClaims
+} from "./services/geocoding";
+import {
   createStructure,
   getStructure,
   updateStructure,
@@ -1933,6 +1938,52 @@ export async function registerRoutes(
     try {
       const stats = await getClaimStats(req.organizationId!);
       res.json(stats);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claims for map display
+  app.get('/api/claims/map', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { adjuster_id, status, loss_type, my_claims } = req.query;
+      
+      // If my_claims=true and user is an adjuster, filter to their claims
+      let assignedAdjusterId = adjuster_id as string | undefined;
+      if (my_claims === 'true' && req.user?.id) {
+        assignedAdjusterId = req.user.id;
+      }
+      
+      const claims = await getClaimsForMap(req.organizationId!, {
+        assignedAdjusterId,
+        status: status as string,
+        lossType: loss_type as string
+      });
+      res.json({ claims, total: claims.length });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get map geocoding statistics
+  app.get('/api/claims/map/stats', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const stats = await getMapStats(req.organizationId!);
+      res.json(stats);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Trigger geocoding for pending claims
+  app.post('/api/claims/geocode-pending', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { limit } = req.body;
+      const count = await geocodePendingClaims(req.organizationId!, limit || 100);
+      res.json({ queued: count, message: `Queued ${count} claims for geocoding` });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });

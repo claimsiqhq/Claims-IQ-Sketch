@@ -1,5 +1,6 @@
 import { pool } from '../db';
 import { InsertClaim } from '../../shared/schema';
+import { queueGeocoding } from './geocoding';
 
 export interface ClaimWithDocuments {
   id: string;
@@ -82,7 +83,14 @@ export async function createClaim(
       ]
     );
 
-    return result.rows[0];
+    const claim = result.rows[0];
+    
+    // Queue geocoding if address is provided
+    if (data.propertyAddress) {
+      queueGeocoding(claim.id);
+    }
+    
+    return claim;
   } finally {
     client.release();
   }
@@ -299,6 +307,13 @@ export async function updateClaim(
        WHERE id = $${paramIndex} AND organization_id = $${paramIndex + 1}`,
       params
     );
+
+    // Queue geocoding if address fields changed
+    const addressFieldsChanged = ['propertyAddress', 'propertyCity', 'propertyState', 'propertyZip']
+      .some(field => (updates as any)[field] !== undefined);
+    if (addressFieldsChanged) {
+      queueGeocoding(id);
+    }
 
     return getClaim(id, organizationId);
   } finally {
