@@ -9,7 +9,14 @@ app.set('trust proxy', 1);
 
 // Disable ETags for auth endpoints to prevent 304 caching issues
 app.use('/api/auth', (req, res, next) => {
-  app.set('etag', false);
+  // Remove ETag header from auth responses to prevent 304 Not Modified
+  res.removeHeader('ETag');
+  // Set cache control headers as a fallback
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
   next();
 });
 
