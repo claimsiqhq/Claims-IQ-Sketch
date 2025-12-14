@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -11,7 +11,10 @@ import {
   Bell,
   Mic,
   User,
-  ChevronDown
+  ChevronDown,
+  Building2,
+  Check,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +28,7 @@ import {
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import logoWordmark from "../assets/logo-wordmark.png";
+import { getMyOrganizations, switchOrganization, type Organization } from "@/lib/api";
 
 // Default avatar for authenticated users
 const DEFAULT_AVATAR = "https://api.dicebear.com/7.x/initials/svg?seed=Admin";
@@ -35,6 +39,51 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const user = useStore((state) => state.user);
   const authUser = useStore((state) => state.authUser);
   const logout = useStore((state) => state.logout);
+
+  // Organization state
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
+  const [loadingOrgs, setLoadingOrgs] = useState(true);
+  const [switchingOrg, setSwitchingOrg] = useState(false);
+
+  // Load organizations on mount
+  useEffect(() => {
+    async function loadOrganizations() {
+      try {
+        const result = await getMyOrganizations();
+        setOrganizations(result.organizations);
+        setCurrentOrgId(result.currentOrganizationId || null);
+      } catch (err) {
+        console.error('Failed to load organizations:', err);
+      } finally {
+        setLoadingOrgs(false);
+      }
+    }
+    if (authUser) {
+      loadOrganizations();
+    } else {
+      setLoadingOrgs(false);
+    }
+  }, [authUser]);
+
+  // Handle organization switch
+  const handleSwitchOrg = async (orgId: string) => {
+    if (orgId === currentOrgId || switchingOrg) return;
+
+    setSwitchingOrg(true);
+    try {
+      await switchOrganization(orgId);
+      setCurrentOrgId(orgId);
+      // Reload the page to reflect the new organization context
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to switch organization:', err);
+    } finally {
+      setSwitchingOrg(false);
+    }
+  };
+
+  const currentOrg = organizations.find(o => o.id === currentOrgId);
 
   const navItems = [
     { label: "Dashboard", icon: LayoutDashboard, href: "/" },
@@ -107,6 +156,50 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="p-4">
+            {/* Organization Switcher */}
+            {organizations.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-3 p-3 mb-4 bg-primary/5 border border-primary/20 rounded-lg w-full hover:bg-primary/10 transition-colors cursor-pointer">
+                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                      <Building2 className="h-5 w-5" />
+                    </div>
+                    <div className="overflow-hidden flex-1 text-left">
+                      <p className="font-medium text-sm truncate">
+                        {loadingOrgs ? 'Loading...' : (currentOrg?.name || 'Select Organization')}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {currentOrg?.type || 'No organization'}
+                      </p>
+                    </div>
+                    {switchingOrg ? (
+                      <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Switch Organization</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {organizations.map((org) => (
+                    <DropdownMenuItem
+                      key={org.id}
+                      className="cursor-pointer"
+                      onClick={() => handleSwitchOrg(org.id)}
+                    >
+                      <Building2 className="mr-2 h-4 w-4" />
+                      <span className="flex-1 truncate">{org.name}</span>
+                      {org.id === currentOrgId && (
+                        <Check className="ml-2 h-4 w-4 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {/* User Profile */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 p-3 mb-6 bg-muted/50 rounded-lg w-full hover:bg-muted transition-colors cursor-pointer">
