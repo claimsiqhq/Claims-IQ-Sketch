@@ -563,7 +563,7 @@ export async function registerRoutes(
   });
 
   // Create and save new estimate
-  app.post('/api/estimates', async (req, res) => {
+  app.post('/api/estimates', requireAuth, async (req, res) => {
     try {
       const calculation = await calculateEstimate(req.body);
       const savedEstimate = await saveEstimate(req.body, calculation);
@@ -575,7 +575,7 @@ export async function registerRoutes(
   });
 
   // List estimates
-  app.get('/api/estimates', async (req, res) => {
+  app.get('/api/estimates', requireAuth, async (req, res) => {
     try {
       const { status, claim_id, limit, offset } = req.query;
       const result = await listEstimates({
@@ -592,7 +592,7 @@ export async function registerRoutes(
   });
 
   // Get estimate by ID
-  app.get('/api/estimates/:id', async (req, res) => {
+  app.get('/api/estimates/:id', requireAuth, async (req, res) => {
     try {
       const estimate = await getEstimate(req.params.id);
       if (!estimate) {
@@ -606,7 +606,7 @@ export async function registerRoutes(
   });
 
   // Update estimate
-  app.put('/api/estimates/:id', async (req, res) => {
+  app.put('/api/estimates/:id', requireAuth, async (req, res) => {
     try {
       const updatedEstimate = await updateEstimate(req.params.id, req.body);
       res.json(updatedEstimate);
@@ -621,7 +621,7 @@ export async function registerRoutes(
   });
 
   // Add line item to estimate
-  app.post('/api/estimates/:id/line-items', async (req, res) => {
+  app.post('/api/estimates/:id/line-items', requireAuth, async (req, res) => {
     try {
       const { lineItemCode, quantity, notes, roomName } = req.body;
       if (!lineItemCode || !quantity) {
@@ -645,7 +645,7 @@ export async function registerRoutes(
   });
 
   // Remove line item from estimate
-  app.delete('/api/estimates/:id/line-items/:code', async (req, res) => {
+  app.delete('/api/estimates/:id/line-items/:code', requireAuth, async (req, res) => {
     try {
       const updatedEstimate = await removeLineItemFromEstimate(
         req.params.id,
@@ -675,7 +675,7 @@ export async function registerRoutes(
   });
 
   // Create estimate from template
-  app.post('/api/estimate-templates/:id/create', async (req, res) => {
+  app.post('/api/estimate-templates/:id/create', requireAuth, async (req, res) => {
     try {
       const { quantities, ...estimateInput } = req.body;
       if (!quantities || typeof quantities !== 'object') {
@@ -1147,7 +1147,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get full estimate hierarchy
-  app.get('/api/estimates/:id/hierarchy', async (req, res) => {
+  app.get('/api/estimates/:id/hierarchy', requireAuth, async (req, res) => {
     try {
       const hierarchy = await getEstimateHierarchy(req.params.id);
       res.json(hierarchy);
@@ -1158,7 +1158,7 @@ export async function registerRoutes(
   });
 
   // Initialize estimate hierarchy with defaults
-  app.post('/api/estimates/:id/hierarchy/initialize', async (req, res) => {
+  app.post('/api/estimates/:id/hierarchy/initialize', requireAuth, async (req, res) => {
     try {
       const { structureName, includeInterior, includeExterior, includeRoofing } = req.body;
       const hierarchy = await initializeEstimateHierarchy(req.params.id, {
@@ -1175,7 +1175,7 @@ export async function registerRoutes(
   });
 
   // Recalculate estimate totals
-  app.post('/api/estimates/:id/recalculate', async (req, res) => {
+  app.post('/api/estimates/:id/recalculate', requireAuth, async (req, res) => {
     try {
       const { pool } = await import('./db');
       const client = await pool.connect();
@@ -1197,7 +1197,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create structure
-  app.post('/api/estimates/:id/structures', async (req, res) => {
+  app.post('/api/estimates/:id/structures', requireAuth, async (req, res) => {
     try {
       const structure = await createStructure({
         estimateId: req.params.id,
@@ -1211,7 +1211,7 @@ export async function registerRoutes(
   });
 
   // Get structure
-  app.get('/api/structures/:id', async (req, res) => {
+  app.get('/api/structures/:id', requireAuth, async (req, res) => {
     try {
       const structure = await getStructure(req.params.id);
       if (!structure) {
@@ -1225,7 +1225,7 @@ export async function registerRoutes(
   });
 
   // Update structure
-  app.put('/api/structures/:id', async (req, res) => {
+  app.put('/api/structures/:id', requireAuth, async (req, res) => {
     try {
       const structure = await updateStructure(req.params.id, req.body);
       if (!structure) {
@@ -1239,7 +1239,7 @@ export async function registerRoutes(
   });
 
   // Delete structure
-  app.delete('/api/structures/:id', async (req, res) => {
+  app.delete('/api/structures/:id', requireAuth, async (req, res) => {
     try {
       const success = await deleteStructure(req.params.id);
       if (!success) {
@@ -1257,7 +1257,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create area in structure
-  app.post('/api/structures/:id/areas', async (req, res) => {
+  app.post('/api/structures/:id/areas', requireAuth, async (req, res) => {
     try {
       const area = await createArea({
         structureId: req.params.id,
@@ -1271,7 +1271,7 @@ export async function registerRoutes(
   });
 
   // Get area
-  app.get('/api/areas/:id', async (req, res) => {
+  app.get('/api/areas/:id', requireAuth, async (req, res) => {
     try {
       const area = await getArea(req.params.id);
       if (!area) {
@@ -1285,7 +1285,7 @@ export async function registerRoutes(
   });
 
   // Update area
-  app.put('/api/areas/:id', async (req, res) => {
+  app.put('/api/areas/:id', requireAuth, async (req, res) => {
     try {
       const area = await updateArea(req.params.id, req.body);
       if (!area) {
@@ -1299,7 +1299,7 @@ export async function registerRoutes(
   });
 
   // Delete area
-  app.delete('/api/areas/:id', async (req, res) => {
+  app.delete('/api/areas/:id', requireAuth, async (req, res) => {
     try {
       const success = await deleteArea(req.params.id);
       if (!success) {
@@ -1317,7 +1317,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create zone in area
-  app.post('/api/areas/:id/zones', async (req, res) => {
+  app.post('/api/areas/:id/zones', requireAuth, async (req, res) => {
     try {
       const zone = await createZone({
         areaId: req.params.id,
@@ -1331,7 +1331,7 @@ export async function registerRoutes(
   });
 
   // Get zone
-  app.get('/api/zones/:id', async (req, res) => {
+  app.get('/api/zones/:id', requireAuth, async (req, res) => {
     try {
       const zone = await getZone(req.params.id);
       if (!zone) {
@@ -1345,7 +1345,7 @@ export async function registerRoutes(
   });
 
   // Get zone with children (missing walls, subrooms, line items)
-  app.get('/api/zones/:id/full', async (req, res) => {
+  app.get('/api/zones/:id/full', requireAuth, async (req, res) => {
     try {
       const zone = await getZoneWithChildren(req.params.id);
       if (!zone) {
@@ -1359,7 +1359,7 @@ export async function registerRoutes(
   });
 
   // Update zone
-  app.put('/api/zones/:id', async (req, res) => {
+  app.put('/api/zones/:id', requireAuth, async (req, res) => {
     try {
       const zone = await updateZone(req.params.id, req.body);
       if (!zone) {
@@ -1373,7 +1373,7 @@ export async function registerRoutes(
   });
 
   // Recalculate zone dimensions
-  app.post('/api/zones/:id/calculate-dimensions', async (req, res) => {
+  app.post('/api/zones/:id/calculate-dimensions', requireAuth, async (req, res) => {
     try {
       const dimensions = await recalculateZoneDimensions(req.params.id);
       res.json({ dimensions });
@@ -1384,7 +1384,7 @@ export async function registerRoutes(
   });
 
   // Delete zone
-  app.delete('/api/zones/:id', async (req, res) => {
+  app.delete('/api/zones/:id', requireAuth, async (req, res) => {
     try {
       const success = await deleteZone(req.params.id);
       if (!success) {
@@ -1402,7 +1402,7 @@ export async function registerRoutes(
   // ============================================
 
   // Add missing wall to zone
-  app.post('/api/zones/:id/missing-walls', async (req, res) => {
+  app.post('/api/zones/:id/missing-walls', requireAuth, async (req, res) => {
     try {
       const { widthFt, heightFt } = req.body;
       if (!widthFt || !heightFt) {
@@ -1420,7 +1420,7 @@ export async function registerRoutes(
   });
 
   // Get missing wall
-  app.get('/api/missing-walls/:id', async (req, res) => {
+  app.get('/api/missing-walls/:id', requireAuth, async (req, res) => {
     try {
       const wall = await getMissingWall(req.params.id);
       if (!wall) {
@@ -1434,7 +1434,7 @@ export async function registerRoutes(
   });
 
   // Update missing wall
-  app.put('/api/missing-walls/:id', async (req, res) => {
+  app.put('/api/missing-walls/:id', requireAuth, async (req, res) => {
     try {
       const wall = await updateMissingWall(req.params.id, req.body);
       if (!wall) {
@@ -1448,7 +1448,7 @@ export async function registerRoutes(
   });
 
   // Delete missing wall
-  app.delete('/api/missing-walls/:id', async (req, res) => {
+  app.delete('/api/missing-walls/:id', requireAuth, async (req, res) => {
     try {
       const success = await deleteMissingWall(req.params.id);
       if (!success) {
@@ -1466,7 +1466,7 @@ export async function registerRoutes(
   // ============================================
 
   // Add subroom to zone
-  app.post('/api/zones/:id/subrooms', async (req, res) => {
+  app.post('/api/zones/:id/subrooms', requireAuth, async (req, res) => {
     try {
       const { name, lengthFt, widthFt } = req.body;
       if (!name || !lengthFt || !widthFt) {
@@ -1484,7 +1484,7 @@ export async function registerRoutes(
   });
 
   // Delete subroom
-  app.delete('/api/subrooms/:id', async (req, res) => {
+  app.delete('/api/subrooms/:id', requireAuth, async (req, res) => {
     try {
       const success = await deleteSubroom(req.params.id);
       if (!success) {
@@ -1502,7 +1502,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get zone line items
-  app.get('/api/zones/:id/line-items', async (req, res) => {
+  app.get('/api/zones/:id/line-items', requireAuth, async (req, res) => {
     try {
       const { pool } = await import('./db');
       const client = await pool.connect();
@@ -1522,7 +1522,7 @@ export async function registerRoutes(
   });
 
   // Add line item to zone
-  app.post('/api/zones/:id/line-items', async (req, res) => {
+  app.post('/api/zones/:id/line-items', requireAuth, async (req, res) => {
     try {
       const { lineItemCode, quantity } = req.body;
       if (!lineItemCode || !quantity) {
@@ -1542,7 +1542,7 @@ export async function registerRoutes(
   });
 
   // Delete line item from zone
-  app.delete('/api/line-items/:id', async (req, res) => {
+  app.delete('/api/line-items/:id', requireAuth, async (req, res) => {
     try {
       const { pool } = await import('./db');
       const client = await pool.connect();
@@ -1565,7 +1565,7 @@ export async function registerRoutes(
   });
 
   // Update line item
-  app.put('/api/line-items/:id', async (req, res) => {
+  app.put('/api/line-items/:id', requireAuth, async (req, res) => {
     try {
       const { pool } = await import('./db');
       const client = await pool.connect();
@@ -1633,7 +1633,7 @@ export async function registerRoutes(
   });
 
   // Add line item from zone dimension (auto-calculate quantity)
-  app.post('/api/zones/:id/line-items/from-dimension', async (req, res) => {
+  app.post('/api/zones/:id/line-items/from-dimension', requireAuth, async (req, res) => {
     try {
       const { lineItemCode, dimensionKey, unitPrice, taxRate, depreciationPct, isRecoverable, notes } = req.body;
       if (!lineItemCode || !dimensionKey) {
@@ -1666,7 +1666,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get subroom
-  app.get('/api/subrooms/:id', async (req, res) => {
+  app.get('/api/subrooms/:id', requireAuth, async (req, res) => {
     try {
       const subroom = await getSubroom(req.params.id);
       if (!subroom) {
@@ -1680,7 +1680,7 @@ export async function registerRoutes(
   });
 
   // Update subroom
-  app.put('/api/subrooms/:id', async (req, res) => {
+  app.put('/api/subrooms/:id', requireAuth, async (req, res) => {
     try {
       const subroom = await updateSubroom(req.params.id, req.body);
       if (!subroom) {
@@ -1694,7 +1694,7 @@ export async function registerRoutes(
   });
 
   // Delete subroom
-  app.delete('/api/subrooms/:id', async (req, res) => {
+  app.delete('/api/subrooms/:id', requireAuth, async (req, res) => {
     try {
       const success = await deleteSubroom(req.params.id);
       if (!success) {
@@ -1712,7 +1712,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get coverages for an estimate
-  app.get('/api/estimates/:id/coverages', async (req, res) => {
+  app.get('/api/estimates/:id/coverages', requireAuth, async (req, res) => {
     try {
       const coverages = await getCoverages(req.params.id);
       res.json(coverages);
@@ -1723,7 +1723,7 @@ export async function registerRoutes(
   });
 
   // Create coverage for an estimate
-  app.post('/api/estimates/:id/coverages', async (req, res) => {
+  app.post('/api/estimates/:id/coverages', requireAuth, async (req, res) => {
     try {
       const { coverageType, coverageName, policyLimit, deductible } = req.body;
       if (!coverageType || !coverageName) {
@@ -1744,7 +1744,7 @@ export async function registerRoutes(
   });
 
   // Get line items grouped by coverage
-  app.get('/api/estimates/:id/line-items/by-coverage', async (req, res) => {
+  app.get('/api/estimates/:id/line-items/by-coverage', requireAuth, async (req, res) => {
     try {
       const grouped = await getLineItemsByCoverage(req.params.id);
       res.json(grouped);
@@ -1755,7 +1755,7 @@ export async function registerRoutes(
   });
 
   // Update line item coverage assignment
-  app.put('/api/line-items/:id/coverage', async (req, res) => {
+  app.put('/api/line-items/:id/coverage', requireAuth, async (req, res) => {
     try {
       const { coverageId } = req.body;
       await updateLineItemCoverage(req.params.id, coverageId || null);
