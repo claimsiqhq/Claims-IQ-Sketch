@@ -115,6 +115,12 @@ export const claims = pgTable("claims", {
   propertyState: varchar("property_state", { length: 50 }),
   propertyZip: varchar("property_zip", { length: 20 }),
 
+  // Geocoding data
+  propertyLatitude: decimal("property_latitude", { precision: 10, scale: 7 }),
+  propertyLongitude: decimal("property_longitude", { precision: 10, scale: 7 }),
+  geocodeStatus: varchar("geocode_status", { length: 20 }).default("pending"), // pending, success, failed, skipped
+  geocodedAt: timestamp("geocoded_at"),
+
   // Loss details
   dateOfLoss: date("date_of_loss"),
   lossType: varchar("loss_type", { length: 50 }), // Water, Fire, Wind/Hail, Impact, Other
