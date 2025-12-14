@@ -40,7 +40,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { label: "Dashboard", icon: LayoutDashboard, href: "/" },
     { label: "New Claim", icon: PlusCircle, href: "/new-claim" },
     { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },
-    { label: "Settings", icon: Settings, href: "/settings" },
+    { label: "Admin Settings", icon: Settings, href: "/settings" },
   ];
 
   const handleLogout = async () => {
@@ -87,14 +87,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="cursor-pointer"
-                onClick={() => setLocation("/settings")}
-              >
-                <User className="mr-2 h-4 w-4" />
-                <span>Profile & Settings</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
                 className="text-destructive focus:text-destructive cursor-pointer"
                 onClick={handleLogout}
               >
@@ -136,14 +128,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="cursor-pointer"
-                  onClick={() => setLocation("/settings")}
-                >
-                  <User className="mr-2 h-4 w-4" />
-                  <span>Profile & Settings</span>
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive cursor-pointer"
