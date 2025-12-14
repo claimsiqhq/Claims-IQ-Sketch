@@ -2,10 +2,17 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 import { pool } from '../db';
+import os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const TEMP_DIR = path.join(os.tmpdir(), 'claimsiq-pdf');
 
 // Document type definitions
 export interface ExtractedClaimData {
@@ -138,61 +145,141 @@ export async function processDocument(
 }
 
 /**
- * Extract data from a PDF document
+ * Convert PDF pages to images using pdftoppm command (poppler-utils)
+ */
+async function convertPdfToImages(pdfPath: string): Promise<string[]> {
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+
+  const baseName = path.basename(pdfPath, '.pdf').replace(/[^a-zA-Z0-9-_]/g, '_');
+  const timestamp = Date.now();
+  const outputPrefix = path.join(TEMP_DIR, `${baseName}-${timestamp}`);
+
+  try {
+    await execAsync(`pdftoppm -png -r 200 "${pdfPath}" "${outputPrefix}"`);
+  } catch (error) {
+    console.error('pdftoppm error:', error);
+    throw new Error(`PDF conversion failed: ${(error as Error).message}`);
+  }
+
+  const files = fs.readdirSync(TEMP_DIR);
+  const imageFiles = files
+    .filter((f: string) => f.startsWith(`${baseName}-${timestamp}`) && f.endsWith('.png'))
+    .sort()
+    .map((f: string) => path.join(TEMP_DIR, f));
+
+  return imageFiles;
+}
+
+/**
+ * Clean up temporary image files
+ */
+function cleanupTempImages(imagePaths: string[]): void {
+  for (const imgPath of imagePaths) {
+    try {
+      if (fs.existsSync(imgPath)) {
+        fs.unlinkSync(imgPath);
+      }
+    } catch (e) {
+      console.warn('Failed to cleanup temp image:', imgPath);
+    }
+  }
+}
+
+/**
+ * Extract data from a single image using Vision API
+ */
+async function extractFromSingleImage(
+  imagePath: string,
+  documentType: string,
+  pageNum: number,
+  totalPages: number
+): Promise<ExtractedClaimData> {
+  const fileBuffer = fs.readFileSync(imagePath);
+  const base64 = fileBuffer.toString('base64');
+
+  const systemPrompt = getExtractionPrompt(documentType);
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: systemPrompt
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:image/png;base64,${base64}`,
+              detail: 'high'
+            }
+          },
+          {
+            type: 'text',
+            text: `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information from this page. Return ONLY valid JSON with extracted fields.`
+          }
+        ]
+      }
+    ],
+    max_tokens: 2000,
+    response_format: { type: 'json_object' }
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    return {};
+  }
+
+  return JSON.parse(content) as ExtractedClaimData;
+}
+
+/**
+ * Extract data from a PDF document by converting to images first
  */
 async function extractFromPDF(
   filePath: string,
   documentType: string
 ): Promise<ExtractedClaimData> {
-  // For PDFs, we'll use GPT-4 with the file content
-  // In production, you'd use a PDF parser like pdf-parse first
-
-  const fileBuffer = fs.readFileSync(filePath);
-  const base64 = fileBuffer.toString('base64');
-
-  const systemPrompt = getExtractionPrompt(documentType);
+  let imagePaths: string[] = [];
 
   try {
-    // Use GPT-4 Vision for PDFs (treating them as images)
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:application/pdf;base64,${base64}`,
-                detail: 'high'
-              }
-            },
-            {
-              type: 'text',
-              text: `Extract all relevant information from this ${documentType} document. Return ONLY valid JSON.`
-            }
-          ]
-        }
-      ],
-      max_tokens: 2000,
-      response_format: { type: 'json_object' }
-    });
+    console.log(`Converting PDF to images: ${filePath}`);
+    imagePaths = await convertPdfToImages(filePath);
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      return { rawText: 'No content extracted' };
+    if (imagePaths.length === 0) {
+      return { rawText: 'No pages could be extracted from PDF' };
     }
 
-    return JSON.parse(content) as ExtractedClaimData;
+    console.log(`Processing ${imagePaths.length} page(s) with Vision API`);
+
+    const pageResults: ExtractedClaimData[] = [];
+    for (let i = 0; i < imagePaths.length; i++) {
+      try {
+        const pageData = await extractFromSingleImage(
+          imagePaths[i],
+          documentType,
+          i + 1,
+          imagePaths.length
+        );
+        pageResults.push(pageData);
+      } catch (pageError) {
+        console.error(`Error processing page ${i + 1}:`, pageError);
+      }
+    }
+
+    const merged = mergeExtractedData(...pageResults);
+    merged.rawText = `Successfully extracted from ${pageResults.length} page(s)`;
+    return merged;
 
   } catch (error) {
     console.error('PDF extraction error:', error);
-    // Return partial data if available
     return { rawText: `Extraction failed: ${(error as Error).message}` };
+  } finally {
+    cleanupTempImages(imagePaths);
   }
 }
 
