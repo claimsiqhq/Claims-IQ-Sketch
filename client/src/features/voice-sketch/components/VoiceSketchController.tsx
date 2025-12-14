@@ -77,7 +77,7 @@ export function VoiceSketchController({
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* Header with Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border-b bg-background">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 sm:p-3 border-b bg-background">
         <div className="flex items-center gap-3">
           <h2 className="text-base sm:text-lg font-semibold text-foreground">Voice Sketch</h2>
           {isConnected && (
@@ -199,21 +199,6 @@ export function VoiceSketchController({
         </div>
       </div>
 
-      {/* Instructions for users */}
-      {!isConnected && !error && (
-        <div className="p-4 bg-muted/50 border-t">
-          <h3 className="font-medium text-sm mb-2">How to use Voice Sketch</h3>
-          <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-            <li>Click "Start Voice Sketching" and allow microphone access</li>
-            <li>
-              Describe the room: "Kitchen, 12 by 15, standard ceiling"
-            </li>
-            <li>Add features: "Door on the south wall, window on the east wall"</li>
-            <li>Mark damage: "Category 2 water damage from the sink, 4 feet out"</li>
-            <li>Confirm: "That's it for this room"</li>
-          </ol>
-        </div>
-      )}
     </div>
   );
 }
