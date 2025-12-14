@@ -39,7 +39,15 @@ passport.deserializeUser(async (id: string, done) => {
     if (!user) {
       return done(null, false);
     }
-    done(null, { id: user.id, username: user.username });
+    done(null, {
+      id: user.id,
+      username: user.username,
+      email: (user as any).email || undefined,
+      firstName: (user as any).first_name || undefined,
+      lastName: (user as any).last_name || undefined,
+      role: (user as any).role || 'user',
+      currentOrganizationId: (user as any).current_organization_id || undefined,
+    });
   } catch (error) {
     done(error);
   }

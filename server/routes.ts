@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import multer from "multer";
 import { storage } from "./storage";
 import { runScrapeJob, testScrape, PRODUCT_MAPPINGS, STORE_REGIONS } from "./scraper/homeDepot";
 import {
@@ -32,11 +33,72 @@ import {
   generateCsvExport
 } from "./services/reportGenerator";
 import { passport, requireAuth } from "./middleware/auth";
+import { tenantMiddleware, requireOrganization, requireOrgRole, requireSuperAdmin } from "./middleware/tenant";
+import {
+  createOrganization,
+  getOrganization,
+  listOrganizations,
+  updateOrganization,
+  getUserOrganizations,
+  addOrganizationMember,
+  removeOrganizationMember,
+  getOrganizationMembers,
+  switchOrganization
+} from "./services/organizations";
+import {
+  createClaim,
+  getClaim,
+  listClaims,
+  updateClaim,
+  deleteClaim,
+  getClaimStats
+} from "./services/claims";
+import {
+  createDocument,
+  getDocument,
+  getDocumentFilePath,
+  listDocuments,
+  updateDocument,
+  deleteDocument,
+  getClaimDocuments,
+  associateDocumentWithClaim,
+  getDocumentStats
+} from "./services/documents";
+
+// Configure multer for file uploads (memory storage for processing)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow PDFs, images, and common document types
+    const allowedMimes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} not allowed`));
+    }
+  }
+});
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Apply tenant middleware to all routes (after auth)
+  app.use(tenantMiddleware);
 
   // ============================================
   // AUTH ROUTES
@@ -1029,6 +1091,424 @@ export async function registerRoutes(
       } else {
         res.status(500).json({ error: message });
       }
+    }
+  });
+
+  // ============================================
+  // ORGANIZATION (TENANT) ROUTES
+  // ============================================
+
+  // Get current user's organizations
+  app.get('/api/organizations/mine', requireAuth, async (req, res) => {
+    try {
+      const orgs = await getUserOrganizations(req.user!.id);
+      res.json({
+        organizations: orgs,
+        currentOrganizationId: req.organizationId
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Switch current organization
+  app.post('/api/organizations/switch', requireAuth, async (req, res) => {
+    try {
+      const { organizationId } = req.body;
+      if (!organizationId) {
+        return res.status(400).json({ error: 'organizationId required' });
+      }
+      const success = await switchOrganization(req.user!.id, organizationId);
+      if (!success) {
+        return res.status(403).json({ error: 'Not a member of this organization' });
+      }
+      res.json({ success: true, currentOrganizationId: organizationId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Create new organization
+  app.post('/api/organizations', requireAuth, async (req, res) => {
+    try {
+      const org = await createOrganization(req.body, req.user!.id);
+      res.status(201).json(org);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('already exists')) {
+        res.status(409).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // List all organizations (super admin only)
+  app.get('/api/admin/organizations', requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const { status, type, limit, offset } = req.query;
+      const result = await listOrganizations({
+        status: status as string,
+        type: type as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined
+      });
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get current organization details
+  app.get('/api/organizations/current', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const org = await getOrganization(req.organizationId!);
+      if (!org) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+      res.json(org);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update current organization
+  app.put('/api/organizations/current', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
+    try {
+      const org = await updateOrganization(req.organizationId!, req.body);
+      if (!org) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+      res.json(org);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get organization members
+  app.get('/api/organizations/current/members', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const members = await getOrganizationMembers(req.organizationId!);
+      res.json(members);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Add member to organization
+  app.post('/api/organizations/current/members', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
+    try {
+      const { userId, role } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+      }
+      await addOrganizationMember(req.organizationId!, userId, role || 'member');
+      res.status(201).json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Remove member from organization
+  app.delete('/api/organizations/current/members/:userId', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
+    try {
+      await removeOrganizationMember(req.organizationId!, req.params.userId);
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // CLAIMS ROUTES
+  // ============================================
+
+  // Create new claim
+  app.post('/api/claims', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const claim = await createClaim(req.organizationId!, req.body);
+      res.status(201).json(claim);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // List claims for organization
+  app.get('/api/claims', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { status, loss_type, adjuster_id, search, limit, offset } = req.query;
+      const result = await listClaims(req.organizationId!, {
+        status: status as string,
+        lossType: loss_type as string,
+        assignedAdjusterId: adjuster_id as string,
+        search: search as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined
+      });
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claim statistics
+  app.get('/api/claims/stats', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const stats = await getClaimStats(req.organizationId!);
+      res.json(stats);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get single claim
+  app.get('/api/claims/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const claim = await getClaim(req.params.id, req.organizationId!);
+      if (!claim) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+      res.json(claim);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update claim
+  app.put('/api/claims/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const claim = await updateClaim(req.params.id, req.organizationId!, req.body);
+      if (!claim) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+      res.json(claim);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete claim
+  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
+    try {
+      const success = await deleteClaim(req.params.id, req.organizationId!);
+      if (!success) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get claim documents
+  app.get('/api/claims/:id/documents', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const documents = await getClaimDocuments(req.params.id, req.organizationId!);
+      res.json(documents);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // DOCUMENT ROUTES
+  // ============================================
+
+  // Upload document
+  app.post('/api/documents', requireAuth, requireOrganization, upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const { claimId, name, type, category, description, tags } = req.body;
+      if (!type) {
+        return res.status(400).json({ error: 'Document type required (fnol, policy, endorsement, photo, estimate, correspondence)' });
+      }
+
+      const doc = await createDocument(
+        req.organizationId!,
+        {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          buffer: req.file.buffer
+        },
+        {
+          claimId,
+          name,
+          type,
+          category,
+          description,
+          tags: tags ? JSON.parse(tags) : undefined,
+          uploadedBy: req.user!.id
+        }
+      );
+      res.status(201).json(doc);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Upload multiple documents
+  app.post('/api/documents/bulk', requireAuth, requireOrganization, upload.array('files', 20), async (req, res) => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+
+      const { claimId, type, category } = req.body;
+      if (!type) {
+        return res.status(400).json({ error: 'Document type required' });
+      }
+
+      const results = [];
+      for (const file of files) {
+        const doc = await createDocument(
+          req.organizationId!,
+          {
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+            buffer: file.buffer
+          },
+          {
+            claimId,
+            type,
+            category,
+            uploadedBy: req.user!.id
+          }
+        );
+        results.push(doc);
+      }
+
+      res.status(201).json({ documents: results });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // List documents
+  app.get('/api/documents', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { claim_id, type, category, status, limit, offset } = req.query;
+      const result = await listDocuments(req.organizationId!, {
+        claimId: claim_id as string,
+        type: type as string,
+        category: category as string,
+        processingStatus: status as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined
+      });
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get document statistics
+  app.get('/api/documents/stats', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const stats = await getDocumentStats(req.organizationId!);
+      res.json(stats);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get single document metadata
+  app.get('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      res.json(doc);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Download document file
+  app.get('/api/documents/:id/download', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      const filePath = getDocumentFilePath(doc.storagePath);
+      res.download(filePath, doc.fileName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update document metadata
+  app.put('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await updateDocument(req.params.id, req.organizationId!, req.body);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      res.json(doc);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Associate document with claim
+  app.post('/api/documents/:id/claim', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { claimId } = req.body;
+      if (!claimId) {
+        return res.status(400).json({ error: 'claimId required' });
+      }
+      const success = await associateDocumentWithClaim(req.params.id, claimId, req.organizationId!);
+      if (!success) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete document
+  app.delete('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const success = await deleteDocument(req.params.id, req.organizationId!);
+      if (!success) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
     }
   });
 
