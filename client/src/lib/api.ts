@@ -430,30 +430,29 @@ export async function getCurrentOrganization(): Promise<Organization> {
 export interface Claim {
   id: string;
   organizationId: string;
-  claimNumber: string;
-  policyNumber?: string;
-  insuredName?: string;
-  insuredEmail?: string;
-  insuredPhone?: string;
-  propertyAddress?: string;
-  propertyCity?: string;
-  propertyState?: string;
-  propertyZip?: string;
-  dateOfLoss?: string;
-  lossType?: string;
+  claimId: string; // Format: XX-XXX-XXXXXX
+  policyholder?: string;
+  dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
+  riskLocation?: string; // Full address string
+  causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
   lossDescription?: string;
+  policyNumber?: string;
+  state?: string;
+  yearRoofInstall?: string; // Format: MM-DD-YYYY
+  windHailDeductible?: string; // Format: $X,XXX X%
+  dwellingLimit?: string; // Format: $XXX,XXX
+  endorsementsListed?: string[];
   status: string;
-  coverageA?: string;
-  coverageB?: string;
-  coverageC?: string;
-  coverageD?: string;
-  deductible?: string;
+  assignedAdjusterId?: string;
   totalRcv?: string;
   totalAcv?: string;
+  totalPaid?: string;
+  metadata?: Record<string, any>;
   documentCount?: number;
   estimateCount?: number;
   createdAt: string;
   updatedAt: string;
+  closedAt?: string;
 }
 
 export interface ClaimStats {

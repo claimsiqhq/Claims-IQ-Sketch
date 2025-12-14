@@ -2489,6 +2489,130 @@ export async function registerRoutes(
     }
   });
 
+  // Get document as images (for viewing PDFs and images)
+  app.get('/api/documents/:id/images', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      const filePath = path.join(uploadDir, doc.storagePath);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Document file not found on disk' });
+      }
+
+      // For images, return a single image reference
+      if (doc.mimeType.startsWith('image/')) {
+        return res.json({
+          pages: 1,
+          images: [`/api/documents/${req.params.id}/image/1`]
+        });
+      }
+
+      // For PDFs, convert to images and return page count
+      if (doc.mimeType === 'application/pdf') {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        // Get page count using pdfinfo
+        try {
+          const { stdout } = await execAsync(`pdfinfo "${filePath}" | grep Pages`);
+          const pageMatch = stdout.match(/Pages:\s*(\d+)/);
+          const pageCount = pageMatch ? parseInt(pageMatch[1]) : 1;
+
+          const images = [];
+          for (let i = 1; i <= pageCount; i++) {
+            images.push(`/api/documents/${req.params.id}/image/${i}`);
+          }
+
+          return res.json({
+            pages: pageCount,
+            images
+          });
+        } catch (pdfError) {
+          // Fallback: assume 1 page
+          return res.json({
+            pages: 1,
+            images: [`/api/documents/${req.params.id}/image/1`]
+          });
+        }
+      }
+
+      res.status(400).json({ error: 'Unsupported document type for image viewing' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get specific page image from document
+  app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      const pageNum = parseInt(req.params.page) || 1;
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      const filePath = path.join(uploadDir, doc.storagePath);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Document file not found on disk' });
+      }
+
+      // For images, serve directly
+      if (doc.mimeType.startsWith('image/')) {
+        res.setHeader('Content-Type', doc.mimeType);
+        return res.sendFile(path.resolve(filePath));
+      }
+
+      // For PDFs, convert to image and serve
+      if (doc.mimeType === 'application/pdf') {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const os = await import('os');
+        const execAsync = promisify(exec);
+
+        const tempDir = path.join(os.tmpdir(), 'claimsiq-view');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const outputFile = path.join(tempDir, `${req.params.id}-page${pageNum}.png`);
+
+        // Check if already cached
+        if (!fs.existsSync(outputFile)) {
+          // Convert specific page
+          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${filePath}" "${outputFile.replace('.png', '')}"`);
+
+          // pdftoppm adds page number suffix
+          const generatedFile = `${outputFile.replace('.png', '')}-${pageNum}.png`;
+          if (fs.existsSync(generatedFile)) {
+            fs.renameSync(generatedFile, outputFile);
+          }
+        }
+
+        if (fs.existsSync(outputFile)) {
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          return res.sendFile(path.resolve(outputFile));
+        }
+
+        return res.status(500).json({ error: 'Failed to convert PDF page to image' });
+      }
+
+      res.status(400).json({ error: 'Unsupported document type' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Update document metadata
   app.put('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
     try {

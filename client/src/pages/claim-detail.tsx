@@ -70,6 +70,7 @@ import SketchCanvas from "@/components/sketch-canvas";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
 import LineItemPicker from "@/components/line-item-picker";
+import DocumentViewer from "@/components/document-viewer";
 import { VoiceScopeController } from "@/features/voice-scope";
 import { Room, RoomOpening } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -547,129 +548,144 @@ export default function ClaimDetail() {
           {/* Content Area */}
           <div className="flex-1 bg-muted/20 overflow-hidden relative">
             
-            {/* TAB: PROPERTY INFO */}
+            {/* TAB: FNOL INFO */}
             <TabsContent value="info" className="h-full p-4 md:p-6 m-0 overflow-auto">
-              <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Property Details</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Address</Label>
-                        <Input value={apiClaim?.propertyAddress || claim.address.street} readOnly />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>City</Label>
-                        <Input value={apiClaim?.propertyCity || claim.address.city} readOnly />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>State</Label>
-                        <Input value={apiClaim?.propertyState || claim.address.state} readOnly />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Zip Code</Label>
-                        <Input value={apiClaim?.propertyZip || claim.address.zip} readOnly />
-                      </div>
-                    </div>
-                    <Separator />
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Insured Name</Label>
-                        <Input value={apiClaim?.insuredName || claim.customerName} readOnly />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Loss Type</Label>
-                        <Input value={apiClaim?.lossType || 'Unknown'} readOnly />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+              <div className="max-w-6xl mx-auto space-y-6">
+                {/* FNOL Header */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold">{apiClaim?.policyholder || 'Unknown Policyholder'}</h2>
+                    <p className="text-muted-foreground">Claim ID: {apiClaim?.claimId || params?.id}</p>
+                  </div>
+                  <Badge className={cn(
+                    "text-sm px-3 py-1",
+                    apiClaim?.status === 'fnol' && "bg-purple-100 text-purple-700",
+                    apiClaim?.status === 'open' && "bg-blue-100 text-blue-700",
+                    apiClaim?.status === 'in_progress' && "bg-cyan-100 text-cyan-700",
+                    apiClaim?.status === 'review' && "bg-amber-100 text-amber-700",
+                    apiClaim?.status === 'approved' && "bg-green-100 text-green-700",
+                    apiClaim?.status === 'closed' && "bg-slate-100 text-slate-700"
+                  )}>
+                    {(apiClaim?.status || 'fnol').replace('_', ' ').toUpperCase()}
+                  </Badge>
+                </div>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Claim Details</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Claim Number</Label>
-                      <Input value={apiClaim?.claimNumber || claim.id} readOnly />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Policy Number</Label>
-                      <Input value={apiClaim?.policyNumber || claim.policyNumber} readOnly />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Date of Loss</Label>
-                      <Input type="date" value={apiClaim?.dateOfLoss || claim.dateOfLoss} readOnly />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Status</Label>
-                      <Badge className={cn(
-                        "text-sm",
-                        apiClaim?.status === 'open' && "bg-blue-100 text-blue-700",
-                        apiClaim?.status === 'in_progress' && "bg-amber-100 text-amber-700",
-                        apiClaim?.status === 'review' && "bg-orange-100 text-orange-700",
-                        apiClaim?.status === 'approved' && "bg-green-100 text-green-700",
-                        apiClaim?.status === 'closed' && "bg-slate-100 text-slate-700"
-                      )}>
-                        {(apiClaim?.status || claim.status).replace('_', ' ').toUpperCase()}
-                      </Badge>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Loss Description</Label>
-                      <textarea
-                        className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[100px]"
-                        value={apiClaim?.lossDescription || claim.description}
-                        readOnly
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Coverage Card */}
-                {apiClaim && (apiClaim.coverageA || apiClaim.coverageB || apiClaim.coverageC || apiClaim.coverageD) && (
-                  <Card className="md:col-span-2">
-                    <CardHeader>
-                      <CardTitle>Coverage Information</CardTitle>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* FNOL Details Card */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <FileText className="w-5 h-5" />
+                        FNOL Information
+                      </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        {apiClaim.coverageA && (
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground">Coverage A (Dwelling)</Label>
-                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageA).toLocaleString()}</p>
-                          </div>
-                        )}
-                        {apiClaim.coverageB && (
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground">Coverage B (Other Structures)</Label>
-                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageB).toLocaleString()}</p>
-                          </div>
-                        )}
-                        {apiClaim.coverageC && (
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground">Coverage C (Personal Property)</Label>
-                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageC).toLocaleString()}</p>
-                          </div>
-                        )}
-                        {apiClaim.coverageD && (
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground">Coverage D (Loss of Use)</Label>
-                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageD).toLocaleString()}</p>
-                          </div>
-                        )}
-                        {apiClaim.deductible && (
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground">Deductible</Label>
-                            <p className="text-lg font-semibold">${parseFloat(apiClaim.deductible).toLocaleString()}</p>
-                          </div>
-                        )}
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Claim ID</Label>
+                          <p className="font-mono font-medium">{apiClaim?.claimId || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Policyholder</Label>
+                          <p className="font-medium">{apiClaim?.policyholder || '-'}</p>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground uppercase">Risk Location</Label>
+                        <p className="font-medium">{apiClaim?.riskLocation || '-'}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Date of Loss</Label>
+                          <p className="font-medium">{apiClaim?.dateOfLoss || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Cause of Loss</Label>
+                          <Badge variant="outline" className="font-medium">
+                            {apiClaim?.causeOfLoss || '-'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground uppercase">Loss Description</Label>
+                        <p className="text-sm bg-muted/50 rounded p-3">{apiClaim?.lossDescription || 'No description provided'}</p>
                       </div>
                     </CardContent>
                   </Card>
-                )}
+
+                  {/* Policy Details Card */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Home className="w-5 h-5" />
+                        Policy Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Policy Number</Label>
+                          <p className="font-mono font-medium">{apiClaim?.policyNumber || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">State</Label>
+                          <p className="font-medium">{apiClaim?.state || '-'}</p>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Dwelling Limit</Label>
+                          <p className="text-lg font-bold text-green-600">{apiClaim?.dwellingLimit || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Wind/Hail Deductible</Label>
+                          <p className="text-lg font-bold text-amber-600">{apiClaim?.windHailDeductible || '-'}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground uppercase">Year Roof Installed</Label>
+                        <p className="font-medium">{apiClaim?.yearRoofInstall || '-'}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Endorsements Card */}
+                  <Card className="lg:col-span-2">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5" />
+                        Endorsements Listed
+                        <Badge variant="secondary" className="ml-2">
+                          {apiClaim?.endorsementsListed?.length || 0}
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {apiClaim?.endorsementsListed && apiClaim.endorsementsListed.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {apiClaim.endorsementsListed.map((endorsement, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
+                              <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                              <span className="text-sm">{endorsement}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No endorsements listed for this claim
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Document Viewer */}
+                  <div className="lg:col-span-2">
+                    <DocumentViewer documents={documents} claimId={params?.id || ''} />
+                  </div>
+                </div>
               </div>
             </TabsContent>
 
