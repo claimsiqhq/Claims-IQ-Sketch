@@ -351,3 +351,311 @@ export async function calculateLineItemPrice(params: {
   }
   return response.json();
 }
+
+// ============================================
+// ORGANIZATIONS API
+// ============================================
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  type: string;
+  email?: string;
+  phone?: string;
+  status: string;
+  memberCount?: number;
+  claimCount?: number;
+}
+
+export async function getMyOrganizations(): Promise<{
+  organizations: Organization[];
+  currentOrganizationId?: string;
+}> {
+  const response = await fetch(`${API_BASE}/organizations/mine`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch organizations');
+  }
+  return response.json();
+}
+
+export async function switchOrganization(organizationId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/organizations/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ organizationId }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to switch organization');
+  }
+}
+
+export async function createOrganization(data: {
+  name: string;
+  type?: string;
+  email?: string;
+  phone?: string;
+}): Promise<Organization> {
+  const response = await fetch(`${API_BASE}/organizations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to create organization');
+  }
+  return response.json();
+}
+
+export async function getCurrentOrganization(): Promise<Organization> {
+  const response = await fetch(`${API_BASE}/organizations/current`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch current organization');
+  }
+  return response.json();
+}
+
+// ============================================
+// CLAIMS API
+// ============================================
+
+export interface Claim {
+  id: string;
+  organizationId: string;
+  claimNumber: string;
+  policyNumber?: string;
+  insuredName?: string;
+  insuredEmail?: string;
+  insuredPhone?: string;
+  propertyAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZip?: string;
+  dateOfLoss?: string;
+  lossType?: string;
+  lossDescription?: string;
+  status: string;
+  coverageA?: string;
+  coverageB?: string;
+  coverageC?: string;
+  coverageD?: string;
+  deductible?: string;
+  totalRcv?: string;
+  totalAcv?: string;
+  documentCount?: number;
+  estimateCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClaimStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byLossType: Record<string, number>;
+  totalRcv: number;
+  totalAcv: number;
+}
+
+export async function createClaim(data: Partial<Claim>): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to create claim');
+  }
+  return response.json();
+}
+
+export async function getClaims(params?: {
+  status?: string;
+  lossType?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ claims: Claim[]; total: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.lossType) searchParams.set('loss_type', params.lossType);
+  if (params?.search) searchParams.set('search', params.search);
+  if (params?.limit) searchParams.set('limit', String(params.limit));
+  if (params?.offset) searchParams.set('offset', String(params.offset));
+
+  const response = await fetch(`${API_BASE}/claims?${searchParams}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claims');
+  }
+  return response.json();
+}
+
+export async function getClaim(id: string): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims/${id}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claim');
+  }
+  return response.json();
+}
+
+export async function updateClaim(id: string, data: Partial<Claim>): Promise<Claim> {
+  const response = await fetch(`${API_BASE}/claims/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update claim');
+  }
+  return response.json();
+}
+
+export async function getClaimStats(): Promise<ClaimStats> {
+  const response = await fetch(`${API_BASE}/claims/stats`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claim stats');
+  }
+  return response.json();
+}
+
+// ============================================
+// DOCUMENTS API
+// ============================================
+
+export interface Document {
+  id: string;
+  organizationId: string;
+  claimId?: string;
+  name: string;
+  type: string;
+  category?: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  extractedData?: Record<string, any>;
+  processingStatus: string;
+  createdAt: string;
+}
+
+export async function uploadDocument(
+  file: File,
+  metadata: {
+    claimId?: string;
+    name?: string;
+    type: 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence';
+    category?: string;
+    description?: string;
+  }
+): Promise<Document> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', metadata.type);
+  if (metadata.claimId) formData.append('claimId', metadata.claimId);
+  if (metadata.name) formData.append('name', metadata.name);
+  if (metadata.category) formData.append('category', metadata.category);
+  if (metadata.description) formData.append('description', metadata.description);
+
+  const response = await fetch(`${API_BASE}/documents`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to upload document');
+  }
+  return response.json();
+}
+
+export async function uploadDocuments(
+  files: File[],
+  metadata: {
+    claimId?: string;
+    type: 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence';
+    category?: string;
+  }
+): Promise<{ documents: Document[] }> {
+  const formData = new FormData();
+  files.forEach(file => formData.append('files', file));
+  formData.append('type', metadata.type);
+  if (metadata.claimId) formData.append('claimId', metadata.claimId);
+  if (metadata.category) formData.append('category', metadata.category);
+
+  const response = await fetch(`${API_BASE}/documents/bulk`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to upload documents');
+  }
+  return response.json();
+}
+
+export async function getDocuments(params?: {
+  claimId?: string;
+  type?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ documents: Document[]; total: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.claimId) searchParams.set('claim_id', params.claimId);
+  if (params?.type) searchParams.set('type', params.type);
+  if (params?.limit) searchParams.set('limit', String(params.limit));
+  if (params?.offset) searchParams.set('offset', String(params.offset));
+
+  const response = await fetch(`${API_BASE}/documents?${searchParams}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch documents');
+  }
+  return response.json();
+}
+
+export async function getClaimDocuments(claimId: string): Promise<Document[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/documents`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claim documents');
+  }
+  return response.json();
+}
+
+export async function processDocument(documentId: string): Promise<{
+  extractedData: Record<string, any>;
+  processingStatus: string;
+}> {
+  const response = await fetch(`${API_BASE}/documents/${documentId}/process`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to process document');
+  }
+  return response.json();
+}
+
+export function getDocumentDownloadUrl(documentId: string): string {
+  return `${API_BASE}/documents/${documentId}/download`;
+}

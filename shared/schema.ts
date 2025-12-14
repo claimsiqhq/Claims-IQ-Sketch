@@ -1,7 +1,42 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// ============================================
+// ORGANIZATIONS (TENANTS) TABLE
+// ============================================
+
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  type: varchar("type", { length: 50 }).notNull().default("carrier"), // carrier, tpa, contractor, adjuster_firm
+
+  // Contact info
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  address: text("address"),
+
+  // Settings
+  settings: jsonb("settings").default(sql`'{}'::jsonb`),
+
+  // Subscription/status
+  status: varchar("status", { length: 30 }).notNull().default("active"), // active, suspended, trial
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+});
+
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Organization = typeof organizations.$inferSelect;
 
 // ============================================
 // USERS TABLE
@@ -10,16 +45,170 @@ import { z } from "zod";
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
+  email: varchar("email", { length: 255 }),
   password: text("password").notNull(),
+  firstName: varchar("first_name", { length: 100 }),
+  lastName: varchar("last_name", { length: 100 }),
+  role: varchar("role", { length: 30 }).notNull().default("user"), // super_admin, org_admin, adjuster, viewer
+
+  // Current active organization (for users with multiple org memberships)
+  currentOrganizationId: uuid("current_organization_id"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
+  email: true,
+  firstName: true,
+  lastName: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// ============================================
+// ORGANIZATION MEMBERSHIPS TABLE
+// ============================================
+
+export const organizationMemberships = pgTable("organization_memberships", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  organizationId: uuid("organization_id").notNull(),
+  role: varchar("role", { length: 30 }).notNull().default("member"), // owner, admin, adjuster, viewer
+
+  // Status
+  status: varchar("status", { length: 30 }).notNull().default("active"), // active, invited, suspended
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  userOrgIdx: index("org_membership_user_org_idx").on(table.userId, table.organizationId),
+}));
+
+export type OrganizationMembership = typeof organizationMemberships.$inferSelect;
+
+// ============================================
+// CLAIMS TABLE
+// ============================================
+
+export const claims = pgTable("claims", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+
+  // Claim identifiers
+  claimNumber: varchar("claim_number", { length: 50 }).notNull(),
+  policyNumber: varchar("policy_number", { length: 50 }),
+
+  // Insured info
+  insuredName: varchar("insured_name", { length: 255 }),
+  insuredEmail: varchar("insured_email", { length: 255 }),
+  insuredPhone: varchar("insured_phone", { length: 50 }),
+
+  // Property address
+  propertyAddress: text("property_address"),
+  propertyCity: varchar("property_city", { length: 100 }),
+  propertyState: varchar("property_state", { length: 50 }),
+  propertyZip: varchar("property_zip", { length: 20 }),
+
+  // Loss details
+  dateOfLoss: date("date_of_loss"),
+  lossType: varchar("loss_type", { length: 50 }), // Water, Fire, Wind/Hail, Impact, Other
+  lossDescription: text("loss_description"),
+
+  // Status tracking
+  status: varchar("status", { length: 30 }).notNull().default("fnol"), // fnol, open, in_progress, review, approved, closed
+
+  // Assignment
+  assignedAdjusterId: varchar("assigned_adjuster_id"),
+
+  // Coverage
+  coverageA: decimal("coverage_a", { precision: 12, scale: 2 }),
+  coverageB: decimal("coverage_b", { precision: 12, scale: 2 }),
+  coverageC: decimal("coverage_c", { precision: 12, scale: 2 }),
+  coverageD: decimal("coverage_d", { precision: 12, scale: 2 }),
+  deductible: decimal("deductible", { precision: 12, scale: 2 }),
+
+  // Totals (calculated from estimates)
+  totalRcv: decimal("total_rcv", { precision: 12, scale: 2 }).default("0"),
+  totalAcv: decimal("total_acv", { precision: 12, scale: 2 }).default("0"),
+  totalPaid: decimal("total_paid", { precision: 12, scale: 2 }).default("0"),
+
+  // Metadata
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+  closedAt: timestamp("closed_at"),
+}, (table) => ({
+  orgIdx: index("claims_org_idx").on(table.organizationId),
+  claimNumberIdx: index("claims_claim_number_idx").on(table.claimNumber),
+  statusIdx: index("claims_status_idx").on(table.status),
+}));
+
+export const insertClaimSchema = createInsertSchema(claims).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  closedAt: true,
+});
+
+export type InsertClaim = z.infer<typeof insertClaimSchema>;
+export type Claim = typeof claims.$inferSelect;
+
+// ============================================
+// DOCUMENTS TABLE
+// ============================================
+
+export const documents = pgTable("documents", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id"),
+
+  // Document info
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 50 }).notNull(), // fnol, policy, endorsement, photo, estimate, correspondence
+  category: varchar("category", { length: 50 }), // declarations, endorsements, schedule, photos, reports
+
+  // File info
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  storagePath: varchar("storage_path", { length: 500 }).notNull(),
+
+  // Extracted data (from AI processing)
+  extractedData: jsonb("extracted_data").default(sql`'{}'::jsonb`),
+  processingStatus: varchar("processing_status", { length: 30 }).default("pending"), // pending, processing, completed, failed
+
+  // Metadata
+  description: text("description"),
+  tags: jsonb("tags").default(sql`'[]'::jsonb`),
+
+  // Upload tracking
+  uploadedBy: varchar("uploaded_by"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("documents_org_idx").on(table.organizationId),
+  claimIdx: index("documents_claim_idx").on(table.claimId),
+  typeIdx: index("documents_type_idx").on(table.type),
+}));
+
+export const insertDocumentSchema = createInsertSchema(documents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDocument = z.infer<typeof insertDocumentSchema>;
+export type Document = typeof documents.$inferSelect;
 
 // ============================================
 // ESTIMATES TABLE
@@ -27,6 +216,7 @@ export type User = typeof users.$inferSelect;
 
 export const estimates = pgTable("estimates", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id"), // Tenant isolation
   claimId: varchar("claim_id", { length: 100 }),
   claimNumber: varchar("claim_number", { length: 50 }),
   propertyAddress: text("property_address"),
@@ -58,7 +248,9 @@ export const estimates = pgTable("estimates", {
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
   submittedAt: timestamp("submitted_at"),
-});
+}, (table) => ({
+  orgIdx: index("estimates_org_idx").on(table.organizationId),
+}));
 
 export const insertEstimateSchema = createInsertSchema(estimates).omit({
   id: true,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRoute } from "wouter";
 import { useStore } from "@/lib/store";
 import Layout from "@/components/layout";
@@ -29,9 +29,16 @@ import {
   Loader2,
   Settings2,
   Sparkles,
-  Wand2
+  Wand2,
+  Upload,
+  Download,
+  File,
+  Eye,
+  AlertCircle
 } from "lucide-react";
 import { Link } from "wouter";
+import { getClaim, getClaimDocuments, uploadDocument, getDocumentDownloadUrl, type Claim, type Document } from "@/lib/api";
+import { formatDistanceToNow } from "date-fns";
 
 import SketchCanvas from "@/components/sketch-canvas";
 import DamageZoneModal from "@/components/damage-zone-modal";
@@ -65,6 +72,13 @@ export default function ClaimDetail() {
     calculateEstimate,
   } = useStore();
 
+  // API Claim Data
+  const [apiClaim, setApiClaim] = useState<Claim | null>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [loadingApiData, setLoadingApiData] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
@@ -95,6 +109,55 @@ export default function ClaimDetail() {
   useEffect(() => {
     loadRegionsAndCarriers();
   }, [loadRegionsAndCarriers]);
+
+  // Load claim data from API
+  const loadApiData = useCallback(async () => {
+    if (!params?.id) return;
+
+    setLoadingApiData(true);
+    setApiError(null);
+
+    try {
+      const [claimData, docsData] = await Promise.all([
+        getClaim(params.id),
+        getClaimDocuments(params.id)
+      ]);
+      setApiClaim(claimData);
+      setDocuments(docsData);
+    } catch (err) {
+      setApiError((err as Error).message);
+    } finally {
+      setLoadingApiData(false);
+    }
+  }, [params?.id]);
+
+  useEffect(() => {
+    loadApiData();
+  }, [loadApiData]);
+
+  // Handle document upload
+  const handleDocumentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0 || !params?.id) return;
+
+    setUploadingDocument(true);
+    try {
+      for (const file of Array.from(files)) {
+        await uploadDocument(file, {
+          claimId: params.id,
+          type: 'photo',
+          name: file.name
+        });
+      }
+      // Reload documents
+      const docsData = await getClaimDocuments(params.id);
+      setDocuments(docsData);
+    } catch (err) {
+      console.error('Failed to upload document:', err);
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
 
   if (!claim) return <div className="flex items-center justify-center h-screen">Loading...</div>;
 
@@ -258,6 +321,7 @@ export default function ClaimDetail() {
 
   const tabs = [
     { id: "info", label: "Info", icon: Home },
+    { id: "documents", label: "Documents", icon: File },
     { id: "sketch", label: "Sketch", icon: PenTool },
     { id: "scope", label: "Scope", icon: ClipboardList },
     { id: "estimate", label: "Estimate", icon: FileText },
@@ -333,36 +397,30 @@ export default function ClaimDetail() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Address</Label>
-                        <Input value={claim.address.street} readOnly />
+                        <Input value={apiClaim?.propertyAddress || claim.address.street} readOnly />
                       </div>
                       <div className="space-y-2">
                         <Label>City</Label>
-                        <Input value={claim.address.city} readOnly />
+                        <Input value={apiClaim?.propertyCity || claim.address.city} readOnly />
                       </div>
                       <div className="space-y-2">
                         <Label>State</Label>
-                        <Input value={claim.address.state} readOnly />
+                        <Input value={apiClaim?.propertyState || claim.address.state} readOnly />
                       </div>
                       <div className="space-y-2">
                         <Label>Zip Code</Label>
-                        <Input value={claim.address.zip} readOnly />
+                        <Input value={apiClaim?.propertyZip || claim.address.zip} readOnly />
                       </div>
                     </div>
                     <Separator />
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Property Type</Label>
-                        <Select defaultValue="Single Family">
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Single Family">Single Family</SelectItem>
-                            <SelectItem value="Condo">Condo</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Label>Insured Name</Label>
+                        <Input value={apiClaim?.insuredName || claim.customerName} readOnly />
                       </div>
                       <div className="space-y-2">
-                        <Label>Year Built</Label>
-                        <Input defaultValue="1995" />
+                        <Label>Loss Type</Label>
+                        <Input value={apiClaim?.lossType || 'Unknown'} readOnly />
                       </div>
                     </div>
                   </CardContent>
@@ -374,23 +432,214 @@ export default function ClaimDetail() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Carrier</Label>
-                      <Input value={claim.carrier} readOnly />
+                      <Label>Claim Number</Label>
+                      <Input value={apiClaim?.claimNumber || claim.id} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Policy Number</Label>
+                      <Input value={apiClaim?.policyNumber || claim.policyNumber} readOnly />
                     </div>
                     <div className="space-y-2">
                       <Label>Date of Loss</Label>
-                      <Input type="date" value={claim.dateOfLoss} readOnly />
+                      <Input type="date" value={apiClaim?.dateOfLoss || claim.dateOfLoss} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <Badge className={cn(
+                        "text-sm",
+                        apiClaim?.status === 'open' && "bg-blue-100 text-blue-700",
+                        apiClaim?.status === 'in_progress' && "bg-amber-100 text-amber-700",
+                        apiClaim?.status === 'review' && "bg-orange-100 text-orange-700",
+                        apiClaim?.status === 'approved' && "bg-green-100 text-green-700",
+                        apiClaim?.status === 'closed' && "bg-slate-100 text-slate-700"
+                      )}>
+                        {(apiClaim?.status || claim.status).replace('_', ' ').toUpperCase()}
+                      </Badge>
                     </div>
                     <div className="space-y-2">
                       <Label>Loss Description</Label>
-                      <textarea 
+                      <textarea
                         className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[100px]"
-                        value={claim.description}
+                        value={apiClaim?.lossDescription || claim.description}
                         readOnly
                       />
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Coverage Card */}
+                {apiClaim && (apiClaim.coverageA || apiClaim.coverageB || apiClaim.coverageC || apiClaim.coverageD) && (
+                  <Card className="md:col-span-2">
+                    <CardHeader>
+                      <CardTitle>Coverage Information</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        {apiClaim.coverageA && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground">Coverage A (Dwelling)</Label>
+                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageA).toLocaleString()}</p>
+                          </div>
+                        )}
+                        {apiClaim.coverageB && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground">Coverage B (Other Structures)</Label>
+                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageB).toLocaleString()}</p>
+                          </div>
+                        )}
+                        {apiClaim.coverageC && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground">Coverage C (Personal Property)</Label>
+                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageC).toLocaleString()}</p>
+                          </div>
+                        )}
+                        {apiClaim.coverageD && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground">Coverage D (Loss of Use)</Label>
+                            <p className="text-lg font-semibold">${parseFloat(apiClaim.coverageD).toLocaleString()}</p>
+                          </div>
+                        )}
+                        {apiClaim.deductible && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground">Deductible</Label>
+                            <p className="text-lg font-semibold">${parseFloat(apiClaim.deductible).toLocaleString()}</p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* TAB: DOCUMENTS */}
+            <TabsContent value="documents" className="h-full p-4 md:p-6 m-0 overflow-auto">
+              <div className="max-w-5xl mx-auto space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">Claim Documents</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {documents.length} document{documents.length !== 1 ? 's' : ''} attached
+                    </p>
+                  </div>
+                  <div>
+                    <input
+                      type="file"
+                      id="document-upload"
+                      className="hidden"
+                      multiple
+                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                      onChange={handleDocumentUpload}
+                    />
+                    <label htmlFor="document-upload">
+                      <Button asChild disabled={uploadingDocument}>
+                        <span>
+                          {uploadingDocument ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4 mr-2" />
+                          )}
+                          Upload Document
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                </div>
+
+                {loadingApiData ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : apiError ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
+                    <h3 className="text-lg font-semibold text-slate-900 mb-2">Failed to load documents</h3>
+                    <p className="text-slate-500 mb-4">{apiError}</p>
+                    <Button onClick={loadApiData}>Try Again</Button>
+                  </div>
+                ) : documents.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg">
+                    <File className="h-12 w-12 text-slate-300 mb-4" />
+                    <h3 className="text-lg font-semibold text-slate-900 mb-2">No documents yet</h3>
+                    <p className="text-slate-500 mb-4">
+                      Upload documents to attach them to this claim
+                    </p>
+                    <label htmlFor="document-upload">
+                      <Button asChild variant="outline">
+                        <span>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload Document
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {documents.map((doc) => (
+                      <Card key={doc.id} className="hover:shadow-md transition-shadow">
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div className={cn(
+                              "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
+                              doc.type === 'fnol' && "bg-purple-100 text-purple-600",
+                              doc.type === 'policy' && "bg-blue-100 text-blue-600",
+                              doc.type === 'endorsement' && "bg-green-100 text-green-600",
+                              doc.type === 'photo' && "bg-amber-100 text-amber-600",
+                              doc.type === 'estimate' && "bg-orange-100 text-orange-600",
+                              doc.type === 'correspondence' && "bg-slate-100 text-slate-600"
+                            )}>
+                              {doc.type === 'photo' ? (
+                                <ImageIcon className="h-5 w-5" />
+                              ) : (
+                                <FileText className="h-5 w-5" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{doc.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {doc.type.toUpperCase()} • {(doc.fileSize / 1024).toFixed(1)} KB
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {formatDistanceToNow(new Date(doc.createdAt), { addSuffix: true })}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-3">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1"
+                              asChild
+                            >
+                              <a href={getDocumentDownloadUrl(doc.id)} target="_blank" rel="noopener noreferrer">
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </a>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1"
+                              asChild
+                            >
+                              <a href={getDocumentDownloadUrl(doc.id)} download>
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </a>
+                            </Button>
+                          </div>
+                          {doc.processingStatus === 'completed' && doc.extractedData && (
+                            <div className="mt-3 pt-3 border-t">
+                              <Badge variant="outline" className="text-green-600 border-green-200">
+                                AI Extracted
+                              </Badge>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </div>
             </TabsContent>
 
