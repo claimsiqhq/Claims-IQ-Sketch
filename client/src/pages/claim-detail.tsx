@@ -62,8 +62,10 @@ import {
   type CreateMissingWallInput,
   type AddLineItemInput,
 } from "@/hooks/useEstimateBuilder";
-import { Link } from "wouter";
-import { getClaim, getClaimDocuments, getClaimEndorsements, uploadDocument, getDocumentDownloadUrl, type Claim, type Document, type Endorsement } from "@/lib/api";
+import { Link, useLocation } from "wouter";
+import { getClaim, getClaimDocuments, getClaimEndorsements, uploadDocument, getDocumentDownloadUrl, deleteClaim, type Claim, type Document, type Endorsement } from "@/lib/api";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 import SketchCanvas from "@/components/sketch-canvas";
@@ -78,6 +80,7 @@ import { DoorOpen } from "lucide-react";
 
 export default function ClaimDetail() {
   const [, params] = useRoute("/claim/:id");
+  const [, setLocation] = useLocation();
   const {
     activeClaim: claim,
     setActiveClaim,
@@ -135,6 +138,10 @@ export default function ClaimDetail() {
   const [newZoneData, setNewZoneData] = useState<Partial<CreateZoneInput>>({});
   const [newMissingWallData, setNewMissingWallData] = useState<Partial<CreateMissingWallInput>>({});
   const [selectedAreaForNewZone, setSelectedAreaForNewZone] = useState<string | null>(null);
+
+  // Delete claim state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Initialize estimate builder hook with claim id as estimate id
   const estimateBuilder = useEstimateBuilder(params?.id || "");
@@ -199,6 +206,23 @@ export default function ClaimDetail() {
       console.error('Failed to upload document:', err);
     } finally {
       setUploadingDocument(false);
+    }
+  };
+
+  // Handle delete claim
+  const handleDeleteClaim = async () => {
+    if (!params?.id) return;
+    
+    setIsDeleting(true);
+    try {
+      await deleteClaim(params.id);
+      toast.success("Claim deleted successfully");
+      setLocation("/");
+    } catch (err) {
+      toast.error((err as Error).message || "Failed to delete claim");
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   };
 
@@ -508,6 +532,45 @@ export default function ClaimDetail() {
             <p className="text-sm text-muted-foreground font-mono mt-0.5 hidden md:block">{claim.policyNumber}</p>
           </div>
           <div className="flex items-center gap-2">
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="hidden md:flex text-destructive hover:text-destructive hover:bg-destructive/10"
+                  data-testid="button-delete-claim"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Claim</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete this claim? This action cannot be undone and will permanently remove all associated data including documents, estimates, and endorsements.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteClaim}
+                    disabled={isDeleting}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    data-testid="button-confirm-delete"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      "Delete Claim"
+                    )}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button
               variant="outline"
               size="sm"

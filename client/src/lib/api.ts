@@ -534,6 +534,17 @@ export async function getClaimStats(): Promise<ClaimStats> {
   return response.json();
 }
 
+export async function deleteClaim(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/claims/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to delete claim');
+  }
+}
+
 // ============================================
 // DOCUMENTS API
 // ============================================
