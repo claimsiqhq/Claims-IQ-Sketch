@@ -166,13 +166,13 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
       return;
     }
 
-    // Draw damage zones first (background)
+    // Draw room outline first (white background)
+    drawRoomOutline(ctx, room, offsetX, offsetY, scale);
+
+    // Draw damage zones on top of room background
     room.damageZones.forEach((zone) => {
       drawDamageZone(ctx, zone, room, offsetX, offsetY, scale);
     });
-
-    // Draw room outline
-    drawRoomOutline(ctx, room, offsetX, offsetY, scale);
 
     // Draw features
     room.features.forEach((feature) => {
@@ -218,13 +218,13 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
       return;
     }
 
-    // Draw damage zones first (background)
+    // Draw room outline first (white background)
+    drawRoomOutline(ctx, room, expOffsetX, expOffsetY, expScale);
+
+    // Draw damage zones on top of room background
     room.damageZones.forEach((zone) => {
       drawDamageZone(ctx, zone, room, expOffsetX, expOffsetY, expScale);
     });
-
-    // Draw room outline
-    drawRoomOutline(ctx, room, expOffsetX, expOffsetY, expScale);
 
     // Draw features
     room.features.forEach((feature) => {
