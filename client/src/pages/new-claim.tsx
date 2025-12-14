@@ -22,7 +22,7 @@ import {
   FileCheck,
   ArrowRight
 } from "lucide-react";
-import { uploadDocument, createClaim, type Document } from "@/lib/api";
+import { uploadDocument, processDocument, createClaim, type Document } from "@/lib/api";
 
 interface UploadedFile {
   file: File;
@@ -96,7 +96,7 @@ export default function NewClaim() {
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Upload all files and process
+  // Upload all files and process with Vision AI
   const handleUploadAndProcess = async () => {
     if (files.length === 0) {
       setError('Please add at least one document');
@@ -115,7 +115,7 @@ export default function NewClaim() {
 
         // Update status to uploading
         setFiles(prev => prev.map((f, idx) =>
-          idx === i ? { ...f, status: 'uploading', progress: 50 } : f
+          idx === i ? { ...f, status: 'uploading', progress: 30 } : f
         ));
 
         try {
@@ -123,6 +123,20 @@ export default function NewClaim() {
             type: uploadFile.type,
             name: uploadFile.file.name,
           });
+
+          // Update progress - now processing with AI
+          setFiles(prev => prev.map((f, idx) =>
+            idx === i ? { ...f, status: 'uploading', progress: 60, document: doc } : f
+          ));
+
+          // Process document with Vision AI
+          try {
+            const processResult = await processDocument(doc.id);
+            doc.extractedData = processResult.extractedData;
+            doc.processingStatus = processResult.processingStatus;
+          } catch (processErr) {
+            console.warn('AI extraction failed for', doc.name, processErr);
+          }
 
           uploadedDocs.push(doc);
 
@@ -137,12 +151,8 @@ export default function NewClaim() {
         }
       }
 
-      // Extract data from documents (mock for now - will be AI in future)
-      const fnolDoc = uploadedDocs.find(d => d.type === 'fnol');
-      const policyDoc = uploadedDocs.find(d => d.type === 'policy');
-
-      // Set some default extracted data
-      setExtractedData({
+      // Merge extracted data from all documents
+      const mergedData: ExtractedData = {
         insuredName: '',
         policyNumber: '',
         propertyAddress: '',
@@ -157,8 +167,30 @@ export default function NewClaim() {
         coverageC: '',
         coverageD: '',
         deductible: '',
-      });
+      };
 
+      // Populate from extracted data (prefer non-empty values)
+      for (const doc of uploadedDocs) {
+        if (doc.extractedData) {
+          const ed = doc.extractedData;
+          if (ed.insuredName && !mergedData.insuredName) mergedData.insuredName = ed.insuredName;
+          if (ed.policyNumber && !mergedData.policyNumber) mergedData.policyNumber = ed.policyNumber;
+          if (ed.propertyAddress && !mergedData.propertyAddress) mergedData.propertyAddress = ed.propertyAddress;
+          if (ed.propertyCity && !mergedData.propertyCity) mergedData.propertyCity = ed.propertyCity;
+          if (ed.propertyState && !mergedData.propertyState) mergedData.propertyState = ed.propertyState;
+          if (ed.propertyZip && !mergedData.propertyZip) mergedData.propertyZip = ed.propertyZip;
+          if (ed.dateOfLoss && !mergedData.dateOfLoss) mergedData.dateOfLoss = ed.dateOfLoss;
+          if (ed.lossType && !mergedData.lossType) mergedData.lossType = ed.lossType;
+          if (ed.lossDescription && !mergedData.lossDescription) mergedData.lossDescription = ed.lossDescription;
+          if (ed.coverageA && !mergedData.coverageA) mergedData.coverageA = String(ed.coverageA);
+          if (ed.coverageB && !mergedData.coverageB) mergedData.coverageB = String(ed.coverageB);
+          if (ed.coverageC && !mergedData.coverageC) mergedData.coverageC = String(ed.coverageC);
+          if (ed.coverageD && !mergedData.coverageD) mergedData.coverageD = String(ed.coverageD);
+          if (ed.deductible && !mergedData.deductible) mergedData.deductible = String(ed.deductible);
+        }
+      }
+
+      setExtractedData(mergedData);
       setStep('review');
     } catch (err) {
       setError((err as Error).message);
