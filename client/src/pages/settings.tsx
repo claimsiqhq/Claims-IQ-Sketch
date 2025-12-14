@@ -4,6 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import {
   RefreshCw,
   Database,
@@ -16,12 +21,17 @@ import {
   Server,
   Activity,
   Globe,
-  Mic,
   Package,
   FileText,
   MapPin,
   TrendingUp,
-  ExternalLink
+  Calculator,
+  Building2,
+  Bell,
+  Mail,
+  MessageSquare,
+  Percent,
+  Save
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -80,6 +90,27 @@ interface SystemStatus {
   openaiConfigured: boolean;
 }
 
+interface EstimateDefaults {
+  laborMultiplier: number;
+  materialMultiplier: number;
+  overheadPercent: number;
+  profitPercent: number;
+  defaultRegion: string;
+  includeTax: boolean;
+  taxRate: number;
+  roundToNearest: string;
+}
+
+interface NotificationPreferences {
+  emailEnabled: boolean;
+  smsEnabled: boolean;
+  emailNewClaim: boolean;
+  emailClaimApproved: boolean;
+  emailClaimDenied: boolean;
+  smsUrgentAlerts: boolean;
+  digestFrequency: string;
+}
+
 export default function Settings() {
   const { toast } = useToast();
   const [isScrapingHomeDepot, setIsScrapingHomeDepot] = useState(false);
@@ -91,6 +122,30 @@ export default function Settings() {
   const [scrapeJobs, setScrapeJobs] = useState<ScrapeJob[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [isLoadingSystem, setIsLoadingSystem] = useState(false);
+
+  const [estimateDefaults, setEstimateDefaults] = useState<EstimateDefaults>({
+    laborMultiplier: 1.0,
+    materialMultiplier: 1.0,
+    overheadPercent: 10,
+    profitPercent: 10,
+    defaultRegion: "US-TX-DAL",
+    includeTax: true,
+    taxRate: 8.25,
+    roundToNearest: "0.01"
+  });
+
+  const [notifications, setNotifications] = useState<NotificationPreferences>({
+    emailEnabled: true,
+    smsEnabled: false,
+    emailNewClaim: true,
+    emailClaimApproved: true,
+    emailClaimDenied: true,
+    smsUrgentAlerts: false,
+    digestFrequency: "daily"
+  });
+
+  const [defaultCarrier, setDefaultCarrier] = useState("state-farm");
+  const [approvalThreshold, setApprovalThreshold] = useState(10000);
 
   const runHomeDepotScraper = async () => {
     setIsScrapingHomeDepot(true);
@@ -179,12 +234,10 @@ export default function Settings() {
     }
   };
 
-  // Load system status on mount
   useEffect(() => {
     loadSystemStatus();
   }, []);
 
-  // Group prices by SKU for display
   const groupedPrices = scrapedPrices.reduce((acc, price) => {
     if (!acc[price.sku]) {
       acc[price.sku] = {
@@ -201,273 +254,463 @@ export default function Settings() {
     return acc;
   }, {} as Record<string, { sku: string; name: string; unit: string; regions: Record<string, { price: number; date: string }> }>);
 
+  const handleSaveEstimateDefaults = () => {
+    toast({
+      title: "Settings Saved",
+      description: "Your estimate defaults have been updated.",
+    });
+  };
+
+  const handleSaveCarrierSettings = () => {
+    toast({
+      title: "Settings Saved",
+      description: "Your carrier settings have been updated.",
+    });
+  };
+
+  const handleSaveNotifications = () => {
+    toast({
+      title: "Settings Saved",
+      description: "Your notification preferences have been updated.",
+    });
+  };
+
   return (
     <Layout>
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Admin Settings</h1>
-          <p className="text-muted-foreground mt-1">Manage system configuration and data pipelines</p>
+          <h1 className="text-3xl font-bold tracking-tight font-display" data-testid="text-page-title">Settings</h1>
+          <p className="text-muted-foreground mt-1">Manage your estimate defaults, carriers, and preferences</p>
         </div>
 
-        <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="pricing" data-testid="tab-pricing">
-              <DollarSign className="h-4 w-4 mr-2" />
-              Pricing Data
+        <Tabs defaultValue="estimates" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex">
+            <TabsTrigger value="estimates" data-testid="tab-estimates" className="gap-2">
+              <Calculator className="h-4 w-4 hidden sm:block" />
+              <span>Estimates</span>
             </TabsTrigger>
-            <TabsTrigger value="system" data-testid="tab-system">
-              <SettingsIcon className="h-4 w-4 mr-2" />
-              System
+            <TabsTrigger value="carriers" data-testid="tab-carriers" className="gap-2">
+              <Building2 className="h-4 w-4 hidden sm:block" />
+              <span>Carriers</span>
+            </TabsTrigger>
+            <TabsTrigger value="notifications" data-testid="tab-notifications" className="gap-2">
+              <Bell className="h-4 w-4 hidden sm:block" />
+              <span>Notifications</span>
+            </TabsTrigger>
+            <TabsTrigger value="system" data-testid="tab-system" className="gap-2">
+              <SettingsIcon className="h-4 w-4 hidden sm:block" />
+              <span>System</span>
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="pricing" className="space-y-6">
+          {/* Estimate Defaults Tab */}
+          <TabsContent value="estimates" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Database className="h-5 w-5" />
-                  Home Depot Price Scraper
+                  <Percent className="h-5 w-5" />
+                  Pricing Multipliers
                 </CardTitle>
                 <CardDescription>
-                  Fetch current material prices from Home Depot to update regional pricing data.
-                  This updates the material_regional_prices table for Dallas, San Francisco, and Miami regions.
+                  Set default multipliers applied to labor and material costs on new estimates.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <Button 
-                    onClick={runHomeDepotScraper} 
-                    disabled={isScrapingHomeDepot}
-                    data-testid="button-run-scraper"
-                  >
-                    {isScrapingHomeDepot ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Scraping...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Run Scraper
-                      </>
-                    )}
-                  </Button>
-                  
-                  <Button 
-                    variant="outline" 
-                    onClick={loadScraperConfig}
-                    disabled={isLoadingConfig}
-                    data-testid="button-view-config"
-                  >
-                    {isLoadingConfig ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <SettingsIcon className="h-4 w-4 mr-2" />
-                    )}
-                    View Configuration
-                  </Button>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <Label htmlFor="laborMultiplier">Labor Rate Multiplier</Label>
+                    <div className="flex items-center gap-4">
+                      <Slider
+                        id="laborMultiplier"
+                        min={0.5}
+                        max={2.0}
+                        step={0.05}
+                        value={[estimateDefaults.laborMultiplier]}
+                        onValueChange={(value) => setEstimateDefaults(prev => ({ ...prev, laborMultiplier: value[0] }))}
+                        className="flex-1"
+                        data-testid="slider-labor-multiplier"
+                      />
+                      <span className="w-16 text-right font-mono text-sm">{estimateDefaults.laborMultiplier.toFixed(2)}x</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Adjust labor costs up or down from catalog rates</p>
+                  </div>
+                  <div className="space-y-3">
+                    <Label htmlFor="materialMultiplier">Material Cost Multiplier</Label>
+                    <div className="flex items-center gap-4">
+                      <Slider
+                        id="materialMultiplier"
+                        min={0.5}
+                        max={2.0}
+                        step={0.05}
+                        value={[estimateDefaults.materialMultiplier]}
+                        onValueChange={(value) => setEstimateDefaults(prev => ({ ...prev, materialMultiplier: value[0] }))}
+                        className="flex-1"
+                        data-testid="slider-material-multiplier"
+                      />
+                      <span className="w-16 text-right font-mono text-sm">{estimateDefaults.materialMultiplier.toFixed(2)}x</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Adjust material costs up or down from catalog rates</p>
+                  </div>
                 </div>
-
-                {lastScrapeResult && (
-                  <div className="p-4 bg-muted rounded-lg space-y-2" data-testid="scrape-result">
-                    <div className="flex items-center gap-2">
-                      {lastScrapeResult.status === 'completed' ? (
-                        <CheckCircle className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-red-600" />
-                      )}
-                      <span className="font-medium">Last Scrape Result</span>
-                      <Badge variant={lastScrapeResult.status === 'completed' ? 'default' : 'destructive'}>
-                        {lastScrapeResult.status}
-                      </Badge>
-                    </div>
-                    <div className="text-sm text-muted-foreground grid grid-cols-2 gap-2">
-                      <div>Job ID: <code className="text-xs">{lastScrapeResult.jobId}</code></div>
-                      <div>Items Processed: {lastScrapeResult.itemsProcessed}</div>
-                      <div>Items Updated: {lastScrapeResult.itemsUpdated}</div>
-                    </div>
-                  </div>
-                )}
-
-                {scraperConfig && (
-                  <div className="space-y-4" data-testid="scraper-config">
-                    <div>
-                      <h4 className="font-medium mb-2">Product Mappings</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {Object.entries(scraperConfig.productMappings).map(([sku, mapping]) => (
-                          <div key={sku} className="p-3 bg-muted/50 rounded-md text-sm">
-                            <div className="font-mono font-medium">{sku}</div>
-                            <div className="text-muted-foreground">Search: "{mapping.search}"</div>
-                            <div className="text-muted-foreground">Unit: {mapping.unit}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="font-medium mb-2">Store Regions</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {Object.entries(scraperConfig.storeRegions).map(([region, storeId]) => (
-                          <Badge key={region} variant="outline">
-                            {region}: Store #{storeId}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
 
-            {/* Scraped Prices Visualization */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5" />
-                  Scraped Price Data
+                  <DollarSign className="h-5 w-5" />
+                  Overhead & Profit (O&P)
                 </CardTitle>
                 <CardDescription>
-                  View the actual prices returned by the Home Depot scraper across different regions.
+                  Default overhead and profit percentages for estimates.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Button
-                  onClick={loadScrapedPrices}
-                  disabled={isLoadingPrices}
-                  variant="outline"
-                  data-testid="button-load-prices"
-                >
-                  {isLoadingPrices ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Load Scraped Prices
-                    </>
-                  )}
-                </Button>
-
-                {Object.keys(groupedPrices).length > 0 && (
-                  <div className="overflow-x-auto" data-testid="prices-table">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 px-3 font-medium">SKU</th>
-                          <th className="text-left py-2 px-3 font-medium">Material</th>
-                          <th className="text-left py-2 px-3 font-medium">Unit</th>
-                          <th className="text-right py-2 px-3 font-medium">Dallas</th>
-                          <th className="text-right py-2 px-3 font-medium">San Francisco</th>
-                          <th className="text-right py-2 px-3 font-medium">Miami</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.values(groupedPrices).map((item) => (
-                          <tr key={item.sku} className="border-b border-muted hover:bg-muted/50">
-                            <td className="py-2 px-3 font-mono text-xs">{item.sku}</td>
-                            <td className="py-2 px-3">{item.name}</td>
-                            <td className="py-2 px-3">
-                              <Badge variant="secondary">{item.unit}</Badge>
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              {item.regions['US-TX-DAL'] ? (
-                                <span className="font-medium text-green-600">
-                                  ${item.regions['US-TX-DAL'].price.toFixed(2)}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              {item.regions['US-CA-SF'] ? (
-                                <span className="font-medium text-blue-600">
-                                  ${item.regions['US-CA-SF'].price.toFixed(2)}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              {item.regions['US-FL-MIA'] ? (
-                                <span className="font-medium text-orange-600">
-                                  ${item.regions['US-FL-MIA'].price.toFixed(2)}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <Label htmlFor="overheadPercent">Overhead Percentage</Label>
+                    <div className="flex items-center gap-4">
+                      <Slider
+                        id="overheadPercent"
+                        min={0}
+                        max={25}
+                        step={0.5}
+                        value={[estimateDefaults.overheadPercent]}
+                        onValueChange={(value) => setEstimateDefaults(prev => ({ ...prev, overheadPercent: value[0] }))}
+                        className="flex-1"
+                        data-testid="slider-overhead"
+                      />
+                      <span className="w-16 text-right font-mono text-sm">{estimateDefaults.overheadPercent.toFixed(1)}%</span>
+                    </div>
                   </div>
-                )}
-
-                {scrapedPrices.length === 0 && !isLoadingPrices && (
-                  <p className="text-sm text-muted-foreground">
-                    No scraped prices found. Run the scraper to populate price data.
-                  </p>
-                )}
+                  <div className="space-y-3">
+                    <Label htmlFor="profitPercent">Profit Percentage</Label>
+                    <div className="flex items-center gap-4">
+                      <Slider
+                        id="profitPercent"
+                        min={0}
+                        max={25}
+                        step={0.5}
+                        value={[estimateDefaults.profitPercent]}
+                        onValueChange={(value) => setEstimateDefaults(prev => ({ ...prev, profitPercent: value[0] }))}
+                        className="flex-1"
+                        data-testid="slider-profit"
+                      />
+                      <span className="w-16 text-right font-mono text-sm">{estimateDefaults.profitPercent.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">Combined O&P</span>
+                    <span className="text-lg font-bold text-primary">
+                      {(estimateDefaults.overheadPercent + estimateDefaults.profitPercent).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Scrape Job History */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  Scrape Job History
+                  <MapPin className="h-5 w-5" />
+                  Regional & Tax Settings
                 </CardTitle>
                 <CardDescription>
-                  Recent price scraping jobs and their results.
+                  Configure default region and tax handling for new estimates.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {scrapeJobs.length > 0 ? (
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    {scrapeJobs.map((job) => (
-                      <div key={job.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
-                        <div className="flex items-center gap-3">
-                          {job.status === 'completed' ? (
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                          ) : job.status === 'failed' ? (
-                            <XCircle className="h-4 w-4 text-red-600" />
-                          ) : (
-                            <Loader2 className="h-4 w-4 text-yellow-600 animate-spin" />
-                          )}
-                          <div>
-                            <div className="text-sm font-medium">
-                              {job.source === 'home_depot' ? 'Home Depot Scrape' : job.source}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {new Date(job.started_at).toLocaleString()}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <Badge variant={job.status === 'completed' ? 'default' : job.status === 'failed' ? 'destructive' : 'secondary'}>
-                            {job.status}
-                          </Badge>
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {job.items_processed} processed, {job.items_updated} updated
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                    <Label htmlFor="defaultRegion">Default Pricing Region</Label>
+                    <Select
+                      value={estimateDefaults.defaultRegion}
+                      onValueChange={(value) => setEstimateDefaults(prev => ({ ...prev, defaultRegion: value }))}
+                    >
+                      <SelectTrigger id="defaultRegion" data-testid="select-default-region">
+                        <SelectValue placeholder="Select region" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="US-TX-DAL">Dallas, TX</SelectItem>
+                        <SelectItem value="US-CA-SF">San Francisco, CA</SelectItem>
+                        <SelectItem value="US-FL-MIA">Miami, FL</SelectItem>
+                        <SelectItem value="US-NY-NYC">New York, NY</SelectItem>
+                        <SelectItem value="US-IL-CHI">Chicago, IL</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No scrape jobs found. Click "Load Scraped Prices" above to fetch job history.
-                  </p>
+                  <div className="space-y-2">
+                    <Label htmlFor="roundToNearest">Round Prices To</Label>
+                    <Select
+                      value={estimateDefaults.roundToNearest}
+                      onValueChange={(value) => setEstimateDefaults(prev => ({ ...prev, roundToNearest: value }))}
+                    >
+                      <SelectTrigger id="roundToNearest" data-testid="select-rounding">
+                        <SelectValue placeholder="Select rounding" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0.01">Nearest cent ($0.01)</SelectItem>
+                        <SelectItem value="0.05">Nearest 5 cents ($0.05)</SelectItem>
+                        <SelectItem value="1.00">Nearest dollar ($1.00)</SelectItem>
+                        <SelectItem value="5.00">Nearest $5.00</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <Label htmlFor="includeTax" className="text-base">Include Sales Tax</Label>
+                    <p className="text-sm text-muted-foreground">Automatically calculate sales tax on materials</p>
+                  </div>
+                  <Switch
+                    id="includeTax"
+                    checked={estimateDefaults.includeTax}
+                    onCheckedChange={(checked) => setEstimateDefaults(prev => ({ ...prev, includeTax: checked }))}
+                    data-testid="switch-include-tax"
+                  />
+                </div>
+                {estimateDefaults.includeTax && (
+                  <div className="space-y-2">
+                    <Label htmlFor="taxRate">Tax Rate (%)</Label>
+                    <Input
+                      id="taxRate"
+                      type="number"
+                      step="0.01"
+                      value={estimateDefaults.taxRate}
+                      onChange={(e) => setEstimateDefaults(prev => ({ ...prev, taxRate: parseFloat(e.target.value) || 0 }))}
+                      className="max-w-32"
+                      data-testid="input-tax-rate"
+                    />
+                  </div>
                 )}
+                <Button onClick={handleSaveEstimateDefaults} data-testid="button-save-estimates">
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Estimate Defaults
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
 
+          {/* Carriers & Profiles Tab */}
+          <TabsContent value="carriers" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5" />
+                  Default Carrier
+                </CardTitle>
+                <CardDescription>
+                  Select the default insurance carrier for new claims and estimates.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="defaultCarrier">Primary Carrier</Label>
+                  <Select value={defaultCarrier} onValueChange={setDefaultCarrier}>
+                    <SelectTrigger id="defaultCarrier" data-testid="select-default-carrier">
+                      <SelectValue placeholder="Select carrier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="state-farm">State Farm</SelectItem>
+                      <SelectItem value="allstate">Allstate</SelectItem>
+                      <SelectItem value="progressive">Progressive</SelectItem>
+                      <SelectItem value="liberty-mutual">Liberty Mutual</SelectItem>
+                      <SelectItem value="travelers">Travelers</SelectItem>
+                      <SelectItem value="usaa">USAA</SelectItem>
+                      <SelectItem value="nationwide">Nationwide</SelectItem>
+                      <SelectItem value="farmers">Farmers Insurance</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5" />
+                  Approval Thresholds
+                </CardTitle>
+                <CardDescription>
+                  Set estimate value thresholds that require additional approval.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <Label htmlFor="approvalThreshold">Auto-Approval Limit</Label>
+                  <div className="flex items-center gap-4">
+                    <span className="text-muted-foreground">$</span>
+                    <Input
+                      id="approvalThreshold"
+                      type="number"
+                      step="500"
+                      value={approvalThreshold}
+                      onChange={(e) => setApprovalThreshold(parseInt(e.target.value) || 0)}
+                      className="max-w-40"
+                      data-testid="input-approval-threshold"
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Estimates above this amount will require manual carrier approval before processing.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="text-sm font-medium text-green-800">Auto-Approved</div>
+                    <div className="text-xs text-green-600 mt-1">Under ${approvalThreshold.toLocaleString()}</div>
+                  </div>
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="text-sm font-medium text-yellow-800">Review Required</div>
+                    <div className="text-xs text-yellow-600 mt-1">${approvalThreshold.toLocaleString()} - ${(approvalThreshold * 2).toLocaleString()}</div>
+                  </div>
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="text-sm font-medium text-red-800">Senior Approval</div>
+                    <div className="text-xs text-red-600 mt-1">Over ${(approvalThreshold * 2).toLocaleString()}</div>
+                  </div>
+                </div>
+                <Button onClick={handleSaveCarrierSettings} data-testid="button-save-carriers">
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Carrier Settings
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Notifications Tab */}
+          <TabsContent value="notifications" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  Email Notifications
+                </CardTitle>
+                <CardDescription>
+                  Configure which events trigger email notifications.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <Label htmlFor="emailEnabled" className="text-base">Enable Email Notifications</Label>
+                    <p className="text-sm text-muted-foreground">Receive updates about your claims via email</p>
+                  </div>
+                  <Switch
+                    id="emailEnabled"
+                    checked={notifications.emailEnabled}
+                    onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, emailEnabled: checked }))}
+                    data-testid="switch-email-enabled"
+                  />
+                </div>
+                {notifications.emailEnabled && (
+                  <div className="space-y-3 pl-4 border-l-2 border-muted">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="emailNewClaim">New claim assigned to you</Label>
+                      <Switch
+                        id="emailNewClaim"
+                        checked={notifications.emailNewClaim}
+                        onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, emailNewClaim: checked }))}
+                        data-testid="switch-email-new-claim"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="emailClaimApproved">Claim approved</Label>
+                      <Switch
+                        id="emailClaimApproved"
+                        checked={notifications.emailClaimApproved}
+                        onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, emailClaimApproved: checked }))}
+                        data-testid="switch-email-approved"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="emailClaimDenied">Claim denied or requires revision</Label>
+                      <Switch
+                        id="emailClaimDenied"
+                        checked={notifications.emailClaimDenied}
+                        onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, emailClaimDenied: checked }))}
+                        data-testid="switch-email-denied"
+                      />
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5" />
+                  SMS Notifications
+                </CardTitle>
+                <CardDescription>
+                  Get text message alerts for urgent updates.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <Label htmlFor="smsEnabled" className="text-base">Enable SMS Notifications</Label>
+                    <p className="text-sm text-muted-foreground">Receive urgent alerts via text message</p>
+                  </div>
+                  <Switch
+                    id="smsEnabled"
+                    checked={notifications.smsEnabled}
+                    onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, smsEnabled: checked }))}
+                    data-testid="switch-sms-enabled"
+                  />
+                </div>
+                {notifications.smsEnabled && (
+                  <div className="space-y-3 pl-4 border-l-2 border-muted">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="smsUrgentAlerts">Urgent claim alerts only</Label>
+                      <Switch
+                        id="smsUrgentAlerts"
+                        checked={notifications.smsUrgentAlerts}
+                        onCheckedChange={(checked) => setNotifications(prev => ({ ...prev, smsUrgentAlerts: checked }))}
+                        data-testid="switch-sms-urgent"
+                      />
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Digest Frequency
+                </CardTitle>
+                <CardDescription>
+                  How often would you like to receive summary emails?
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Select
+                  value={notifications.digestFrequency}
+                  onValueChange={(value) => setNotifications(prev => ({ ...prev, digestFrequency: value }))}
+                >
+                  <SelectTrigger data-testid="select-digest-frequency">
+                    <SelectValue placeholder="Select frequency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="realtime">Real-time (instant)</SelectItem>
+                    <SelectItem value="daily">Daily digest</SelectItem>
+                    <SelectItem value="weekly">Weekly summary</SelectItem>
+                    <SelectItem value="never">Never (disabled)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleSaveNotifications} data-testid="button-save-notifications">
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Notification Preferences
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* System & Admin Tab */}
           <TabsContent value="system" className="space-y-6">
-            {/* Database Status */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -484,6 +727,7 @@ export default function Settings() {
                   disabled={isLoadingSystem}
                   variant="outline"
                   size="sm"
+                  data-testid="button-refresh-status"
                 >
                   {isLoadingSystem ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -547,7 +791,6 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            {/* Regions Configuration */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -576,11 +819,10 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            {/* Service Status */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
+                  <Server className="h-5 w-5" />
                   Service Status
                 </CardTitle>
                 <CardDescription>
@@ -589,74 +831,104 @@ export default function Settings() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <Mic className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <div className="text-sm font-medium">Voice API (OpenAI)</div>
-                        <div className="text-xs text-muted-foreground">Real-time voice processing</div>
-                      </div>
+                      <Activity className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">OpenAI API</span>
                     </div>
                     {systemStatus?.openaiConfigured ? (
-                      <Badge variant="default" className="bg-green-600">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Configured
-                      </Badge>
+                      <Badge className="bg-green-100 text-green-800">Configured</Badge>
                     ) : (
-                      <Badge variant="secondary">
-                        <XCircle className="h-3 w-3 mr-1" />
-                        Not Configured
-                      </Badge>
+                      <Badge variant="secondary">Not Configured</Badge>
                     )}
                   </div>
-
-                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <Server className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <div className="text-sm font-medium">Home Depot Scraper</div>
-                        <div className="text-xs text-muted-foreground">Material price updates</div>
-                      </div>
+                      <Database className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">PostgreSQL</span>
                     </div>
-                    <Badge variant="default" className="bg-green-600">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Available
-                    </Badge>
+                    {systemStatus?.database.connected ? (
+                      <Badge className="bg-green-100 text-green-800">Connected</Badge>
+                    ) : (
+                      <Badge variant="destructive">Disconnected</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Globe className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">Environment</span>
+                    </div>
+                    <Badge variant="outline">{systemStatus?.environment || 'Unknown'}</Badge>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Environment Info */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Server className="h-5 w-5" />
-                  Environment
+                  <TrendingUp className="h-5 w-5" />
+                  Price Scraper
                 </CardTitle>
                 <CardDescription>
-                  Application environment and build information.
+                  Fetch current material prices from Home Depot to update regional pricing data.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Mode</div>
-                    <div className="font-medium mt-1">
-                      <Badge variant={systemStatus?.environment === 'production' ? 'default' : 'secondary'}>
-                        {systemStatus?.environment || 'Unknown'}
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Button 
+                    onClick={runHomeDepotScraper} 
+                    disabled={isScrapingHomeDepot}
+                    data-testid="button-run-scraper"
+                  >
+                    {isScrapingHomeDepot ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Scraping...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Run Scraper
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    onClick={loadScraperConfig}
+                    disabled={isLoadingConfig}
+                    data-testid="button-view-config"
+                  >
+                    {isLoadingConfig ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <SettingsIcon className="h-4 w-4 mr-2" />
+                    )}
+                    View Configuration
+                  </Button>
+                </div>
+
+                {lastScrapeResult && (
+                  <div className="p-4 bg-muted rounded-lg space-y-2" data-testid="scrape-result">
+                    <div className="flex items-center gap-2">
+                      {lastScrapeResult.status === 'completed' ? (
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-600" />
+                      )}
+                      <span className="font-medium">Last Scrape Result</span>
+                      <Badge variant={lastScrapeResult.status === 'completed' ? 'default' : 'destructive'}>
+                        {lastScrapeResult.status}
                       </Badge>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Server Time</div>
-                    <div className="text-sm mt-1">
-                      {systemStatus?.database.time
-                        ? new Date(systemStatus.database.time).toLocaleString()
-                        : '—'}
+                    <div className="text-sm text-muted-foreground grid grid-cols-2 gap-2">
+                      <div>Job ID: <code className="text-xs">{lastScrapeResult.jobId}</code></div>
+                      <div>Items Processed: {lastScrapeResult.itemsProcessed}</div>
+                      <div>Items Updated: {lastScrapeResult.itemsUpdated}</div>
                     </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
