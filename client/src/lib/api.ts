@@ -17,11 +17,11 @@ export interface AuthResponse {
   message?: string;
 }
 
-export async function login(username: string, password: string): Promise<AuthResponse> {
+export async function login(username: string, password: string, rememberMe: boolean = false): Promise<AuthResponse> {
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, rememberMe }),
     credentials: 'include',
   });
   if (!response.ok) {

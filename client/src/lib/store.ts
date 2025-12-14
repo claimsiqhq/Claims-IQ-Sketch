@@ -42,7 +42,7 @@ interface StoreState {
   estimateError: string | null;
 
   // Auth actions
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<boolean>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<boolean>;
   clearAuthError: () => void;
@@ -91,10 +91,10 @@ export const useStore = create<StoreState>((set, get) => ({
   estimateError: null,
 
   // Auth actions
-  login: async (username, password) => {
+  login: async (username, password, rememberMe = false) => {
     set({ isAuthLoading: true, authError: null });
     try {
-      const response = await apiLogin(username, password);
+      const response = await apiLogin(username, password, rememberMe);
       if (response.user) {
         set({
           authUser: response.user,

@@ -44,6 +44,8 @@ export async function registerRoutes(
 
   // Login endpoint
   app.post('/api/auth/login', (req, res, next) => {
+    const rememberMe = req.body.rememberMe === true;
+    
     passport.authenticate('local', (err: Error | null, user: Express.User | false, info: { message: string }) => {
       if (err) {
         return res.status(500).json({ error: 'Authentication error' });
@@ -55,9 +57,24 @@ export async function registerRoutes(
         if (loginErr) {
           return res.status(500).json({ error: 'Login error' });
         }
-        return res.json({
-          user: { id: user.id, username: user.username },
-          message: 'Login successful'
+        
+        // Set session duration based on remember me
+        if (rememberMe) {
+          req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+        } else {
+          req.session.cookie.maxAge = 24 * 60 * 60 * 1000; // 24 hours
+        }
+        
+        // Explicitly save session to ensure it persists
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('Session save error:', saveErr);
+            return res.status(500).json({ error: 'Session save error' });
+          }
+          return res.json({
+            user: { id: user.id, username: user.username },
+            message: 'Login successful'
+          });
         });
       });
     })(req, res, next);

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -12,6 +13,7 @@ export default function Auth() {
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const { login, isAuthenticated, isAuthLoading, authError, clearAuthError, checkAuth } = useStore();
 
   // Check if already authenticated
@@ -34,7 +36,7 @@ export default function Auth() {
     e.preventDefault();
     clearAuthError();
 
-    const success = await login(username, password);
+    const success = await login(username, password, rememberMe);
     if (success) {
       setLocation("/");
     }
@@ -70,6 +72,10 @@ export default function Auth() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                data-testid="input-username"
               />
             </div>
             <div className="space-y-2">
@@ -83,6 +89,17 @@ export default function Auth() {
                 required
                 autoComplete="current-password"
               />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="remember-me"
+                checked={rememberMe}
+                onCheckedChange={(checked) => setRememberMe(checked === true)}
+                data-testid="checkbox-remember-me"
+              />
+              <Label htmlFor="remember-me" className="text-sm font-normal cursor-pointer">
+                Remember me for 30 days
+              </Label>
             </div>
           </CardContent>
           <CardFooter>
