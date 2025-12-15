@@ -992,4 +992,11 @@ export const geometryEngine = {
   deleteOpening: (params: DeleteOpeningParams) => useGeometryEngine.getState().deleteOpening(params),
   deleteFeature: (params: DeleteFeatureParams) => useGeometryEngine.getState().deleteFeature(params),
   editDamageZone: (params: EditDamageZoneParams) => useGeometryEngine.getState().editDamageZone(params),
+  getRoomByName: (name: string) => {
+    const state = useGeometryEngine.getState();
+    if (state.currentRoom?.name === name) {
+      return state.currentRoom;
+    }
+    return state.rooms.find(r => r.name === name) ?? null;
+  },
 };

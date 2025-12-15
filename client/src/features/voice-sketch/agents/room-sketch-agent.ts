@@ -4,6 +4,7 @@
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 import { z } from 'zod';
 import { geometryEngine } from '../services/geometry-engine';
+import { useFloorPlanEngine } from '../services/floor-plan-engine';
 
 // System instructions for the voice agent
 const ROOM_SKETCH_INSTRUCTIONS = `You are a field sketching assistant for property insurance claims adjusters. Your job is to help them create room sketches by voice.
@@ -470,6 +471,111 @@ const editDamageZoneTool = tool({
   },
 });
 
+// Floor Plan Tools
+const createFloorPlanTool = tool({
+  name: 'create_floor_plan',
+  description: 'Start a new floor plan to arrange multiple rooms. Call this when starting a multi-room sketch.',
+  parameters: z.object({
+    name: z.string().describe('Name for the floor plan, e.g., "First Floor", "Ground Level", "Main House"'),
+    level: z.number().default(0).describe('Floor level: 0=ground, 1=second floor, -1=basement'),
+  }),
+  execute: async (params) => {
+    const engine = useFloorPlanEngine.getState();
+    return engine.createFloorPlan(params.name, params.level);
+  },
+});
+
+const addRoomToPlanTool = tool({
+  name: 'add_room_to_plan',
+  description: `Add a room to the current floor plan. The room must already be created with create_room.
+  
+Position can be:
+- Absolute: provide position_x_ft and position_y_ft
+- Relative: provide relative_to (room name) and direction (north/south/east/west of that room)
+- Auto: first room defaults to (0,0), subsequent rooms auto-position based on relative_to`,
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room to add (must match a created room)'),
+    position_x_ft: z.number().optional().describe('Absolute X position in feet'),
+    position_y_ft: z.number().optional().describe('Absolute Y position in feet'),
+    relative_to: z.string().optional().describe('Name of room to position relative to'),
+    direction: z.enum(['north', 'south', 'east', 'west']).optional().describe('Direction from the relative room'),
+  }),
+  execute: async (params) => {
+    const room = geometryEngine.getRoomByName(params.room_name);
+    if (!room) {
+      return `Error: Room "${params.room_name}" not found. Create it first with create_room.`;
+    }
+    const engine = useFloorPlanEngine.getState();
+    return engine.addRoomToFloorPlan({
+      room_name: params.room_name,
+      position_x_ft: params.position_x_ft,
+      position_y_ft: params.position_y_ft,
+      relative_to: params.relative_to,
+      direction: params.direction,
+    }, room);
+  },
+});
+
+const connectRoomsTool = tool({
+  name: 'connect_rooms',
+  description: `Connect two rooms with a door, archway, or hallway. This creates a logical and visual connection between rooms.
+  
+Example: "Connect the living room to the kitchen through a doorway on the east wall"`,
+  parameters: z.object({
+    from_room_name: z.string().describe('Name of the first room'),
+    from_wall: z.enum(['north', 'south', 'east', 'west']).describe('Wall of the first room where connection is'),
+    from_position_ft: z.number().optional().describe('Position along the wall in feet from start'),
+    to_room_name: z.string().describe('Name of the second room'),
+    to_wall: z.enum(['north', 'south', 'east', 'west']).describe('Wall of the second room where connection is'),
+    to_position_ft: z.number().optional().describe('Position along the wall in feet from start'),
+    connection_type: z.enum(['door', 'archway', 'hallway', 'stairway']).describe('Type of connection'),
+  }),
+  execute: async (params) => {
+    const engine = useFloorPlanEngine.getState();
+    return engine.connectRooms({
+      from_room_name: params.from_room_name,
+      from_wall: params.from_wall,
+      from_position_ft: params.from_position_ft,
+      to_room_name: params.to_room_name,
+      to_wall: params.to_wall,
+      to_position_ft: params.to_position_ft,
+      connection_type: params.connection_type,
+    });
+  },
+});
+
+const moveRoomTool = tool({
+  name: 'move_room',
+  description: 'Move a room to a new position in the floor plan.',
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room to move'),
+    new_x_ft: z.number().optional().describe('New absolute X position'),
+    new_y_ft: z.number().optional().describe('New absolute Y position'),
+    relative_to: z.string().optional().describe('Move relative to this room'),
+    direction: z.enum(['north', 'south', 'east', 'west']).optional().describe('Direction from the relative room'),
+  }),
+  execute: async (params) => {
+    const engine = useFloorPlanEngine.getState();
+    return engine.moveRoom({
+      room_name: params.room_name,
+      new_x_ft: params.new_x_ft,
+      new_y_ft: params.new_y_ft,
+      relative_to: params.relative_to,
+      direction: params.direction,
+    });
+  },
+});
+
+const saveFloorPlanTool = tool({
+  name: 'save_floor_plan',
+  description: 'Save the current floor plan. Call when the floor plan is complete.',
+  parameters: z.object({}),
+  execute: async () => {
+    const engine = useFloorPlanEngine.getState();
+    return engine.saveFloorPlan();
+  },
+});
+
 // Create the RealtimeAgent with all tools
 export const roomSketchAgent = new RealtimeAgent({
   name: 'RoomSketchAgent',
@@ -488,6 +594,11 @@ export const roomSketchAgent = new RealtimeAgent({
     deleteOpeningTool,
     deleteFeatureTool,
     editDamageZoneTool,
+    createFloorPlanTool,
+    addRoomToPlanTool,
+    connectRoomsTool,
+    moveRoomTool,
+    saveFloorPlanTool,
   ],
 });
 
@@ -506,4 +617,9 @@ export const tools = {
   deleteOpening: deleteOpeningTool,
   deleteFeature: deleteFeatureTool,
   editDamageZone: editDamageZoneTool,
+  createFloorPlan: createFloorPlanTool,
+  addRoomToPlan: addRoomToPlanTool,
+  connectRooms: connectRoomsTool,
+  moveRoom: moveRoomTool,
+  saveFloorPlan: saveFloorPlanTool,
 };
