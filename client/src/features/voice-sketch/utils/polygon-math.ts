@@ -513,3 +513,22 @@ export function generateDamageZonePolygon(
 
   return points;
 }
+
+// Calculate bounding box of a polygon
+export function getPolygonBounds(polygon: Point[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  if (polygon.length === 0) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  }
+  
+  let minX = polygon[0].x, maxX = polygon[0].x;
+  let minY = polygon[0].y, maxY = polygon[0].y;
+  
+  for (const p of polygon) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  
+  return { minX, minY, maxX, maxY };
+}

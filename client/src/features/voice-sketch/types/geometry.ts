@@ -255,3 +255,88 @@ export interface VoiceSessionState {
   isSpeaking: boolean;
   error: string | null;
 }
+
+// Floor Plan Types - Multi-room layouts with connections
+
+// Connection point defines where two rooms connect
+export interface ConnectionPoint {
+  room_id: string;
+  wall: WallDirection;
+  position_ft: number; // Position along the wall from start
+  width_ft: number; // Width of the connection (usually matches opening width)
+}
+
+// Room connection defines a link between two rooms
+export interface RoomConnection {
+  id: string;
+  type: 'door' | 'archway' | 'hallway' | 'stairway';
+  from: ConnectionPoint;
+  to: ConnectionPoint;
+  notes?: string;
+}
+
+// Floor plan contains multiple rooms and their spatial relationships
+export interface FloorPlan {
+  id: string;
+  name: string;
+  level: number; // Floor level (0 = ground, 1 = second floor, -1 = basement)
+  rooms: RoomGeometry[];
+  connections: RoomConnection[];
+  // Overall bounds calculated from room positions
+  width_ft: number;
+  length_ft: number;
+  created_at: string;
+  updated_at: string;
+  notes?: string;
+}
+
+// Voice command types for floor plan operations
+export type FloorPlanCommandType =
+  | 'add_room_to_plan'
+  | 'connect_rooms'
+  | 'move_room'
+  | 'remove_connection'
+  | 'set_room_position';
+
+export interface AddRoomToPlanParams {
+  room_id?: string; // Existing room ID to add, or create new
+  room_name?: string; // If creating new, the room name
+  position_x_ft?: number; // Optional absolute position
+  position_y_ft?: number;
+  relative_to?: string; // Room ID to position relative to
+  direction?: WallDirection; // Direction from relative room
+}
+
+export interface ConnectRoomsParams {
+  from_room_id?: string;
+  from_room_name?: string;
+  from_wall: WallDirection;
+  from_position_ft?: number;
+  to_room_id?: string;
+  to_room_name?: string;
+  to_wall: WallDirection;
+  to_position_ft?: number;
+  connection_type: 'door' | 'archway' | 'hallway' | 'stairway';
+}
+
+export interface MoveRoomParams {
+  room_id?: string;
+  room_name?: string;
+  new_x_ft?: number;
+  new_y_ft?: number;
+  relative_to?: string;
+  direction?: WallDirection;
+}
+
+export interface RemoveConnectionParams {
+  connection_id?: string;
+  from_room?: string;
+  to_room?: string;
+}
+
+export interface SetRoomPositionParams {
+  room_id?: string;
+  room_name?: string;
+  x_ft: number;
+  y_ft: number;
+}
