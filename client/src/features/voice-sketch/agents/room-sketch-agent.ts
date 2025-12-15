@@ -110,16 +110,22 @@ EDITING AND CORRECTIONS:
 - If adjuster wants to start over: "Delete this room" → use delete_room
 
 FEATURE PLACEMENT (CRITICAL - PANTRIES, CLOSETS, ALCOVES):
-Features like pantries, closets, and alcoves are BUILT INTO walls—they are recessed spaces that reduce the usable floor area of the room. They are NOT separate rooms placed inside the parent room.
+Features like pantries, closets, and alcoves are BUILT INTO walls—they are recessed spaces that extend BEYOND the room boundary, NOT into the room's floor area. Think of a closet: the opening is on the wall, and the closet space extends OUTWARD (away from the room interior) into what would be wall/adjacent space.
+
+CRITICAL DIRECTION RULE:
+- Closets/pantries extend OUTWARD from the room, BEYOND the wall boundary
+- They do NOT intrude into the room's main floor space
+- If a pantry is on the north wall, its depth extends NORTH (beyond the north wall)
+- If a closet is on the east wall, its depth extends EAST (beyond the east wall)
 
 When placing wall-embedded features:
-- "wall" = which wall the feature is recessed INTO (north, south, east, west)
+- "wall" = which wall the feature opening is on (north, south, east, west)
 - "width_ft" = how wide the feature opening is along the wall
-- "depth_ft" = how deep the feature extends INTO that wall (like a closet depth)
-- "position" = where along the wall the feature is located
+- "depth_ft" = how deep the feature extends OUTWARD from the wall (AWAY from room interior, not into it)
+- "position" = where along the wall the feature opening is located
 
 Example interpretations:
-- "Add a 2 by 3 pantry on the north wall" → wall='north', width_ft=2, depth_ft=3
+- "Add a 2 by 3 pantry on the north wall" → wall='north', width_ft=2, depth_ft=3 (extends 3ft NORTH, beyond the room)
 - "Pantry in the corner, 3 feet deep, 2 feet wide" → Ask which corner/wall, then width_ft=2, depth_ft=3
 - "There's a small closet next to the fridge" → Ask for wall and dimensions, type='closet'
 
@@ -257,13 +263,14 @@ const addOpeningTool = tool({
 // Tool: Add closet, alcove, bump-out, or built-in
 const addFeatureTool = tool({
   name: 'add_feature',
-  description: `Add architectural features to the room. 
-  
+  description: `Add architectural features to the room.
+
 WALL-EMBEDDED features (closet, alcove, pantry, bump_out, fireplace, built_in):
-- These are RECESSED INTO a wall, reducing floor space
-- Set wall to north/south/east/west (which wall it's built into)
+- These extend OUTWARD from the room, BEYOND the wall boundary (not into the room)
+- Set wall to north/south/east/west (which wall the opening is on)
 - width_ft = opening width along the wall
-- depth_ft = how deep INTO the wall the feature extends (like a closet depth)
+- depth_ft = how deep the feature extends OUTWARD from the wall (AWAY from room interior)
+- Example: A closet on the east wall extends EAST, beyond the room's east boundary
 
 FREESTANDING features (island, peninsula):
 - These sit on the floor, not attached to walls
@@ -275,9 +282,9 @@ FREESTANDING features (island, peninsula):
 - If no offsets provided, defaults to centered`,
   parameters: z.object({
     type: z.enum(['closet', 'alcove', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).describe('Type of feature. Use "closet" for pantries.'),
-    wall: z.enum(['north', 'south', 'east', 'west', 'freestanding']).describe('Which wall the feature is built INTO (for closets/alcoves/pantries), or "freestanding" for islands/peninsulas'),
+    wall: z.enum(['north', 'south', 'east', 'west', 'freestanding']).describe('Which wall the feature opening is on (feature extends OUTWARD from this wall), or "freestanding" for islands/peninsulas'),
     width_ft: z.number().describe('Width in feet (along the wall for wall features, or footprint width for islands)'),
-    depth_ft: z.number().describe('Depth in feet. For wall features: how deep INTO the wall. For islands: footprint depth.'),
+    depth_ft: z.number().describe('Depth in feet. For wall features: how far the feature extends OUTWARD/BEYOND the wall (away from room interior). For islands: footprint depth.'),
     position: z.union([
       z.enum(['left', 'center', 'right']),
       z.number().describe('Feet from the reference point')
