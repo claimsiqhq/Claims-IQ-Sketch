@@ -765,3 +765,368 @@ export function getValidationSummary(result: ValidationResult): {
     })),
   };
 }
+
+// ============================================
+// CARRIER/JURISDICTION RULES INTEGRATION
+// ============================================
+
+import {
+  evaluateRules,
+  type EstimateForRules,
+  type LineItemForRules,
+  type ZoneForRules,
+} from './rulesEngine';
+import type { RulesEvaluationResult, LineItemRuleStatus } from '../../shared/schema';
+
+/**
+ * Extended validation category including rules
+ */
+export type ExtendedValidationCategory =
+  | ValidationCategory
+  | 'carrier_rule'
+  | 'jurisdiction_rule'
+  | 'documentation';
+
+/**
+ * Extended validation result including rules evaluation
+ */
+export interface ExtendedValidationResult extends ValidationResult {
+  /** Rules evaluation result */
+  rulesResult?: RulesEvaluationResult;
+
+  /** Carrier-specific issues */
+  carrierIssues: ValidationIssue[];
+
+  /** Jurisdiction-specific issues */
+  jurisdictionIssues: ValidationIssue[];
+
+  /** Documentation requirements */
+  documentationIssues: ValidationIssue[];
+}
+
+/**
+ * Estimate context for extended validation with carrier/jurisdiction
+ */
+export interface EstimateForExtendedValidation extends EstimateForValidation {
+  carrierProfileId?: string;
+  jurisdictionId?: string;
+  claimTotal?: number;
+}
+
+/**
+ * Perform extended validation including carrier and jurisdiction rules
+ *
+ * This combines:
+ * 1. Standard estimate validation (dependencies, quantities, etc.)
+ * 2. Carrier rules evaluation
+ * 3. Jurisdiction rules evaluation
+ *
+ * All issues are warnings - no hard failures from rules.
+ */
+export async function validateEstimateWithRules(
+  estimate: EstimateForExtendedValidation
+): Promise<ExtendedValidationResult> {
+  // First, run standard validation
+  const baseResult = await validateEstimate(estimate);
+
+  // Prepare data for rules evaluation
+  const lineItemsForRules: LineItemForRules[] = estimate.lineItems.map((item) => ({
+    id: item.id,
+    code: item.code,
+    description: item.description,
+    quantity: item.quantity,
+    unitPrice: item.catalogItem?.basePrice || 0,
+    unit: item.unit,
+    categoryId: item.categoryId,
+    zoneId: item.zoneId,
+    zoneName: item.zoneName,
+    tradeCode: item.catalogItem?.defaultTrade,
+    damageType: undefined, // Would come from zone
+    waterCategory: undefined, // Would come from zone
+  }));
+
+  const zonesForRules: ZoneForRules[] = estimate.zones.map((zone) => ({
+    id: zone.id,
+    name: zone.name,
+    zoneType: zone.zoneType || 'room',
+    roomType: zone.roomType,
+    damageType: zone.damageType,
+    damageSeverity: zone.damageSeverity,
+    waterCategory: zone.waterCategory,
+  }));
+
+  // Add zone damage context to line items
+  const zoneMap = new Map<string, ZoneForRules>();
+  for (const zone of zonesForRules) {
+    zoneMap.set(zone.id, zone);
+  }
+
+  for (const item of lineItemsForRules) {
+    if (item.zoneId) {
+      const zone = zoneMap.get(item.zoneId);
+      if (zone) {
+        item.damageType = zone.damageType;
+        item.waterCategory = zone.waterCategory;
+      }
+    }
+  }
+
+  const estimateForRules: EstimateForRules = {
+    id: estimate.id,
+    carrierProfileId: estimate.carrierProfileId,
+    jurisdictionId: estimate.jurisdictionId,
+    claimTotal: estimate.claimTotal,
+    lineItems: lineItemsForRules,
+    zones: zonesForRules,
+  };
+
+  // Evaluate rules
+  let rulesResult: RulesEvaluationResult | undefined;
+  const carrierIssues: ValidationIssue[] = [];
+  const jurisdictionIssues: ValidationIssue[] = [];
+  const documentationIssues: ValidationIssue[] = [];
+
+  try {
+    rulesResult = await evaluateRules(estimateForRules);
+
+    // Convert rules results to validation issues
+    for (const itemResult of rulesResult.lineItemResults) {
+      // Denied items
+      if (itemResult.status === 'denied') {
+        const zone = estimate.zones.find((z) =>
+          estimate.lineItems.find(
+            (li) => li.code === itemResult.lineItemCode && li.zoneId === z.id
+          )
+        );
+
+        carrierIssues.push({
+          code: 'RULE001',
+          severity: 'warning',
+          category: 'dependency', // Use existing category for compatibility
+          message: `${itemResult.lineItemCode} denied by carrier/jurisdiction rules`,
+          details: itemResult.explanation,
+          suggestion: 'Review carrier guidelines or request exception approval',
+          relatedItems: [itemResult.lineItemCode],
+          zoneId: zone?.id,
+          zoneName: zone?.name,
+          carrierSensitive: true,
+        });
+      }
+
+      // Modified items
+      if (itemResult.status === 'modified') {
+        const modifications: string[] = [];
+        if (itemResult.modifiedQuantity !== undefined) {
+          modifications.push(
+            `quantity: ${itemResult.originalQuantity} → ${itemResult.modifiedQuantity}`
+          );
+        }
+        if (itemResult.modifiedUnitPrice !== undefined) {
+          modifications.push(
+            `price: $${itemResult.originalUnitPrice} → $${itemResult.modifiedUnitPrice}`
+          );
+        }
+
+        carrierIssues.push({
+          code: 'RULE002',
+          severity: 'warning',
+          category: 'quantity', // Use existing category
+          message: `${itemResult.lineItemCode} modified by carrier/jurisdiction rules`,
+          details: `Modifications: ${modifications.join(', ')}. ${itemResult.explanation}`,
+          relatedItems: [itemResult.lineItemCode],
+          carrierSensitive: true,
+        });
+      }
+
+      // Documentation requirements
+      if (itemResult.documentationRequired.length > 0) {
+        documentationIssues.push({
+          code: 'RULE003',
+          severity: 'info',
+          category: 'completeness', // Use existing category
+          message: `${itemResult.lineItemCode} requires documentation`,
+          details: `Required: ${itemResult.documentationRequired.join(', ')}`,
+          suggestion: 'Ensure required documentation is attached before submission',
+          relatedItems: [itemResult.lineItemCode],
+          carrierSensitive: true,
+        });
+      }
+
+      // Warnings
+      if (itemResult.status === 'warning') {
+        const ruleSource = itemResult.appliedRules[0]?.ruleSource || 'carrier';
+        const targetArray = ruleSource === 'jurisdiction' ? jurisdictionIssues : carrierIssues;
+
+        targetArray.push({
+          code: 'RULE004',
+          severity: 'info',
+          category: 'completeness',
+          message: `${itemResult.lineItemCode} has rule warnings`,
+          details: itemResult.explanation,
+          relatedItems: [itemResult.lineItemCode],
+          carrierSensitive: true,
+        });
+      }
+    }
+
+    // Estimate-level effects
+    for (const effect of rulesResult.estimateEffects) {
+      const targetArray = effect.ruleSource === 'jurisdiction' ? jurisdictionIssues : carrierIssues;
+
+      targetArray.push({
+        code: 'RULE005',
+        severity: 'info',
+        category: 'coverage',
+        message: effect.ruleName,
+        details: effect.explanation,
+        carrierSensitive: true,
+      });
+    }
+  } catch (error) {
+    // Rules evaluation failed - log but don't fail validation
+    console.error('Rules evaluation failed:', error);
+  }
+
+  // Merge all issues
+  const allIssues = [
+    ...baseResult.issues,
+    ...carrierIssues,
+    ...jurisdictionIssues,
+    ...documentationIssues,
+  ];
+
+  // Recalculate counts
+  const errorCount = allIssues.filter((i) => i.severity === 'error').length;
+  const warningCount = allIssues.filter((i) => i.severity === 'warning').length;
+  const infoCount = allIssues.filter((i) => i.severity === 'info').length;
+
+  // Rebuild category grouping
+  const byCategory: Record<ValidationCategory, ValidationIssue[]> = {
+    dependency: [],
+    quantity: [],
+    exclusion: [],
+    replacement: [],
+    completeness: [],
+    depreciation: [],
+    coverage: [],
+  };
+
+  for (const issue of allIssues) {
+    if (byCategory[issue.category]) {
+      byCategory[issue.category].push(issue);
+    }
+  }
+
+  // Rebuild zone grouping
+  const byZone: Record<string, ValidationIssue[]> = {};
+  for (const issue of allIssues) {
+    const zoneKey = issue.zoneId || 'global';
+    if (!byZone[zoneKey]) {
+      byZone[zoneKey] = [];
+    }
+    byZone[zoneKey].push(issue);
+  }
+
+  return {
+    ...baseResult,
+    isValid: errorCount === 0,
+    issueCount: allIssues.length,
+    errorCount,
+    warningCount,
+    infoCount,
+    issues: allIssues,
+    byCategory,
+    byZone,
+    rulesResult,
+    carrierIssues,
+    jurisdictionIssues,
+    documentationIssues,
+  };
+}
+
+/**
+ * Get rules validation summary for API response
+ */
+export function getRulesValidationSummary(result: ExtendedValidationResult): {
+  isValid: boolean;
+  standardIssueCount: number;
+  carrierIssueCount: number;
+  jurisdictionIssueCount: number;
+  documentationIssueCount: number;
+  deniedItems: number;
+  modifiedItems: number;
+  topIssues: Array<{ code: string; severity: string; message: string; source?: string }>;
+} {
+  return {
+    isValid: result.isValid,
+    standardIssueCount: result.issues.length - result.carrierIssues.length - result.jurisdictionIssues.length - result.documentationIssues.length,
+    carrierIssueCount: result.carrierIssues.length,
+    jurisdictionIssueCount: result.jurisdictionIssues.length,
+    documentationIssueCount: result.documentationIssues.length,
+    deniedItems: result.rulesResult?.deniedItems || 0,
+    modifiedItems: result.rulesResult?.modifiedItems || 0,
+    topIssues: result.issues.slice(0, 15).map((i) => ({
+      code: i.code,
+      severity: i.severity,
+      message: i.message,
+      source: i.code.startsWith('RULE') ? 'rules' : 'standard',
+    })),
+  };
+}
+
+/**
+ * Format extended validation result for display
+ */
+export function formatExtendedValidationResult(result: ExtendedValidationResult): string {
+  const lines: string[] = [
+    formatValidationResult(result),
+    '',
+  ];
+
+  if (result.rulesResult) {
+    lines.push('=== Carrier/Jurisdiction Rules ===');
+    lines.push(`Carrier Profile: ${result.rulesResult.carrierProfileId || 'None'}`);
+    lines.push(`Jurisdiction: ${result.rulesResult.jurisdictionId || 'None'}`);
+    lines.push('');
+    lines.push('Rule Results:');
+    lines.push(`  Allowed: ${result.rulesResult.allowedItems}`);
+    lines.push(`  Modified: ${result.rulesResult.modifiedItems}`);
+    lines.push(`  Denied: ${result.rulesResult.deniedItems}`);
+    lines.push(`  Warnings: ${result.rulesResult.warningItems}`);
+    lines.push('');
+  }
+
+  if (result.carrierIssues.length > 0) {
+    lines.push('CARRIER ISSUES:');
+    for (const issue of result.carrierIssues) {
+      lines.push(`  [${issue.code}] ${issue.message}`);
+      if (issue.details) {
+        lines.push(`    ${issue.details}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (result.jurisdictionIssues.length > 0) {
+    lines.push('JURISDICTION ISSUES:');
+    for (const issue of result.jurisdictionIssues) {
+      lines.push(`  [${issue.code}] ${issue.message}`);
+      if (issue.details) {
+        lines.push(`    ${issue.details}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (result.documentationIssues.length > 0) {
+    lines.push('DOCUMENTATION REQUIREMENTS:');
+    for (const issue of result.documentationIssues) {
+      lines.push(`  [${issue.code}] ${issue.message}`);
+      if (issue.details) {
+        lines.push(`    ${issue.details}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
