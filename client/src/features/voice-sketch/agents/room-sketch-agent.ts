@@ -68,6 +68,33 @@ EDITING AND CORRECTIONS:
 - For damage corrections: "Change that to Category 3" → use edit_damage_zone
 - If adjuster wants to start over: "Delete this room" → use delete_room
 
+FEATURE PLACEMENT (CRITICAL - PANTRIES, CLOSETS, ALCOVES):
+Features like pantries, closets, and alcoves are BUILT INTO walls—they are recessed spaces that reduce the usable floor area of the room. They are NOT separate rooms placed inside the parent room.
+
+When placing wall-embedded features:
+- "wall" = which wall the feature is recessed INTO (north, south, east, west)
+- "width_ft" = how wide the feature opening is along the wall
+- "depth_ft" = how deep the feature extends INTO that wall (like a closet depth)
+- "position" = where along the wall the feature is located
+
+Example interpretations:
+- "Add a 2 by 3 pantry on the north wall" → wall='north', width_ft=2, depth_ft=3
+- "Pantry in the corner, 3 feet deep, 2 feet wide" → Ask which corner/wall, then width_ft=2, depth_ft=3
+- "There's a small closet next to the fridge" → Ask for wall and dimensions, type='closet'
+
+FREESTANDING FEATURES (ISLANDS, PENINSULAS):
+Islands and peninsulas are freestanding features that sit in the middle of the floor space.
+
+When the adjuster mentions an island:
+1. Get the dimensions (width and depth)
+2. Ask for positioning if not clear: "How far from which walls?"
+3. Use wall='freestanding' and position='center' unless they specify otherwise
+
+Position guidance for islands:
+- If adjuster says "centered" or doesn't specify → position='center'
+- If adjuster says "3 feet from the south wall" → This means the island's SOUTH EDGE is 3 feet from the room's south wall. Ask for the second axis: "And how far from the east or west wall?"
+- For now, if they only give one measurement, use 'center' for the other axis and note it
+
 EXAMPLE FLOW:
 User: "Starting in the master bedroom, it's about fourteen by eighteen"
 You: [call create_room tool] "Got it—master bedroom, 14 by 18. Where's the entry door?"
@@ -92,6 +119,19 @@ You: [call delete_opening tool] "Removed one window from north wall. Anything el
 
 User: "That's it"
 You: [call confirm_room tool] "Master bedroom complete. Ready for the next room when you are."
+
+KITCHEN EXAMPLE WITH PANTRY AND ISLAND:
+User: "Kitchen is 12 by 14"
+You: [call create_room tool] "12 by 14 kitchen. Where's the entry?"
+
+User: "There's a pantry on the east wall, 3 feet deep and 2 feet wide"
+You: [call add_feature with type='closet', wall='east', width_ft=2, depth_ft=3] "Added 2 by 3 pantry on the east wall. Any other features?"
+
+User: "Put an island in the middle, 4 by 3"
+You: [call add_feature with type='island', wall='freestanding', width_ft=4, depth_ft=3, position='center'] "Added 4 by 3 island in the center. Anything else?"
+
+User: "Actually, move the island 3 feet from the south wall"
+You: [call add_note with target='island', note='Island positioned 3 feet from south wall'] "Noted that island is 3 feet from the south wall. How far from the east or west wall, or is it centered east-to-west?"
 
 ERROR HANDLING:
 - If you can't parse a dimension: "I didn't catch that measurement—how many feet?"
@@ -139,12 +179,24 @@ const addOpeningTool = tool({
 // Tool: Add closet, alcove, bump-out, or built-in
 const addFeatureTool = tool({
   name: 'add_feature',
-  description: 'Add architectural features like closets, alcoves, islands, peninsulas, fireplaces, or built-ins to the room.',
+  description: `Add architectural features to the room. 
+  
+WALL-EMBEDDED features (closet, alcove, pantry, bump_out, fireplace, built_in):
+- These are RECESSED INTO a wall, reducing floor space
+- Set wall to north/south/east/west (which wall it's built into)
+- width_ft = opening width along the wall
+- depth_ft = how deep INTO the wall the feature extends (like a closet depth)
+
+FREESTANDING features (island, peninsula):
+- These sit on the floor, not attached to walls
+- Set wall='freestanding'
+- width_ft and depth_ft = the footprint dimensions
+- position='center' unless user specifies otherwise`,
   parameters: z.object({
-    type: z.enum(['closet', 'alcove', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).describe('Type of feature'),
-    wall: z.enum(['north', 'south', 'east', 'west', 'freestanding']).describe('Which wall the feature is on, or freestanding for islands'),
-    width_ft: z.number().describe('Width in feet'),
-    depth_ft: z.number().describe('Depth in feet (how far it extends from the wall)'),
+    type: z.enum(['closet', 'alcove', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).describe('Type of feature. Use "closet" for pantries.'),
+    wall: z.enum(['north', 'south', 'east', 'west', 'freestanding']).describe('Which wall the feature is built INTO (for closets/alcoves/pantries), or "freestanding" for islands/peninsulas'),
+    width_ft: z.number().describe('Width in feet (along the wall for wall features, or footprint width for islands)'),
+    depth_ft: z.number().describe('Depth in feet. For wall features: how deep INTO the wall. For islands: footprint depth.'),
     position: z.union([
       z.enum(['left', 'center', 'right']),
       z.number().describe('Feet from the reference point')
