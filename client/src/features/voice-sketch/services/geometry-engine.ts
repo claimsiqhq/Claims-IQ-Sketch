@@ -103,7 +103,13 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     }
 
     const now = new Date().toISOString();
-    const polygon = generatePolygon(params.shape, params.width_ft, params.length_ft);
+    const polygon = generatePolygon(
+      params.shape,
+      params.width_ft,
+      params.length_ft,
+      params.l_shape_config,
+      params.t_shape_config
+    );
     const roomName = normalizeRoomName(params.name);
 
     const newRoom: RoomGeometry = {
@@ -120,6 +126,8 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       notes: [],
       created_at: now,
       updated_at: now,
+      l_shape_config: params.l_shape_config,
+      t_shape_config: params.t_shape_config,
     };
 
     const command: GeometryCommand = {
@@ -312,13 +320,25 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     switch (params.target) {
       case 'room_width':
         updatedRoom.width_ft = params.new_value_ft;
-        updatedRoom.polygon = generatePolygon(updatedRoom.shape, params.new_value_ft, updatedRoom.length_ft);
+        updatedRoom.polygon = generatePolygon(
+          updatedRoom.shape,
+          params.new_value_ft,
+          updatedRoom.length_ft,
+          updatedRoom.l_shape_config,
+          updatedRoom.t_shape_config
+        );
         resultMessage = `Updated room width to ${formatDimension(params.new_value_ft)}`;
         break;
 
       case 'room_length':
         updatedRoom.length_ft = params.new_value_ft;
-        updatedRoom.polygon = generatePolygon(updatedRoom.shape, updatedRoom.width_ft, params.new_value_ft);
+        updatedRoom.polygon = generatePolygon(
+          updatedRoom.shape,
+          updatedRoom.width_ft,
+          params.new_value_ft,
+          updatedRoom.l_shape_config,
+          updatedRoom.t_shape_config
+        );
         resultMessage = `Updated room length to ${formatDimension(params.new_value_ft)}`;
         break;
 
@@ -571,19 +591,37 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     if (params.new_shape) {
       changes.push(`shape to ${params.new_shape}`);
       updatedRoom.shape = params.new_shape;
-      updatedRoom.polygon = generatePolygon(params.new_shape, updatedRoom.width_ft, updatedRoom.length_ft);
+      updatedRoom.polygon = generatePolygon(
+        params.new_shape,
+        updatedRoom.width_ft,
+        updatedRoom.length_ft,
+        updatedRoom.l_shape_config,
+        updatedRoom.t_shape_config
+      );
     }
 
     if (params.new_width_ft !== undefined) {
       changes.push(`width to ${formatDimension(params.new_width_ft)}`);
       updatedRoom.width_ft = params.new_width_ft;
-      updatedRoom.polygon = generatePolygon(updatedRoom.shape, params.new_width_ft, updatedRoom.length_ft);
+      updatedRoom.polygon = generatePolygon(
+        updatedRoom.shape,
+        params.new_width_ft,
+        updatedRoom.length_ft,
+        updatedRoom.l_shape_config,
+        updatedRoom.t_shape_config
+      );
     }
 
     if (params.new_length_ft !== undefined) {
       changes.push(`length to ${formatDimension(params.new_length_ft)}`);
       updatedRoom.length_ft = params.new_length_ft;
-      updatedRoom.polygon = generatePolygon(updatedRoom.shape, updatedRoom.width_ft, params.new_length_ft);
+      updatedRoom.polygon = generatePolygon(
+        updatedRoom.shape,
+        updatedRoom.width_ft,
+        params.new_length_ft,
+        updatedRoom.l_shape_config,
+        updatedRoom.t_shape_config
+      );
     }
 
     if (params.new_ceiling_height_ft !== undefined) {

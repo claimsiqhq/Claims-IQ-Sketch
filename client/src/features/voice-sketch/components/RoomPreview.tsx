@@ -53,23 +53,46 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const lastTouchDistance = useRef<number | null>(null);
 
+  // Helper to calculate polygon bounding box
+  const getPolygonBounds = useCallback((polygon: { x: number; y: number }[]) => {
+    if (polygon.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    let minX = polygon[0].x, maxX = polygon[0].x;
+    let minY = polygon[0].y, maxY = polygon[0].y;
+    for (const p of polygon) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y);
+      maxY = Math.max(maxY, p.y);
+    }
+    return { minX, minY, maxX, maxY };
+  }, []);
+
   // Calculate canvas dimensions and scale
   const { canvasWidth, canvasHeight, scale, offsetX, offsetY } = useMemo(() => {
     if (!room) {
       return { canvasWidth: 400, canvasHeight: 400, scale: PIXELS_PER_FOOT, offsetX: PADDING, offsetY: PADDING };
     }
 
-    const roomWidthPx = room.width_ft * PIXELS_PER_FOOT;
-    const roomHeightPx = room.length_ft * PIXELS_PER_FOOT;
+    // Use polygon bounds to handle L/T shapes with negative coordinates
+    const bounds = getPolygonBounds(room.polygon);
+    const polyWidth = bounds.maxX - bounds.minX;
+    const polyHeight = bounds.maxY - bounds.minY;
+
+    const roomWidthPx = polyWidth * PIXELS_PER_FOOT;
+    const roomHeightPx = polyHeight * PIXELS_PER_FOOT;
+
+    // Offset accounts for negative coordinates in the polygon
+    const adjustedOffsetX = PADDING - bounds.minX * PIXELS_PER_FOOT;
+    const adjustedOffsetY = PADDING - bounds.minY * PIXELS_PER_FOOT;
 
     return {
       canvasWidth: roomWidthPx + PADDING * 2,
       canvasHeight: roomHeightPx + PADDING * 2,
       scale: PIXELS_PER_FOOT,
-      offsetX: PADDING,
-      offsetY: PADDING,
+      offsetX: adjustedOffsetX,
+      offsetY: adjustedOffsetY,
     };
-  }, [room]);
+  }, [room, getPolygonBounds]);
 
   // Calculate expanded canvas dimensions (larger scale for detail)
   const EXPANDED_PIXELS_PER_FOOT = 40; // Double the resolution
@@ -79,17 +102,26 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
       return { width: 800, height: 800, scale: EXPANDED_PIXELS_PER_FOOT, offsetX: EXPANDED_PADDING, offsetY: EXPANDED_PADDING };
     }
 
-    const roomWidthPx = room.width_ft * EXPANDED_PIXELS_PER_FOOT;
-    const roomHeightPx = room.length_ft * EXPANDED_PIXELS_PER_FOOT;
+    // Use polygon bounds to handle L/T shapes with negative coordinates
+    const bounds = getPolygonBounds(room.polygon);
+    const polyWidth = bounds.maxX - bounds.minX;
+    const polyHeight = bounds.maxY - bounds.minY;
+
+    const roomWidthPx = polyWidth * EXPANDED_PIXELS_PER_FOOT;
+    const roomHeightPx = polyHeight * EXPANDED_PIXELS_PER_FOOT;
+
+    // Offset accounts for negative coordinates in the polygon
+    const adjustedOffsetX = EXPANDED_PADDING - bounds.minX * EXPANDED_PIXELS_PER_FOOT;
+    const adjustedOffsetY = EXPANDED_PADDING - bounds.minY * EXPANDED_PIXELS_PER_FOOT;
 
     return {
       width: roomWidthPx + EXPANDED_PADDING * 2,
       height: roomHeightPx + EXPANDED_PADDING * 2,
       scale: EXPANDED_PIXELS_PER_FOOT,
-      offsetX: EXPANDED_PADDING,
-      offsetY: EXPANDED_PADDING,
+      offsetX: adjustedOffsetX,
+      offsetY: adjustedOffsetY,
     };
-  }, [room]);
+  }, [room, getPolygonBounds]);
 
   // Touch event handlers for pinch-to-zoom
   const getTouchDistance = useCallback((touches: React.TouchList) => {
@@ -468,17 +500,45 @@ function drawRoomOutline(
   offsetY: number,
   scale: number
 ) {
-  const w = room.width_ft * scale;
-  const h = room.length_ft * scale;
+  const polygon = room.polygon;
 
-  // Fill with light background
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(offsetX, offsetY, w, h);
+  // For non-rectangular shapes, use the polygon path
+  if (room.shape !== 'rectangle' && polygon.length > 0) {
+    ctx.beginPath();
+    
+    // Move to first point
+    ctx.moveTo(offsetX + polygon[0].x * scale, offsetY + polygon[0].y * scale);
+    
+    // Draw lines to each subsequent point
+    for (let i = 1; i < polygon.length; i++) {
+      ctx.lineTo(offsetX + polygon[i].x * scale, offsetY + polygon[i].y * scale);
+    }
+    
+    // Close the path
+    ctx.closePath();
+    
+    // Fill with light background
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
 
-  // Draw walls
-  ctx.strokeStyle = COLORS.wall;
-  ctx.lineWidth = WALL_STROKE_WIDTH;
-  ctx.strokeRect(offsetX, offsetY, w, h);
+    // Draw walls
+    ctx.strokeStyle = COLORS.wall;
+    ctx.lineWidth = WALL_STROKE_WIDTH;
+    ctx.stroke();
+  } else {
+    // For rectangles, use simple rect for efficiency
+    const w = room.width_ft * scale;
+    const h = room.length_ft * scale;
+
+    // Fill with light background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(offsetX, offsetY, w, h);
+
+    // Draw walls
+    ctx.strokeStyle = COLORS.wall;
+    ctx.lineWidth = WALL_STROKE_WIDTH;
+    ctx.strokeRect(offsetX, offsetY, w, h);
+  }
 }
 
 function drawOpening(
