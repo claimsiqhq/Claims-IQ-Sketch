@@ -750,13 +750,90 @@ function drawDamageZone(
   // Get or generate the damage zone polygon
   let polygon = zone.polygon;
   if (!polygon || polygon.length === 0) {
-    // Generate polygon from wall-extent specification
     polygon = generateDamageZonePolygon(
       room.width_ft,
       room.length_ft,
       zone.affected_walls,
       zone.extent_ft
     );
+  }
+
+  // If polygon is still empty, fall back to rectangle-based rendering per wall
+  if (polygon.length === 0 && zone.affected_walls.length > 0) {
+    const extent = zone.extent_ft || 2;
+    zone.affected_walls.forEach((wall) => {
+      let x: number, y: number, w: number, h: number;
+      switch (wall) {
+        case 'north':
+          x = offsetX;
+          y = offsetY;
+          w = room.width_ft * scale;
+          h = extent * scale;
+          break;
+        case 'south':
+          x = offsetX;
+          y = offsetY + (room.length_ft - extent) * scale;
+          w = room.width_ft * scale;
+          h = extent * scale;
+          break;
+        case 'east':
+          x = offsetX + (room.width_ft - extent) * scale;
+          y = offsetY;
+          w = extent * scale;
+          h = room.length_ft * scale;
+          break;
+        case 'west':
+          x = offsetX;
+          y = offsetY;
+          w = extent * scale;
+          h = room.length_ft * scale;
+          break;
+        default:
+          return;
+      }
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+    });
+
+    // Draw label in first affected wall area
+    const labelText = zone.type.charAt(0).toUpperCase() + zone.type.slice(1);
+    ctx.font = 'bold 10px Inter, sans-serif';
+    const textWidth = ctx.measureText(labelText).width;
+    const firstWall = zone.affected_walls[0];
+    let labelX: number, labelY: number;
+    switch (firstWall) {
+      case 'north':
+        labelX = offsetX + room.width_ft * scale / 2;
+        labelY = offsetY + extent * scale / 2;
+        break;
+      case 'south':
+        labelX = offsetX + room.width_ft * scale / 2;
+        labelY = offsetY + (room.length_ft - extent / 2) * scale;
+        break;
+      case 'east':
+        labelX = offsetX + (room.width_ft - extent / 2) * scale;
+        labelY = offsetY + room.length_ft * scale / 2;
+        break;
+      case 'west':
+        labelX = offsetX + extent * scale / 2;
+        labelY = offsetY + room.length_ft * scale / 2;
+        break;
+      default:
+        labelX = offsetX + room.width_ft * scale / 2;
+        labelY = offsetY + room.length_ft * scale / 2;
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fillRect(labelX - textWidth / 2 - 4, labelY - 7, textWidth + 8, 14);
+    ctx.fillStyle = strokeColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(labelText, labelX, labelY);
+    return;
   }
 
   if (polygon.length === 0) return;
@@ -779,29 +856,25 @@ function drawDamageZone(
   ctx.setLineDash([]);
 
   // Draw damage type label in the center of the zone
-  if (polygon.length > 0) {
-    // Calculate centroid of polygon
-    let cx = 0, cy = 0;
-    for (const p of polygon) {
-      cx += p.x;
-      cy += p.y;
-    }
-    cx = cx / polygon.length * scale + offsetX;
-    cy = cy / polygon.length * scale + offsetY;
-
-    // Draw label background
-    const labelText = zone.type.charAt(0).toUpperCase() + zone.type.slice(1);
-    ctx.font = 'bold 10px Inter, sans-serif';
-    const textWidth = ctx.measureText(labelText).width;
-    
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.fillRect(cx - textWidth / 2 - 4, cy - 7, textWidth + 8, 14);
-    
-    ctx.fillStyle = strokeColor;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(labelText, cx, cy);
+  let cx = 0, cy = 0;
+  for (const p of polygon) {
+    cx += p.x;
+    cy += p.y;
   }
+  cx = cx / polygon.length * scale + offsetX;
+  cy = cy / polygon.length * scale + offsetY;
+
+  const labelText = zone.type.charAt(0).toUpperCase() + zone.type.slice(1);
+  ctx.font = 'bold 10px Inter, sans-serif';
+  const textWidth = ctx.measureText(labelText).width;
+  
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.fillRect(cx - textWidth / 2 - 4, cy - 7, textWidth + 8, 14);
+  
+  ctx.fillStyle = strokeColor;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(labelText, cx, cy);
 }
 
 function drawDimensions(
