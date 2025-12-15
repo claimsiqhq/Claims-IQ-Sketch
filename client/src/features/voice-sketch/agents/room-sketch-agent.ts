@@ -293,15 +293,30 @@ FREESTANDING features (island, peninsula):
 // Tool: Mark damage zone (critical for insurance claims)
 const markDamageTool = tool({
   name: 'mark_damage',
-  description: 'Define a damage zone for insurance claim documentation. CRITICAL: For water damage, always determine the IICRC category (1, 2, or 3). IMPORTANT: If user does not specify extent, use 2 feet as default.',
+  description: `Define a damage zone for insurance claim documentation. CRITICAL: For water damage, always determine the IICRC category (1, 2, or 3). IMPORTANT: If user does not specify extent, use 2 feet as default.
+
+For WALL-BASED damage (most common):
+- Specify affected_walls and extent_ft
+- A polygon will be auto-generated from wall-extent data
+
+For FREEFORM damage (irregular shapes not following walls):
+- Set is_freeform=true
+- Provide polygon as array of points [{x: feet, y: feet}, ...]
+- Polygon coordinates are in room-relative feet (0,0 is northwest corner)
+- Can still specify affected_walls for reference but polygon takes precedence`,
   parameters: z.object({
     type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).describe('Type of damage'),
     category: z.enum(['1', '2', '3']).optional().describe('IICRC category for water damage: 1=clean water, 2=gray water, 3=black water'),
-    affected_walls: z.array(z.enum(['north', 'south', 'east', 'west'])).describe('Which walls are affected'),
+    affected_walls: z.array(z.enum(['north', 'south', 'east', 'west'])).describe('Which walls are affected (required for wall-based, optional for freeform)'),
     floor_affected: z.boolean().default(true).describe('Is the floor affected?'),
     ceiling_affected: z.boolean().default(false).describe('Is the ceiling affected?'),
     extent_ft: z.number().default(2).describe('How far the damage extends from the wall in feet. Default 2 feet if not specified by user.'),
     source: z.string().optional().describe('Source of damage, e.g., "burst pipe under sink", "roof leak", "adjacent bathroom"'),
+    polygon: z.array(z.object({
+      x: z.number().describe('X coordinate in feet from west wall'),
+      y: z.number().describe('Y coordinate in feet from north wall'),
+    })).optional().describe('Custom polygon for freeform damage zones. Overrides wall-extent calculation.'),
+    is_freeform: z.boolean().optional().describe('Set true for irregular damage zones not attached to walls'),
   }),
   execute: async (params) => {
     return geometryEngine.markDamage(params);
@@ -434,7 +449,7 @@ const deleteFeatureTool = tool({
 // Tool: Edit damage zone properties
 const editDamageZoneTool = tool({
   name: 'edit_damage_zone',
-  description: 'Edit properties of a damage zone. Use when adjuster needs to correct damage category, extent, source, or affected areas.',
+  description: 'Edit properties of a damage zone. Use when adjuster needs to correct damage category, extent, source, affected areas, or polygon boundary.',
   parameters: z.object({
     damage_index: z.number().optional().describe('Index of the damage zone to edit (0-based). If room has only one damage zone, not needed.'),
     new_type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).optional().describe('New damage type'),
@@ -444,6 +459,11 @@ const editDamageZoneTool = tool({
     new_ceiling_affected: z.boolean().optional().describe('Whether ceiling is affected'),
     new_extent_ft: z.number().optional().describe('New extent in feet'),
     new_source: z.string().optional().describe('New source description'),
+    new_polygon: z.array(z.object({
+      x: z.number().describe('X coordinate in feet from west wall'),
+      y: z.number().describe('Y coordinate in feet from north wall'),
+    })).optional().describe('New polygon boundary for the damage zone'),
+    new_is_freeform: z.boolean().optional().describe('Whether the damage zone is freeform'),
   }),
   execute: async (params) => {
     return geometryEngine.editDamageZone(params);

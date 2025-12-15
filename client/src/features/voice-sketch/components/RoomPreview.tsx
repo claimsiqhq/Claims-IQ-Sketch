@@ -828,6 +828,160 @@ function drawDimensions(
   ctx.rotate(Math.PI / 2);
   ctx.fillText(formatDimension(room.length_ft), 0, 0);
   ctx.restore();
+
+  // Draw opening dimensions
+  room.openings.forEach((opening) => {
+    drawOpeningDimension(ctx, opening, room, offsetX, offsetY, scale);
+  });
+
+  // Draw feature dimensions
+  room.features.forEach((feature) => {
+    drawFeatureDimension(ctx, feature, room, offsetX, offsetY, scale);
+  });
+}
+
+function drawOpeningDimension(
+  ctx: CanvasRenderingContext2D,
+  opening: Opening,
+  room: RoomGeometry,
+  offsetX: number,
+  offsetY: number,
+  scale: number
+) {
+  const wallLength = getWallLength(opening.wall, room.width_ft, room.length_ft);
+  const position = calculatePositionInFeet(opening.position, wallLength, opening.width_ft, opening.position_from ?? 'start');
+  const openingWidthPx = opening.width_ft * scale;
+
+  // Position and label offset based on wall
+  let labelX: number, labelY: number;
+  const labelOffset = 14;
+
+  switch (opening.wall) {
+    case 'north':
+      labelX = offsetX + position * scale;
+      labelY = offsetY - labelOffset - 6;
+      break;
+    case 'south':
+      labelX = offsetX + position * scale;
+      labelY = offsetY + room.length_ft * scale + labelOffset + 6;
+      break;
+    case 'east':
+      labelX = offsetX + room.width_ft * scale + labelOffset + 12;
+      labelY = offsetY + position * scale;
+      break;
+    case 'west':
+      labelX = offsetX - labelOffset - 12;
+      labelY = offsetY + position * scale;
+      break;
+  }
+
+  // Draw dimension label with background
+  const dimText = formatDimension(opening.width_ft);
+  ctx.font = '9px Inter, sans-serif';
+  const textWidth = ctx.measureText(dimText).width;
+
+  // Background pill
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.beginPath();
+  ctx.roundRect(labelX - textWidth / 2 - 4, labelY - 6, textWidth + 8, 12, 3);
+  ctx.fill();
+
+  // Border
+  ctx.strokeStyle = opening.type.includes('door') ? COLORS.door : COLORS.window;
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = opening.type.includes('door') ? COLORS.door : '#4a90a4';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(dimText, labelX, labelY);
+}
+
+function drawFeatureDimension(
+  ctx: CanvasRenderingContext2D,
+  feature: Feature,
+  room: RoomGeometry,
+  offsetX: number,
+  offsetY: number,
+  scale: number
+) {
+  const featureWidthPx = feature.width_ft * scale;
+  const featureDepthPx = feature.depth_ft * scale;
+  let x: number, y: number;
+
+  if (feature.wall === 'freestanding') {
+    if (feature.x_offset_ft !== undefined) {
+      x = offsetX + feature.x_offset_ft * scale;
+    } else {
+      x = offsetX + (room.width_ft * scale - featureWidthPx) / 2;
+    }
+    if (feature.y_offset_ft !== undefined) {
+      y = offsetY + (room.length_ft * scale - feature.y_offset_ft * scale - featureDepthPx);
+    } else {
+      y = offsetY + (room.length_ft * scale - featureDepthPx) / 2;
+    }
+
+    // Draw dimension below freestanding feature
+    const dimText = `${formatDimension(feature.width_ft)} × ${formatDimension(feature.depth_ft)}`;
+    ctx.font = '8px Inter, sans-serif';
+    const textWidth = ctx.measureText(dimText).width;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(x + featureWidthPx / 2 - textWidth / 2 - 3, y + featureDepthPx + 2, textWidth + 6, 12);
+
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(dimText, x + featureWidthPx / 2, y + featureDepthPx + 4);
+    return;
+  }
+
+  // Wall-attached features
+  const wallLength = getWallLength(feature.wall, room.width_ft, room.length_ft);
+  const position = calculatePositionInFeet(feature.position, wallLength, feature.width_ft, feature.position_from ?? 'start');
+
+  switch (feature.wall) {
+    case 'north':
+      x = offsetX + position * scale - featureWidthPx / 2;
+      y = offsetY;
+      break;
+    case 'south':
+      x = offsetX + position * scale - featureWidthPx / 2;
+      y = offsetY + room.length_ft * scale - featureDepthPx;
+      break;
+    case 'east':
+      x = offsetX + room.width_ft * scale - featureDepthPx;
+      y = offsetY + position * scale - featureWidthPx / 2;
+      break;
+    case 'west':
+      x = offsetX;
+      y = offsetY + position * scale - featureWidthPx / 2;
+      break;
+  }
+
+  // Dimension text
+  const dimText = `${formatDimension(feature.width_ft)}×${formatDimension(feature.depth_ft)}`;
+  ctx.font = '7px Inter, sans-serif';
+  const textWidth = ctx.measureText(dimText).width;
+
+  // Position based on wall
+  let labelX: number, labelY: number;
+  if (feature.wall === 'north' || feature.wall === 'south') {
+    labelX = x + featureWidthPx / 2;
+    labelY = feature.wall === 'north' ? y + featureDepthPx + 8 : y - 8;
+  } else {
+    labelX = feature.wall === 'east' ? x - 8 : x + featureDepthPx + 8;
+    labelY = y + featureWidthPx / 2;
+  }
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fillRect(labelX - textWidth / 2 - 2, labelY - 5, textWidth + 4, 10);
+
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(dimText, labelX, labelY);
 }
 
 function drawWallLabels(
