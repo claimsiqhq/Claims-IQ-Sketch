@@ -952,3 +952,463 @@ export interface RoomInfo {
 export type EstimateStatus = 'draft' | 'sketching' | 'scoping' | 'pricing' | 'review' | 'approved' | 'exported';
 export type ZoneStatus = 'pending' | 'measured' | 'scoped' | 'complete';
 export type ZoneType = 'room' | 'elevation' | 'roof' | 'deck' | 'linear' | 'custom';
+
+// ============================================
+// CARRIER PROFILES TABLE
+// ============================================
+
+export const carrierProfiles = pgTable("carrier_profiles", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+
+  // Identification
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }),
+
+  // Carrier classification
+  carrierType: varchar("carrier_type", { length: 50 }).notNull().default("national"),
+  strictnessLevel: varchar("strictness_level", { length: 20 }).notNull().default("standard"),
+
+  // O&P Rules
+  opThreshold: decimal("op_threshold", { precision: 12, scale: 2 }).default("2500.00"),
+  opTradeMinimum: integer("op_trade_minimum").default(3),
+  opPctOverhead: decimal("op_pct_overhead", { precision: 5, scale: 2 }).default("10.00"),
+  opPctProfit: decimal("op_pct_profit", { precision: 5, scale: 2 }).default("10.00"),
+
+  // Tax Rules
+  taxOnMaterialsOnly: boolean("tax_on_materials_only").default(false),
+  taxOnLabor: boolean("tax_on_labor").default(true),
+  taxOnEquipment: boolean("tax_on_equipment").default(false),
+
+  // Depreciation Rules
+  depreciationMethod: varchar("depreciation_method", { length: 30 }).default("straight_line"),
+  maxDepreciationPct: decimal("max_depreciation_pct", { precision: 5, scale: 2 }).default("80.00"),
+  defaultDepreciationRecoverable: boolean("default_depreciation_recoverable").default(true),
+
+  // Documentation Requirements
+  requiresPhotosAllRooms: boolean("requires_photos_all_rooms").default(false),
+  requiresMoistureReadings: boolean("requires_moisture_readings").default(false),
+  requiresItemizedInvoice: boolean("requires_itemized_invoice").default(true),
+
+  // Rule Configuration
+  ruleConfig: jsonb("rule_config").default(sql`'{}'::jsonb`),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+});
+
+export const insertCarrierProfileSchema = createInsertSchema(carrierProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCarrierProfile = z.infer<typeof insertCarrierProfileSchema>;
+export type CarrierProfile = typeof carrierProfiles.$inferSelect;
+
+// ============================================
+// CARRIER RULES TABLE
+// ============================================
+
+export const carrierRules = pgTable("carrier_rules", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  carrierProfileId: uuid("carrier_profile_id").notNull(),
+
+  // Rule identification
+  ruleCode: varchar("rule_code", { length: 50 }).notNull(),
+  ruleName: varchar("rule_name", { length: 255 }).notNull(),
+  ruleType: varchar("rule_type", { length: 50 }).notNull(),
+
+  // What does this rule affect?
+  targetType: varchar("target_type", { length: 50 }).notNull(),
+  targetValue: varchar("target_value", { length: 100 }),
+
+  // Rule conditions
+  conditions: jsonb("conditions").default(sql`'{}'::jsonb`),
+
+  // Rule effect
+  effectType: varchar("effect_type", { length: 50 }).notNull(),
+  effectValue: jsonb("effect_value").notNull(),
+
+  // Rule metadata
+  explanationTemplate: text("explanation_template"),
+  carrierReference: varchar("carrier_reference", { length: 255 }),
+  effectiveDate: date("effective_date").default(sql`CURRENT_DATE`),
+  expirationDate: date("expiration_date"),
+
+  // Priority
+  priority: integer("priority").default(100),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  profileIdx: index("carrier_rules_profile_idx").on(table.carrierProfileId),
+  typeIdx: index("carrier_rules_type_idx").on(table.ruleType),
+}));
+
+export const insertCarrierRuleSchema = createInsertSchema(carrierRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCarrierRule = z.infer<typeof insertCarrierRuleSchema>;
+export type CarrierRule = typeof carrierRules.$inferSelect;
+
+// ============================================
+// JURISDICTIONS TABLE
+// ============================================
+
+export const jurisdictions = pgTable("jurisdictions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+
+  // Identification
+  code: varchar("code", { length: 20 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  stateCode: varchar("state_code", { length: 10 }),
+  countryCode: varchar("country_code", { length: 10 }).default("US"),
+
+  // Tax Configuration
+  salesTaxRate: decimal("sales_tax_rate", { precision: 6, scale: 4 }).default("0.0000"),
+  laborTaxable: boolean("labor_taxable").default(false),
+  materialsTaxable: boolean("materials_taxable").default(true),
+  equipmentTaxable: boolean("equipment_taxable").default(false),
+
+  // O&P Configuration
+  opAllowed: boolean("op_allowed").default(true),
+  opThresholdOverride: decimal("op_threshold_override", { precision: 12, scale: 2 }),
+  opTradeMinimumOverride: integer("op_trade_minimum_override"),
+  opMaxPct: decimal("op_max_pct", { precision: 5, scale: 2 }).default("20.00"),
+
+  // Labor Restrictions
+  licensedTradesOnly: boolean("licensed_trades_only").default(false),
+  licensedTrades: jsonb("licensed_trades").default(sql`'[]'::jsonb`),
+  laborRateMaximum: jsonb("labor_rate_maximum").default(sql`'{}'::jsonb`),
+
+  // Regional Minimums
+  minimumCharge: decimal("minimum_charge", { precision: 12, scale: 2 }),
+  serviceCallMinimum: decimal("service_call_minimum", { precision: 12, scale: 2 }),
+
+  // Regulatory Constraints
+  regulatoryConstraints: jsonb("regulatory_constraints").default(sql`'{}'::jsonb`),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  stateIdx: index("jurisdictions_state_idx").on(table.stateCode),
+}));
+
+export const insertJurisdictionSchema = createInsertSchema(jurisdictions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertJurisdiction = z.infer<typeof insertJurisdictionSchema>;
+export type Jurisdiction = typeof jurisdictions.$inferSelect;
+
+// ============================================
+// JURISDICTION RULES TABLE
+// ============================================
+
+export const jurisdictionRules = pgTable("jurisdiction_rules", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  jurisdictionId: uuid("jurisdiction_id").notNull(),
+
+  // Rule identification
+  ruleCode: varchar("rule_code", { length: 50 }).notNull(),
+  ruleName: varchar("rule_name", { length: 255 }).notNull(),
+  ruleType: varchar("rule_type", { length: 50 }).notNull(),
+
+  // What does this rule affect?
+  targetType: varchar("target_type", { length: 50 }).notNull(),
+  targetValue: varchar("target_value", { length: 100 }),
+
+  // Rule conditions
+  conditions: jsonb("conditions").default(sql`'{}'::jsonb`),
+
+  // Rule effect
+  effectType: varchar("effect_type", { length: 50 }).notNull(),
+  effectValue: jsonb("effect_value").notNull(),
+
+  // Rule metadata
+  explanationTemplate: text("explanation_template"),
+  regulatoryReference: varchar("regulatory_reference", { length: 255 }),
+  effectiveDate: date("effective_date").default(sql`CURRENT_DATE`),
+  expirationDate: date("expiration_date"),
+
+  // Priority
+  priority: integer("priority").default(100),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  jurisdictionIdx: index("jurisdiction_rules_jurisdiction_idx").on(table.jurisdictionId),
+  typeIdx: index("jurisdiction_rules_type_idx").on(table.ruleType),
+}));
+
+export const insertJurisdictionRuleSchema = createInsertSchema(jurisdictionRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertJurisdictionRule = z.infer<typeof insertJurisdictionRuleSchema>;
+export type JurisdictionRule = typeof jurisdictionRules.$inferSelect;
+
+// ============================================
+// RULE EFFECTS TABLE (Audit Trail)
+// ============================================
+
+export const ruleEffects = pgTable("rule_effects", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+
+  // What was affected
+  estimateId: uuid("estimate_id").notNull(),
+  estimateLineItemId: uuid("estimate_line_item_id"),
+  zoneId: uuid("zone_id"),
+
+  // Rule source
+  ruleSource: varchar("rule_source", { length: 20 }).notNull(),
+  ruleId: uuid("rule_id"),
+  ruleCode: varchar("rule_code", { length: 50 }).notNull(),
+
+  // Effect details
+  effectType: varchar("effect_type", { length: 50 }).notNull(),
+
+  // Values
+  originalValue: jsonb("original_value"),
+  modifiedValue: jsonb("modified_value"),
+
+  // Explanation
+  explanationText: text("explanation_text").notNull(),
+
+  // Metadata
+  appliedAt: timestamp("applied_at").default(sql`NOW()`),
+  appliedBy: varchar("applied_by", { length: 100 }),
+
+  // Override tracking
+  isOverride: boolean("is_override").default(false),
+  overrideReason: text("override_reason"),
+  overrideBy: varchar("override_by", { length: 100 }),
+}, (table) => ({
+  estimateIdx: index("rule_effects_estimate_idx").on(table.estimateId),
+  lineItemIdx: index("rule_effects_line_item_idx").on(table.estimateLineItemId),
+  sourceIdx: index("rule_effects_source_idx").on(table.ruleSource),
+}));
+
+export const insertRuleEffectSchema = createInsertSchema(ruleEffects).omit({
+  id: true,
+  appliedAt: true,
+});
+
+export type InsertRuleEffect = z.infer<typeof insertRuleEffectSchema>;
+export type RuleEffect = typeof ruleEffects.$inferSelect;
+
+// ============================================
+// CARRIER EXCLUDED ITEMS TABLE
+// ============================================
+
+export const carrierExcludedItems = pgTable("carrier_excluded_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  carrierProfileId: uuid("carrier_profile_id").notNull(),
+  lineItemCode: varchar("line_item_code", { length: 50 }).notNull(),
+  exclusionReason: text("exclusion_reason").notNull(),
+  carrierReference: varchar("carrier_reference", { length: 255 }),
+  effectiveDate: date("effective_date").default(sql`CURRENT_DATE`),
+  expirationDate: date("expiration_date"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  profileIdx: index("carrier_excluded_profile_idx").on(table.carrierProfileId),
+  codeIdx: index("carrier_excluded_code_idx").on(table.lineItemCode),
+}));
+
+export type CarrierExcludedItem = typeof carrierExcludedItems.$inferSelect;
+
+// ============================================
+// CARRIER ITEM CAPS TABLE
+// ============================================
+
+export const carrierItemCaps = pgTable("carrier_item_caps", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  carrierProfileId: uuid("carrier_profile_id").notNull(),
+
+  // Target
+  lineItemCode: varchar("line_item_code", { length: 50 }),
+  categoryId: varchar("category_id", { length: 20 }),
+
+  // Caps
+  maxQuantity: decimal("max_quantity", { precision: 12, scale: 4 }),
+  maxQuantityPerZone: decimal("max_quantity_per_zone", { precision: 12, scale: 4 }),
+  maxUnitPrice: decimal("max_unit_price", { precision: 12, scale: 4 }),
+  maxTotalCost: decimal("max_total_cost", { precision: 12, scale: 2 }),
+
+  // Explanation
+  capReason: text("cap_reason"),
+  carrierReference: varchar("carrier_reference", { length: 255 }),
+
+  // Validity
+  effectiveDate: date("effective_date").default(sql`CURRENT_DATE`),
+  expirationDate: date("expiration_date"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  profileIdx: index("carrier_caps_profile_idx").on(table.carrierProfileId),
+  codeIdx: index("carrier_caps_code_idx").on(table.lineItemCode),
+}));
+
+export type CarrierItemCap = typeof carrierItemCaps.$inferSelect;
+
+// ============================================
+// RULE TYPES (TypeScript)
+// ============================================
+
+export type CarrierType = 'national' | 'regional' | 'specialty';
+export type StrictnessLevel = 'lenient' | 'standard' | 'strict';
+export type RuleType = 'exclusion' | 'cap' | 'documentation' | 'combination' | 'modification';
+export type RuleTargetType = 'line_item' | 'category' | 'trade' | 'estimate' | 'tax';
+export type RuleEffectType = 'exclude' | 'cap_quantity' | 'cap_cost' | 'require_doc' | 'warn' | 'modify_pct';
+export type RuleSource = 'carrier' | 'jurisdiction' | 'line_item_default';
+export type LineItemRuleStatus = 'allowed' | 'modified' | 'denied' | 'warning';
+
+// ============================================
+// RULE CONFIGURATION INTERFACES
+// ============================================
+
+export interface CarrierRuleConfig {
+  // Additional carrier-specific settings
+  requiresPreApprovalAbove?: number;
+  defaultJustificationRequired?: boolean;
+  autoApplyDocRequirements?: boolean;
+  [key: string]: unknown;
+}
+
+export interface RegulatoryConstraints {
+  asbestosTestingRequiredPre1980?: boolean;
+  leadTestingRequiredPre1978?: boolean;
+  permitRequired?: boolean;
+  licensedContractorRequired?: boolean;
+  [key: string]: unknown;
+}
+
+export interface RuleConditions {
+  damageType?: string[];
+  waterCategory?: number[];
+  claimTotalMin?: number;
+  claimTotalMax?: number;
+  zoneType?: string[];
+  roomType?: string[];
+  [key: string]: unknown;
+}
+
+export interface ExcludeEffect {
+  reason: string;
+}
+
+export interface CapQuantityEffect {
+  maxQuantity?: number;
+  maxPerZone?: number;
+  reason?: string;
+}
+
+export interface CapCostEffect {
+  maxTotal?: number;
+  maxPerUnit?: number;
+  reason?: string;
+}
+
+export interface RequireDocEffect {
+  required: string[];
+  justificationMinLength?: number;
+}
+
+export interface ModifyPctEffect {
+  multiplier: number;
+  reason: string;
+}
+
+export type RuleEffectValue =
+  | ExcludeEffect
+  | CapQuantityEffect
+  | CapCostEffect
+  | RequireDocEffect
+  | ModifyPctEffect;
+
+// ============================================
+// RULES EVALUATION RESULT INTERFACES
+// ============================================
+
+export interface LineItemRuleResult {
+  lineItemId: string;
+  lineItemCode: string;
+  status: LineItemRuleStatus;
+  originalQuantity?: number;
+  modifiedQuantity?: number;
+  originalUnitPrice?: number;
+  modifiedUnitPrice?: number;
+  documentationRequired: string[];
+  appliedRules: AppliedRule[];
+  explanation: string;
+}
+
+export interface AppliedRule {
+  ruleSource: RuleSource;
+  ruleCode: string;
+  ruleName: string;
+  effectType: RuleEffectType;
+  originalValue?: unknown;
+  modifiedValue?: unknown;
+  explanation: string;
+}
+
+export interface RulesEvaluationResult {
+  estimateId: string;
+  carrierProfileId?: string;
+  jurisdictionId?: string;
+  evaluatedAt: Date;
+
+  // Summary
+  totalItems: number;
+  allowedItems: number;
+  modifiedItems: number;
+  deniedItems: number;
+  warningItems: number;
+
+  // Per-item results
+  lineItemResults: LineItemRuleResult[];
+
+  // Estimate-level effects
+  estimateEffects: AppliedRule[];
+
+  // Full audit log
+  auditLog: RuleAuditEntry[];
+}
+
+export interface RuleAuditEntry {
+  timestamp: Date;
+  ruleSource: RuleSource;
+  ruleCode: string;
+  targetType: RuleTargetType;
+  targetId?: string;
+  effectType: RuleEffectType;
+  originalValue?: unknown;
+  modifiedValue?: unknown;
+  explanation: string;
+}
