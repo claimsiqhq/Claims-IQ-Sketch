@@ -309,7 +309,7 @@ export default function NewClaim() {
       // Endorsements list
       const newEndorsements = extracted.endorsementsListed || pd.endorsementsListed || [];
       if (newEndorsements.length > 0) {
-        merged.endorsementsListed = [...new Set([...(merged.endorsementsListed || []), ...newEndorsements])];
+        merged.endorsementsListed = Array.from(new Set([...(merged.endorsementsListed || []), ...newEndorsements]));
       }
 
       // Third parties
@@ -776,7 +776,7 @@ export default function NewClaim() {
     };
 
     return (
-      <ScrollArea className="mt-4 max-h-96">
+      <ScrollArea className="mt-4 max-h-[500px]">
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
           <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
             <Eye className="w-4 h-4" />
