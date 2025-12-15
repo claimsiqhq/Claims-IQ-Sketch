@@ -16,10 +16,50 @@ PERSONALITY:
 ROOM CREATION FLOW:
 1. Establish room name and basic shape
 2. Get overall dimensions
-3. Add openings (doors, windows) wall by wall
-4. Add features (closets, alcoves, bump-outs)
-5. Mark damage zones if applicable
-6. Confirm and finalize
+3. For L-shaped or T-shaped rooms, get the notch/stem details
+4. Add openings (doors, windows) wall by wall
+5. Add features (closets, alcoves, bump-outs)
+6. Mark damage zones if applicable
+7. Confirm and finalize
+
+L-SHAPED ROOMS:
+When an adjuster describes an L-shaped room:
+1. Get the OVERALL bounding box dimensions first (the full footprint)
+2. Ask: "Which corner has the cutout—northeast, northwest, southeast, or southwest?"
+3. Ask: "How big is the cutout? Give me the width and length of the notch."
+4. Common descriptions and their corner mappings:
+   - "cutout in the back right" = northeast (assuming north is ahead)
+   - "cutout in the front left" = southwest
+   - "it's missing the upper right corner" = northeast
+   - "the L goes up and to the left" = northwest cutout
+5. If unclear, describe it relative to entering: "Standing at the door facing in, which corner is cut out?"
+
+Example L-shape conversation:
+User: "This room is L-shaped, about 16 by 14"
+You: "Got it, L-shaped with overall dimensions 16 by 14. Which corner has the cutout?"
+User: "The back right corner"
+You: "So the northeast corner. How big is that cutout?"
+User: "About 6 by 4"
+You: [call create_room with shape='l_shape', width_ft=16, length_ft=14, l_shape_config={notch_corner='northeast', notch_width_ft=6, notch_length_ft=4}]
+"Created L-shaped room, 16 by 14 with a 6 by 4 cutout in the northeast corner."
+
+T-SHAPED ROOMS:
+When an adjuster describes a T-shaped room:
+1. Get the MAIN body dimensions (the central rectangle)
+2. Ask: "Which wall does the extension come off of—north, south, east, or west?"
+3. Ask: "How big is that extension? Width, depth, and where along the wall?"
+4. Common descriptions:
+   - "there's a bump-out on the back wall" = stem extends from north wall
+   - "the room has an alcove extending off the left side" = stem extends from west wall
+
+Example T-shape conversation:
+User: "The living room is kind of T-shaped, main part is 18 by 12"
+You: "18 by 12 main body. Which wall does the extension come off of?"
+User: "There's a bay window area extending from the north wall, in the middle"
+You: "How wide and how deep is that bay extension?"
+User: "About 8 feet wide and extends out 4 feet"
+You: [call create_room with shape='t_shape', width_ft=18, length_ft=12, t_shape_config={stem_wall='north', stem_width_ft=8, stem_length_ft=4, stem_position_ft=5}]
+"Created T-shaped room, 18 by 12 main area with an 8 by 4 extension on the north wall."
 
 WALL ORIENTATION:
 - When adjuster enters a room, the wall they're facing is "north" by default
@@ -151,13 +191,41 @@ ERROR HANDLING:
 // Tool: Create a new room
 const createRoomTool = tool({
   name: 'create_room',
-  description: 'Initialize a new room with basic shape and dimensions. Call this first when the adjuster starts describing a new room.',
+  description: `Initialize a new room with basic shape and dimensions. Call this first when the adjuster starts describing a new room.
+
+For L-SHAPED rooms (shape='l_shape'):
+- Think of it as a rectangle with one corner cut out
+- Provide the OVERALL bounding box dimensions (width_ft, length_ft)
+- Use l_shape_config to specify which corner is cut out and the notch size
+- notch_corner: 'northeast', 'northwest', 'southeast', or 'southwest'
+- notch_width_ft: how wide the cutout is (along width axis)
+- notch_length_ft: how deep the cutout is (along length axis)
+
+For T-SHAPED rooms (shape='t_shape'):  
+- Think of it as a rectangle with a stem extending from one wall
+- Provide the MAIN body dimensions (width_ft, length_ft)
+- Use t_shape_config to specify the stem
+- stem_wall: which wall the stem extends from ('north', 'south', 'east', 'west')
+- stem_width_ft: width of the stem (perpendicular to the wall)
+- stem_length_ft: how far the stem extends out
+- stem_position_ft: position along the wall where stem starts (from west corner for N/S walls, from north corner for E/W walls)`,
   parameters: z.object({
     name: z.string().describe('Room identifier like master_bedroom, kitchen, bathroom_1, living_room'),
     shape: z.enum(['rectangle', 'l_shape', 't_shape', 'irregular']).describe('Room shape - most rooms are rectangle'),
-    width_ft: z.number().describe('Width in feet'),
-    length_ft: z.number().describe('Length in feet'),
+    width_ft: z.number().describe('Width in feet (overall bounding box for L-shape, main body for T-shape)'),
+    length_ft: z.number().describe('Length in feet (overall bounding box for L-shape, main body for T-shape)'),
     ceiling_height_ft: z.number().default(8).describe('Ceiling height, defaults to 8ft if not specified'),
+    l_shape_config: z.object({
+      notch_corner: z.enum(['northeast', 'northwest', 'southeast', 'southwest']).describe('Which corner has the cutout'),
+      notch_width_ft: z.number().describe('Width of the notch along the width axis'),
+      notch_length_ft: z.number().describe('Length of the notch along the length axis'),
+    }).optional().describe('Configuration for L-shaped rooms - which corner is cut out and notch dimensions'),
+    t_shape_config: z.object({
+      stem_wall: z.enum(['north', 'south', 'east', 'west']).describe('Which wall the stem extends from'),
+      stem_width_ft: z.number().describe('Width of the stem'),
+      stem_length_ft: z.number().describe('How far the stem extends out from the main body'),
+      stem_position_ft: z.number().describe('Position along the wall where stem starts'),
+    }).optional().describe('Configuration for T-shaped rooms - stem location and dimensions'),
   }),
   execute: async (params) => {
     return geometryEngine.createRoom(params);
@@ -305,7 +373,13 @@ const deleteRoomTool = tool({
 // Tool: Edit room properties
 const editRoomTool = tool({
   name: 'edit_room',
-  description: 'Edit room properties like name, shape, or dimensions. Use when the adjuster wants to correct or change room details.',
+  description: `Edit room properties like name, shape, dimensions, or L/T shape configurations. Use when the adjuster wants to correct or change room details.
+
+For L-shaped rooms, you can update the notch configuration:
+- new_l_shape_config to change which corner is cut out or notch dimensions
+
+For T-shaped rooms, you can update the stem configuration:
+- new_t_shape_config to change stem wall, dimensions, or position`,
   parameters: z.object({
     room_name: z.string().optional().describe('Name of the room to edit. If not specified, edits the current room.'),
     new_name: z.string().optional().describe('New name for the room'),
@@ -313,6 +387,17 @@ const editRoomTool = tool({
     new_width_ft: z.number().optional().describe('New width in feet'),
     new_length_ft: z.number().optional().describe('New length in feet'),
     new_ceiling_height_ft: z.number().optional().describe('New ceiling height in feet'),
+    new_l_shape_config: z.object({
+      notch_corner: z.enum(['northeast', 'northwest', 'southeast', 'southwest']).optional().describe('Which corner has the cutout'),
+      notch_width_ft: z.number().optional().describe('Width of the notch along the width axis'),
+      notch_length_ft: z.number().optional().describe('Length of the notch along the length axis'),
+    }).optional().describe('Update L-shape configuration'),
+    new_t_shape_config: z.object({
+      stem_wall: z.enum(['north', 'south', 'east', 'west']).optional().describe('Which wall the stem extends from'),
+      stem_width_ft: z.number().optional().describe('Width of the stem'),
+      stem_length_ft: z.number().optional().describe('How far the stem extends out'),
+      stem_position_ft: z.number().optional().describe('Position along the wall where stem starts'),
+    }).optional().describe('Update T-shape configuration'),
   }),
   execute: async (params) => {
     return geometryEngine.editRoom(params);

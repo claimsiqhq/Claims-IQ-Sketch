@@ -629,6 +629,84 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       updatedRoom.ceiling_height_ft = params.new_ceiling_height_ft;
     }
 
+    // Handle L-shape configuration updates
+    if (params.new_l_shape_config && updatedRoom.shape === 'l_shape') {
+      const currentConfig = updatedRoom.l_shape_config || {
+        notch_corner: 'northeast' as const,
+        notch_width_ft: 4,
+        notch_length_ft: 4,
+      };
+      const newConfig = {
+        ...currentConfig,
+        ...params.new_l_shape_config,
+      };
+      updatedRoom.l_shape_config = newConfig;
+      
+      const configChanges: string[] = [];
+      if (params.new_l_shape_config.notch_corner) {
+        configChanges.push(`notch corner to ${params.new_l_shape_config.notch_corner}`);
+      }
+      if (params.new_l_shape_config.notch_width_ft !== undefined) {
+        configChanges.push(`notch width to ${formatDimension(params.new_l_shape_config.notch_width_ft)}`);
+      }
+      if (params.new_l_shape_config.notch_length_ft !== undefined) {
+        configChanges.push(`notch length to ${formatDimension(params.new_l_shape_config.notch_length_ft)}`);
+      }
+      if (configChanges.length > 0) {
+        changes.push(...configChanges);
+      }
+      
+      // Regenerate polygon with new config
+      updatedRoom.polygon = generatePolygon(
+        updatedRoom.shape,
+        updatedRoom.width_ft,
+        updatedRoom.length_ft,
+        updatedRoom.l_shape_config,
+        updatedRoom.t_shape_config
+      );
+    }
+
+    // Handle T-shape configuration updates
+    if (params.new_t_shape_config && updatedRoom.shape === 't_shape') {
+      const currentConfig = updatedRoom.t_shape_config || {
+        stem_wall: 'north' as const,
+        stem_width_ft: 6,
+        stem_length_ft: 4,
+        stem_position_ft: 3,
+      };
+      const newConfig = {
+        ...currentConfig,
+        ...params.new_t_shape_config,
+      };
+      updatedRoom.t_shape_config = newConfig;
+      
+      const configChanges: string[] = [];
+      if (params.new_t_shape_config.stem_wall) {
+        configChanges.push(`stem wall to ${params.new_t_shape_config.stem_wall}`);
+      }
+      if (params.new_t_shape_config.stem_width_ft !== undefined) {
+        configChanges.push(`stem width to ${formatDimension(params.new_t_shape_config.stem_width_ft)}`);
+      }
+      if (params.new_t_shape_config.stem_length_ft !== undefined) {
+        configChanges.push(`stem length to ${formatDimension(params.new_t_shape_config.stem_length_ft)}`);
+      }
+      if (params.new_t_shape_config.stem_position_ft !== undefined) {
+        configChanges.push(`stem position to ${formatDimension(params.new_t_shape_config.stem_position_ft)}`);
+      }
+      if (configChanges.length > 0) {
+        changes.push(...configChanges);
+      }
+      
+      // Regenerate polygon with new config
+      updatedRoom.polygon = generatePolygon(
+        updatedRoom.shape,
+        updatedRoom.width_ft,
+        updatedRoom.length_ft,
+        updatedRoom.l_shape_config,
+        updatedRoom.t_shape_config
+      );
+    }
+
     if (changes.length === 0) {
       return 'No changes specified. Please provide at least one property to update.';
     }

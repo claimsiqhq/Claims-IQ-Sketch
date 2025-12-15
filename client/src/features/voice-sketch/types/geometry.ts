@@ -187,6 +187,10 @@ export interface EditRoomParams {
   new_width_ft?: number;
   new_length_ft?: number;
   new_ceiling_height_ft?: number;
+  // L-shape configuration updates
+  new_l_shape_config?: Partial<LShapeConfig>;
+  // T-shape configuration updates
+  new_t_shape_config?: Partial<TShapeConfig>;
 }
 
 export interface DeleteOpeningParams {
