@@ -34,6 +34,8 @@ export interface Feature {
   depth_ft: number;
   position: PositionType;
   position_from?: PositionFromType; // 'start' = from north/west corner, 'end' = from south/east corner
+  x_offset_ft?: number; // For freestanding features: distance from west wall (left edge)
+  y_offset_ft?: number; // For freestanding features: distance from south wall (bottom edge)
 }
 
 export interface VoiceDamageZone {
@@ -112,6 +114,8 @@ export interface AddFeatureParams {
   depth_ft: number;
   position: PositionType;
   position_from?: PositionFromType;
+  x_offset_ft?: number; // For freestanding features: distance from west wall (left edge)
+  y_offset_ft?: number; // For freestanding features: distance from south wall (bottom edge)
 }
 
 export interface MarkDamageParams {

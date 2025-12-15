@@ -582,17 +582,44 @@ function drawFeature(
   scale: number
 ) {
   if (feature.wall === 'freestanding') {
-    // Draw freestanding feature (like an island) in center-ish area
+    // Draw freestanding feature (like an island)
     const featureW = feature.width_ft * scale;
     const featureH = feature.depth_ft * scale;
-    const x = offsetX + (room.width_ft * scale - featureW) / 2;
-    const y = offsetY + (room.length_ft * scale - featureH) / 2;
+    
+    // Calculate position based on x_offset_ft and y_offset_ft if provided
+    // x_offset_ft = distance from west wall (left edge)
+    // y_offset_ft = distance from south wall (bottom edge)
+    let x: number, y: number;
+    
+    if (feature.x_offset_ft !== undefined) {
+      // Position from west wall
+      x = offsetX + feature.x_offset_ft * scale;
+    } else {
+      // Default to centered horizontally
+      x = offsetX + (room.width_ft * scale - featureW) / 2;
+    }
+    
+    if (feature.y_offset_ft !== undefined) {
+      // Position from south wall (remember: canvas y increases downward, so we need to flip)
+      // y_offset_ft is distance from south wall, so we calculate from top (north)
+      y = offsetY + (room.length_ft * scale - feature.y_offset_ft * scale - featureH);
+    } else {
+      // Default to centered vertically
+      y = offsetY + (room.length_ft * scale - featureH) / 2;
+    }
 
     ctx.fillStyle = COLORS.island;
     ctx.fillRect(x, y, featureW, featureH);
     ctx.strokeStyle = COLORS.wall;
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y, featureW, featureH);
+    
+    // Draw label
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(feature.type, x + featureW / 2, y + featureH / 2);
     return;
   }
 

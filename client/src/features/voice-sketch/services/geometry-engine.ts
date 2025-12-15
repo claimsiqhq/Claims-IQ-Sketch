@@ -209,9 +209,26 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       depth_ft: params.depth_ft,
       position: params.position,
       position_from: params.position_from ?? 'start',
+      x_offset_ft: params.x_offset_ft,
+      y_offset_ft: params.y_offset_ft,
     };
 
-    const wallDesc = params.wall === 'freestanding' ? 'freestanding' : `on ${params.wall} wall`;
+    // Build description based on wall type
+    let wallDesc = params.wall === 'freestanding' ? 'freestanding' : `on ${params.wall} wall`;
+    
+    // Add position info for freestanding features with offsets
+    if (params.wall === 'freestanding' && (params.x_offset_ft !== undefined || params.y_offset_ft !== undefined)) {
+      const positionParts: string[] = [];
+      if (params.y_offset_ft !== undefined) {
+        positionParts.push(`${formatDimension(params.y_offset_ft)} from south wall`);
+      }
+      if (params.x_offset_ft !== undefined) {
+        positionParts.push(`${formatDimension(params.x_offset_ft)} from west wall`);
+      }
+      if (positionParts.length > 0) {
+        wallDesc = `freestanding, ${positionParts.join(', ')}`;
+      }
+    }
 
     const command: GeometryCommand = {
       id: generateId(),

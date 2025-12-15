@@ -88,12 +88,21 @@ Islands and peninsulas are freestanding features that sit in the middle of the f
 When the adjuster mentions an island:
 1. Get the dimensions (width and depth)
 2. Ask for positioning if not clear: "How far from which walls?"
-3. Use wall='freestanding' and position='center' unless they specify otherwise
+3. Use wall='freestanding' with x_offset_ft and y_offset_ft for precise positioning
 
-Position guidance for islands:
-- If adjuster says "centered" or doesn't specify → position='center'
-- If adjuster says "3 feet from the south wall" → This means the island's SOUTH EDGE is 3 feet from the room's south wall. Ask for the second axis: "And how far from the east or west wall?"
-- For now, if they only give one measurement, use 'center' for the other axis and note it
+Position guidance for islands (CRITICAL - USE x_offset_ft and y_offset_ft):
+- x_offset_ft = distance from west wall (left edge of room)
+- y_offset_ft = distance from south wall (bottom edge of room)
+
+CONVERTING ADJUSTER DESCRIPTIONS TO OFFSETS:
+- "3 feet from the south wall" → y_offset_ft=3
+- "4 feet from the north wall" in a 14ft room → y_offset_ft = 14 - 4 - island_depth = remaining distance from south
+- "3 feet from the west wall" → x_offset_ft=3
+- "4 feet from the east wall" in a 12ft room → x_offset_ft = 12 - 4 - island_width = remaining distance from west
+- "centered east-to-west" in a 12ft room with 4ft island → x_offset_ft = (12 - 4) / 2 = 4
+- "centered" or no position specified → omit offsets (defaults to center)
+
+If adjuster only gives one axis, ask for the other: "And how far from the east or west wall, or is it centered?"
 
 EXAMPLE FLOW:
 User: "Starting in the master bedroom, it's about fourteen by eighteen"
@@ -130,8 +139,8 @@ You: [call add_feature with type='closet', wall='east', width_ft=2, depth_ft=3] 
 User: "Put an island in the middle, 4 by 3"
 You: [call add_feature with type='island', wall='freestanding', width_ft=4, depth_ft=3, position='center'] "Added 4 by 3 island in the center. Anything else?"
 
-User: "Actually, move the island 3 feet from the south wall"
-You: [call add_note with target='island', note='Island positioned 3 feet from south wall'] "Noted that island is 3 feet from the south wall. How far from the east or west wall, or is it centered east-to-west?"
+User: "Actually, the island is 3 feet from the south wall and centered east-to-west"
+You: [call delete_feature with type='island', then call add_feature with type='island', wall='freestanding', width_ft=4, depth_ft=3, position='center', y_offset_ft=3, x_offset_ft=4] "Repositioned the island 3 feet from the south wall, centered east-to-west. Anything else?"
 
 ERROR HANDLING:
 - If you can't parse a dimension: "I didn't catch that measurement—how many feet?"
@@ -191,7 +200,10 @@ FREESTANDING features (island, peninsula):
 - These sit on the floor, not attached to walls
 - Set wall='freestanding'
 - width_ft and depth_ft = the footprint dimensions
-- position='center' unless user specifies otherwise`,
+- Use x_offset_ft and y_offset_ft for precise positioning:
+  - x_offset_ft = distance from west wall (left edge of room)
+  - y_offset_ft = distance from south wall (bottom edge of room)
+- If no offsets provided, defaults to centered`,
   parameters: z.object({
     type: z.enum(['closet', 'alcove', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).describe('Type of feature. Use "closet" for pantries.'),
     wall: z.enum(['north', 'south', 'east', 'west', 'freestanding']).describe('Which wall the feature is built INTO (for closets/alcoves/pantries), or "freestanding" for islands/peninsulas'),
@@ -202,6 +214,8 @@ FREESTANDING features (island, peninsula):
       z.number().describe('Feet from the reference point')
     ]).describe('Position along the wall - left, center, right, or specific feet measurement'),
     position_from: z.enum(['start', 'end']).default('start').describe('Where to measure position from. "start" = beginning of wall (north/west corner), "end" = end of wall (south/east corner). CRITICAL: Use "end" when adjuster says "X feet from south wall" on east/west walls, or "X feet from east wall" on north/south walls.'),
+    x_offset_ft: z.number().optional().describe('For freestanding features: distance from west wall (left edge of room) in feet. Use when adjuster specifies distance from east or west wall.'),
+    y_offset_ft: z.number().optional().describe('For freestanding features: distance from south wall (bottom edge of room) in feet. Use when adjuster specifies distance from north or south wall.'),
   }),
   execute: async (params) => {
     return geometryEngine.addFeature(params);
