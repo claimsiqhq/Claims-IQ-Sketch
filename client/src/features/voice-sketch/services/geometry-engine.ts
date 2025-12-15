@@ -276,6 +276,8 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       ceiling_affected: params.ceiling_affected ?? false,
       extent_ft: params.extent_ft,
       source: params.source,
+      polygon: params.polygon,
+      is_freeform: params.is_freeform,
     };
 
     const categoryStr = params.category ? `Category ${params.category} ` : '';
@@ -902,6 +904,16 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     if (params.new_source) {
       changes.push(`source to "${params.new_source}"`);
       updatedDamageZone.source = params.new_source;
+    }
+
+    if (params.new_polygon) {
+      changes.push(`polygon to custom shape with ${params.new_polygon.length} points`);
+      updatedDamageZone.polygon = params.new_polygon;
+    }
+
+    if (params.new_is_freeform !== undefined) {
+      changes.push(`freeform to ${params.new_is_freeform}`);
+      updatedDamageZone.is_freeform = params.new_is_freeform;
     }
 
     if (changes.length === 0) {

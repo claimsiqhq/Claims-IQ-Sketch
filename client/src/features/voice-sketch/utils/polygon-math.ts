@@ -362,3 +362,154 @@ export function normalizeRoomName(name: string): string {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
 }
+
+// Generate damage zone polygon from wall-extent specification
+// Creates a polygon that extends inward from affected walls by the specified extent
+export function generateDamageZonePolygon(
+  roomWidth: number,
+  roomLength: number,
+  affectedWalls: WallDirection[],
+  extentFt: number
+): Point[] {
+  // If no walls specified, return empty
+  if (affectedWalls.length === 0) return [];
+
+  // For single wall damage, create a simple rectangle along that wall
+  if (affectedWalls.length === 1) {
+    const wall = affectedWalls[0];
+    switch (wall) {
+      case 'north':
+        return [
+          { x: 0, y: 0 },
+          { x: roomWidth, y: 0 },
+          { x: roomWidth, y: extentFt },
+          { x: 0, y: extentFt },
+        ];
+      case 'south':
+        return [
+          { x: 0, y: roomLength - extentFt },
+          { x: roomWidth, y: roomLength - extentFt },
+          { x: roomWidth, y: roomLength },
+          { x: 0, y: roomLength },
+        ];
+      case 'east':
+        return [
+          { x: roomWidth - extentFt, y: 0 },
+          { x: roomWidth, y: 0 },
+          { x: roomWidth, y: roomLength },
+          { x: roomWidth - extentFt, y: roomLength },
+        ];
+      case 'west':
+        return [
+          { x: 0, y: 0 },
+          { x: extentFt, y: 0 },
+          { x: extentFt, y: roomLength },
+          { x: 0, y: roomLength },
+        ];
+    }
+  }
+
+  // For corner damage (2 adjacent walls), create an L-shaped zone
+  const hasNorth = affectedWalls.includes('north');
+  const hasSouth = affectedWalls.includes('south');
+  const hasEast = affectedWalls.includes('east');
+  const hasWest = affectedWalls.includes('west');
+
+  // Two adjacent walls form a corner
+  if (affectedWalls.length === 2) {
+    if (hasNorth && hasWest) {
+      return [
+        { x: 0, y: 0 },
+        { x: roomWidth, y: 0 },
+        { x: roomWidth, y: extentFt },
+        { x: extentFt, y: extentFt },
+        { x: extentFt, y: roomLength },
+        { x: 0, y: roomLength },
+      ];
+    }
+    if (hasNorth && hasEast) {
+      return [
+        { x: 0, y: 0 },
+        { x: roomWidth, y: 0 },
+        { x: roomWidth, y: roomLength },
+        { x: roomWidth - extentFt, y: roomLength },
+        { x: roomWidth - extentFt, y: extentFt },
+        { x: 0, y: extentFt },
+      ];
+    }
+    if (hasSouth && hasWest) {
+      return [
+        { x: 0, y: 0 },
+        { x: extentFt, y: 0 },
+        { x: extentFt, y: roomLength - extentFt },
+        { x: roomWidth, y: roomLength - extentFt },
+        { x: roomWidth, y: roomLength },
+        { x: 0, y: roomLength },
+      ];
+    }
+    if (hasSouth && hasEast) {
+      return [
+        { x: roomWidth - extentFt, y: 0 },
+        { x: roomWidth, y: 0 },
+        { x: roomWidth, y: roomLength },
+        { x: 0, y: roomLength },
+        { x: 0, y: roomLength - extentFt },
+        { x: roomWidth - extentFt, y: roomLength - extentFt },
+      ];
+    }
+    // Opposite walls (north-south or east-west)
+    if (hasNorth && hasSouth) {
+      // Two separate rectangles - return the combined polygon
+      return [
+        { x: 0, y: 0 },
+        { x: roomWidth, y: 0 },
+        { x: roomWidth, y: extentFt },
+        { x: 0, y: extentFt },
+        // Gap in the middle
+        { x: 0, y: roomLength - extentFt },
+        { x: roomWidth, y: roomLength - extentFt },
+        { x: roomWidth, y: roomLength },
+        { x: 0, y: roomLength },
+      ];
+    }
+    if (hasEast && hasWest) {
+      return [
+        { x: 0, y: 0 },
+        { x: extentFt, y: 0 },
+        { x: extentFt, y: roomLength },
+        { x: 0, y: roomLength },
+        // Gap in the middle
+        { x: roomWidth - extentFt, y: 0 },
+        { x: roomWidth, y: 0 },
+        { x: roomWidth, y: roomLength },
+        { x: roomWidth - extentFt, y: roomLength },
+      ];
+    }
+  }
+
+  // Three or four walls - create a perimeter zone
+  const points: Point[] = [];
+  
+  // Outer perimeter (clockwise)
+  points.push({ x: 0, y: 0 });
+  points.push({ x: roomWidth, y: 0 });
+  points.push({ x: roomWidth, y: roomLength });
+  points.push({ x: 0, y: roomLength });
+
+  // If all walls affected, add inner cutout
+  if (hasNorth && hasSouth && hasEast && hasWest) {
+    // Inner rectangle (counterclockwise for cutout)
+    const innerPoints = [
+      { x: extentFt, y: extentFt },
+      { x: extentFt, y: roomLength - extentFt },
+      { x: roomWidth - extentFt, y: roomLength - extentFt },
+      { x: roomWidth - extentFt, y: extentFt },
+    ];
+    // Connect outer to inner with a line and back
+    points.push({ x: 0, y: 0 }); // back to start
+    points.push({ x: extentFt, y: extentFt }); // to inner
+    points.push(...innerPoints);
+  }
+
+  return points;
+}

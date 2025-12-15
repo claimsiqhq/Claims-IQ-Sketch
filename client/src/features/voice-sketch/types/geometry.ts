@@ -66,6 +66,10 @@ export interface VoiceDamageZone {
   extent_ft: number;
   source?: string;
   notes?: string;
+  // Optional polygon for precise damage zone boundaries (overrides wall-extent calculation)
+  polygon?: Point[];
+  // For irregular damage zones that don't follow walls
+  is_freeform?: boolean;
 }
 
 export interface RoomGeometry {
@@ -154,6 +158,10 @@ export interface MarkDamageParams {
   ceiling_affected?: boolean;
   extent_ft: number;
   source?: string;
+  // Optional polygon for precise damage zone boundaries
+  polygon?: Point[];
+  // For freeform damage zones not attached to walls
+  is_freeform?: boolean;
 }
 
 export interface ModifyDimensionParams {
@@ -216,6 +224,10 @@ export interface EditDamageZoneParams {
   new_ceiling_affected?: boolean;
   new_extent_ft?: number;
   new_source?: string;
+  // Optional polygon for precise damage zone boundaries
+  new_polygon?: Point[];
+  // For freeform damage zones
+  new_is_freeform?: boolean;
 }
 
 // Command History for undo/redo
