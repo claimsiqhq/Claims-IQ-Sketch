@@ -10,9 +10,27 @@ export type WaterDamageCategory = '1' | '2' | '3'; // IICRC S500 categories
 export type PositionType = 'left' | 'center' | 'right' | number;
 export type PositionFromType = 'start' | 'end';
 
+// Corner positions for L-shape notch placement
+export type CornerPosition = 'northeast' | 'northwest' | 'southeast' | 'southwest';
+
 export interface Point {
   x: number;
   y: number;
+}
+
+// L-Shape configuration: main rectangle with a notch cut out of one corner
+export interface LShapeConfig {
+  notch_corner: CornerPosition; // Which corner has the cutout
+  notch_width_ft: number; // Width of the notch (along the width axis)
+  notch_length_ft: number; // Length of the notch (along the length axis)
+}
+
+// T-Shape configuration: main rectangle with a stem extending from one wall
+export interface TShapeConfig {
+  stem_wall: WallDirection; // Which wall the stem extends from
+  stem_width_ft: number; // Width of the stem (perpendicular to the wall)
+  stem_length_ft: number; // How far the stem extends out
+  stem_position_ft: number; // Position along the wall (from start)
 }
 
 export interface Opening {
@@ -64,6 +82,12 @@ export interface RoomGeometry {
   notes: RoomNote[];
   created_at: string;
   updated_at: string;
+  // Shape-specific configurations
+  l_shape_config?: LShapeConfig;
+  t_shape_config?: TShapeConfig;
+  // Floor plan positioning (for multi-room layouts)
+  origin_x_ft?: number; // X position in floor plan coordinate space
+  origin_y_ft?: number; // Y position in floor plan coordinate space
 }
 
 export interface RoomNote {
@@ -95,6 +119,10 @@ export interface CreateRoomParams {
   width_ft: number;
   length_ft: number;
   ceiling_height_ft?: number;
+  // L-shape configuration
+  l_shape_config?: LShapeConfig;
+  // T-shape configuration
+  t_shape_config?: TShapeConfig;
 }
 
 export interface AddOpeningParams {
