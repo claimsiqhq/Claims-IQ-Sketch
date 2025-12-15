@@ -6,7 +6,7 @@ import { Home, ZoomIn, ZoomOut, Maximize2, Minimize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { RoomGeometry, Opening, Feature, VoiceDamageZone, WallDirection } from '../types/geometry';
-import { formatDimension, getWallLength, calculatePositionInFeet, formatRoomName } from '../utils/polygon-math';
+import { formatDimension, getWallLength, calculatePositionInFeet, formatRoomName, generateDamageZonePolygon } from '../utils/polygon-math';
 import { cn } from '@/lib/utils';
 
 interface RoomPreviewProps {
@@ -742,75 +742,66 @@ function drawDamageZone(
   scale: number
 ) {
   const color = COLORS.damage[zone.type] || COLORS.damage.water;
-  const extentPx = zone.extent_ft * scale;
+  const strokeColor = zone.type === 'water' ? '#3b82f6' : 
+                      zone.type === 'fire' ? '#ef4444' :
+                      zone.type === 'mold' ? '#22c55e' :
+                      zone.type === 'smoke' ? '#6b7280' : '#f97316';
 
+  // Get or generate the damage zone polygon
+  let polygon = zone.polygon;
+  if (!polygon || polygon.length === 0) {
+    // Generate polygon from wall-extent specification
+    polygon = generateDamageZonePolygon(
+      room.width_ft,
+      room.length_ft,
+      zone.affected_walls,
+      zone.extent_ft
+    );
+  }
+
+  if (polygon.length === 0) return;
+
+  // Draw filled polygon
   ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(offsetX + polygon[0].x * scale, offsetY + polygon[0].y * scale);
+  for (let i = 1; i < polygon.length; i++) {
+    ctx.lineTo(offsetX + polygon[i].x * scale, offsetY + polygon[i].y * scale);
+  }
+  ctx.closePath();
+  ctx.fill();
 
-  zone.affected_walls.forEach((wall) => {
-    let x: number, y: number, width: number, height: number;
-
-    switch (wall) {
-      case 'north':
-        x = offsetX;
-        y = offsetY;
-        width = room.width_ft * scale;
-        height = extentPx;
-        break;
-      case 'south':
-        x = offsetX;
-        y = offsetY + room.length_ft * scale - extentPx;
-        width = room.width_ft * scale;
-        height = extentPx;
-        break;
-      case 'east':
-        x = offsetX + room.width_ft * scale - extentPx;
-        y = offsetY;
-        width = extentPx;
-        height = room.length_ft * scale;
-        break;
-      case 'west':
-        x = offsetX;
-        y = offsetY;
-        width = extentPx;
-        height = room.length_ft * scale;
-        break;
-    }
-
-    ctx.fillRect(x, y, width, height);
-  });
-
-  // Draw damage zone border
-  ctx.strokeStyle = zone.type === 'water' ? '#3b82f6' : '#ef4444';
-  ctx.lineWidth = 1;
+  // Draw dashed border
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 4]);
-
-  zone.affected_walls.forEach((wall) => {
-    const wallLength = getWallLength(wall, room.width_ft, room.length_ft);
-    ctx.beginPath();
-
-    switch (wall) {
-      case 'north':
-        ctx.moveTo(offsetX, offsetY + extentPx);
-        ctx.lineTo(offsetX + wallLength * scale, offsetY + extentPx);
-        break;
-      case 'south':
-        ctx.moveTo(offsetX, offsetY + room.length_ft * scale - extentPx);
-        ctx.lineTo(offsetX + wallLength * scale, offsetY + room.length_ft * scale - extentPx);
-        break;
-      case 'east':
-        ctx.moveTo(offsetX + room.width_ft * scale - extentPx, offsetY);
-        ctx.lineTo(offsetX + room.width_ft * scale - extentPx, offsetY + room.length_ft * scale);
-        break;
-      case 'west':
-        ctx.moveTo(offsetX + extentPx, offsetY);
-        ctx.lineTo(offsetX + extentPx, offsetY + room.length_ft * scale);
-        break;
-    }
-
-    ctx.stroke();
-  });
-
+  ctx.stroke();
   ctx.setLineDash([]);
+
+  // Draw damage type label in the center of the zone
+  if (polygon.length > 0) {
+    // Calculate centroid of polygon
+    let cx = 0, cy = 0;
+    for (const p of polygon) {
+      cx += p.x;
+      cy += p.y;
+    }
+    cx = cx / polygon.length * scale + offsetX;
+    cy = cy / polygon.length * scale + offsetY;
+
+    // Draw label background
+    const labelText = zone.type.charAt(0).toUpperCase() + zone.type.slice(1);
+    ctx.font = 'bold 10px Inter, sans-serif';
+    const textWidth = ctx.measureText(labelText).width;
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fillRect(cx - textWidth / 2 - 4, cy - 7, textWidth + 8, 14);
+    
+    ctx.fillStyle = strokeColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(labelText, cx, cy);
+  }
 }
 
 function drawDimensions(
