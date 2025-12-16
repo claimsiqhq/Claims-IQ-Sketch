@@ -194,14 +194,17 @@ const DocumentPageViewer = ({
   documentName?: string;
   onClose?: () => void;
 }) => {
-  const [imageData, setImageData] = useState<{ pages: number; images: string[] } | null>(null);
+  const [pageCount, setPageCount] = useState(0);
+  const [pageBlobUrls, setPageBlobUrls] = useState<Map<number, string>>(new Map());
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
 
+  // Fetch page count on mount
   useEffect(() => {
-    const loadImages = async () => {
+    const loadPageInfo = async () => {
       setLoading(true);
       try {
         const response = await fetch(`/api/documents/${documentId}/images`, {
@@ -209,17 +212,50 @@ const DocumentPageViewer = ({
         });
         if (response.ok) {
           const data = await response.json();
-          setImageData(data);
+          setPageCount(data.pages);
         }
       } catch (error) {
-        console.error('Failed to load document images:', error);
+        console.error('Failed to load document info:', error);
       } finally {
         setLoading(false);
       }
     };
-
-    loadImages();
+    loadPageInfo();
   }, [documentId]);
+
+  // Fetch current page image as blob when page changes
+  useEffect(() => {
+    if (pageCount === 0) return;
+    
+    // Check if we already have this page
+    if (pageBlobUrls.has(currentPage)) return;
+
+    const loadPageImage = async () => {
+      setPageLoading(true);
+      try {
+        const response = await fetch(`/api/documents/${documentId}/image/${currentPage}`, {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          setPageBlobUrls(prev => new Map(prev).set(currentPage, blobUrl));
+        }
+      } catch (error) {
+        console.error('Failed to load page image:', error);
+      } finally {
+        setPageLoading(false);
+      }
+    };
+    loadPageImage();
+  }, [documentId, currentPage, pageCount, pageBlobUrls]);
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      pageBlobUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -229,7 +265,7 @@ const DocumentPageViewer = ({
     );
   }
 
-  if (!imageData || imageData.images.length === 0) {
+  if (pageCount === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 bg-slate-100 rounded-lg text-muted-foreground">
         <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
@@ -237,6 +273,8 @@ const DocumentPageViewer = ({
       </div>
     );
   }
+
+  const currentImageUrl = pageBlobUrls.get(currentPage);
 
   // Fullscreen modal - shares state with inline viewer
   if (fullscreen) {
@@ -253,12 +291,12 @@ const DocumentPageViewer = ({
             >
               <ChevronLeft className="w-5 h-5" />
             </Button>
-            <span>Page {currentPage} of {imageData.pages}</span>
+            <span>Page {currentPage} of {pageCount}</span>
             <Button 
               variant="ghost" 
               size="sm" 
-              onClick={() => setCurrentPage(p => Math.min(imageData.pages, p + 1))} 
-              disabled={currentPage >= imageData.pages} 
+              onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))} 
+              disabled={currentPage >= pageCount} 
               className="text-white hover:bg-white/20"
             >
               <ChevronRight className="w-5 h-5" />
@@ -298,12 +336,16 @@ const DocumentPageViewer = ({
           </div>
         </div>
         <div className="flex-1 overflow-auto flex items-center justify-center p-4">
-          <img
-            src={imageData.images[currentPage - 1]}
-            alt={`${documentName || 'Document'} - Page ${currentPage}`}
-            style={{ width: zoom > 100 ? `${zoom}%` : undefined, maxWidth: zoom > 100 ? 'none' : undefined }}
-            className={zoom <= 100 ? "max-h-full max-w-full object-contain" : ""}
-          />
+          {pageLoading || !currentImageUrl ? (
+            <Loader2 className="w-8 h-8 animate-spin text-white" />
+          ) : (
+            <img
+              src={currentImageUrl}
+              alt={`${documentName || 'Document'} - Page ${currentPage}`}
+              style={{ width: zoom > 100 ? `${zoom}%` : undefined, maxWidth: zoom > 100 ? 'none' : undefined }}
+              className={zoom <= 100 ? "max-h-full max-w-full object-contain" : ""}
+            />
+          )}
         </div>
       </div>
     );
@@ -324,13 +366,13 @@ const DocumentPageViewer = ({
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <span className="text-xs px-2">
-            {currentPage} / {imageData.pages}
+            {currentPage} / {pageCount}
           </span>
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => setCurrentPage(p => Math.min(imageData.pages, p + 1))} 
-            disabled={currentPage >= imageData.pages}
+            onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))} 
+            disabled={currentPage >= pageCount}
             className="h-7 w-7 p-0"
           >
             <ChevronRight className="w-4 h-4" />
@@ -369,13 +411,17 @@ const DocumentPageViewer = ({
 
       {/* Image display */}
       <div className="overflow-auto p-4 bg-slate-100 max-h-[500px]">
-        <div className="flex justify-center">
-          <img
-            src={imageData.images[currentPage - 1]}
-            alt={`${documentName || 'Document'} - Page ${currentPage}`}
-            style={{ width: `${zoom}%`, maxWidth: 'none' }}
-            className="shadow-lg bg-white"
-          />
+        <div className="flex justify-center items-center min-h-[200px]">
+          {pageLoading || !currentImageUrl ? (
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          ) : (
+            <img
+              src={currentImageUrl}
+              alt={`${documentName || 'Document'} - Page ${currentPage}`}
+              style={{ width: `${zoom}%`, maxWidth: 'none' }}
+              className="shadow-lg bg-white"
+            />
+          )}
         </div>
       </div>
     </div>
