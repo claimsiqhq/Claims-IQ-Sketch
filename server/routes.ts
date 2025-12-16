@@ -4162,26 +4162,23 @@ export async function registerRoutes(
         return res.status(404).json({ error: `Xactimate line item ${lineItemCode} not found` });
       }
       
-      const lineItem = await addLineItemToEstimate(req.params.id, {
-        lineItemCode: xactItem.code,
-        description: xactItem.description,
-        categoryId: xactItem.categoryCode,
-        unit: xactItem.unit,
-        quantity: xactItem.quantity,
-        unitPrice: xactItem.unitPrice,
-        materialCost: xactItem.materialCost,
-        laborCost: xactItem.laborCost,
-        equipmentCost: xactItem.equipmentCost,
-        subtotal: xactItem.subtotal,
-        source: 'xactimate',
-        damageZoneId,
-        roomName,
-        notes,
-      });
+      const insertResult = await db.execute(sql`
+        INSERT INTO estimate_line_items (
+          estimate_id, line_item_code, line_item_description, category_id,
+          quantity, unit, unit_price, material_cost, labor_cost, equipment_cost,
+          subtotal, source, damage_zone_id, room_name, notes
+        ) VALUES (
+          ${req.params.id}, ${xactItem.code}, ${xactItem.description}, ${xactItem.categoryCode},
+          ${xactItem.quantity}, ${xactItem.unit}, ${xactItem.unitPrice}, 
+          ${xactItem.materialCost}, ${xactItem.laborCost}, ${xactItem.equipmentCost},
+          ${xactItem.subtotal}, 'xactimate', ${damageZoneId || null}, ${roomName || null}, ${notes || null}
+        )
+        RETURNING *
+      `);
       
       res.json({
         success: true,
-        lineItem,
+        lineItem: insertResult.rows[0],
         pricing: xactItem,
       });
     } catch (error) {

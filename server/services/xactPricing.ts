@@ -47,21 +47,32 @@ interface XactSearchResult {
   taxable: boolean;
 }
 
-const componentCache = new Map<string, { type: string; amount: number; description: string; unit: string }>();
+const componentCache = new Map<string, { type: string; amount: number; description: string; unit: string; code: string }>();
+const componentByXactId = new Map<string, { type: string; amount: number; description: string; unit: string; code: string }>();
 
 async function loadComponentCache(): Promise<void> {
   if (componentCache.size > 0) return;
   
   const components = await db.select().from(xactComponents);
   for (const comp of components) {
-    componentCache.set(comp.code.toUpperCase(), {
+    const entry = {
       type: comp.componentType,
       amount: parseFloat(comp.amount || "0"),
       description: comp.description,
       unit: comp.unit || "EA",
-    });
+      code: comp.code,
+    };
+    componentCache.set(comp.code.toUpperCase(), entry);
+    
+    if (comp.xactId) {
+      componentByXactId.set(comp.xactId.toUpperCase(), entry);
+      const shortId = comp.xactId.replace(/^[0-9]+/, "");
+      if (shortId) {
+        componentByXactId.set(shortId.toUpperCase(), entry);
+      }
+    }
   }
-  console.log(`Loaded ${componentCache.size} components into cache`);
+  console.log(`Loaded ${componentCache.size} components, ${componentByXactId.size} xact IDs into cache`);
 }
 
 function parseFormula(formula: string): Array<{ code: string; quantity: number }> {
@@ -120,11 +131,12 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
     if (activity.materialFormula) {
       const matParts = parseFormula(activity.materialFormula);
       for (const part of matParts) {
-        const comp = componentCache.get(part.code.toUpperCase());
+        const comp = componentCache.get(part.code.toUpperCase()) 
+          || componentByXactId.get(part.code.toUpperCase());
         if (comp) {
           const total = comp.amount * part.quantity;
           materialComponents.push({
-            code: part.code,
+            code: comp.code,
             type: "material",
             description: comp.description,
             unit: comp.unit,
