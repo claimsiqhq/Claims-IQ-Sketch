@@ -201,7 +201,6 @@ export async function buildPerilAwareClaimContext(
         property_state as "propertyState",
         property_zip as "propertyZip",
         policy_number as "policyNumber",
-        state,
         dwelling_limit as "dwellingLimit",
         wind_hail_deductible as "windHailDeductible",
         coverage_a as "coverageA",
