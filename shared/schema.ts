@@ -1927,3 +1927,22 @@ export const insertXactLineItemSchema = createInsertSchema(xactLineItems).omit({
 });
 
 export type InsertXactLineItem = z.infer<typeof insertXactLineItemSchema>;
+
+export const xactComponents = pgTable("xact_components", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  componentType: varchar("component_type", { length: 20 }).notNull(),
+  code: varchar("code", { length: 50 }).notNull(),
+  description: text("description").notNull(),
+  unit: varchar("unit", { length: 10 }),
+  amount: decimal("amount", { precision: 12, scale: 4 }),
+  xactId: varchar("xact_id", { length: 20 }),
+  
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  codeIdx: index("xact_comp_code_idx").on(table.code),
+  typeIdx: index("xact_comp_type_idx").on(table.componentType),
+}));
+
+export type XactComponent = typeof xactComponents.$inferSelect;

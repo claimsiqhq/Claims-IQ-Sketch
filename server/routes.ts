@@ -5,7 +5,7 @@ import fs from "fs";
 import multer from "multer";
 import { storage } from "./storage";
 import { db } from "./db";
-import { xactCategories, xactLineItems } from "@shared/schema";
+import { xactCategories, xactLineItems, xactComponents } from "@shared/schema";
 import { sql, eq, and } from "drizzle-orm";
 import { runScrapeJob, testScrape, PRODUCT_MAPPINGS, STORE_REGIONS } from "./scraper/homeDepot";
 import {
@@ -3983,6 +3983,7 @@ export async function registerRoutes(
     try {
       const catCount = await db.select({ count: sql<number>`count(*)` }).from(xactCategories);
       const itemCount = await db.select({ count: sql<number>`count(*)` }).from(xactLineItems);
+      const compCount = await db.select({ count: sql<number>`count(*)` }).from(xactComponents);
       
       const topCategories = await db
         .select({
@@ -3994,11 +3995,98 @@ export async function registerRoutes(
         .orderBy(sql`count(*) DESC`)
         .limit(10);
 
+      const componentBreakdown = await db
+        .select({
+          type: xactComponents.componentType,
+          count: sql<number>`count(*)`,
+          avgPrice: sql<number>`avg(amount::numeric)::decimal(10,2)`,
+        })
+        .from(xactComponents)
+        .groupBy(xactComponents.componentType);
+
       res.json({
         totalCategories: Number(catCount[0]?.count || 0),
         totalLineItems: Number(itemCount[0]?.count || 0),
+        totalComponents: Number(compCount[0]?.count || 0),
         topCategories,
+        componentBreakdown,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/components
+   * Search components (materials, equipment, labor) with pricing
+   * Query params:
+   *   - q: search query
+   *   - type: filter by type (material, equipment, labor)
+   *   - limit: max results (default 50, max 500)
+   *   - offset: pagination offset
+   */
+  app.get('/api/xact/components', async (req, res) => {
+    try {
+      const { q, type, limit = '50', offset = '0' } = req.query;
+      const limitNum = Math.min(parseInt(limit as string) || 50, 500);
+      const offsetNum = parseInt(offset as string) || 0;
+
+      const conditions: any[] = [];
+
+      if (q) {
+        const searchTerm = `%${(q as string).toLowerCase()}%`;
+        conditions.push(
+          sql`(LOWER(${xactComponents.description}) LIKE ${searchTerm} 
+               OR LOWER(${xactComponents.code}) LIKE ${searchTerm})`
+        );
+      }
+
+      if (type) {
+        conditions.push(eq(xactComponents.componentType, type as string));
+      }
+
+      let query = db.select().from(xactComponents);
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+
+      const results = await query
+        .orderBy(xactComponents.code)
+        .limit(limitNum)
+        .offset(offsetNum);
+
+      const countResult = await db.select({ count: sql<number>`count(*)` })
+        .from(xactComponents)
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+      res.json({
+        items: results,
+        total: Number(countResult[0]?.count || 0),
+        limit: limitNum,
+        offset: offsetNum,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/components/:code
+   * Get a specific component by code with its price
+   */
+  app.get('/api/xact/components/:code', async (req, res) => {
+    try {
+      const result = await db
+        .select()
+        .from(xactComponents)
+        .where(eq(xactComponents.code, req.params.code.toUpperCase()))
+        .limit(1);
+      if (result.length === 0) {
+        return res.status(404).json({ error: 'Component not found' });
+      }
+      res.json(result[0]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
