@@ -1,14 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
-  FileText,
   Settings,
   LogOut,
-  Menu,
-  X,
   PlusCircle,
-  Bell,
   Mic,
   User,
   ChevronDown,
@@ -28,7 +24,7 @@ import {
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import logoWordmark from "@/assets/logo-wordmark.png";
-import { getMyOrganizations, switchOrganization, type Organization } from "@/lib/api";
+import { useOrganization } from "@/hooks/useOrganization";
 
 interface DesktopLayoutProps {
   children: React.ReactNode;
@@ -41,49 +37,15 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
   const authUser = useStore((state) => state.authUser);
   const logout = useStore((state) => state.logout);
 
-  // Organization state
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
-  const [loadingOrgs, setLoadingOrgs] = useState(true);
-  const [switchingOrg, setSwitchingOrg] = useState(false);
-
-  // Load organizations on mount
-  useEffect(() => {
-    async function loadOrganizations() {
-      try {
-        const result = await getMyOrganizations();
-        setOrganizations(result.organizations);
-        setCurrentOrgId(result.currentOrganizationId || null);
-      } catch (err) {
-        console.error('Failed to load organizations:', err);
-      } finally {
-        setLoadingOrgs(false);
-      }
-    }
-    if (authUser) {
-      loadOrganizations();
-    } else {
-      setLoadingOrgs(false);
-    }
-  }, [authUser]);
-
-  // Handle organization switch
-  const handleSwitchOrg = async (orgId: string) => {
-    if (orgId === currentOrgId || switchingOrg) return;
-
-    setSwitchingOrg(true);
-    try {
-      await switchOrganization(orgId);
-      setCurrentOrgId(orgId);
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to switch organization:', err);
-    } finally {
-      setSwitchingOrg(false);
-    }
-  };
-
-  const currentOrg = organizations.find(o => o.id === currentOrgId);
+  // Organization state from shared hook
+  const {
+    organizations,
+    currentOrgId,
+    currentOrg,
+    loadingOrgs,
+    switchingOrg,
+    handleSwitchOrg,
+  } = useOrganization();
 
   const navItems = [
     { label: "Dashboard", icon: LayoutDashboard, href: "/" },

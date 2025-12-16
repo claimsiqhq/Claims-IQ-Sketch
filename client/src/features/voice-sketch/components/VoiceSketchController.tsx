@@ -10,6 +10,7 @@ import { useGeometryEngine } from '../services/geometry-engine';
 import { VoiceWaveform } from './VoiceWaveform';
 import { RoomPreview } from './RoomPreview';
 import { CommandHistory } from './CommandHistory';
+import { FieldCameraButton } from './FieldCameraButton';
 import { cn } from '@/lib/utils';
 
 interface VoiceSketchControllerProps {
@@ -74,6 +75,16 @@ export function VoiceSketchController({
     setLastToolCall(null);
   };
 
+  const handlePhotoCaptured = useCallback((file: File) => {
+    // Log the captured photo for now - upload logic can be added later
+    console.log('Photo captured in VoiceSketchController:', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    });
+    // TODO: Implement photo upload to associate with current room/sketch
+  }, []);
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* Header with Controls */}
@@ -129,6 +140,14 @@ export function VoiceSketchController({
             <RotateCcw className="h-4 w-4" />
           </Button>
         </div>
+      </div>
+
+      {/* Floating Camera Button - positioned bottom-right on mobile */}
+      <div className="fixed bottom-24 right-4 z-40 sm:hidden">
+        <FieldCameraButton
+          onPhotoCaptured={handlePhotoCaptured}
+          disabled={false}
+        />
       </div>
 
       {/* Error Alert */}
