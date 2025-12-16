@@ -913,43 +913,49 @@ export async function registerRoutes(
   app.get('/api/estimates/:id/lock-status', requireAuth, async (req, res) => {
     try {
       const id = req.params.id;
+      const { pool } = await import('./db');
+      const client = await pool.connect();
       
-      // First try to get lock status by estimate ID
       try {
-        const status = await getEstimateLockStatus(id);
-        return res.json(status);
-      } catch (err) {
-        // If not found by estimate ID, try looking up estimate by claim ID
-        const { pool } = await import('./db');
-        const client = await pool.connect();
-        try {
-          const result = await client.query(
-            `SELECT id, is_locked, status, submitted_at
+        // First try by estimate ID
+        let result = await client.query(
+          `SELECT id, status, finalized_at
+           FROM estimates
+           WHERE id = $1`,
+          [id]
+        );
+        
+        // If not found, try by claim ID
+        if (result.rows.length === 0) {
+          result = await client.query(
+            `SELECT id, status, finalized_at
              FROM estimates
              WHERE claim_id = $1
              ORDER BY created_at DESC
              LIMIT 1`,
             [id]
           );
-          
-          if (result.rows.length === 0) {
-            // No estimate exists for this claim yet - return default unlocked status
-            return res.json({
-              isLocked: false,
-              status: 'none',
-              submittedAt: null,
-            });
-          }
-          
-          const row = result.rows[0];
-          return res.json({
-            isLocked: row.is_locked || false,
-            status: row.status || 'draft',
-            submittedAt: row.submitted_at ? new Date(row.submitted_at) : undefined,
-          });
-        } finally {
-          client.release();
         }
+        
+        if (result.rows.length === 0) {
+          // No estimate exists - return default unlocked status
+          return res.json({
+            isLocked: false,
+            status: 'none',
+            submittedAt: null,
+          });
+        }
+        
+        const row = result.rows[0];
+        const isLocked = row.status === 'submitted' || row.status === 'finalized' || row.finalized_at !== null;
+        
+        return res.json({
+          isLocked,
+          status: row.status || 'draft',
+          submittedAt: row.finalized_at ? new Date(row.finalized_at) : null,
+        });
+      } finally {
+        client.release();
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

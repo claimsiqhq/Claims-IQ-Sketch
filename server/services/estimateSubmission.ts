@@ -190,7 +190,7 @@ export async function getEstimateLockStatus(estimateId: string): Promise<Estimat
 
   try {
     const result = await client.query(
-      `SELECT is_locked, status, submitted_at
+      `SELECT status, finalized_at
        FROM estimates
        WHERE id = $1`,
       [estimateId]
@@ -201,10 +201,12 @@ export async function getEstimateLockStatus(estimateId: string): Promise<Estimat
     }
 
     const row = result.rows[0];
+    const isLocked = row.status === 'submitted' || row.status === 'finalized' || row.finalized_at !== null;
+    
     return {
-      isLocked: row.is_locked || false,
+      isLocked,
       status: row.status || 'draft',
-      submittedAt: row.submitted_at ? new Date(row.submitted_at) : undefined,
+      submittedAt: row.finalized_at ? new Date(row.finalized_at) : undefined,
     };
   } finally {
     client.release();
