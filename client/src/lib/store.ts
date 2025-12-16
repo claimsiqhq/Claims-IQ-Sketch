@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { Claim, User, Room, DamageZone, ClaimLineItem } from './types';
-import { MOCK_CLAIMS, MOCK_USER } from './mock-data';
+import { Claim, Room, DamageZone, ClaimLineItem } from './types';
 import {
   Region,
   CarrierProfile,
@@ -29,7 +28,6 @@ interface StoreState {
   isAuthLoading: boolean;
   authError: string | null;
 
-  user: User;
   claims: Claim[];
   activeClaim: Claim | null;
 
@@ -49,6 +47,7 @@ interface StoreState {
 
   // Actions
   setActiveClaim: (claimId: string | null) => void;
+  ensureClaim: (claimId: string, claimData?: Partial<Claim>) => void;
   updateClaim: (claimId: string, data: Partial<Claim>) => void;
   addRoom: (claimId: string, room: Room) => void;
   updateRoom: (claimId: string, roomId: string, data: Partial<Room>) => void;
@@ -73,8 +72,7 @@ export const useStore = create<StoreState>((set, get) => ({
   isAuthLoading: true, // Start as loading until we check
   authError: null,
 
-  user: MOCK_USER,
-  claims: MOCK_CLAIMS,
+  claims: [],
   activeClaim: null,
 
   // Estimate state defaults
@@ -155,6 +153,36 @@ export const useStore = create<StoreState>((set, get) => ({
     estimateError: null,
   })),
 
+  // Ensures a claim exists in the store, creating it if necessary
+  // This is called when loading a claim from the API to enable sketch operations
+  ensureClaim: (claimId, claimData) => set((state) => {
+    const existingClaim = state.claims.find((c) => c.id === claimId);
+    if (existingClaim) {
+      // Update existing claim with new data and set as active
+      const updatedClaim = { ...existingClaim, ...claimData };
+      return {
+        claims: state.claims.map((c) => c.id === claimId ? updatedClaim : c),
+        activeClaim: updatedClaim,
+      };
+    }
+    // Create new claim with defaults for sketch operations
+    const newClaim: Claim = {
+      id: claimId,
+      claimId: claimData?.claimId || claimId,
+      status: claimData?.status || 'open',
+      rooms: [],
+      damageZones: [],
+      lineItems: [],
+      createdAt: claimData?.createdAt || new Date().toISOString(),
+      updatedAt: claimData?.updatedAt || new Date().toISOString(),
+      ...claimData,
+    };
+    return {
+      claims: [...state.claims, newClaim],
+      activeClaim: newClaim,
+    };
+  }),
+
   updateClaim: (claimId, data) => set((state) => {
     const updatedClaims = state.claims.map((c) =>
       c.id === claimId ? { ...c, ...data, updatedAt: new Date().toISOString() } : c
@@ -169,7 +197,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedClaim = { ...claim, rooms: [...claim.rooms, room], updatedAt: new Date().toISOString() };
+    const rooms = claim.rooms || [];
+    const updatedClaim = { ...claim, rooms: [...rooms, room], updatedAt: new Date().toISOString() };
     return {
       claims: state.claims.map((c) => c.id === claimId ? updatedClaim : c),
       activeClaim: state.activeClaim?.id === claimId ? updatedClaim : state.activeClaim
@@ -180,7 +209,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedRooms = claim.rooms.map((r) => r.id === roomId ? { ...r, ...data } : r);
+    const rooms = claim.rooms || [];
+    const updatedRooms = rooms.map((r) => r.id === roomId ? { ...r, ...data } : r);
     const updatedClaim = { ...claim, rooms: updatedRooms, updatedAt: new Date().toISOString() };
 
     return {
@@ -193,7 +223,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedRooms = claim.rooms.filter((r) => r.id !== roomId);
+    const rooms = claim.rooms || [];
+    const updatedRooms = rooms.filter((r) => r.id !== roomId);
     const updatedClaim = { ...claim, rooms: updatedRooms, updatedAt: new Date().toISOString() };
 
     return {
@@ -206,7 +237,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedClaim = { ...claim, damageZones: [...claim.damageZones, zone], updatedAt: new Date().toISOString() };
+    const damageZones = claim.damageZones || [];
+    const updatedClaim = { ...claim, damageZones: [...damageZones, zone], updatedAt: new Date().toISOString() };
     return {
       claims: state.claims.map((c) => c.id === claimId ? updatedClaim : c),
       activeClaim: state.activeClaim?.id === claimId ? updatedClaim : state.activeClaim
@@ -217,7 +249,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedClaim = { ...claim, lineItems: [...claim.lineItems, item], updatedAt: new Date().toISOString() };
+    const lineItems = claim.lineItems || [];
+    const updatedClaim = { ...claim, lineItems: [...lineItems, item], updatedAt: new Date().toISOString() };
     return {
       claims: state.claims.map((c) => c.id === claimId ? updatedClaim : c),
       activeClaim: state.activeClaim?.id === claimId ? updatedClaim : state.activeClaim,
@@ -229,7 +262,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedLineItems = claim.lineItems.map((item) =>
+    const lineItems = claim.lineItems || [];
+    const updatedLineItems = lineItems.map((item) =>
       item.id === itemId ? { ...item, ...data } : item
     );
     const updatedClaim = { ...claim, lineItems: updatedLineItems, updatedAt: new Date().toISOString() };
@@ -245,7 +279,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const claim = state.claims.find((c) => c.id === claimId);
     if (!claim) return {};
 
-    const updatedLineItems = claim.lineItems.filter((item) => item.id !== itemId);
+    const lineItems = claim.lineItems || [];
+    const updatedLineItems = lineItems.filter((item) => item.id !== itemId);
     const updatedClaim = { ...claim, lineItems: updatedLineItems, updatedAt: new Date().toISOString() };
 
     return {
@@ -297,8 +332,10 @@ export const useStore = create<StoreState>((set, get) => ({
   calculateEstimate: async (claimId) => {
     const state = get();
     const claim = state.claims.find(c => c.id === claimId);
+    const claimLineItems = claim?.lineItems || [];
+    const claimRooms = claim?.rooms || [];
 
-    if (!claim || claim.lineItems.length === 0) {
+    if (!claim || claimLineItems.length === 0) {
       set({ estimateError: 'No line items to calculate' });
       return null;
     }
@@ -311,10 +348,10 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ isCalculating: true, estimateError: null });
 
     try {
-      const lineItems: EstimateLineItemInput[] = claim.lineItems.map(item => ({
+      const lineItems: EstimateLineItemInput[] = claimLineItems.map(item => ({
         lineItemCode: item.code,
         quantity: item.quantity,
-        roomName: claim.rooms[0]?.name, // Use first room as default
+        roomName: claimRooms[0]?.name, // Use first room as default
       }));
 
       const result = await apiCalculateEstimate({
