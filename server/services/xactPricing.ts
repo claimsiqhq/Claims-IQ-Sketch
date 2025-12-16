@@ -193,8 +193,8 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
     categoryCode: item.categoryCode,
     
     materialTotal: Math.round(perUnitMaterial * 100) / 100,
-    laborTotal: Math.round(laborTotal * 100) / 100,
-    equipmentTotal: Math.round(equipmentTotal * 100) / 100,
+    laborTotal: Math.round(perUnitLabor * 100) / 100,
+    equipmentTotal: Math.round(perUnitEquipment * 100) / 100,
     unitPrice: Math.round(unitPrice * 100) / 100,
     
     materialComponents,
