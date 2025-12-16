@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { DeviceModeProvider } from "@/contexts/DeviceModeContext";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
+import MyDay from "@/pages/my-day";
 import Auth from "@/pages/auth";
 import ClaimDetail from "@/pages/claim-detail";
 import NewClaim from "@/pages/new-claim";
@@ -19,6 +20,11 @@ function Router() {
     <Switch>
       <Route path="/auth" component={Auth} />
       <Route path="/">
+        <ProtectedRoute>
+          <MyDay />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/claims">
         <ProtectedRoute>
           <Home />
         </ProtectedRoute>

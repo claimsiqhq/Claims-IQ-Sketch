@@ -192,3 +192,118 @@ export interface User {
   email: string;
   avatar: string;
 }
+
+// ==========================================
+// MY DAY (Adjuster Operations View) Types
+// ==========================================
+
+// Time window for scheduled inspections
+export interface TimeWindow {
+  start: string; // HH:MM format
+  end: string;   // HH:MM format
+}
+
+// Badges that can appear on inspection/claim cards
+export type InspectionBadge = 'mitigation_likely' | 'evidence_at_risk' | 'sla_today' | 'contact_required';
+
+// Weather condition types
+export type WeatherConditionType = 'rain' | 'freeze' | 'wind' | 'heat' | 'storm' | 'clear';
+
+// Risk severity levels
+export type RiskSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+// SLA urgency levels
+export type SlaUrgency = 'normal' | 'warning' | 'critical' | 'breached';
+
+// Inspection stop in today's route
+export interface InspectionStop {
+  id: string;
+  claimId: string;
+  claimNumber: string;
+  insuredName: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  lat?: number;
+  lng?: number;
+  timeWindow: TimeWindow;
+  peril: Peril;
+  reason: string; // "Active water risk", "Inspection scheduled", "SLA today"
+  badges: InspectionBadge[];
+  estimatedDuration: number; // minutes
+  travelTimeFromPrevious?: number; // minutes
+  notes?: string;
+}
+
+// Claims requiring non-field work today
+export interface OnDeckClaim {
+  id: string;
+  claimId: string;
+  claimNumber: string;
+  peril: Peril;
+  reason: string; // "Upload missing photos", "Complete mitigation doc", etc.
+  slaDeadline?: string; // ISO timestamp if applicable
+  slaHoursRemaining?: number;
+  priority: 'low' | 'medium' | 'high';
+}
+
+// Risk/mitigation watch item
+export interface RiskWatchItem {
+  id: string;
+  claimId: string;
+  claimNumber: string;
+  peril: Peril;
+  riskDescription: string; // "Mold window closing", "Roof exposed before rain"
+  hoursUntilCritical: number;
+  severity: RiskSeverity;
+  affectedInspectionId?: string; // Links to inspection if weather affects it
+}
+
+// Weather condition affecting today's work
+export interface WeatherCondition {
+  id: string;
+  type: WeatherConditionType;
+  description: string; // "Rain starting at 2pm"
+  impact: string; // "roof risk", "water loss escalation"
+  startTime?: string; // HH:MM
+  endTime?: string;
+  affectedClaimIds: string[];
+  severity: 'advisory' | 'warning' | 'danger';
+}
+
+// SLA/Hygiene item (collapsible section)
+export interface SlaHygieneItem {
+  id: string;
+  claimId: string;
+  claimNumber: string;
+  issueType: 'missing_artifact' | 'stuck_claim' | 'upcoming_sla';
+  description: string;
+  dueDate?: string;
+  daysOverdue?: number;
+  priority: 'low' | 'medium' | 'high';
+}
+
+// Day context summary for header
+export interface DayContext {
+  adjusterName: string;
+  territory?: string;
+  catEvent?: string;
+  inspectionCount: number;
+  riskCount: number;
+  slaDeadlineCount: number;
+  hasWeatherAlert: boolean;
+  hasSafetyAlert: boolean;
+  hasSlaBreach: boolean;
+}
+
+// Complete My Day data structure
+export interface MyDayData {
+  date: string; // ISO date
+  context: DayContext;
+  route: InspectionStop[];
+  onDeck: OnDeckClaim[];
+  riskWatch: RiskWatchItem[];
+  weather: WeatherCondition[];
+  slaHygiene: SlaHygieneItem[];
+}
