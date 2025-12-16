@@ -18,6 +18,19 @@ import {
   PerilMetadata,
   SECONDARY_PERIL_MAP,
 } from '../../shared/schema';
+import {
+  getInspectionRulesForPeril,
+  getMergedInspectionGuidance,
+  getQuickInspectionTips,
+  getEscalationTriggers,
+  PerilInspectionRule,
+  InspectionPriorityArea,
+  PhotoRequirement,
+  CommonMiss,
+  EscalationTrigger,
+  SketchRequirement,
+  DepreciationGuidance,
+} from '../config/perilInspectionRules';
 
 // ============================================
 // AI CONTEXT INTERFACES
@@ -104,6 +117,53 @@ export interface CoverageAdvisory {
   peril: Peril | string;
   message: string;
   source: 'system' | 'peril_metadata' | 'endorsement';
+}
+
+// ============================================
+// INSPECTION INTELLIGENCE INTERFACES
+// ============================================
+
+/**
+ * Enhanced context that includes inspection intelligence
+ */
+export interface PerilAwareClaimContextWithInspection extends PerilAwareClaimContext {
+  inspectionIntelligence: InspectionIntelligence;
+}
+
+/**
+ * Inspection intelligence derived from peril rules
+ */
+export interface InspectionIntelligence {
+  // Primary peril inspection rules
+  primaryPerilRules: PerilInspectionRuleSummary;
+
+  // Merged guidance from primary + secondary perils
+  mergedGuidance: MergedInspectionGuidance;
+
+  // Quick tips for UI display
+  quickTips: string[];
+
+  // Escalation triggers to watch for
+  escalationTriggers: EscalationTrigger[];
+}
+
+export interface PerilInspectionRuleSummary {
+  peril: Peril | string;
+  displayName: string;
+  priorityAreas: InspectionPriorityArea[];
+  requiredPhotos: PhotoRequirement[];
+  commonMisses: CommonMiss[];
+  sketchRequirements: SketchRequirement[];
+  depreciationGuidance: DepreciationGuidance[];
+  safetyConsiderations: string[];
+}
+
+export interface MergedInspectionGuidance {
+  priorityAreas: InspectionPriorityArea[];
+  requiredPhotos: PhotoRequirement[];
+  commonMisses: CommonMiss[];
+  inspectionTips: string[];
+  safetyConsiderations: string[];
 }
 
 // ============================================
@@ -490,6 +550,101 @@ export function summarizePerilContext(context: PerilAwareClaimContext): string {
   ];
 
   return parts.join(' | ');
+}
+
+// ============================================
+// INSPECTION INTELLIGENCE BUILDER
+// ============================================
+
+/**
+ * Build a complete peril-aware claim context WITH inspection intelligence
+ *
+ * This combines the base claim context with deterministic inspection rules
+ * to provide field-ready guidance for adjusters.
+ *
+ * @param claimId - The UUID of the claim
+ * @returns Enhanced context including inspection intelligence
+ */
+export async function buildPerilAwareClaimContextWithInspection(
+  claimId: string
+): Promise<PerilAwareClaimContextWithInspection | null> {
+  // Get the base context
+  const baseContext = await buildPerilAwareClaimContext(claimId);
+  if (!baseContext) {
+    return null;
+  }
+
+  // Build inspection intelligence from rules
+  const inspectionIntelligence = buildInspectionIntelligence(
+    baseContext.primaryPeril,
+    baseContext.secondaryPerils
+  );
+
+  return {
+    ...baseContext,
+    inspectionIntelligence,
+  };
+}
+
+/**
+ * Build inspection intelligence for a peril combination
+ */
+export function buildInspectionIntelligence(
+  primaryPeril: Peril | string,
+  secondaryPerils: (Peril | string)[] = []
+): InspectionIntelligence {
+  // Get primary peril rules
+  const primaryRules = getInspectionRulesForPeril(primaryPeril);
+
+  // Build primary peril rule summary
+  const primaryPerilRules: PerilInspectionRuleSummary = primaryRules
+    ? {
+        peril: primaryRules.peril,
+        displayName: primaryRules.displayName,
+        priorityAreas: primaryRules.priorityAreas,
+        requiredPhotos: primaryRules.requiredPhotos,
+        commonMisses: primaryRules.commonMisses,
+        sketchRequirements: primaryRules.sketchRequirements,
+        depreciationGuidance: primaryRules.depreciationGuidance,
+        safetyConsiderations: primaryRules.safetyConsiderations,
+      }
+    : {
+        peril: primaryPeril,
+        displayName: String(primaryPeril),
+        priorityAreas: [],
+        requiredPhotos: [],
+        commonMisses: [],
+        sketchRequirements: [],
+        depreciationGuidance: [],
+        safetyConsiderations: [],
+      };
+
+  // Get merged guidance from primary + secondary perils
+  const mergedGuidance = getMergedInspectionGuidance(primaryPeril, secondaryPerils);
+
+  // Get quick tips for UI
+  const quickTips = getQuickInspectionTips(primaryPeril, 5);
+
+  // Get escalation triggers
+  const escalationTriggers = getEscalationTriggers(primaryPeril);
+
+  return {
+    primaryPerilRules,
+    mergedGuidance,
+    quickTips,
+    escalationTriggers,
+  };
+}
+
+/**
+ * Get inspection intelligence without a claim context
+ * Useful for standalone inspection guidance
+ */
+export function getInspectionIntelligenceForPeril(
+  peril: Peril | string
+): InspectionIntelligence {
+  const secondaryPerils = SECONDARY_PERIL_MAP[peril as Peril] || [];
+  return buildInspectionIntelligence(peril, secondaryPerils);
 }
 
 export default buildPerilAwareClaimContext;

@@ -1149,3 +1149,330 @@ export async function createEndorsement(data: {
   }
   return response.json();
 }
+
+// ============================================
+// INSPECTION INTELLIGENCE API
+// ============================================
+
+export interface InspectionPriorityArea {
+  area: string;
+  description: string;
+  criticalityLevel: 'high' | 'medium' | 'low';
+}
+
+export interface PhotoRequirement {
+  category: string;
+  items: string[];
+  notes?: string;
+}
+
+export interface CommonMiss {
+  issue: string;
+  description: string;
+  consequence: string;
+}
+
+export interface EscalationTrigger {
+  condition: string;
+  action: string;
+  urgency: 'immediate' | 'same_day' | 'within_48h';
+}
+
+export interface SketchRequirement {
+  type: string;
+  description: string;
+  required: boolean;
+}
+
+export interface DepreciationGuidance {
+  item: string;
+  guidance: string;
+}
+
+export interface PerilInspectionRuleSummary {
+  peril: string;
+  displayName: string;
+  priorityAreas: InspectionPriorityArea[];
+  requiredPhotos: PhotoRequirement[];
+  commonMisses: CommonMiss[];
+  sketchRequirements: SketchRequirement[];
+  depreciationGuidance: DepreciationGuidance[];
+  safetyConsiderations: string[];
+}
+
+export interface MergedInspectionGuidance {
+  priorityAreas: InspectionPriorityArea[];
+  requiredPhotos: PhotoRequirement[];
+  commonMisses: CommonMiss[];
+  inspectionTips: string[];
+  safetyConsiderations: string[];
+}
+
+export interface InspectionIntelligence {
+  primaryPerilRules: PerilInspectionRuleSummary;
+  mergedGuidance: MergedInspectionGuidance;
+  quickTips: string[];
+  escalationTriggers: EscalationTrigger[];
+}
+
+/**
+ * Get inspection intelligence for a specific peril
+ */
+export async function getInspectionIntelligenceByPeril(peril: string): Promise<InspectionIntelligence> {
+  const response = await fetch(`${API_BASE}/inspection-intelligence/${encodeURIComponent(peril)}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch inspection intelligence');
+  }
+  return response.json();
+}
+
+/**
+ * Get quick inspection tips for a peril (for UI micro-hints)
+ */
+export async function getInspectionTips(peril: string, limit: number = 5): Promise<{ tips: string[] }> {
+  const response = await fetch(`${API_BASE}/inspection-intelligence/${encodeURIComponent(peril)}/tips?limit=${limit}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch inspection tips');
+  }
+  return response.json();
+}
+
+/**
+ * Get inspection intelligence for a specific claim
+ */
+export async function getClaimInspectionIntelligence(claimId: string): Promise<InspectionIntelligence> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/inspection-intelligence`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claim inspection intelligence');
+  }
+  return response.json();
+}
+
+// ============================================
+// CLAIM BRIEFING API
+// ============================================
+
+/**
+ * ClaimBriefingContent - The structured JSON content of a briefing
+ */
+export interface ClaimBriefingContent {
+  claim_summary: {
+    primary_peril: string;
+    secondary_perils: string[];
+    overview: string[];
+  };
+  inspection_strategy: {
+    where_to_start: string[];
+    what_to_prioritize: string[];
+    common_misses: string[];
+  };
+  peril_specific_risks: string[];
+  endorsement_watchouts: {
+    endorsement_id: string;
+    impact: string;
+    inspection_implications: string[];
+  }[];
+  photo_requirements: {
+    category: string;
+    items: string[];
+  }[];
+  sketch_requirements: string[];
+  depreciation_considerations: string[];
+  open_questions_for_adjuster: string[];
+}
+
+export interface StoredBriefing {
+  id: string;
+  claimId: string;
+  peril: string;
+  sourceHash: string;
+  briefingJson: ClaimBriefingContent;
+  status: string;
+  model: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerateBriefingResponse {
+  briefing: ClaimBriefingContent;
+  briefingId: string;
+  sourceHash: string;
+  cached: boolean;
+  model?: string;
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}
+
+export interface BriefingStatusResponse {
+  hasBriefing: boolean;
+  isStale: boolean;
+  lastUpdated: string | null;
+  model: string | null;
+}
+
+/**
+ * Get the latest AI-generated briefing for a claim
+ */
+export async function getClaimBriefing(claimId: string): Promise<StoredBriefing> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/briefing`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('No briefing found');
+    }
+    throw new Error('Failed to fetch claim briefing');
+  }
+  return response.json();
+}
+
+/**
+ * Generate a new AI briefing for a claim
+ * @param force - Force regeneration even if cached
+ */
+export async function generateClaimBriefing(
+  claimId: string,
+  force: boolean = false
+): Promise<GenerateBriefingResponse> {
+  const url = force
+    ? `${API_BASE}/claims/${claimId}/briefing/generate?force=true`
+    : `${API_BASE}/claims/${claimId}/briefing/generate`;
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to generate briefing');
+  }
+  return response.json();
+}
+
+/**
+ * Check briefing status (stale, exists, etc.)
+ */
+export async function getClaimBriefingStatus(claimId: string): Promise<BriefingStatusResponse> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/briefing/status`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch briefing status');
+  }
+  return response.json();
+}
+
+/**
+ * Delete all briefings for a claim
+ */
+export async function deleteClaimBriefings(claimId: string): Promise<{ deleted: number }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/briefing`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete briefings');
+  }
+  return response.json();
+}
+
+// ============================================
+// CARRIER GUIDANCE API
+// ============================================
+
+export interface CarrierPerilOverlay {
+  require_test_squares?: boolean;
+  test_square_count?: number;
+  photo_density?: 'low' | 'standard' | 'high';
+  require_duration_confirmation?: boolean;
+  require_moisture_readings?: boolean;
+  require_origin_documentation?: boolean;
+  require_high_water_mark?: boolean;
+  require_mold_testing?: boolean;
+  emphasis?: string[];
+  de_emphasis?: string[];
+  notes?: string;
+}
+
+export interface CarrierInspectionOverlays {
+  wind_hail?: CarrierPerilOverlay;
+  fire?: CarrierPerilOverlay;
+  water?: CarrierPerilOverlay;
+  flood?: CarrierPerilOverlay;
+  smoke?: CarrierPerilOverlay;
+  mold?: CarrierPerilOverlay;
+  impact?: CarrierPerilOverlay;
+  other?: CarrierPerilOverlay;
+}
+
+export interface AdditionalRequirement {
+  type: string;
+  description: string;
+  required: boolean;
+}
+
+export interface CarrierGuidance {
+  carrierId: string;
+  carrierName: string;
+  perilOverlay: CarrierPerilOverlay | null;
+  emphasis: string[];
+  deEmphasis: string[];
+  additionalRequirements: AdditionalRequirement[];
+  notes: string | null;
+}
+
+export interface MergedInspectionWithCarrier {
+  baseRules: {
+    peril: string;
+    displayName: string;
+    priorityAreas: InspectionPriorityArea[];
+    requiredPhotos: PhotoRequirement[];
+    commonMisses: CommonMiss[];
+    safetyConsiderations: string[];
+  };
+  carrierGuidance: CarrierGuidance | null;
+  mergedPriorityAreas: InspectionPriorityArea[];
+  mergedPhotoRequirements: PhotoRequirement[];
+  carrierNotes: string[];
+  additionalRequirements: AdditionalRequirement[];
+}
+
+/**
+ * Get carrier inspection overlays
+ */
+export async function getCarrierOverlays(carrierId: string): Promise<{
+  carrier: { id: string; name: string; code: string } | null;
+  overlays: CarrierInspectionOverlays | null;
+}> {
+  const response = await fetch(`${API_BASE}/carriers/${carrierId}/overlays`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch carrier overlays');
+  }
+  return response.json();
+}
+
+/**
+ * Get carrier guidance for a specific claim
+ */
+export async function getClaimCarrierGuidance(claimId: string): Promise<MergedInspectionWithCarrier> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/carrier-guidance`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch carrier guidance');
+  }
+  return response.json();
+}
