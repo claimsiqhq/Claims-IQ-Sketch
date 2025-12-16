@@ -78,10 +78,29 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
     setQuantity("1");
   };
 
+  const parseFraction = (value: string): number => {
+    const trimmed = value.trim();
+    if (!trimmed) return 1;
+    
+    if (trimmed.includes('/')) {
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        const num = parseFloat(parts[0]);
+        const denom = parseFloat(parts[1]);
+        if (!isNaN(num) && !isNaN(denom) && denom !== 0) {
+          return num / denom;
+        }
+      }
+    }
+    
+    const parsed = parseFloat(trimmed);
+    return isNaN(parsed) ? 1 : parsed;
+  };
+
   const handleConfirmAdd = () => {
     if (!selectedItem) return;
     
-    const qty = parseFloat(quantity) || 1;
+    const qty = Math.max(0.01, parseFraction(quantity));
     const lineItem: LineItem = {
       id: selectedItem.id,
       code: selectedItem.code,
@@ -97,13 +116,13 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
   };
 
   const adjustQuantity = (delta: number) => {
-    const current = parseFloat(quantity) || 1;
+    const current = parseFraction(quantity);
     const newVal = Math.max(0.01, current + delta);
     setQuantity(newVal.toString());
   };
 
   const handleQuantityChange = (value: string) => {
-    if (value === "" || /^\d*\.?\d*$/.test(value)) {
+    if (value === "" || /^[\d./]*$/.test(value)) {
       setQuantity(value);
     }
   };

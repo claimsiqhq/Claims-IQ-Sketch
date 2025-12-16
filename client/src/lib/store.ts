@@ -11,7 +11,8 @@ import {
   AuthUser,
   login as apiLogin,
   logout as apiLogout,
-  checkAuth as apiCheckAuth
+  checkAuth as apiCheckAuth,
+  updateClaim as apiUpdateClaim
 } from './api';
 
 interface EstimateSettings {
