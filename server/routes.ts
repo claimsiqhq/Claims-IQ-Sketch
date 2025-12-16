@@ -88,6 +88,13 @@ import {
   geocodePendingClaims
 } from "./services/geocoding";
 import {
+  generateFloorplanData,
+  createOrUpdateRoom,
+  addRoomOpening,
+  addMissingWall,
+  getSketchState
+} from "./services/sketchTools";
+import {
   createStructure,
   getStructure,
   updateStructure,
@@ -3124,6 +3131,103 @@ export async function registerRoutes(
       // Get the created claim
       const claim = await getClaim(claimId, req.organizationId!);
       res.status(201).json(claim);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // SKETCH TOOLS API ROUTES
+  // ============================================
+  // These endpoints provide sketch creation tools for autonomous agent use
+
+  /**
+   * POST /api/sketch/generate-floorplan-data
+   * Generate structured floorplan data (rooms and connections) from input.
+   * This validates and transforms the input data.
+   */
+  app.post('/api/sketch/generate-floorplan-data', requireAuth, async (req, res) => {
+    try {
+      const result = await generateFloorplanData(req.body);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      res.json(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/sketch/rooms
+   * Create or update a room in the estimate sketch.
+   */
+  app.post('/api/sketch/rooms', requireAuth, async (req, res) => {
+    try {
+      const result = await createOrUpdateRoom(req.body);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      res.json(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/sketch/rooms/:room_id/openings
+   * Add an opening (door/window/cased) to a room wall.
+   */
+  app.post('/api/sketch/rooms/:room_id/openings', requireAuth, async (req, res) => {
+    try {
+      const result = await addRoomOpening({
+        room_id: req.params.room_id,
+        ...req.body,
+      });
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      res.json(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/sketch/rooms/:room_id/missing-walls
+   * Mark a missing wall segment for a room.
+   */
+  app.post('/api/sketch/rooms/:room_id/missing-walls', requireAuth, async (req, res) => {
+    try {
+      const result = await addMissingWall({
+        room_id: req.params.room_id,
+        ...req.body,
+      });
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      res.json(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/sketch/estimates/:estimate_id/state
+   * Retrieve current sketch state for an estimate.
+   */
+  app.get('/api/sketch/estimates/:estimate_id/state', requireAuth, async (req, res) => {
+    try {
+      const result = await getSketchState(req.params.estimate_id);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      res.json(result.data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
