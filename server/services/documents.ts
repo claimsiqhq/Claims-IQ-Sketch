@@ -31,6 +31,28 @@ export interface DocumentInfo {
   updatedAt: Date;
 }
 
+function mapRowToDocument(row: any): DocumentInfo {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    claimId: row.claim_id,
+    name: row.name,
+    type: row.type,
+    category: row.category,
+    fileName: row.file_name,
+    fileSize: row.file_size,
+    mimeType: row.mime_type,
+    storagePath: row.storage_path,
+    extractedData: row.extracted_data,
+    processingStatus: row.processing_status,
+    description: row.description,
+    tags: row.tags,
+    uploadedBy: row.uploaded_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 /**
  * Save uploaded file and create document record
  */
@@ -98,7 +120,7 @@ export async function createDocument(
       ]
     );
 
-    return result.rows[0];
+    return mapRowToDocument(result.rows[0]);
   } catch (error) {
     // Clean up file if database insert fails
     const storagePath = path.join(UPLOAD_DIR, organizationId, `${Date.now()}-*`);
@@ -122,7 +144,7 @@ export async function getDocument(
       `SELECT * FROM documents WHERE id = $1 AND organization_id = $2`,
       [id, organizationId]
     );
-    return result.rows.length > 0 ? result.rows[0] : null;
+    return result.rows.length > 0 ? mapRowToDocument(result.rows[0]) : null;
   } finally {
     client.release();
   }
@@ -197,7 +219,7 @@ export async function listDocuments(
       params
     );
 
-    return { documents: result.rows, total };
+    return { documents: result.rows.map(mapRowToDocument), total };
   } finally {
     client.release();
   }
@@ -281,7 +303,7 @@ export async function updateDocument(
       params
     );
 
-    return result.rows.length > 0 ? result.rows[0] : null;
+    return result.rows.length > 0 ? mapRowToDocument(result.rows[0]) : null;
   } finally {
     client.release();
   }
@@ -336,7 +358,7 @@ export async function getClaimDocuments(
        ORDER BY type, created_at DESC`,
       [claimId, organizationId]
     );
-    return result.rows;
+    return result.rows.map(mapRowToDocument);
   } finally {
     client.release();
   }
