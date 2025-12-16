@@ -95,26 +95,11 @@ function parseFormula(formula: string): Array<{ code: string; quantity: number }
   return result;
 }
 
-function parseLaborFormula(formula: string): { hours: number; rate: number } {
-  if (!formula) return { hours: 0, rate: 0 };
-  
-  const match = formula.match(/([A-Za-z0-9]+),?([\d.]+)?/);
-  if (match) {
-    const efficiency = match[2] ? parseFloat(match[2]) : 0;
-    return { hours: efficiency / 60 / 100, rate: 65 };
-  }
-  
-  return { hours: 0, rate: 0 };
-}
+const BASE_UNIT_QUANTITY = 100;
+const DEFAULT_LABOR_RATE = 65;
 
-function calculatePerUnitMaterials(
-  materialComponents: ComponentPrice[],
-  laborEfficiency: number | null
-): number {
-  if (!materialComponents.length) return 0;
-  
-  const divisor = laborEfficiency && laborEfficiency > 0 ? laborEfficiency : 100;
-  return materialComponents.reduce((sum, c) => sum + c.total, 0) / divisor;
+function calculatePerUnitPrice(aggregate: number): number {
+  return aggregate / BASE_UNIT_QUANTITY;
 }
 
 export async function calculateXactPrice(lineItemCode: string): Promise<XactPriceBreakdown | null> {
@@ -135,9 +120,8 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
   const laborComponents: ComponentPrice[] = [];
   const equipmentComponents: ComponentPrice[] = [];
   
-  let materialTotal = 0;
-  let laborTotal = 0;
-  let equipmentTotal = 0;
+  let aggregateMaterial = 0;
+  let aggregateEquipment = 0;
   
   for (const activity of activities) {
     if (activity.materialFormula) {
@@ -156,31 +140,51 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
             quantity: part.quantity,
             total,
           });
-          materialTotal += total;
+          aggregateMaterial += total;
         }
       }
     }
     
-    if (activity.laborFormula) {
-      const labor = parseLaborFormula(activity.laborFormula);
-      if (labor.hours > 0) {
-        const total = labor.hours * labor.rate;
-        laborComponents.push({
-          code: "LABOR",
-          type: "labor",
-          description: `Labor - ${activity.description || "Installation"}`,
-          unit: "HR",
-          amount: labor.rate,
-          quantity: labor.hours,
-          total,
-        });
-        laborTotal += total;
+    if (activity.equipmentFormula) {
+      const eqParts = parseFormula(activity.equipmentFormula);
+      for (const part of eqParts) {
+        const comp = componentCache.get(part.code.toUpperCase()) 
+          || componentByShortId.get(part.code.toUpperCase());
+        if (comp) {
+          const total = comp.amount * part.quantity;
+          equipmentComponents.push({
+            code: comp.code,
+            type: "equipment",
+            description: comp.description,
+            unit: comp.unit,
+            amount: comp.amount,
+            quantity: part.quantity,
+            total,
+          });
+          aggregateEquipment += total;
+        }
       }
     }
   }
   
-  const perUnitMaterial = calculatePerUnitMaterials(materialComponents, item.laborEfficiency);
-  const unitPrice = perUnitMaterial + laborTotal + equipmentTotal;
+  const laborEffMin = item.laborEfficiency || 0;
+  const perUnitLabor = (laborEffMin / 60 / BASE_UNIT_QUANTITY) * DEFAULT_LABOR_RATE;
+  
+  if (laborEffMin > 0) {
+    laborComponents.push({
+      code: "LABOR",
+      type: "labor",
+      description: `Labor - ${item.description}`,
+      unit: "HR",
+      amount: DEFAULT_LABOR_RATE,
+      quantity: laborEffMin / 60 / BASE_UNIT_QUANTITY,
+      total: perUnitLabor,
+    });
+  }
+  
+  const perUnitMaterial = calculatePerUnitPrice(aggregateMaterial);
+  const perUnitEquipment = calculatePerUnitPrice(aggregateEquipment);
+  const unitPrice = perUnitMaterial + perUnitLabor + perUnitEquipment;
   
   return {
     lineItemCode: item.fullCode,
