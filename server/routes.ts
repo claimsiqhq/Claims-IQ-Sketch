@@ -3866,9 +3866,10 @@ export async function registerRoutes(
    */
   app.get('/api/xact/categories', async (req, res) => {
     try {
-      const result = await db.query.xactCategories.findMany({
-        orderBy: (cat, { asc }) => [asc(cat.code)],
-      });
+      const result = await db
+        .select()
+        .from(xactCategories)
+        .orderBy(xactCategories.code);
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -3882,13 +3883,15 @@ export async function registerRoutes(
    */
   app.get('/api/xact/categories/:code', async (req, res) => {
     try {
-      const result = await db.query.xactCategories.findFirst({
-        where: (cat, { eq }) => eq(cat.code, req.params.code.toUpperCase()),
-      });
-      if (!result) {
+      const result = await db
+        .select()
+        .from(xactCategories)
+        .where(eq(xactCategories.code, req.params.code.toUpperCase()))
+        .limit(1);
+      if (result.length === 0) {
         return res.status(404).json({ error: 'Category not found' });
       }
-      res.json(result);
+      res.json(result[0]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3957,13 +3960,15 @@ export async function registerRoutes(
    */
   app.get('/api/xact/line-items/:code', async (req, res) => {
     try {
-      const result = await db.query.xactLineItems.findFirst({
-        where: (item, { eq }) => eq(item.fullCode, req.params.code.toUpperCase()),
-      });
-      if (!result) {
+      const result = await db
+        .select()
+        .from(xactLineItems)
+        .where(eq(xactLineItems.fullCode, req.params.code.toUpperCase()))
+        .limit(1);
+      if (result.length === 0) {
         return res.status(404).json({ error: 'Line item not found' });
       }
-      res.json(result);
+      res.json(result[0]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
