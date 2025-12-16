@@ -132,6 +132,17 @@ The database schema supports:
 - `GET /api/regions` - Get all pricing regions
 - `GET /api/carrier-profiles` - Get carrier profit/overhead profiles
 
+### Claims
+- `GET /api/claims` - List claims for organization
+- `GET /api/claims/:id` - Get single claim
+- `POST /api/claims` - Create new claim
+- `PUT /api/claims/:id` - Update claim
+- `DELETE /api/claims/:id` - Delete claim
+- `POST /api/claims/:id/rooms` - Save rooms/damage zones to claim (stored in metadata.rooms)
+- `GET /api/claims/:id/rooms` - Get rooms/damage zones from claim
+- `GET /api/claims/:id/documents` - Get claim documents
+- `GET /api/claims/:id/endorsements` - Get claim endorsements
+
 ### Estimates
 - `POST /api/estimates/calculate` - Calculate estimate without saving
 - `POST /api/estimates` - Create and save estimate
