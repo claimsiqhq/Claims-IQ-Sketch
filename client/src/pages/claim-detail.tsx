@@ -109,6 +109,7 @@ export default function ClaimDetail() {
   const {
     activeClaim: claim,
     setActiveClaim,
+    ensureClaim,
     addRoom,
     updateRoom,
     deleteRoom,
@@ -182,12 +183,10 @@ export default function ClaimDetail() {
   // Initialize estimate builder hook with claim id as estimate id
   const estimateBuilder = useEstimateBuilder(params?.id || "");
 
+  // Cleanup: clear active claim when leaving the page
   useEffect(() => {
-    if (params?.id) {
-      setActiveClaim(params.id);
-    }
     return () => setActiveClaim(null);
-  }, [params?.id, setActiveClaim]);
+  }, [setActiveClaim]);
 
   // Load regions and carriers on mount
   useEffect(() => {
@@ -210,12 +209,14 @@ export default function ClaimDetail() {
       setApiClaim(claimData);
       setDocuments(docsData);
       setEndorsements(endorsementsData);
+      // Ensure the claim exists in the store for sketch operations
+      ensureClaim(params.id, claimData);
     } catch (err) {
       setApiError((err as Error).message);
     } finally {
       setLoadingApiData(false);
     }
-  }, [params?.id]);
+  }, [params?.id, ensureClaim]);
 
   useEffect(() => {
     loadApiData();
@@ -339,7 +340,47 @@ export default function ClaimDetail() {
     }
   };
 
-  if (!claim) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  // Show loading state while API data is being fetched
+  if (loadingApiData) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="text-muted-foreground">Loading claim...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state if claim couldn't be loaded
+  if (apiError || !apiClaim) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Claim Not Found</h2>
+          <p className="text-muted-foreground mb-4">
+            {apiError || "The requested claim could not be loaded."}
+          </p>
+          <Link href="/">
+            <Button variant="outline">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Dashboard
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Wait for claim to be ensured in store (should be quick after apiClaim loads)
+  if (!claim) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const selectedRoom = (claim.rooms || []).find(r => r.id === selectedRoomId);
 
