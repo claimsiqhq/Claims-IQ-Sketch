@@ -1031,7 +1031,7 @@ export default function ClaimDetail() {
                                 {doc.type.toUpperCase()} • {(doc.fileSize / 1024).toFixed(1)} KB
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatDistanceToNow(new Date(doc.createdAt), { addSuffix: true })}
+                                {(doc.createdAt || doc.created_at) ? formatDistanceToNow(new Date(doc.createdAt || doc.created_at), { addSuffix: true }) : 'Recently'}
                               </p>
                             </div>
                           </div>
@@ -1827,7 +1827,7 @@ export default function ClaimDetail() {
                               </div>
                             ) : (
                               <div className="divide-y">
-                                {(claim.lineItems || []).map((item) => (
+                                {(claim?.lineItems || []).map((item) => (
                                   <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50 group">
                                     <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.code}</div>
                                     <div className="col-span-4 md:col-span-3">
@@ -2103,21 +2103,21 @@ export default function ClaimDetail() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
                   <div>
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Insured</h3>
-                    <p className="font-medium">{claim.policyholder || 'Unknown'}</p>
-                    <p>{claim.riskLocation || 'Address not provided'}</p>
+                    <p className="font-medium">{apiClaim?.insuredName || claim?.policyholder || 'Unknown'}</p>
+                    <p>{apiClaim?.propertyAddress ? `${apiClaim.propertyAddress}, ${apiClaim.propertyCity}, ${apiClaim.propertyState} ${apiClaim.propertyZip}` : (claim?.riskLocation || 'Address not provided')}</p>
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Claim Info</h3>
-                    <p><span className="text-muted-foreground">Claim #:</span> {claim.id.toUpperCase()}</p>
-                    <p><span className="text-muted-foreground">Policy #:</span> {claim.policyNumber}</p>
-                    <p><span className="text-muted-foreground">Loss Date:</span> {claim.dateOfLoss ? new Date(claim.dateOfLoss).toLocaleDateString() : 'Not specified'}</p>
+                    <p><span className="text-muted-foreground">Claim #:</span> {(apiClaim?.claimNumber || claim?.id || '').toUpperCase()}</p>
+                    <p><span className="text-muted-foreground">Policy #:</span> {apiClaim?.policyNumber || claim?.policyNumber || 'N/A'}</p>
+                    <p><span className="text-muted-foreground">Loss Date:</span> {(apiClaim?.dateOfLoss || claim?.dateOfLoss) ? new Date(apiClaim?.dateOfLoss || claim?.dateOfLoss).toLocaleDateString() : 'Not specified'}</p>
                   </div>
                 </div>
 
                 <Separator className="my-8" />
 
                 <div className="space-y-8">
-                  <h3 className="font-bold text-lg">Room: {(claim.rooms || [])[0]?.name || "General"}</h3>
+                  <h3 className="font-bold text-lg">Room: {(claim?.rooms || [])[0]?.name || "General"}</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[500px]">
                       <thead>
@@ -2131,7 +2131,7 @@ export default function ClaimDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {(claim.lineItems || []).map((item) => (
+                        {(claim?.lineItems || []).map((item) => (
                           <tr key={item.id}>
                             <td className="py-3 font-mono text-slate-600">{item.code}</td>
                             <td className="py-3">{item.description}</td>
