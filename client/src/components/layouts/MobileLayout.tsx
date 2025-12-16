@@ -13,6 +13,7 @@ import {
   Menu,
   CalendarDays,
   FolderOpen,
+  MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +40,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 const bottomNavItems = [
   { label: "My Day", icon: CalendarDays, href: "/" },
   { label: "Claims", icon: FolderOpen, href: "/claims" },
-  { label: "New", icon: PlusCircle, href: "/new-claim" },
+  { label: "Map", icon: MapPin, href: "/map" },
   { label: "More", icon: Menu, href: "#more" }, // Opens sheet
 ];
 
