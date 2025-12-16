@@ -11,10 +11,10 @@ import { toast } from "sonner";
 
 export default function Profile() {
   const authUser = useStore((state) => state.authUser);
-  const user = useStore((state) => state.user);
+  const checkAuth = useStore((state) => state.checkAuth);
   
-  const displayName = authUser?.username || user.name;
-  const displayEmail = user.email;
+  const displayName = authUser?.name || authUser?.username || 'User';
+  const displayEmail = authUser?.email || '';
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
   const [formData, setFormData] = useState({
@@ -48,6 +48,9 @@ export default function Profile() {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to update profile');
       }
+      
+      // Refresh auth state to get updated user data
+      await checkAuth();
       
       toast.success("Profile updated successfully");
     } catch (error) {
