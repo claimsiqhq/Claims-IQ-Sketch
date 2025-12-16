@@ -27,7 +27,7 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { uploadDocument, processDocument, createClaim, type Document } from "@/lib/api";
+import { uploadDocument, processDocument, createClaim, updateClaim, type Document, type Claim } from "@/lib/api";
 
 // Step types for the wizard
 type WizardStep = 'fnol' | 'policy' | 'endorsements' | 'review';
@@ -196,6 +196,10 @@ export default function NewClaim() {
 
   // Endorsement records to be created
   const [endorsementRecords, setEndorsementRecords] = useState<EndorsementRecord[]>([]);
+
+  // Draft claim - created early and updated as documents are processed
+  const [draftClaim, setDraftClaim] = useState<Claim | null>(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   // Creating claim state
   const [isCreating, setIsCreating] = useState(false);
@@ -371,7 +375,90 @@ export default function NewClaim() {
     });
   };
 
-  // Handle FNOL file selection
+  // Build the claim payload from current data
+  const buildClaimPayload = (currentClaimData: ExtractedData, currentDocs: { fnol?: UploadedDocument | null; policy?: UploadedDocument | null; endorsements: UploadedDocument[] }) => {
+    const documentIds: string[] = [];
+    if (currentDocs.fnol?.document?.id) documentIds.push(currentDocs.fnol.document.id);
+    if (currentDocs.policy?.document?.id) documentIds.push(currentDocs.policy.document.id);
+    currentDocs.endorsements.forEach(d => {
+      if (d.document?.id) documentIds.push(d.document.id);
+    });
+
+    return {
+      claimId: currentClaimData.claimId,
+      policyholder: currentClaimData.policyholder,
+      dateOfLoss: currentClaimData.dateOfLoss,
+      riskLocation: currentClaimData.riskLocation,
+      causeOfLoss: currentClaimData.causeOfLoss,
+      lossDescription: currentClaimData.lossDescription,
+      policyNumber: currentClaimData.policyNumber,
+      state: currentClaimData.state,
+      yearRoofInstall: currentClaimData.yearRoofInstall,
+      windHailDeductible: currentClaimData.windHailDeductible,
+      dwellingLimit: currentClaimData.dwellingLimit,
+      endorsementsListed: currentClaimData.endorsementsListed,
+      metadata: {
+        documentIds,
+        policyholderSecondary: currentClaimData.policyholderSecondary,
+        contactPhone: currentClaimData.contactPhone,
+        contactEmail: currentClaimData.contactEmail,
+        yearBuilt: currentClaimData.yearBuilt,
+        isWoodRoof: currentClaimData.isWoodRoof,
+        dwellingDamageDescription: currentClaimData.dwellingDamageDescription,
+        otherStructureDamageDescription: currentClaimData.otherStructureDamageDescription,
+        damageLocation: currentClaimData.damageLocation,
+        carrier: currentClaimData.carrier,
+        lineOfBusiness: currentClaimData.lineOfBusiness,
+        policyInceptionDate: currentClaimData.policyInceptionDate,
+        policyDeductible: currentClaimData.policyDeductible,
+        windHailDeductiblePercent: currentClaimData.windHailDeductiblePercent,
+        otherStructuresLimit: currentClaimData.otherStructuresLimit,
+        personalPropertyLimit: currentClaimData.personalPropertyLimit,
+        lossOfUseLimit: currentClaimData.lossOfUseLimit,
+        liabilityLimit: currentClaimData.liabilityLimit,
+        medicalLimit: currentClaimData.medicalLimit,
+        unscheduledStructuresLimit: currentClaimData.unscheduledStructuresLimit,
+        coverages: currentClaimData.coverages,
+        scheduledStructures: currentClaimData.scheduledStructures,
+        additionalCoverages: currentClaimData.additionalCoverages,
+        endorsementDetails: currentClaimData.endorsementDetails,
+        mortgagee: currentClaimData.mortgagee,
+        producer: currentClaimData.producer,
+        producerPhone: currentClaimData.producerPhone,
+        producerEmail: currentClaimData.producerEmail,
+        reportedBy: currentClaimData.reportedBy,
+        reportedDate: currentClaimData.reportedDate,
+      },
+    };
+  };
+
+  // Save or update the draft claim
+  const saveDraftClaim = async (mergedData: ExtractedData, docs: { fnol?: UploadedDocument | null; policy?: UploadedDocument | null; endorsements: UploadedDocument[] }) => {
+    setIsSavingDraft(true);
+    try {
+      const payload = buildClaimPayload(mergedData, docs);
+      
+      if (draftClaim) {
+        // Update existing draft
+        const updated = await updateClaim(draftClaim.id, payload);
+        setDraftClaim(updated);
+        return updated;
+      } else {
+        // Create new draft
+        const created = await createClaim({ ...payload, status: 'draft' });
+        setDraftClaim(created);
+        return created;
+      }
+    } catch (err) {
+      console.error('Failed to save draft claim:', err);
+      // Don't throw - draft saving is best-effort
+      return null;
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  // Handle FNOL file selection and create draft claim
   const handleFnolSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
 
@@ -383,7 +470,37 @@ export default function NewClaim() {
     try {
       const result = await uploadAndProcessDocument(file, 'fnol');
       setFnolDoc(result);
-      mergeExtractedData(result.extractedData);
+      
+      // Merge extracted data and get the updated merged data
+      let mergedData = claimData;
+      if (result.extractedData) {
+        mergeExtractedData(result.extractedData);
+        // Build merged data manually for immediate use (state update is async)
+        mergedData = { ...claimData };
+        const extracted = result.extractedData;
+        const pd = extracted.policyDetails || {};
+        if (extracted.claimId) mergedData.claimId = extracted.claimId;
+        if (extracted.policyholder) mergedData.policyholder = extracted.policyholder;
+        if (extracted.policyholderSecondary) mergedData.policyholderSecondary = extracted.policyholderSecondary;
+        if (extracted.contactPhone) mergedData.contactPhone = extracted.contactPhone;
+        if (extracted.contactEmail) mergedData.contactEmail = extracted.contactEmail;
+        if (extracted.dateOfLoss) mergedData.dateOfLoss = extracted.dateOfLoss;
+        if (extracted.riskLocation) mergedData.riskLocation = extracted.riskLocation;
+        if (extracted.causeOfLoss && extracted.causeOfLoss !== 'Hail') mergedData.causeOfLoss = extracted.causeOfLoss;
+        if (extracted.lossDescription) mergedData.lossDescription = extracted.lossDescription;
+        if (extracted.policyNumber || pd.policyNumber) mergedData.policyNumber = extracted.policyNumber || pd.policyNumber;
+        if (extracted.state || pd.state) mergedData.state = extracted.state || pd.state;
+        if (extracted.yearRoofInstall || pd.yearRoofInstall) mergedData.yearRoofInstall = extracted.yearRoofInstall || pd.yearRoofInstall;
+        if (extracted.windHailDeductible || pd.windHailDeductible) mergedData.windHailDeductible = extracted.windHailDeductible || pd.windHailDeductible;
+        if (extracted.dwellingLimit) mergedData.dwellingLimit = extracted.dwellingLimit;
+        const newEndorsements = extracted.endorsementsListed || pd.endorsementsListed || [];
+        if (newEndorsements.length > 0) {
+          mergedData.endorsementsListed = Array.from(new Set([...(mergedData.endorsementsListed || []), ...newEndorsements]));
+        }
+      }
+      
+      // Create the draft claim
+      await saveDraftClaim(mergedData, { fnol: result, policy: policyDoc, endorsements: endorsementDocs });
     } catch (err) {
       setError((err as Error).message);
       setFnolDoc(prev => prev ? { ...prev, status: 'error', error: (err as Error).message } : null);
@@ -393,7 +510,7 @@ export default function NewClaim() {
     }
   };
 
-  // Handle Policy file selection
+  // Handle Policy file selection and update draft claim
   const handlePolicySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
 
@@ -406,6 +523,12 @@ export default function NewClaim() {
       const result = await uploadAndProcessDocument(file, 'policy');
       setPolicyDoc(result);
       mergeExtractedData(result.extractedData);
+      
+      // Update the draft claim with new data
+      // Use a timeout to ensure state has updated
+      setTimeout(async () => {
+        await saveDraftClaim(claimData, { fnol: fnolDoc, policy: result, endorsements: endorsementDocs });
+      }, 100);
     } catch (err) {
       setError((err as Error).message);
       setPolicyDoc(prev => prev ? { ...prev, status: 'error', error: (err as Error).message } : null);
@@ -469,6 +592,12 @@ export default function NewClaim() {
           fileName: file.name,
         }]);
       }
+      
+      // Update the draft claim with new endorsement data
+      setTimeout(async () => {
+        const updatedEndorsements = [...endorsementDocs.filter(d => d.file !== file), result];
+        await saveDraftClaim(claimData, { fnol: fnolDoc, policy: policyDoc, endorsements: updatedEndorsements });
+      }, 100);
     } catch (err) {
       setError((err as Error).message);
       setEndorsementDocs(prev =>
@@ -524,7 +653,7 @@ export default function NewClaim() {
     }
   };
 
-  // Create the claim
+  // Finalize the claim - update from draft to fnol status
   const handleCreateClaim = async () => {
     setIsCreating(true);
     setError(null);
@@ -538,64 +667,109 @@ export default function NewClaim() {
         if (d.document?.id) documentIds.push(d.document.id);
       });
 
-      // Create the claim with all rich data
-      const claim = await createClaim({
-        claimId: claimData.claimId,
-        policyholder: claimData.policyholder,
-        dateOfLoss: claimData.dateOfLoss,
-        riskLocation: claimData.riskLocation,
-        causeOfLoss: claimData.causeOfLoss,
-        lossDescription: claimData.lossDescription,
-        policyNumber: claimData.policyNumber,
-        state: claimData.state,
-        yearRoofInstall: claimData.yearRoofInstall,
-        windHailDeductible: claimData.windHailDeductible,
-        dwellingLimit: claimData.dwellingLimit,
-        endorsementsListed: claimData.endorsementsListed,
-        status: 'fnol',
-        metadata: {
-          documentIds,
-          endorsementRecords,
-          // Rich policyholder data
-          policyholderSecondary: claimData.policyholderSecondary,
-          contactPhone: claimData.contactPhone,
-          contactEmail: claimData.contactEmail,
-          // Property details
-          yearBuilt: claimData.yearBuilt,
-          isWoodRoof: claimData.isWoodRoof,
-          // Damage descriptions
-          dwellingDamageDescription: claimData.dwellingDamageDescription,
-          otherStructureDamageDescription: claimData.otherStructureDamageDescription,
-          damageLocation: claimData.damageLocation,
-          // Policy info
-          carrier: claimData.carrier,
-          lineOfBusiness: claimData.lineOfBusiness,
-          policyInceptionDate: claimData.policyInceptionDate,
-          // Deductibles
-          policyDeductible: claimData.policyDeductible,
-          windHailDeductiblePercent: claimData.windHailDeductiblePercent,
-          // All coverage limits
-          otherStructuresLimit: claimData.otherStructuresLimit,
-          personalPropertyLimit: claimData.personalPropertyLimit,
-          lossOfUseLimit: claimData.lossOfUseLimit,
-          liabilityLimit: claimData.liabilityLimit,
-          medicalLimit: claimData.medicalLimit,
-          unscheduledStructuresLimit: claimData.unscheduledStructuresLimit,
-          // Detailed coverages
-          coverages: claimData.coverages,
-          scheduledStructures: claimData.scheduledStructures,
-          additionalCoverages: claimData.additionalCoverages,
-          endorsementDetails: claimData.endorsementDetails,
-          // Third parties
-          mortgagee: claimData.mortgagee,
-          producer: claimData.producer,
-          producerPhone: claimData.producerPhone,
-          producerEmail: claimData.producerEmail,
-          // Reporting
-          reportedBy: claimData.reportedBy,
-          reportedDate: claimData.reportedDate,
-        },
-      });
+      let claim: Claim;
+
+      if (draftClaim) {
+        // Finalize the existing draft - update to fnol status with latest data
+        claim = await updateClaim(draftClaim.id, {
+          claimId: claimData.claimId,
+          policyholder: claimData.policyholder,
+          dateOfLoss: claimData.dateOfLoss,
+          riskLocation: claimData.riskLocation,
+          causeOfLoss: claimData.causeOfLoss,
+          lossDescription: claimData.lossDescription,
+          policyNumber: claimData.policyNumber,
+          state: claimData.state,
+          yearRoofInstall: claimData.yearRoofInstall,
+          windHailDeductible: claimData.windHailDeductible,
+          dwellingLimit: claimData.dwellingLimit,
+          endorsementsListed: claimData.endorsementsListed,
+          status: 'fnol', // Change from draft to fnol
+          metadata: {
+            documentIds,
+            endorsementRecords,
+            policyholderSecondary: claimData.policyholderSecondary,
+            contactPhone: claimData.contactPhone,
+            contactEmail: claimData.contactEmail,
+            yearBuilt: claimData.yearBuilt,
+            isWoodRoof: claimData.isWoodRoof,
+            dwellingDamageDescription: claimData.dwellingDamageDescription,
+            otherStructureDamageDescription: claimData.otherStructureDamageDescription,
+            damageLocation: claimData.damageLocation,
+            carrier: claimData.carrier,
+            lineOfBusiness: claimData.lineOfBusiness,
+            policyInceptionDate: claimData.policyInceptionDate,
+            policyDeductible: claimData.policyDeductible,
+            windHailDeductiblePercent: claimData.windHailDeductiblePercent,
+            otherStructuresLimit: claimData.otherStructuresLimit,
+            personalPropertyLimit: claimData.personalPropertyLimit,
+            lossOfUseLimit: claimData.lossOfUseLimit,
+            liabilityLimit: claimData.liabilityLimit,
+            medicalLimit: claimData.medicalLimit,
+            unscheduledStructuresLimit: claimData.unscheduledStructuresLimit,
+            coverages: claimData.coverages,
+            scheduledStructures: claimData.scheduledStructures,
+            additionalCoverages: claimData.additionalCoverages,
+            endorsementDetails: claimData.endorsementDetails,
+            mortgagee: claimData.mortgagee,
+            producer: claimData.producer,
+            producerPhone: claimData.producerPhone,
+            producerEmail: claimData.producerEmail,
+            reportedBy: claimData.reportedBy,
+            reportedDate: claimData.reportedDate,
+          },
+        });
+      } else {
+        // No draft exists - create claim directly (fallback)
+        claim = await createClaim({
+          claimId: claimData.claimId,
+          policyholder: claimData.policyholder,
+          dateOfLoss: claimData.dateOfLoss,
+          riskLocation: claimData.riskLocation,
+          causeOfLoss: claimData.causeOfLoss,
+          lossDescription: claimData.lossDescription,
+          policyNumber: claimData.policyNumber,
+          state: claimData.state,
+          yearRoofInstall: claimData.yearRoofInstall,
+          windHailDeductible: claimData.windHailDeductible,
+          dwellingLimit: claimData.dwellingLimit,
+          endorsementsListed: claimData.endorsementsListed,
+          status: 'fnol',
+          metadata: {
+            documentIds,
+            endorsementRecords,
+            policyholderSecondary: claimData.policyholderSecondary,
+            contactPhone: claimData.contactPhone,
+            contactEmail: claimData.contactEmail,
+            yearBuilt: claimData.yearBuilt,
+            isWoodRoof: claimData.isWoodRoof,
+            dwellingDamageDescription: claimData.dwellingDamageDescription,
+            otherStructureDamageDescription: claimData.otherStructureDamageDescription,
+            damageLocation: claimData.damageLocation,
+            carrier: claimData.carrier,
+            lineOfBusiness: claimData.lineOfBusiness,
+            policyInceptionDate: claimData.policyInceptionDate,
+            policyDeductible: claimData.policyDeductible,
+            windHailDeductiblePercent: claimData.windHailDeductiblePercent,
+            otherStructuresLimit: claimData.otherStructuresLimit,
+            personalPropertyLimit: claimData.personalPropertyLimit,
+            lossOfUseLimit: claimData.lossOfUseLimit,
+            liabilityLimit: claimData.liabilityLimit,
+            medicalLimit: claimData.medicalLimit,
+            unscheduledStructuresLimit: claimData.unscheduledStructuresLimit,
+            coverages: claimData.coverages,
+            scheduledStructures: claimData.scheduledStructures,
+            additionalCoverages: claimData.additionalCoverages,
+            endorsementDetails: claimData.endorsementDetails,
+            mortgagee: claimData.mortgagee,
+            producer: claimData.producer,
+            producerPhone: claimData.producerPhone,
+            producerEmail: claimData.producerEmail,
+            reportedBy: claimData.reportedBy,
+            reportedDate: claimData.reportedDate,
+          },
+        });
+      }
 
       // Create endorsement records in the database
       if (endorsementRecords.length > 0) {
@@ -614,7 +788,7 @@ export default function NewClaim() {
         }
       }
 
-      // Navigate to the new claim
+      // Navigate to the claim
       setLocation(`/claim/${claim.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -1032,6 +1206,23 @@ export default function NewClaim() {
               </div>
             );
           })}
+          
+          {/* Draft saving indicator */}
+          {(isSavingDraft || draftClaim) && (
+            <div className="ml-auto flex items-center gap-2 text-sm">
+              {isSavingDraft ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  <span className="text-slate-500">Saving draft...</span>
+                </>
+              ) : draftClaim ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  <span className="text-green-600">Draft saved</span>
+                </>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {error && (
@@ -1280,10 +1471,18 @@ export default function NewClaim() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5" />
-                Step 4: Review & Create Claim
+                Step 4: Review & Finalize Claim
+                {draftClaim && (
+                  <Badge variant="outline" className="ml-2 text-xs">
+                    Draft Saved
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription>
-                Review and edit the extracted information before creating the claim.
+                {draftClaim 
+                  ? "Review and edit the information, then finalize the claim. Your progress is auto-saved."
+                  : "Review and edit the extracted information before creating the claim."
+                }
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -1483,11 +1682,11 @@ export default function NewClaim() {
                 {isCreating ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating...
+                    {draftClaim ? 'Finalizing...' : 'Creating...'}
                   </>
                 ) : (
                   <>
-                    Create Claim
+                    {draftClaim ? 'Finalize Claim' : 'Create Claim'}
                     <CheckCircle2 className="w-4 h-4 ml-2" />
                   </>
                 )}

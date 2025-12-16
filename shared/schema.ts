@@ -266,7 +266,7 @@ export const claims = pgTable("claims", {
   deductible: decimal("deductible", { precision: 12, scale: 2 }),
 
   // Status tracking
-  status: varchar("status", { length: 30 }).notNull().default("fnol"), // fnol, open, in_progress, review, approved, closed
+  status: varchar("status", { length: 30 }).notNull().default("draft"), // draft, fnol, open, in_progress, review, approved, closed
 
   // Assignment
   assignedAdjusterId: varchar("assigned_adjuster_id"),
