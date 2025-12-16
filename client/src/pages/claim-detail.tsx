@@ -238,7 +238,8 @@ export default function ClaimDetail() {
       setEndorsements(endorsementsData);
       setScopeItems(scopeData);
       // Ensure the claim exists in the store for sketch operations
-      ensureClaim(params.id, claimData);
+      // Cast the API Claim to the store's Partial<Claim> type (status field is compatible)
+      ensureClaim(params.id, claimData as any);
     } catch (err) {
       setApiError((err as Error).message);
     } finally {
@@ -487,7 +488,7 @@ export default function ClaimDetail() {
   };
 
   const handleSaveOpening = (openingData: Omit<RoomOpening, "id">) => {
-    if (!selectedRoom) return;
+    if (!selectedRoom || !claim) return;
 
     const existingOpenings = selectedRoom.openings || [];
 
@@ -510,7 +511,7 @@ export default function ClaimDetail() {
   };
 
   const handleDeleteOpening = (openingId: string) => {
-    if (!selectedRoom) return;
+    if (!selectedRoom || !claim) return;
     const updatedOpenings = (selectedRoom.openings || []).filter((o) => o.id !== openingId);
     updateRoom(claim.id, selectedRoom.id, { openings: updatedOpenings });
   };
@@ -526,6 +527,7 @@ export default function ClaimDetail() {
   };
 
   const handleGenerateEstimate = async () => {
+    if (!claim) return;
     if (scopeItems.length === 0) {
       setIsEstimateSettingsOpen(true);
       return;
@@ -537,6 +539,7 @@ export default function ClaimDetail() {
   };
 
   const handleGenerateAISuggestions = async () => {
+    if (!claim) return;
     if ((claim.damageZones || []).length === 0) {
       alert("Please add damage zones first in the Sketch tab before generating AI suggestions.");
       return;
@@ -772,7 +775,7 @@ export default function ClaimDetail() {
   }
 
   // Show error state if claim couldn't be loaded
-  if (apiError || !apiClaim) {
+  if (apiError || !apiClaim || !claim) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -1257,7 +1260,7 @@ export default function ClaimDetail() {
                                 {doc.type.toUpperCase()} • {(doc.fileSize / 1024).toFixed(1)} KB
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                {(doc.createdAt || doc.created_at) ? formatDistanceToNow(new Date(doc.createdAt || doc.created_at), { addSuffix: true }) : 'Recently'}
+                                {doc.createdAt ? formatDistanceToNow(new Date(doc.createdAt), { addSuffix: true }) : 'Recently'}
                               </p>
                             </div>
                           </div>
@@ -2331,7 +2334,7 @@ export default function ClaimDetail() {
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Claim Info</h3>
                     <p><span className="text-muted-foreground">Claim #:</span> {(apiClaim?.claimNumber || claim?.id || '').toUpperCase()}</p>
                     <p><span className="text-muted-foreground">Policy #:</span> {apiClaim?.policyNumber || claim?.policyNumber || 'N/A'}</p>
-                    <p><span className="text-muted-foreground">Loss Date:</span> {(apiClaim?.dateOfLoss || claim?.dateOfLoss) ? new Date(apiClaim?.dateOfLoss || claim?.dateOfLoss).toLocaleDateString() : 'Not specified'}</p>
+                    <p><span className="text-muted-foreground">Loss Date:</span> {(apiClaim?.dateOfLoss || claim?.dateOfLoss) ? new Date(apiClaim?.dateOfLoss || claim?.dateOfLoss || '').toLocaleDateString() : 'Not specified'}</p>
                   </div>
                 </div>
 

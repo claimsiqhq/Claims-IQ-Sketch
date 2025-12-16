@@ -1,4 +1,4 @@
-import { supabase, getSupabaseAdmin } from '../lib/supabase';
+import { getSupabase, getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase';
 import { pool } from '../db';
 
 export interface AuthUser {
@@ -23,6 +23,7 @@ export async function signUp(
     lastName?: string;
   }
 ): Promise<{ user: AuthUser | null; error: string | null }> {
+  const supabase = getSupabase();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -81,6 +82,7 @@ export async function signIn(
   email: string,
   password: string
 ): Promise<{ user: AuthUser | null; session: any | null; error: string | null }> {
+  const supabase = getSupabase();
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -134,6 +136,7 @@ export async function signIn(
  * Sign out a user
  */
 export async function signOut(): Promise<{ error: string | null }> {
+  const supabase = getSupabase();
   const { error } = await supabase.auth.signOut();
   return { error: error?.message || null };
 }
@@ -142,6 +145,7 @@ export async function signOut(): Promise<{ error: string | null }> {
  * Get current user from Supabase session
  */
 export async function getCurrentUser(accessToken: string): Promise<AuthUser | null> {
+  const supabase = getSupabase();
   const { data: { user }, error } = await supabase.auth.getUser(accessToken);
 
   if (error || !user) {
@@ -230,6 +234,7 @@ export async function updateUserProfile(
  * Request password reset
  */
 export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
+  const supabase = getSupabase();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${process.env.APP_URL || 'http://localhost:5000'}/reset-password`,
   });
@@ -241,6 +246,7 @@ export async function requestPasswordReset(email: string): Promise<{ error: stri
  * Update user password (requires current session)
  */
 export async function updatePassword(newPassword: string): Promise<{ error: string | null }> {
+  const supabase = getSupabase();
   const { error } = await supabase.auth.updateUser({
     password: newPassword,
   });

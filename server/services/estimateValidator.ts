@@ -835,7 +835,7 @@ export async function validateEstimateWithRules(
     code: item.code,
     description: item.description,
     quantity: item.quantity,
-    unitPrice: item.catalogItem?.basePrice || 0,
+    unitPrice: (item.catalogItem as any)?.basePrice || 0, // basePrice may not be present on all catalog items
     unit: item.unit,
     categoryId: item.categoryId,
     zoneId: item.zoneId,
@@ -849,10 +849,10 @@ export async function validateEstimateWithRules(
     id: zone.id,
     name: zone.name,
     zoneType: zone.zoneType || 'room',
-    roomType: zone.roomType,
-    damageType: zone.damageType,
-    damageSeverity: zone.damageSeverity,
-    waterCategory: zone.waterCategory,
+    roomType: (zone as any).roomType ?? undefined, // roomType may not be present on all zones
+    damageType: zone.damageType ?? undefined, // Convert null to undefined
+    damageSeverity: zone.damageSeverity ?? undefined, // Convert null to undefined
+    waterCategory: zone.waterCategory ?? undefined, // Convert null to undefined
   }));
 
   // Add zone damage context to line items

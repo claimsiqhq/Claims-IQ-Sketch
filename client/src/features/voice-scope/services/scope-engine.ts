@@ -26,7 +26,7 @@ export interface ScopeLineItem {
 export interface ScopeCommand {
   id: string;
   action: string;
-  params: Record<string, unknown>;
+  params: AddLineItemParams | UpdateLineItemParams | RemoveLineItemParams | SetQuantityParams | SuggestItemsParams | SetContextParams | Record<string, unknown>;
   result: string;
   timestamp: Date;
 }
@@ -154,6 +154,7 @@ export const useScopeEngine = create<ScopeEngineState>((set, get) => ({
       id: `li_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       code: params.code,
       description: params.description,
+      category: params.code.split('>')[0] || 'general', // Extract category from code prefix
       quantity: params.quantity,
       unit: params.unit,
       unitPrice: params.unitPrice,
@@ -307,6 +308,7 @@ export const useScopeEngine = create<ScopeEngineState>((set, get) => ({
       id: `pending_${Date.now()}_${index}`,
       code: item.code,
       description: item.description,
+      category: item.code.split('>')[0] || 'general', // Extract category from code prefix
       quantity: item.quantity,
       unit: item.unit,
       unitPrice: item.unitPrice,

@@ -71,6 +71,12 @@ export interface ZoneForMetrics {
   pitchMultiplier?: number | string | null;
   dimensions?: ZoneDimensions | null;
   sketchPolygon?: any | null;
+  // Damage-related properties (optional, used for damage-aware calculations)
+  damageType?: string | null;
+  damageSeverity?: string | null;
+  waterCategory?: number | null;
+  waterClass?: number | null;
+  affectedSurfaces?: string[] | null;
 }
 
 export interface MissingWallForMetrics {

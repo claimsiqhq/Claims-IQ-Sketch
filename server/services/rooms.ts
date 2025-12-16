@@ -90,6 +90,8 @@ function mapRowToDamageZone(row: DamageZoneRow): ClaimDamageZone {
     isFreeform: row.is_freeform,
     notes: row.notes,
     sortOrder: row.sort_order,
+    associatedPeril: (row as any).associated_peril,
+    perilConfidence: (row as any).peril_confidence,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
