@@ -54,6 +54,7 @@ export interface LineItem {
   description: string;
   unit: string;
   unitPrice: number;
+  quantity?: number;
 }
 
 export interface ClaimLineItem extends LineItem {

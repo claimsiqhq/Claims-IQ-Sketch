@@ -2290,10 +2290,11 @@ export default function ClaimDetail() {
         isOpen={isLineItemPickerOpen}
         onClose={() => setIsLineItemPickerOpen(false)}
         onSelect={(item) => {
+          const qty = item.quantity ?? 1;
           addLineItem(claim.id, {
             ...item,
-            quantity: 1, // Default to 1
-            total: item.unitPrice,
+            quantity: qty,
+            total: item.unitPrice * qty,
             id: `li${Date.now()}`
           });
           setIsLineItemPickerOpen(false);
