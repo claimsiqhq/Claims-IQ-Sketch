@@ -25,8 +25,15 @@ import {
   Plus,
   Eye,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Image as ImageIcon
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { uploadDocument, processDocument, createClaim, updateClaim, getMyOrganizations, type Document, type Claim } from "@/lib/api";
 
 // Step types for the wizard
@@ -173,6 +180,182 @@ const CollapsibleSection = ({
           {children}
         </div>
       )}
+    </div>
+  );
+};
+
+// Document page viewer component for displaying PDF pages as images
+const DocumentPageViewer = ({ 
+  documentId, 
+  documentName,
+  onClose 
+}: { 
+  documentId: string; 
+  documentName?: string;
+  onClose?: () => void;
+}) => {
+  const [imageData, setImageData] = useState<{ pages: number; images: string[] } | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [zoom, setZoom] = useState(100);
+  const [loading, setLoading] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    const loadImages = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/documents/${documentId}/images`, {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setImageData(data);
+        }
+      } catch (error) {
+        console.error('Failed to load document images:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadImages();
+  }, [documentId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-slate-100 rounded-lg">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!imageData || imageData.images.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 bg-slate-100 rounded-lg text-muted-foreground">
+        <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+        <p className="text-sm">Unable to load document preview</p>
+      </div>
+    );
+  }
+
+  // Fullscreen modal
+  if (fullscreen) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+        <div className="flex items-center justify-between p-4 text-white">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+              disabled={currentPage <= 1} 
+              className="text-white hover:bg-white/20"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
+            <span>Page {currentPage} of {imageData.pages}</span>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => setCurrentPage(p => Math.min(imageData.pages, p + 1))} 
+              disabled={currentPage >= imageData.pages} 
+              className="text-white hover:bg-white/20"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm opacity-75">{documentName || 'Document'}</span>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => setFullscreen(false)} 
+              className="text-white hover:bg-white/20"
+            >
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+          <img
+            src={imageData.images[currentPage - 1]}
+            alt={`${documentName || 'Document'} - Page ${currentPage}`}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border rounded-lg overflow-hidden bg-white">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between p-2 border-b bg-slate-50">
+        <div className="flex items-center gap-1">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+            disabled={currentPage <= 1}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-xs px-2">
+            {currentPage} / {imageData.pages}
+          </span>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setCurrentPage(p => Math.min(imageData.pages, p + 1))} 
+            disabled={currentPage >= imageData.pages}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setZoom(z => Math.max(50, z - 25))} 
+            disabled={zoom <= 50}
+            className="h-7 w-7 p-0"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </Button>
+          <span className="text-xs w-10 text-center">{zoom}%</span>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setZoom(z => Math.min(200, z + 25))} 
+            disabled={zoom >= 200}
+            className="h-7 w-7 p-0"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setFullscreen(true)}
+            className="h-7 w-7 p-0"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Image display */}
+      <div className="overflow-auto p-4 bg-slate-100 max-h-[500px]">
+        <div className="flex justify-center">
+          <img
+            src={imageData.images[currentPage - 1]}
+            alt={`${documentName || 'Document'} - Page ${currentPage}`}
+            style={{ width: `${zoom}%`, maxWidth: 'none' }}
+            className="shadow-lg bg-white"
+          />
+        </div>
+      </div>
     </div>
   );
 };
@@ -925,84 +1108,109 @@ export default function NewClaim() {
     );
   };
 
-  // Extracted data preview component - comprehensive display
-  const ExtractedDataPreview = ({ data, title }: { data: ExtractedData | undefined; title: string }) => {
-    if (!data) return null;
+  // Extracted data preview component - comprehensive display with document viewer
+  const ExtractedDataPreview = ({ 
+    data, 
+    title,
+    documentId,
+    documentName
+  }: { 
+    data: ExtractedData | undefined; 
+    title: string;
+    documentId?: string;
+    documentName?: string;
+  }) => {
+    const [activeTab, setActiveTab] = useState<'document' | 'data'>(documentId ? 'document' : 'data');
+    
+    if (!data && !documentId) return null;
 
-    // Basic claim info
-    const claimFields = [
+    // Basic claim info (handle undefined data)
+    const claimFields = data ? [
       { label: 'Claim ID', value: data.claimId },
       { label: 'Date of Loss', value: data.dateOfLoss },
       { label: 'Cause of Loss', value: data.causeOfLoss },
       { label: 'Damage Location', value: data.damageLocation },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Policyholder info
-    const policyholderFields = [
+    const policyholderFields = data ? [
       { label: 'Policyholder', value: data.policyholder },
       { label: 'Second Insured', value: data.policyholderSecondary },
       { label: 'Phone', value: data.contactPhone },
       { label: 'Email', value: data.contactEmail },
       { label: 'Risk Location', value: data.riskLocation },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Policy info
-    const policyFields = [
+    const policyFields = data ? [
       { label: 'Policy Number', value: data.policyNumber || data.policyDetails?.policyNumber },
       { label: 'State', value: data.state || data.policyDetails?.state },
       { label: 'Carrier', value: data.carrier },
       { label: 'Line of Business', value: data.lineOfBusiness },
       { label: 'In Force Since', value: data.policyInceptionDate },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Property info
-    const propertyFields = [
+    const propertyFields = data ? [
       { label: 'Year Built', value: data.yearBuilt },
       { label: 'Roof Installed', value: data.yearRoofInstall || data.policyDetails?.yearRoofInstall },
       { label: 'Wood Roof', value: data.isWoodRoof !== undefined ? (data.isWoodRoof ? 'Yes' : 'No') : undefined },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Deductibles
-    const deductibleFields = [
+    const deductibleFields = data ? [
       { label: 'Policy Deductible', value: data.policyDeductible },
       { label: 'Wind/Hail Deductible', value: data.windHailDeductible || data.policyDetails?.windHailDeductible },
       { label: 'Wind/Hail %', value: data.windHailDeductiblePercent },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Coverages
-    const coverages = data.coverages || [];
-    const coverageFields = [
+    const coverages = data?.coverages || [];
+    const coverageFields = data ? [
       { label: 'Cov A - Dwelling', value: data.dwellingLimit || data.policyDetails?.dwellingLimit },
       { label: 'Cov B - Other Structures', value: data.otherStructuresLimit },
       { label: 'Cov C - Personal Property', value: data.personalPropertyLimit },
       { label: 'Cov D - Loss of Use', value: data.lossOfUseLimit },
       { label: 'Cov E - Liability', value: data.liabilityLimit },
       { label: 'Cov F - Medical', value: data.medicalLimit },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Scheduled structures
-    const scheduledStructures = data.scheduledStructures || [];
+    const scheduledStructures = data?.scheduledStructures || [];
 
     // Additional coverages
-    const additionalCoverages = data.additionalCoverages || [];
+    const additionalCoverages = data?.additionalCoverages || [];
 
     // Third parties
-    const thirdPartyFields = [
+    const thirdPartyFields = data ? [
       { label: 'Mortgagee', value: data.mortgagee },
       { label: 'Producer/Agent', value: data.producer },
       { label: 'Producer Phone', value: data.producerPhone },
       { label: 'Producer Email', value: data.producerEmail },
-    ].filter(f => f.value);
+    ].filter(f => f.value) : [];
 
     // Endorsements
-    const endorsements = data.endorsementsListed || data.policyDetails?.endorsementsListed || [];
-    const endorsementDetails = data.endorsementDetails || [];
+    const endorsements = data?.endorsementsListed || data?.policyDetails?.endorsementsListed || [];
+    const endorsementDetails = data?.endorsementDetails || [];
 
     const hasData = claimFields.length > 0 || policyholderFields.length > 0 || policyFields.length > 0 ||
       propertyFields.length > 0 || deductibleFields.length > 0 || coverageFields.length > 0 ||
       coverages.length > 0 || scheduledStructures.length > 0 || additionalCoverages.length > 0 ||
       thirdPartyFields.length > 0 || endorsements.length > 0 || endorsementDetails.length > 0;
 
+    // If only document viewer with no extracted data
+    if (!hasData && documentId) {
+      return (
+        <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+          <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2 pb-3 border-b border-slate-200">
+            <ImageIcon className="w-4 h-4" />
+            {title}
+          </h4>
+          <DocumentPageViewer documentId={documentId} documentName={documentName} />
+        </div>
+      );
+    }
+    
     if (!hasData) {
       return (
         <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -1146,14 +1354,22 @@ export default function NewClaim() {
             </CollapsibleSection>
           )}
 
-          {data.lossDescription && (
+          {data?.lossDescription && (
             <CollapsibleSection title="Loss Description" defaultOpen={true}>
               <p className="text-sm text-slate-700 bg-white rounded p-2">{data.lossDescription}</p>
             </CollapsibleSection>
           )}
 
-          {data.fullText && (
+          {data?.fullText && (
             <FullTextViewer fullText={data.fullText} pageTexts={data.pageTexts} />
+          )}
+          
+          {documentId && (
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <CollapsibleSection title="Document Pages" defaultOpen={true} icon={ImageIcon}>
+                <DocumentPageViewer documentId={documentId} documentName={documentName} />
+              </CollapsibleSection>
+            </div>
           )}
         </div>
       </div>
@@ -1289,8 +1505,13 @@ export default function NewClaim() {
                 onRemove={() => setFnolDoc(null)}
               />
 
-              {fnolDoc?.status === 'completed' && fnolDoc.extractedData && (
-                <ExtractedDataPreview data={fnolDoc.extractedData} title="Extracted from FNOL" />
+              {fnolDoc?.status === 'completed' && (
+                <ExtractedDataPreview 
+                  data={fnolDoc.extractedData} 
+                  title="Extracted from FNOL"
+                  documentId={fnolDoc.document?.id}
+                  documentName={fnolDoc.document?.name || fnolDoc.file.name}
+                />
               )}
             </CardContent>
             <CardFooter className="flex justify-between">
@@ -1331,8 +1552,13 @@ export default function NewClaim() {
                 onRemove={() => setPolicyDoc(null)}
               />
 
-              {policyDoc?.status === 'completed' && policyDoc.extractedData && (
-                <ExtractedDataPreview data={policyDoc.extractedData} title="Extracted from Policy" />
+              {policyDoc?.status === 'completed' && (
+                <ExtractedDataPreview 
+                  data={policyDoc.extractedData} 
+                  title="Extracted from Policy"
+                  documentId={policyDoc.document?.id}
+                  documentName={policyDoc.document?.name || policyDoc.file.name}
+                />
               )}
 
               {!policyDoc && (
@@ -1400,27 +1626,39 @@ export default function NewClaim() {
                 </div>
               </div>
 
-              {/* Uploaded endorsement documents */}
+              {/* Uploaded endorsement documents with preview */}
               {endorsementDocs.length > 0 && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-slate-700">
                     Uploaded Endorsement Documents ({endorsementDocs.length})
                   </h4>
                   {endorsementDocs.map((doc, idx) => (
-                    <div key={idx} className="flex items-center gap-3 bg-white rounded-lg p-3 border border-slate-200">
-                      <FileCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
-                      <span className="flex-1 truncate text-sm font-medium">{doc.file.name}</span>
-                      {doc.status === 'uploading' && <Badge variant="secondary">Uploading...</Badge>}
-                      {doc.status === 'processing' && <Badge variant="secondary">Processing...</Badge>}
-                      {doc.status === 'completed' && <Badge className="bg-green-100 text-green-700">Processed</Badge>}
-                      {doc.status === 'error' && <Badge variant="destructive">Error</Badge>}
-                      <button
-                        onClick={() => removeEndorsementDoc(idx)}
-                        className="text-slate-400 hover:text-red-500 p-1"
-                        disabled={doc.status === 'uploading' || doc.status === 'processing'}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                    <div key={idx} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-3 p-3">
+                        <FileCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
+                        <span className="flex-1 truncate text-sm font-medium">{doc.file.name}</span>
+                        {doc.status === 'uploading' && <Badge variant="secondary">Uploading...</Badge>}
+                        {doc.status === 'processing' && <Badge variant="secondary">Processing...</Badge>}
+                        {doc.status === 'completed' && <Badge className="bg-green-100 text-green-700">Processed</Badge>}
+                        {doc.status === 'error' && <Badge variant="destructive">Error</Badge>}
+                        <button
+                          onClick={() => removeEndorsementDoc(idx)}
+                          className="text-slate-400 hover:text-red-500 p-1"
+                          disabled={doc.status === 'uploading' || doc.status === 'processing'}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {doc.status === 'completed' && doc.document?.id && (
+                        <div className="px-3 pb-3">
+                          <ExtractedDataPreview
+                            data={doc.extractedData}
+                            title={`Extracted from ${doc.file.name}`}
+                            documentId={doc.document.id}
+                            documentName={doc.file.name}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
