@@ -132,6 +132,51 @@ interface EndorsementRecord {
   fileName?: string;
 }
 
+// Collapsible section component for extracted data (hoisted outside NewClaim to preserve state)
+const CollapsibleSection = ({ 
+  title, 
+  children, 
+  defaultOpen = true,
+  count,
+  icon: Icon
+}: { 
+  title: string; 
+  children: React.ReactNode; 
+  defaultOpen?: boolean;
+  count?: number;
+  icon?: React.ComponentType<{ className?: string }>;
+}) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  
+  return (
+    <div className="border-b border-slate-200 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between py-3 text-left hover:bg-slate-100/50 transition-colors rounded"
+      >
+        <span className="flex items-center gap-2 text-xs font-semibold text-primary uppercase tracking-wide">
+          {Icon && <Icon className="w-4 h-4" />}
+          {title}
+          {count !== undefined && (
+            <Badge variant="secondary" className="text-xs ml-1">{count}</Badge>
+          )}
+        </span>
+        {isOpen ? (
+          <ChevronUp className="w-4 h-4 text-slate-400" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400" />
+        )}
+      </button>
+      {isOpen && (
+        <div className="pb-4">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function NewClaim() {
   const [, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState<WizardStep>('fnol');
@@ -758,41 +803,66 @@ export default function NewClaim() {
       );
     }
 
-    const FieldSection = ({ title, fields }: { title: string; fields: { label: string; value: string | undefined }[] }) => {
+    const FieldGrid = ({ fields }: { fields: { label: string; value: string | undefined }[] }) => {
       if (fields.length === 0) return null;
       return (
-        <div className="mb-4">
-          <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">{title}</h5>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            {fields.map((field, idx) => (
-              <div key={idx} className="flex flex-col">
-                <span className="text-slate-500 text-xs">{field.label}</span>
-                <span className="text-slate-900 text-sm font-medium truncate">{field.value}</span>
-              </div>
-            ))}
-          </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+          {fields.map((field, idx) => (
+            <div key={idx} className="flex flex-col">
+              <span className="text-slate-500 text-xs">{field.label}</span>
+              <span className="text-slate-900 text-sm font-medium">{field.value}</span>
+            </div>
+          ))}
         </div>
       );
     };
 
     return (
-      <ScrollArea className="mt-4 max-h-[500px]">
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Eye className="w-4 h-4" />
-            {title}
-          </h4>
+      <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+        <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2 pb-3 border-b border-slate-200">
+          <Eye className="w-4 h-4" />
+          {title}
+        </h4>
 
-          <FieldSection title="Claim Information" fields={claimFields} />
-          <FieldSection title="Policyholder" fields={policyholderFields} />
-          <FieldSection title="Policy Details" fields={policyFields} />
-          <FieldSection title="Property" fields={propertyFields} />
-          <FieldSection title="Deductibles" fields={deductibleFields} />
-          <FieldSection title="Coverage Limits" fields={coverageFields} />
+        <div className="space-y-0">
+          {claimFields.length > 0 && (
+            <CollapsibleSection title="Claim Information" defaultOpen={true}>
+              <FieldGrid fields={claimFields} />
+            </CollapsibleSection>
+          )}
+
+          {policyholderFields.length > 0 && (
+            <CollapsibleSection title="Policyholder" defaultOpen={true}>
+              <FieldGrid fields={policyholderFields} />
+            </CollapsibleSection>
+          )}
+
+          {policyFields.length > 0 && (
+            <CollapsibleSection title="Policy Details" defaultOpen={true}>
+              <FieldGrid fields={policyFields} />
+            </CollapsibleSection>
+          )}
+
+          {propertyFields.length > 0 && (
+            <CollapsibleSection title="Property" defaultOpen={true}>
+              <FieldGrid fields={propertyFields} />
+            </CollapsibleSection>
+          )}
+
+          {deductibleFields.length > 0 && (
+            <CollapsibleSection title="Deductibles" defaultOpen={true}>
+              <FieldGrid fields={deductibleFields} />
+            </CollapsibleSection>
+          )}
+
+          {coverageFields.length > 0 && (
+            <CollapsibleSection title="Coverage Limits" defaultOpen={true}>
+              <FieldGrid fields={coverageFields} />
+            </CollapsibleSection>
+          )}
           
           {coverages.length > 0 && (
-            <div className="mb-4">
-              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Coverages (Detailed)</h5>
+            <CollapsibleSection title="Coverages (Detailed)" count={coverages.length} defaultOpen={false}>
               <div className="space-y-1">
                 {coverages.map((cov, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
@@ -805,12 +875,11 @@ export default function NewClaim() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {scheduledStructures.length > 0 && (
-            <div className="mb-4">
-              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Scheduled Structures</h5>
+            <CollapsibleSection title="Scheduled Structures" count={scheduledStructures.length} defaultOpen={false}>
               <div className="space-y-1">
                 {scheduledStructures.map((struct, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
@@ -819,12 +888,11 @@ export default function NewClaim() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {additionalCoverages.length > 0 && (
-            <div className="mb-4">
-              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Additional Coverages</h5>
+            <CollapsibleSection title="Additional Coverages" count={additionalCoverages.length} defaultOpen={false}>
               <div className="space-y-1">
                 {additionalCoverages.map((cov, idx) => (
                   <div key={idx} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
@@ -836,18 +904,23 @@ export default function NewClaim() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
-          <FieldSection title="Third Parties" fields={thirdPartyFields} />
+          {thirdPartyFields.length > 0 && (
+            <CollapsibleSection title="Third Parties" defaultOpen={false}>
+              <FieldGrid fields={thirdPartyFields} />
+            </CollapsibleSection>
+          )}
 
           {(endorsements.length > 0 || endorsementDetails.length > 0) && (
-            <div className="mb-4">
-              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">
-                Endorsements ({endorsementDetails.length || endorsements.length})
-              </h5>
+            <CollapsibleSection 
+              title="Endorsements" 
+              count={endorsementDetails.length || endorsements.length} 
+              defaultOpen={false}
+            >
               {endorsementDetails.length > 0 ? (
-                <div className="space-y-1 max-h-32 overflow-y-auto">
+                <div className="space-y-1">
                   {endorsementDetails.map((e, idx) => (
                     <div key={idx} className="text-xs bg-white rounded px-2 py-1">
                       <span className="font-medium text-slate-900">{e.formNumber}</span>
@@ -862,22 +935,20 @@ export default function NewClaim() {
                   ))}
                 </div>
               )}
-            </div>
+            </CollapsibleSection>
           )}
 
           {data.lossDescription && (
-            <div className="mb-4">
-              <h5 className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Loss Description</h5>
+            <CollapsibleSection title="Loss Description" defaultOpen={true}>
               <p className="text-sm text-slate-700 bg-white rounded p-2">{data.lossDescription}</p>
-            </div>
+            </CollapsibleSection>
           )}
 
-          {/* Full Document Text Section */}
           {data.fullText && (
             <FullTextViewer fullText={data.fullText} pageTexts={data.pageTexts} />
           )}
         </div>
-      </ScrollArea>
+      </div>
     );
   };
 
