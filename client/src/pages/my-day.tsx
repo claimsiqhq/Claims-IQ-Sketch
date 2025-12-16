@@ -4,7 +4,6 @@ import Layout from "@/components/layout";
 import { useDeviceMode } from "@/contexts/DeviceModeContext";
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,7 +22,6 @@ import {
   Thermometer,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
   Navigation,
   Calendar,
   Shield,
@@ -36,7 +34,6 @@ import {
   CircleDot,
   Car,
   ExternalLink,
-  Triangle,
 } from "lucide-react";
 import {
   Peril,
@@ -341,15 +338,15 @@ function getBadgeLabel(badge: InspectionBadge): string {
 function getBadgeStyle(badge: InspectionBadge) {
   switch (badge) {
     case "mitigation_likely":
-      return "bg-amber-100 text-amber-800 border-amber-300";
+      return "bg-accent/20 text-accent-foreground border-accent/30";
     case "evidence_at_risk":
-      return "bg-red-100 text-red-800 border-red-300";
+      return "bg-destructive/10 text-destructive border-destructive/20";
     case "sla_today":
-      return "bg-purple-100 text-purple-800 border-purple-300";
+      return "bg-primary/10 text-primary border-primary/20";
     case "contact_required":
-      return "bg-blue-100 text-blue-800 border-blue-300";
+      return "bg-secondary/20 text-secondary-foreground border-secondary/30";
     default:
-      return "bg-slate-100 text-slate-800 border-slate-300";
+      return "bg-muted text-muted-foreground border-border";
   }
 }
 
@@ -358,121 +355,312 @@ function formatTimeWindow(start: string, end: string): string {
     const [h, m] = t.split(":").map(Number);
     const period = h >= 12 ? "PM" : "AM";
     const hour = h % 12 || 12;
-    return `${hour}:${m.toString().padStart(2, "0")} ${period}`;
+    return `${hour}:${m.toString().padStart(2, "0")}${period}`;
   };
   return `${formatTime(start)} – ${formatTime(end)}`;
 }
 
 // ==========================================
-// SECTION COMPONENTS
+// MOBILE COMPONENTS
 // ==========================================
 
-// Day Context Bar (Sticky Header)
-function DayContextBar({ context, isMobile }: { context: MyDayData["context"]; isMobile: boolean }) {
-  const today = format(new Date(), "EEEE, MMMM d");
+// Mobile Day Context Bar
+function MobileDayContextBar({ context }: { context: MyDayData["context"] }) {
+  const today = format(new Date(), "EEE, MMM d");
 
   return (
-    <div className={cn(
-      "bg-slate-900 text-white sticky top-0 z-40",
-      isMobile ? "px-4 py-3" : "px-6 py-4"
-    )}>
-      <div className={cn("max-w-5xl mx-auto", isMobile ? "" : "")}>
-        {/* Top row: Name, Date, Territory */}
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h1 className={cn(
-              "font-display font-bold",
-              isMobile ? "text-lg" : "text-xl"
-            )}>
-              {context.adjusterName}
-            </h1>
-            <p className="text-slate-400 text-sm flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5" />
-              {today}
-              {context.territory && (
-                <>
-                  <span className="text-slate-600">•</span>
-                  <span>{context.territory}</span>
-                </>
-              )}
-            </p>
+    <div className="bg-white border-b border-border px-4 py-3">
+      {/* Name and Date Row */}
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h1 className="text-xl font-display font-bold text-foreground">
+            My Day
+          </h1>
+          <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+            <Calendar className="h-3.5 w-3.5" />
+            {today}
+            {context.territory && (
+              <>
+                <span className="text-border">•</span>
+                <span>{context.territory}</span>
+              </>
+            )}
+          </p>
+        </div>
+        {context.catEvent && (
+          <Badge className="bg-accent/20 text-accent-foreground border-accent/30 text-xs">
+            {context.catEvent}
+          </Badge>
+        )}
+      </div>
+
+      {/* Stats Row - Horizontal Scroll */}
+      <div className="flex gap-3 overflow-x-auto -mx-4 px-4 pb-1 scrollbar-hide">
+        <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2 shrink-0">
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+            <Navigation className="h-4 w-4 text-primary" />
           </div>
-          {context.catEvent && (
-            <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-xs">
-              {context.catEvent}
-            </Badge>
-          )}
+          <div>
+            <p className="text-lg font-bold text-foreground">{context.inspectionCount}</p>
+            <p className="text-xs text-muted-foreground">stops</p>
+          </div>
         </div>
 
-        {/* Bottom row: Stats and Alerts */}
-        <div className="flex items-center justify-between">
-          {/* Left: Key counts */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center">
-                <Navigation className="h-3.5 w-3.5 text-slate-300" />
-              </div>
-              <div>
-                <span className="text-lg font-bold">{context.inspectionCount}</span>
-                <span className="text-slate-400 text-xs ml-1">stops</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center">
-                <AlertTriangle className="h-3.5 w-3.5 text-slate-300" />
-              </div>
-              <div>
-                <span className="text-lg font-bold">{context.riskCount}</span>
-                <span className="text-slate-400 text-xs ml-1">at risk</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center">
-                <Timer className="h-3.5 w-3.5 text-slate-300" />
-              </div>
-              <div>
-                <span className="text-lg font-bold">{context.slaDeadlineCount}</span>
-                <span className="text-slate-400 text-xs ml-1">SLAs</span>
-              </div>
-            </div>
+        <div className="flex items-center gap-2 bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2 shrink-0">
+          <div className="h-8 w-8 rounded-full bg-destructive/10 flex items-center justify-center">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
           </div>
+          <div>
+            <p className="text-lg font-bold text-foreground">{context.riskCount}</p>
+            <p className="text-xs text-muted-foreground">at risk</p>
+          </div>
+        </div>
 
-          {/* Right: Alert icons */}
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 bg-accent/10 border border-accent/20 rounded-lg px-3 py-2 shrink-0">
+          <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center">
+            <Timer className="h-4 w-4 text-accent-foreground" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-foreground">{context.slaDeadlineCount}</p>
+            <p className="text-xs text-muted-foreground">SLAs</p>
+          </div>
+        </div>
+
+        {/* Alert Icons */}
+        {(context.hasWeatherAlert || context.hasSafetyAlert || context.hasSlaBreach) && (
+          <div className="flex items-center gap-1.5 pl-2 shrink-0">
             {context.hasWeatherAlert && (
-              <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center" title="Weather Alert">
-                <CloudRain className="h-4 w-4 text-amber-400" />
+              <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center">
+                <CloudRain className="h-4 w-4 text-amber-600" />
               </div>
             )}
             {context.hasSafetyAlert && (
-              <div className="h-8 w-8 rounded-full bg-red-500/20 flex items-center justify-center" title="Safety Alert">
-                <Shield className="h-4 w-4 text-red-400" />
+              <div className="h-8 w-8 rounded-full bg-destructive/10 flex items-center justify-center">
+                <Shield className="h-4 w-4 text-destructive" />
               </div>
             )}
             {context.hasSlaBreach && (
-              <div className="h-8 w-8 rounded-full bg-red-500/20 flex items-center justify-center animate-pulse" title="SLA Breach">
-                <AlertCircle className="h-4 w-4 text-red-400" />
+              <div className="h-8 w-8 rounded-full bg-destructive/10 flex items-center justify-center animate-pulse">
+                <AlertCircle className="h-4 w-4 text-destructive" />
               </div>
             )}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Desktop Day Context Bar
+function DesktopDayContextBar({ context }: { context: MyDayData["context"] }) {
+  const today = format(new Date(), "EEEE, MMMM d, yyyy");
+
+  return (
+    <div className="bg-white border-b border-border px-6 py-4">
+      <div className="max-w-5xl mx-auto flex items-center justify-between">
+        {/* Left: Title and Info */}
+        <div>
+          <h1 className="text-2xl font-display font-bold text-foreground">
+            My Day
+          </h1>
+          <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
+            <Calendar className="h-4 w-4" />
+            {today}
+            {context.territory && (
+              <>
+                <span className="text-border">•</span>
+                <span>{context.territory}</span>
+              </>
+            )}
+            {context.catEvent && (
+              <>
+                <span className="text-border">•</span>
+                <Badge className="bg-accent/20 text-accent-foreground border-accent/30 text-xs">
+                  {context.catEvent}
+                </Badge>
+              </>
+            )}
+          </p>
+        </div>
+
+        {/* Right: Stats */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <Navigation className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{context.inspectionCount}</p>
+              <p className="text-xs text-muted-foreground">inspections</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-destructive/10 flex items-center justify-center">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{context.riskCount}</p>
+              <p className="text-xs text-muted-foreground">at risk</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-accent/20 flex items-center justify-center">
+              <Timer className="h-5 w-5 text-accent-foreground" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{context.slaDeadlineCount}</p>
+              <p className="text-xs text-muted-foreground">SLA deadlines</p>
+            </div>
+          </div>
+
+          {/* Alert Icons */}
+          {(context.hasWeatherAlert || context.hasSafetyAlert || context.hasSlaBreach) && (
+            <div className="flex items-center gap-2 pl-4 border-l border-border">
+              {context.hasWeatherAlert && (
+                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center" title="Weather Alert">
+                  <CloudRain className="h-5 w-5 text-amber-600" />
+                </div>
+              )}
+              {context.hasSafetyAlert && (
+                <div className="h-10 w-10 rounded-full bg-destructive/10 flex items-center justify-center" title="Safety Alert">
+                  <Shield className="h-5 w-5 text-destructive" />
+                </div>
+              )}
+              {context.hasSlaBreach && (
+                <div className="h-10 w-10 rounded-full bg-destructive/10 flex items-center justify-center animate-pulse" title="SLA Breach">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Individual Route Stop Card
-function RouteStopCard({
+// Mobile Route Stop Card
+function MobileRouteStopCard({
+  stop,
+  index,
+  weatherAlert,
+}: {
+  stop: InspectionStop;
+  index: number;
+  weatherAlert?: WeatherCondition;
+}) {
+  const PerilIcon = getPerilIcon(stop.peril);
+  const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
+  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+    `${stop.address}, ${stop.city}, ${stop.state} ${stop.zip}`
+  )}`;
+
+  return (
+    <Link href={`/claim/${stop.claimId}`}>
+      <div className={cn(
+        "bg-white border rounded-xl active:bg-muted transition-colors min-tap-target",
+        weatherAlert ? "border-amber-300 bg-amber-50/50" : "border-border"
+      )}>
+        {/* Weather Alert Banner */}
+        {weatherAlert && (
+          <div className="flex items-center gap-2 text-amber-700 text-xs px-3 py-2 border-b border-amber-200 bg-amber-50">
+            <CloudRain className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{weatherAlert.description}</span>
+          </div>
+        )}
+
+        <div className="p-3">
+          <div className="flex gap-3">
+            {/* Stop Number */}
+            <div className={cn(
+              "h-11 w-11 rounded-full flex items-center justify-center font-bold text-lg shrink-0",
+              perilColors.bg, perilColors.text
+            )}>
+              {index + 1}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              {/* Time */}
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-mono text-sm font-semibold text-foreground">
+                  {formatTimeWindow(stop.timeWindow.start, stop.timeWindow.end)}
+                </span>
+                {stop.travelTimeFromPrevious && index > 0 && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                    <Car className="h-3 w-3" />
+                    {stop.travelTimeFromPrevious}m
+                  </span>
+                )}
+              </div>
+
+              {/* Name and Claim */}
+              <p className="font-medium text-foreground truncate">{stop.insuredName}</p>
+              <p className="text-sm text-muted-foreground">{stop.claimNumber}</p>
+
+              {/* Reason */}
+              <p className="text-sm text-foreground mt-1">{stop.reason}</p>
+
+              {/* Badges */}
+              {stop.badges.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {stop.badges.map((badge) => (
+                    <Badge
+                      key={badge}
+                      variant="outline"
+                      className={cn("text-xs", getBadgeStyle(badge))}
+                    >
+                      {getBadgeLabel(badge)}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Right: Peril Icon & Chevron */}
+            <div className="flex flex-col items-center justify-between shrink-0">
+              <PerilIcon className={cn("h-5 w-5", perilColors.text)} />
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </div>
+
+          {/* Address - Tap to Navigate */}
+          <a
+            href={googleMapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 text-sm text-primary mt-2 pt-2 border-t border-border active:opacity-70"
+          >
+            <MapPin className="h-4 w-4 shrink-0" />
+            <span className="truncate">{stop.address}, {stop.city}</span>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 ml-auto" />
+          </a>
+
+          {/* Notes */}
+          {stop.notes && (
+            <p className="text-xs text-muted-foreground mt-2 italic bg-muted/50 rounded px-2 py-1.5">
+              {stop.notes}
+            </p>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+// Desktop Route Stop Card
+function DesktopRouteStopCard({
   stop,
   index,
   isLast,
-  isMobile,
   weatherAlert,
 }: {
   stop: InspectionStop;
   index: number;
   isLast: boolean;
-  isMobile: boolean;
   weatherAlert?: WeatherCondition;
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
@@ -485,24 +673,23 @@ function RouteStopCard({
     <div className="relative">
       {/* Timeline connector */}
       {!isLast && (
-        <div className="absolute left-6 top-16 bottom-0 w-0.5 bg-slate-200" />
+        <div className="absolute left-6 top-16 bottom-0 w-0.5 bg-border" />
       )}
 
       <Link href={`/claim/${stop.claimId}`}>
         <div className={cn(
-          "relative bg-white border rounded-lg transition-all hover:shadow-md hover:border-slate-300 cursor-pointer",
-          weatherAlert && "border-amber-300 bg-amber-50/30",
-          isMobile ? "p-3" : "p-4"
+          "relative bg-white border rounded-xl transition-all hover:shadow-md hover:border-primary/30 cursor-pointer p-4",
+          weatherAlert && "border-amber-300 bg-amber-50/30"
         )}>
           {/* Weather warning banner */}
           {weatherAlert && (
-            <div className="flex items-center gap-2 text-amber-700 text-xs mb-2 pb-2 border-b border-amber-200">
-              <CloudRain className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 text-amber-700 text-sm mb-3 pb-3 border-b border-amber-200">
+              <CloudRain className="h-4 w-4" />
               <span>{weatherAlert.description} — {weatherAlert.impact}</span>
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex gap-4">
             {/* Stop number indicator */}
             <div className="flex-shrink-0">
               <div className={cn(
@@ -519,22 +706,22 @@ function RouteStopCard({
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm font-semibold text-slate-900">
+                    <span className="font-mono text-sm font-semibold text-foreground">
                       {formatTimeWindow(stop.timeWindow.start, stop.timeWindow.end)}
                     </span>
                     {stop.travelTimeFromPrevious && index > 0 && (
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
                         <Car className="h-3 w-3" />
-                        {stop.travelTimeFromPrevious}m
+                        {stop.travelTimeFromPrevious} min drive
                       </span>
                     )}
                   </div>
-                  <p className="font-medium text-slate-900">{stop.insuredName}</p>
-                  <p className="text-sm text-slate-500">{stop.claimNumber}</p>
+                  <p className="font-medium text-foreground">{stop.insuredName}</p>
+                  <p className="text-sm text-muted-foreground">{stop.claimNumber}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <PerilIcon className={cn("h-5 w-5", perilColors.text)} />
-                  <ChevronRight className="h-5 w-5 text-slate-400" />
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
                 </div>
               </div>
 
@@ -544,15 +731,15 @@ function RouteStopCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-primary mb-2"
+                className="flex items-center gap-1.5 text-sm text-primary hover:underline mb-2"
               >
                 <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{stop.address}, {stop.city}</span>
+                <span className="truncate">{stop.address}, {stop.city}, {stop.state}</span>
                 <ExternalLink className="h-3 w-3 flex-shrink-0" />
               </a>
 
               {/* Reason for visit */}
-              <p className="text-sm text-slate-700 mb-2">{stop.reason}</p>
+              <p className="text-sm text-foreground mb-2">{stop.reason}</p>
 
               {/* Badges */}
               {stop.badges.length > 0 && (
@@ -560,7 +747,8 @@ function RouteStopCard({
                   {stop.badges.map((badge) => (
                     <Badge
                       key={badge}
-                      className={cn("text-xs border", getBadgeStyle(badge))}
+                      variant="outline"
+                      className={cn("text-xs", getBadgeStyle(badge))}
                     >
                       {getBadgeLabel(badge)}
                     </Badge>
@@ -570,7 +758,7 @@ function RouteStopCard({
 
               {/* Notes */}
               {stop.notes && (
-                <p className="text-xs text-slate-500 mt-2 italic border-l-2 border-slate-200 pl-2">
+                <p className="text-xs text-muted-foreground mt-2 italic bg-muted/50 rounded px-2 py-1.5">
                   {stop.notes}
                 </p>
               )}
@@ -598,28 +786,36 @@ function TodaysRoute({
 
   return (
     <section className={cn(isMobile ? "px-4 py-4" : "px-6 py-6")}>
-      <div className="max-w-5xl mx-auto">
+      <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-display font-semibold text-slate-900 flex items-center gap-2">
+          <h2 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
             <Navigation className="h-5 w-5 text-primary" />
             Today's Route
           </h2>
-          <span className="text-sm text-slate-500">
-            {route.length} inspection{route.length !== 1 ? "s" : ""}
+          <span className="text-sm text-muted-foreground">
+            {route.length} stop{route.length !== 1 ? "s" : ""}
           </span>
         </div>
 
         <div className="space-y-3">
-          {route.map((stop, index) => (
-            <RouteStopCard
-              key={stop.id}
-              stop={stop}
-              index={index}
-              isLast={index === route.length - 1}
-              isMobile={isMobile}
-              weatherAlert={getWeatherAlertForStop(stop)}
-            />
-          ))}
+          {route.map((stop, index) =>
+            isMobile ? (
+              <MobileRouteStopCard
+                key={stop.id}
+                stop={stop}
+                index={index}
+                weatherAlert={getWeatherAlertForStop(stop)}
+              />
+            ) : (
+              <DesktopRouteStopCard
+                key={stop.id}
+                stop={stop}
+                index={index}
+                isLast={index === route.length - 1}
+                weatherAlert={getWeatherAlertForStop(stop)}
+              />
+            )
+          )}
         </div>
       </div>
     </section>
@@ -634,37 +830,38 @@ function OnDeckCard({ claim, isMobile }: { claim: OnDeckClaim; isMobile: boolean
   return (
     <Link href={`/claim/${claim.claimId}`}>
       <div className={cn(
-        "bg-white border border-slate-200 rounded-lg hover:shadow-sm hover:border-slate-300 transition-all cursor-pointer",
+        "bg-white border border-border rounded-xl active:bg-muted hover:border-primary/30 transition-all cursor-pointer min-tap-target",
         isMobile ? "p-3" : "p-4"
       )}>
         <div className="flex items-center gap-3">
           <div className={cn(
-            "h-10 w-10 rounded-lg flex items-center justify-center",
+            "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
             perilColors.bg
           )}>
             <PerilIcon className={cn("h-5 w-5", perilColors.text)} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-slate-900">{claim.claimNumber}</span>
+              <span className="font-medium text-foreground">{claim.claimNumber}</span>
               {claim.slaHoursRemaining !== undefined && (
                 <Badge
+                  variant="outline"
                   className={cn(
                     "text-xs",
                     claim.slaHoursRemaining <= 4
-                      ? "bg-red-100 text-red-700"
+                      ? "bg-destructive/10 text-destructive border-destructive/20"
                       : claim.slaHoursRemaining <= 8
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-slate-100 text-slate-700"
+                      ? "bg-accent/20 text-accent-foreground border-accent/30"
+                      : "bg-muted text-muted-foreground"
                   )}
                 >
                   {claim.slaHoursRemaining}h
                 </Badge>
               )}
             </div>
-            <p className="text-sm text-slate-600 truncate">{claim.reason}</p>
+            <p className="text-sm text-muted-foreground truncate">{claim.reason}</p>
           </div>
-          <ChevronRight className="h-5 w-5 text-slate-400 flex-shrink-0" />
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
         </div>
       </div>
     </Link>
@@ -677,16 +874,16 @@ function ClaimsOnDeck({ claims, isMobile }: { claims: OnDeckClaim[]; isMobile: b
 
   return (
     <section className={cn(
-      "border-t border-slate-200 bg-slate-50/50",
+      "border-t border-border bg-muted/30",
       isMobile ? "px-4 py-4" : "px-6 py-6"
     )}>
-      <div className="max-w-5xl mx-auto">
-        <h2 className="text-lg font-display font-semibold text-slate-900 mb-3 flex items-center gap-2">
-          <FileWarning className="h-5 w-5 text-slate-600" />
+      <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
+        <h2 className="text-lg font-display font-semibold text-foreground mb-1 flex items-center gap-2">
+          <FileWarning className="h-5 w-5 text-muted-foreground" />
           On Deck Today
-          <span className="text-sm font-normal text-slate-500">({claims.length})</span>
+          <span className="text-sm font-normal text-muted-foreground">({claims.length})</span>
         </h2>
-        <p className="text-sm text-slate-500 mb-4">Non-field work requiring attention today</p>
+        <p className="text-sm text-muted-foreground mb-4">Non-field work requiring attention</p>
 
         <div className={cn(
           "grid gap-2",
@@ -704,50 +901,48 @@ function ClaimsOnDeck({ claims, isMobile }: { claims: OnDeckClaim[]; isMobile: b
 // Risk Watch Card
 function RiskWatchCard({ item, isMobile }: { item: RiskWatchItem; isMobile: boolean }) {
   const PerilIcon = getPerilIcon(item.peril);
-  const severityColors = {
-    low: "bg-slate-100 border-slate-300",
-    medium: "bg-amber-50 border-amber-300",
-    high: "bg-orange-50 border-orange-400",
-    critical: "bg-red-50 border-red-400 animate-pulse",
-  };
 
   return (
     <Link href={`/claim/${item.claimId}`}>
       <div className={cn(
-        "border rounded-lg transition-all hover:shadow-md cursor-pointer",
-        severityColors[item.severity],
+        "border rounded-xl transition-all active:opacity-90 hover:shadow-md cursor-pointer min-tap-target",
+        item.severity === "critical"
+          ? "bg-destructive/5 border-destructive/30"
+          : "bg-amber-50 border-amber-300",
         isMobile ? "p-3" : "p-4"
       )}>
         <div className="flex items-start gap-3">
           <div className={cn(
-            "h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0",
-            item.severity === "critical" ? "bg-red-100" : "bg-orange-100"
+            "h-10 w-10 rounded-full flex items-center justify-center shrink-0",
+            item.severity === "critical" ? "bg-destructive/10" : "bg-amber-100"
           )}>
             <AlertTriangle className={cn(
               "h-5 w-5",
-              item.severity === "critical" ? "text-red-600" : "text-orange-600"
+              item.severity === "critical" ? "text-destructive" : "text-amber-600"
             )} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="font-medium text-slate-900">{item.claimNumber}</span>
+              <span className="font-medium text-foreground">{item.claimNumber}</span>
               <Badge
+                variant="outline"
                 className={cn(
-                  "text-xs font-mono",
+                  "text-xs font-mono shrink-0",
                   item.hoursUntilCritical <= 4
-                    ? "bg-red-100 text-red-700"
-                    : "bg-amber-100 text-amber-700"
+                    ? "bg-destructive/10 text-destructive border-destructive/20"
+                    : "bg-amber-100 text-amber-700 border-amber-300"
                 )}
               >
                 {item.hoursUntilCritical}h
               </Badge>
             </div>
-            <p className="text-sm text-slate-800 font-medium">{item.riskDescription}</p>
+            <p className="text-sm text-foreground font-medium">{item.riskDescription}</p>
             <div className="flex items-center gap-2 mt-1">
-              <PerilIcon className="h-3.5 w-3.5 text-slate-500" />
-              <span className="text-xs text-slate-500">{PERIL_LABELS[item.peril]}</span>
+              <PerilIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">{PERIL_LABELS[item.peril]}</span>
             </div>
           </div>
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 self-center" />
         </div>
       </div>
     </Link>
@@ -766,16 +961,16 @@ function RiskMitigationWatch({
 
   return (
     <section className={cn(
-      "border-t-4 border-orange-400 bg-gradient-to-b from-orange-50 to-white",
+      "border-t-4 border-amber-400 bg-gradient-to-b from-amber-50 to-background",
       isMobile ? "px-4 py-4" : "px-6 py-6"
     )}>
-      <div className="max-w-5xl mx-auto">
-        <h2 className="text-lg font-display font-semibold text-slate-900 mb-1 flex items-center gap-2">
-          <Triangle className="h-5 w-5 text-orange-500 fill-orange-200" />
-          Risk & Mitigation Watch
+      <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
+        <h2 className="text-lg font-display font-semibold text-foreground mb-1 flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+          Risk Watch
         </h2>
-        <p className="text-sm text-slate-600 mb-4">
-          Active damage or evidence at risk — time-sensitive decisions needed
+        <p className="text-sm text-muted-foreground mb-4">
+          Active damage or evidence at risk — time-sensitive
         </p>
 
         <div className="space-y-2">
@@ -789,26 +984,27 @@ function RiskMitigationWatch({
 }
 
 // Weather Condition Card
-function WeatherCard({ condition }: { condition: WeatherCondition }) {
+function WeatherCard({ condition, isMobile }: { condition: WeatherCondition; isMobile: boolean }) {
   const WeatherIcon = getWeatherIcon(condition.type);
   const severityStyles = {
-    advisory: "bg-blue-50 border-blue-200 text-blue-800",
+    advisory: "bg-secondary/10 border-secondary/30 text-secondary-foreground",
     warning: "bg-amber-50 border-amber-300 text-amber-800",
-    danger: "bg-red-50 border-red-400 text-red-800",
+    danger: "bg-destructive/10 border-destructive/30 text-destructive",
   };
 
   return (
     <div className={cn(
-      "flex items-center gap-3 p-3 rounded-lg border",
-      severityStyles[condition.severity]
+      "flex items-center gap-3 rounded-xl border",
+      severityStyles[condition.severity],
+      isMobile ? "p-3" : "p-4"
     )}>
-      <WeatherIcon className="h-6 w-6 flex-shrink-0" />
+      <WeatherIcon className="h-6 w-6 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="font-medium">{condition.description}</p>
         <p className="text-sm opacity-80">{condition.impact}</p>
       </div>
-      <div className="text-right text-sm">
-        <span className="font-mono">{condition.startTime}</span>
+      <div className="text-right shrink-0">
+        <span className="font-mono text-sm">{condition.startTime}</span>
         <p className="text-xs opacity-70">{condition.affectedClaimIds.length} claims</p>
       </div>
     </div>
@@ -827,21 +1023,18 @@ function WeatherConditions({
 
   return (
     <section className={cn(
-      "border-t border-slate-200",
+      "border-t border-border",
       isMobile ? "px-4 py-4" : "px-6 py-6"
     )}>
-      <div className="max-w-5xl mx-auto">
-        <h2 className="text-lg font-display font-semibold text-slate-900 mb-3 flex items-center gap-2">
-          <CloudRain className="h-5 w-5 text-slate-600" />
+      <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
+        <h2 className="text-lg font-display font-semibold text-foreground mb-3 flex items-center gap-2">
+          <CloudRain className="h-5 w-5 text-muted-foreground" />
           Weather & Conditions
         </h2>
-        <p className="text-sm text-slate-500 mb-4">
-          Conditions affecting today's inspections
-        </p>
 
         <div className="space-y-2">
           {weather.map((condition) => (
-            <WeatherCard key={condition.id} condition={condition} />
+            <WeatherCard key={condition.id} condition={condition} isMobile={isMobile} />
           ))}
         </div>
       </div>
@@ -860,19 +1053,19 @@ function SlaHygieneCard({ item }: { item: SlaHygieneItem }) {
 
   return (
     <Link href={`/claim/${item.claimId}`}>
-      <div className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-lg hover:border-slate-300 hover:shadow-sm transition-all cursor-pointer">
-        <IssueIcon className="h-4 w-4 text-slate-400 flex-shrink-0" />
+      <div className="flex items-center gap-3 p-3 bg-white border border-border rounded-xl active:bg-muted hover:border-primary/30 transition-all cursor-pointer min-tap-target">
+        <IssueIcon className="h-4 w-4 text-muted-foreground shrink-0" />
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-slate-700">{item.claimNumber}</span>
-          <span className="text-slate-400 mx-2">·</span>
-          <span className="text-sm text-slate-500">{item.description}</span>
+          <span className="text-sm font-medium text-foreground">{item.claimNumber}</span>
+          <span className="text-muted-foreground mx-2">·</span>
+          <span className="text-sm text-muted-foreground">{item.description}</span>
         </div>
         {item.daysOverdue && (
-          <Badge className="bg-red-100 text-red-700 text-xs">
+          <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20 text-xs shrink-0">
             {item.daysOverdue}d overdue
           </Badge>
         )}
-        <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
+        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
       </div>
     </Link>
   );
@@ -892,25 +1085,24 @@ function SlaHygiene({
 
   return (
     <section className={cn(
-      "border-t border-slate-200 bg-slate-50",
+      "border-t border-border bg-muted/30",
       isMobile ? "px-4 py-4" : "px-6 py-6"
     )}>
-      <div className="max-w-5xl mx-auto">
+      <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
           <CollapsibleTrigger asChild>
-            <button className="flex items-center justify-between w-full text-left group">
-              <h2 className="text-base font-display font-semibold text-slate-700 flex items-center gap-2">
-                <Clock className="h-4 w-4 text-slate-500" />
+            <button className="flex items-center justify-between w-full text-left group min-tap-target">
+              <h2 className="text-base font-display font-semibold text-muted-foreground flex items-center gap-2">
+                <Clock className="h-4 w-4" />
                 SLA & Hygiene
-                <span className="text-sm font-normal text-slate-500">({items.length})</span>
+                <span className="text-sm font-normal">({items.length})</span>
               </h2>
-              <div className="flex items-center gap-2 text-sm text-slate-500 group-hover:text-slate-700">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground group-hover:text-foreground">
                 <span>{isOpen ? "Hide" : "Show"}</span>
-                {isOpen ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
+                <ChevronDown className={cn(
+                  "h-4 w-4 transition-transform",
+                  isOpen && "rotate-180"
+                )} />
               </div>
             </button>
           </CollapsibleTrigger>
@@ -938,7 +1130,6 @@ export default function MyDay() {
 
   // In production, this would come from an API
   const dayData = useMemo(() => {
-    // Update adjuster name from auth if available
     return {
       ...SAMPLE_MY_DAY_DATA,
       context: {
@@ -950,15 +1141,16 @@ export default function MyDay() {
 
   return (
     <Layout>
-      <div className="min-h-full bg-slate-100">
-        {/* Sticky Day Context Bar */}
-        <DayContextBar context={dayData.context} isMobile={isMobileLayout} />
+      <div className="min-h-full bg-background">
+        {/* Day Context Bar */}
+        {isMobileLayout ? (
+          <MobileDayContextBar context={dayData.context} />
+        ) : (
+          <DesktopDayContextBar context={dayData.context} />
+        )}
 
         {/* Main Content */}
-        <div className={cn(
-          "pb-8",
-          isMobileLayout && "pb-24" // Extra padding for mobile nav
-        )}>
+        <div className={cn(isMobileLayout && "pb-20")}>
           {/* Weather alerts at top if present */}
           {dayData.weather.length > 0 && (
             <WeatherConditions weather={dayData.weather} isMobile={isMobileLayout} />
