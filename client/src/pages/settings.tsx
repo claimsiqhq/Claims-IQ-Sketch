@@ -128,8 +128,8 @@ export default function Settings() {
   const authUser = useStore((state) => state.authUser);
   const user = useStore((state) => state.user);
   
-  const displayName = authUser?.username || user.name;
-  const displayEmail = user.email;
+  const displayName = authUser?.username || user?.name || 'User';
+  const displayEmail = user?.email || authUser?.email || '';
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
   const [activeTab, setActiveTab] = useState(tabFromUrl || "profile");

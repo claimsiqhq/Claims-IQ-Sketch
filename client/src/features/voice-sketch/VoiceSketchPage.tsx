@@ -312,10 +312,10 @@ export default function VoiceSketchPage() {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{claim.customerName}</p>
                           <p className="text-sm text-muted-foreground truncate">
-                            {claim.address.street}
+                            {claim.address?.street || 'No address'}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {claim.type} | {claim.rooms.length} room{claim.rooms.length !== 1 ? 's' : ''}
+                            {claim.type} | {(claim.rooms?.length || 0)} room{(claim.rooms?.length || 0) !== 1 ? 's' : ''}
                           </p>
                         </div>
                         <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />

@@ -165,7 +165,7 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
                   <div className="overflow-hidden flex-1 text-left">
                     <p className="font-medium text-sm truncate">{displayName}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {authUser ? 'Administrator' : user.email}
+                      {authUser ? 'Administrator' : user?.email || 'No email'}
                     </p>
                   </div>
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
