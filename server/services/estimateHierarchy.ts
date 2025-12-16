@@ -1411,3 +1411,270 @@ function mapSubroomRow(row: any): EstimateSubroom {
     createdAt: row.created_at,
   };
 }
+
+// ============================================
+// CLAIM SCOPE HELPERS
+// ============================================
+
+export interface ClaimScopeItem {
+  id: string;
+  lineItemCode: string;
+  description: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  total: number;
+  roomName?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export async function getOrCreateDraftEstimate(
+  claimId: string,
+  organizationId: string
+): Promise<{ estimateId: string; defaultZoneId: string }> {
+  const client = await pool.connect();
+  try {
+    // Check for existing draft estimate
+    const existingResult = await client.query(
+      `SELECT e.id, ez.id as zone_id
+       FROM estimates e
+       LEFT JOIN estimate_structures es ON es.estimate_id = e.id
+       LEFT JOIN estimate_areas ea ON ea.structure_id = es.id
+       LEFT JOIN estimate_zones ez ON ez.area_id = ea.id
+       WHERE e.claim_id = $1 
+         AND e.is_locked = false 
+         AND e.status = 'draft'
+       ORDER BY e.created_at DESC
+       LIMIT 1`,
+      [claimId]
+    );
+
+    if (existingResult.rows.length > 0 && existingResult.rows[0].zone_id) {
+      return {
+        estimateId: existingResult.rows[0].id,
+        defaultZoneId: existingResult.rows[0].zone_id,
+      };
+    }
+
+    // Create new draft estimate
+    await client.query('BEGIN');
+
+    const estimateResult = await client.query(
+      `INSERT INTO estimates (organization_id, claim_id, name, status, region_id)
+       VALUES ($1, $2, 'Draft Scope', 'draft', 'US-NATIONAL')
+       RETURNING id`,
+      [organizationId, claimId]
+    );
+    const estimateId = estimateResult.rows[0].id;
+
+    // Create default structure
+    const structureResult = await client.query(
+      `INSERT INTO estimate_structures (estimate_id, name)
+       VALUES ($1, 'Main Structure')
+       RETURNING id`,
+      [estimateId]
+    );
+    const structureId = structureResult.rows[0].id;
+
+    // Create default area
+    const areaResult = await client.query(
+      `INSERT INTO estimate_areas (structure_id, name, area_type)
+       VALUES ($1, 'Interior', 'interior')
+       RETURNING id`,
+      [structureId]
+    );
+    const areaId = areaResult.rows[0].id;
+
+    // Create default zone
+    const zoneResult = await client.query(
+      `INSERT INTO estimate_zones (area_id, name, zone_type)
+       VALUES ($1, 'General', 'room')
+       RETURNING id`,
+      [areaId]
+    );
+    const zoneId = zoneResult.rows[0].id;
+
+    await client.query('COMMIT');
+
+    return { estimateId, defaultZoneId: zoneId };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function addScopeItemToClaim(
+  claimId: string,
+  organizationId: string,
+  item: {
+    lineItemCode: string;
+    description: string;
+    category?: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    roomName?: string;
+    notes?: string;
+  }
+): Promise<ClaimScopeItem> {
+  const { estimateId, defaultZoneId } = await getOrCreateDraftEstimate(claimId, organizationId);
+
+  const client = await pool.connect();
+  try {
+    const subtotal = item.quantity * item.unitPrice;
+
+    const result = await client.query(
+      `INSERT INTO estimate_line_items 
+       (estimate_id, zone_id, line_item_code, line_item_description, category_id, quantity, unit, unit_price, subtotal, room_name, notes, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual')
+       RETURNING id, line_item_code, line_item_description, category_id, quantity, unit, unit_price, subtotal, room_name, notes, created_at`,
+      [
+        estimateId,
+        defaultZoneId,
+        item.lineItemCode,
+        item.description,
+        item.category || '',
+        item.quantity,
+        item.unit,
+        item.unitPrice,
+        subtotal,
+        item.roomName || null,
+        item.notes || null,
+      ]
+    );
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      lineItemCode: row.line_item_code,
+      description: row.line_item_description,
+      category: row.category_id || '',
+      quantity: parseFloat(row.quantity),
+      unit: row.unit,
+      unitPrice: parseFloat(row.unit_price),
+      total: parseFloat(row.subtotal),
+      roomName: row.room_name,
+      notes: row.notes,
+      createdAt: row.created_at,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getScopeItemsForClaim(claimId: string): Promise<ClaimScopeItem[]> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT eli.id, eli.line_item_code, eli.line_item_description, eli.category_id,
+              eli.quantity, eli.unit, eli.unit_price, eli.subtotal, eli.room_name, eli.notes, eli.created_at
+       FROM estimate_line_items eli
+       JOIN estimates e ON eli.estimate_id = e.id
+       WHERE e.claim_id = $1 AND e.is_locked = false AND e.status = 'draft'
+       ORDER BY eli.created_at ASC`,
+      [claimId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      lineItemCode: row.line_item_code,
+      description: row.line_item_description,
+      category: row.category_id || '',
+      quantity: parseFloat(row.quantity),
+      unit: row.unit,
+      unitPrice: parseFloat(row.unit_price),
+      total: parseFloat(row.subtotal),
+      roomName: row.room_name,
+      notes: row.notes,
+      createdAt: row.created_at,
+    }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateScopeItem(
+  itemId: string,
+  data: { quantity?: number; notes?: string }
+): Promise<ClaimScopeItem | null> {
+  const client = await pool.connect();
+  try {
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (data.quantity !== undefined) {
+      updates.push(`quantity = $${paramIndex++}`);
+      values.push(data.quantity);
+    }
+    if (data.notes !== undefined) {
+      updates.push(`notes = $${paramIndex++}`);
+      values.push(data.notes);
+    }
+
+    if (updates.length === 0) return null;
+
+    updates.push('updated_at = NOW()');
+    values.push(itemId);
+
+    // First update quantity, then recalc subtotal
+    const result = await client.query(
+      `UPDATE estimate_line_items 
+       SET ${updates.join(', ')}
+       WHERE id = $${paramIndex}
+       RETURNING id, line_item_code, line_item_description, category_id, quantity, unit, unit_price, subtotal, room_name, notes, created_at`,
+      values
+    );
+
+    if (result.rows.length === 0) return null;
+
+    // Recalculate subtotal if quantity changed
+    if (data.quantity !== undefined) {
+      await client.query(
+        `UPDATE estimate_line_items SET subtotal = quantity * unit_price WHERE id = $1`,
+        [itemId]
+      );
+    }
+
+    // Fetch updated row
+    const updated = await client.query(
+      `SELECT id, line_item_code, line_item_description, category_id, quantity, unit, unit_price, subtotal, room_name, notes, created_at
+       FROM estimate_line_items WHERE id = $1`,
+      [itemId]
+    );
+
+    const row = updated.rows[0];
+    return {
+      id: row.id,
+      lineItemCode: row.line_item_code,
+      description: row.line_item_description,
+      category: row.category_id || '',
+      quantity: parseFloat(row.quantity),
+      unit: row.unit,
+      unitPrice: parseFloat(row.unit_price),
+      total: parseFloat(row.subtotal),
+      roomName: row.room_name,
+      notes: row.notes,
+      createdAt: row.created_at,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteScopeItem(itemId: string): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      'DELETE FROM estimate_line_items WHERE id = $1',
+      [itemId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  } finally {
+    client.release();
+  }
+}
