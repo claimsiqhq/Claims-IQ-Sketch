@@ -43,10 +43,31 @@ The frontend follows a page-based structure under `client/src/pages/` with reusa
 
 Key backend services:
 - `server/services/pricing.ts`: Line item search, price calculation with regional adjustments
+- `server/services/xactPricing.ts`: Xactimate price list integration with formula parsing
 - `server/services/auth.ts`: User authentication and password hashing
 - `server/middleware/auth.ts`: Passport.js session configuration
 - `server/scraper/homeDepot.ts`: Material price scraping (demo only - not production-ready)
 - `server/routes.ts`: API endpoint registration
+
+### Xactimate Price List Integration
+
+The system includes a full Xactimate price list dataset with 122 categories, 20,974 line items, and 14,586 material/labor/equipment components.
+
+**Database Tables:**
+- `xact_categories`: Category hierarchy from Xactimate
+- `xact_line_items`: Line items with activity formulas and labor efficiency
+- `xact_components`: Materials, equipment, and labor rates with unit prices
+
+**Formula System:**
+- Material formulas: `GT,1,C|GZ,19,Co` = component × quantity pairs
+- Component codes: Short IDs (e.g., "GT") map to xact_id with prefix (e.g., "5GT")
+- Labor efficiency: Minutes per 100 units, converted to per-unit pricing
+- Per-unit normalization: Aggregate formula quantities divided by labor efficiency
+
+**API Endpoints:**
+- `GET /api/xact/search?q=drywall` - Search items with calculated pricing
+- `GET /api/xact/price/:code` - Full price breakdown with material/labor/equipment components
+- `POST /api/estimates/:id/xact-items` - Add Xactimate item to estimate with auto-pricing
 
 ### Authentication System
 
