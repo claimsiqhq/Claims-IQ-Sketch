@@ -331,6 +331,9 @@ export const estimates = pgTable("estimates", {
   approvedBy: varchar("approved_by", { length: 100 }),
   notes: text("notes"),
 
+  // Locking for finalization
+  isLocked: boolean("is_locked").default(false),
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
