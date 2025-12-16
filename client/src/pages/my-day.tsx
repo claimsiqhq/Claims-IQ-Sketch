@@ -1,9 +1,11 @@
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import Layout from "@/components/layout";
 import { useDeviceMode } from "@/contexts/DeviceModeContext";
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
+import { Loader2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -33,7 +35,6 @@ import {
   Zap,
   CircleDot,
   Car,
-  ExternalLink,
 } from "lucide-react";
 import {
   Peril,
@@ -51,232 +52,132 @@ import {
 import { format } from "date-fns";
 
 // ==========================================
-// SAMPLE DATA - Weather-impacted day scenario
+// DATA TRANSFORMATION UTILITIES
 // ==========================================
 
-const SAMPLE_MY_DAY_DATA: MyDayData = {
-  date: new Date().toISOString(),
-  context: {
-    adjusterName: "Marcus Chen",
-    territory: "DFW Metro",
-    catEvent: "CAT-2024-TX-001",
-    inspectionCount: 5,
-    riskCount: 2,
-    slaDeadlineCount: 3,
-    hasWeatherAlert: true,
-    hasSafetyAlert: false,
-    hasSlaBreach: false,
-  },
-  route: [
-    {
-      id: "stop-1",
-      claimId: "claim-001",
-      claimNumber: "TX-WH-240158",
-      insuredName: "Patricia Morrison",
-      address: "4521 Oakwood Lane",
-      city: "Plano",
-      state: "TX",
-      zip: "75024",
-      lat: 33.0198,
-      lng: -96.6989,
-      timeWindow: { start: "08:30", end: "09:30" },
-      peril: Peril.WIND_HAIL,
-      reason: "Initial roof inspection",
-      badges: ["sla_today"],
+function mapLossTypeToPeril(lossType: string | null | undefined): Peril {
+  if (!lossType) return Peril.OTHER;
+  const lt = lossType.toLowerCase();
+  if (lt.includes("wind") || lt.includes("hail")) return Peril.WIND_HAIL;
+  if (lt.includes("water") || lt.includes("plumbing") || lt.includes("leak")) return Peril.WATER;
+  if (lt.includes("fire")) return Peril.FIRE;
+  if (lt.includes("flood")) return Peril.FLOOD;
+  if (lt.includes("smoke")) return Peril.SMOKE;
+  if (lt.includes("mold")) return Peril.MOLD;
+  if (lt.includes("impact") || lt.includes("tree") || lt.includes("vehicle")) return Peril.IMPACT;
+  return Peril.OTHER;
+}
+
+function buildEmptyDayData(adjusterName: string): MyDayData {
+  return {
+    date: new Date().toISOString(),
+    context: {
+      adjusterName,
+      territory: "",
+      catEvent: undefined,
+      inspectionCount: 0,
+      riskCount: 0,
+      slaDeadlineCount: 0,
+      hasWeatherAlert: false,
+      hasSafetyAlert: false,
+      hasSlaBreach: false,
+    },
+    route: [],
+    onDeck: [],
+    riskWatch: [],
+    weather: [],
+    slaHygiene: [],
+  };
+}
+
+interface ClaimFromAPI {
+  id: string;
+  claimNumber: string;
+  insuredName: string;
+  propertyAddress: string;
+  propertyCity: string;
+  propertyState: string;
+  propertyZip: string;
+  lossType: string;
+  lossDescription: string;
+  status: string;
+  dateOfLoss: string;
+  createdAt: string;
+  metadata?: {
+    lat?: number;
+    lng?: number;
+    geocoded?: boolean;
+  };
+}
+
+function transformClaimsToMyDayData(claims: ClaimFromAPI[], adjusterName: string): MyDayData {
+  if (!claims || claims.length === 0) {
+    return buildEmptyDayData(adjusterName);
+  }
+
+  const openClaims = claims.filter(c => c.status !== "closed" && c.status !== "draft");
+  const activeClaims = openClaims.filter(c => 
+    ["open", "in_progress", "fnol"].includes(c.status)
+  );
+  const reviewClaims = openClaims.filter(c => c.status === "review");
+
+  const route: InspectionStop[] = activeClaims.slice(0, 8).map((claim, index) => {
+    const hour = 8 + index;
+    return {
+      id: `stop-${claim.id}`,
+      claimId: claim.id,
+      claimNumber: claim.claimNumber || `CLM-${claim.id.slice(0, 8)}`,
+      insuredName: claim.insuredName || "Unknown Insured",
+      address: claim.propertyAddress || "Address pending",
+      city: claim.propertyCity || "",
+      state: claim.propertyState || "",
+      zip: claim.propertyZip || "",
+      lat: claim.metadata?.lat || 0,
+      lng: claim.metadata?.lng || 0,
+      timeWindow: { 
+        start: `${hour.toString().padStart(2, "0")}:00`, 
+        end: `${(hour + 1).toString().padStart(2, "0")}:00` 
+      },
+      peril: mapLossTypeToPeril(claim.lossType),
+      reason: claim.lossDescription || `${claim.lossType || "Property"} inspection`,
+      badges: claim.status === "fnol" ? ["sla_today" as InspectionBadge] : [],
       estimatedDuration: 60,
-      travelTimeFromPrevious: 15,
+      travelTimeFromPrevious: index === 0 ? 0 : 15,
+    };
+  });
+
+  const onDeck: OnDeckClaim[] = reviewClaims.slice(0, 5).map((claim) => ({
+    id: `deck-${claim.id}`,
+    claimId: claim.id,
+    claimNumber: claim.claimNumber || `CLM-${claim.id.slice(0, 8)}`,
+    peril: mapLossTypeToPeril(claim.lossType),
+    reason: claim.status === "review" ? "Pending review" : "Follow-up required",
+    priority: "medium" as const,
+  }));
+
+  return {
+    date: new Date().toISOString(),
+    context: {
+      adjusterName,
+      territory: "",
+      catEvent: undefined,
+      inspectionCount: route.length,
+      riskCount: 0,
+      slaDeadlineCount: route.filter(r => r.badges.includes("sla_today")).length,
+      hasWeatherAlert: false,
+      hasSafetyAlert: false,
+      hasSlaBreach: false,
     },
-    {
-      id: "stop-2",
-      claimId: "claim-002",
-      claimNumber: "TX-WA-240203",
-      insuredName: "Robert Chen",
-      address: "8742 Preston Road, Unit 12",
-      city: "Dallas",
-      state: "TX",
-      zip: "75225",
-      lat: 32.8668,
-      lng: -96.8029,
-      timeWindow: { start: "10:00", end: "11:30" },
-      peril: Peril.WATER,
-      reason: "Active water risk — appliance leak",
-      badges: ["mitigation_likely", "evidence_at_risk"],
-      estimatedDuration: 90,
-      travelTimeFromPrevious: 25,
-      notes: "Tenant at location. Document moisture levels before mitigation.",
-    },
-    {
-      id: "stop-3",
-      claimId: "claim-003",
-      claimNumber: "TX-WH-240187",
-      insuredName: "Angela Ramirez",
-      address: "2201 Mockingbird Lane",
-      city: "University Park",
-      state: "TX",
-      zip: "75205",
-      lat: 32.8404,
-      lng: -96.7975,
-      timeWindow: { start: "12:30", end: "13:30" },
-      peril: Peril.WIND_HAIL,
-      reason: "Re-inspection — disputed coverage",
-      badges: ["sla_today"],
-      estimatedDuration: 60,
-      travelTimeFromPrevious: 12,
-    },
-    {
-      id: "stop-4",
-      claimId: "claim-004",
-      claimNumber: "TX-IM-240221",
-      insuredName: "David & Karen Williams",
-      address: "5678 Turtle Creek Blvd",
-      city: "Dallas",
-      state: "TX",
-      zip: "75219",
-      lat: 32.8092,
-      lng: -96.8081,
-      timeWindow: { start: "14:30", end: "15:30" },
-      peril: Peril.IMPACT,
-      reason: "Tree damage to roof — rain imminent",
-      badges: ["evidence_at_risk", "mitigation_likely"],
-      estimatedDuration: 60,
-      travelTimeFromPrevious: 18,
-      notes: "Prioritize before 2pm rain. Emergency tarp may be needed.",
-    },
-    {
-      id: "stop-5",
-      claimId: "claim-005",
-      claimNumber: "TX-FI-240198",
-      insuredName: "James Mitchell",
-      address: "1100 Commerce Street",
-      city: "Dallas",
-      state: "TX",
-      zip: "75202",
-      lat: 32.7815,
-      lng: -96.7990,
-      timeWindow: { start: "16:00", end: "17:30" },
-      peril: Peril.FIRE,
-      reason: "Smoke damage assessment",
-      badges: [],
-      estimatedDuration: 90,
-      travelTimeFromPrevious: 15,
-    },
-  ],
-  onDeck: [
-    {
-      id: "deck-1",
-      claimId: "claim-006",
-      claimNumber: "TX-WA-240156",
-      peril: Peril.WATER,
-      reason: "Upload missing moisture readings",
-      slaHoursRemaining: 4,
-      priority: "high",
-    },
-    {
-      id: "deck-2",
-      claimId: "claim-007",
-      claimNumber: "TX-WH-240142",
-      peril: Peril.WIND_HAIL,
-      reason: "Complete mitigation authorization",
-      slaHoursRemaining: 8,
-      priority: "medium",
-    },
-    {
-      id: "deck-3",
-      claimId: "claim-008",
-      claimNumber: "TX-MO-240134",
-      peril: Peril.MOLD,
-      reason: "Respond to desk review questions",
-      priority: "medium",
-    },
-    {
-      id: "deck-4",
-      claimId: "claim-009",
-      claimNumber: "TX-WH-240189",
-      peril: Peril.WIND_HAIL,
-      reason: "Submit preliminary estimate",
-      slaHoursRemaining: 6,
-      priority: "high",
-    },
-  ],
-  riskWatch: [
-    {
-      id: "risk-1",
-      claimId: "claim-002",
-      claimNumber: "TX-WA-240203",
-      peril: Peril.WATER,
-      riskDescription: "Mold window closing — 48hr mark approaching",
-      hoursUntilCritical: 6,
-      severity: "high",
-      affectedInspectionId: "stop-2",
-    },
-    {
-      id: "risk-2",
-      claimId: "claim-004",
-      claimNumber: "TX-IM-240221",
-      peril: Peril.IMPACT,
-      riskDescription: "Roof exposed before rain at 2pm",
-      hoursUntilCritical: 4,
-      severity: "critical",
-      affectedInspectionId: "stop-4",
-    },
-  ],
-  weather: [
-    {
-      id: "weather-1",
-      type: "rain",
-      description: "Rain starting at 2:00 PM",
-      impact: "Roof inspections at risk",
-      startTime: "14:00",
-      affectedClaimIds: ["claim-001", "claim-003", "claim-004"],
-      severity: "warning",
-    },
-    {
-      id: "weather-2",
-      type: "wind",
-      description: "Gusts 25-35 mph through evening",
-      impact: "Ladder safety concern",
-      startTime: "15:00",
-      affectedClaimIds: ["claim-004", "claim-005"],
-      severity: "advisory",
-    },
-  ],
-  slaHygiene: [
-    {
-      id: "hygiene-1",
-      claimId: "claim-010",
-      claimNumber: "TX-WH-240098",
-      issueType: "missing_artifact",
-      description: "Missing 4-point overview photo",
-      priority: "medium",
-    },
-    {
-      id: "hygiene-2",
-      claimId: "claim-011",
-      claimNumber: "TX-WA-240087",
-      issueType: "stuck_claim",
-      description: "No activity for 5 days",
-      daysOverdue: 5,
-      priority: "high",
-    },
-    {
-      id: "hygiene-3",
-      claimId: "claim-012",
-      claimNumber: "TX-WH-240145",
-      issueType: "upcoming_sla",
-      description: "Initial contact due tomorrow",
-      dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      priority: "medium",
-    },
-    {
-      id: "hygiene-4",
-      claimId: "claim-013",
-      claimNumber: "TX-FL-240076",
-      issueType: "missing_artifact",
-      description: "Flood zone determination pending",
-      priority: "low",
-    },
-  ],
-};
+    route,
+    onDeck,
+    riskWatch: [],
+    weather: [
+      // No weather data - would come from weather API in production
+    ],
+    slaHygiene: [],
+  };
+}
+
 
 // ==========================================
 // UTILITY FUNCTIONS
@@ -553,9 +454,6 @@ function MobileRouteStopCard({
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
   const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
-  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-    `${stop.address}, ${stop.city}, ${stop.state} ${stop.zip}`
-  )}`;
 
   return (
     <Link href={`/claim/${stop.claimId}`}>
@@ -626,18 +524,12 @@ function MobileRouteStopCard({
             </div>
           </div>
 
-          {/* Address - Tap to Navigate */}
-          <a
-            href={googleMapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1.5 text-sm text-primary mt-2 pt-2 border-t border-border active:opacity-70"
-          >
+          {/* Address */}
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-2 pt-2 border-t border-border">
             <MapPin className="h-4 w-4 shrink-0" />
             <span className="truncate">{stop.address}, {stop.city}</span>
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 ml-auto" />
-          </a>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 ml-auto" />
+          </div>
 
           {/* Notes */}
           {stop.notes && (
@@ -665,9 +557,6 @@ function DesktopRouteStopCard({
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
   const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
-  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-    `${stop.address}, ${stop.city}, ${stop.state} ${stop.zip}`
-  )}`;
 
   return (
     <div className="relative">
@@ -725,18 +614,11 @@ function DesktopRouteStopCard({
                 </div>
               </div>
 
-              {/* Address with map link */}
-              <a
-                href={googleMapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 text-sm text-primary hover:underline mb-2"
-              >
+              {/* Address */}
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-2">
                 <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
                 <span className="truncate">{stop.address}, {stop.city}, {stop.state}</span>
-                <ExternalLink className="h-3 w-3 flex-shrink-0" />
-              </a>
+              </div>
 
               {/* Reason for visit */}
               <p className="text-sm text-foreground mb-2">{stop.reason}</p>
@@ -1128,16 +1010,53 @@ export default function MyDay() {
   const isMobileLayout = layoutMode === "mobile";
   const authUser = useStore((state) => state.authUser);
 
-  // In production, this would come from an API
+  const { data: claimsData, isLoading, error } = useQuery<{ claims: ClaimFromAPI[]; total: number }>({
+    queryKey: ["/api/claims"],
+    queryFn: async () => {
+      const response = await fetch("/api/claims?includeClosed=false", {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch claims");
+      }
+      return response.json();
+    },
+    staleTime: 30000,
+  });
+
   const dayData = useMemo(() => {
-    return {
-      ...SAMPLE_MY_DAY_DATA,
-      context: {
-        ...SAMPLE_MY_DAY_DATA.context,
-        adjusterName: authUser?.username || SAMPLE_MY_DAY_DATA.context.adjusterName,
-      },
-    };
-  }, [authUser]);
+    const adjusterName = authUser?.username || "Adjuster";
+    if (!claimsData?.claims) {
+      return buildEmptyDayData(adjusterName);
+    }
+    return transformClaimsToMyDayData(claimsData.claims, adjusterName);
+  }, [claimsData, authUser]);
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="min-h-full bg-background flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Loading your claims...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="min-h-full bg-background flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-destructive">Unable to load claims</p>
+            <p className="text-sm text-muted-foreground mt-2">Please try refreshing the page</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -1151,26 +1070,50 @@ export default function MyDay() {
 
         {/* Main Content */}
         <div className={cn(isMobileLayout && "pb-20")}>
+          {/* Empty State */}
+          {dayData.route.length === 0 && dayData.onDeck.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 px-4">
+              <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Calendar className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h2 className="text-lg font-semibold text-foreground mb-2">No claims scheduled</h2>
+              <p className="text-sm text-muted-foreground text-center max-w-sm">
+                Upload FNOL documents to create new claims, then they'll appear here for inspection.
+              </p>
+              <Link href="/claims/new" className="mt-4 text-primary hover:underline text-sm font-medium">
+                Create New Claim
+              </Link>
+            </div>
+          )}
+
           {/* Weather alerts at top if present */}
           {dayData.weather.length > 0 && (
             <WeatherConditions weather={dayData.weather} isMobile={isMobileLayout} />
           )}
 
           {/* Risk Watch - high visibility if risks exist */}
-          <RiskMitigationWatch risks={dayData.riskWatch} isMobile={isMobileLayout} />
+          {dayData.riskWatch.length > 0 && (
+            <RiskMitigationWatch risks={dayData.riskWatch} isMobile={isMobileLayout} />
+          )}
 
           {/* Today's Route - Primary section */}
-          <TodaysRoute
-            route={dayData.route}
-            weather={dayData.weather}
-            isMobile={isMobileLayout}
-          />
+          {dayData.route.length > 0 && (
+            <TodaysRoute
+              route={dayData.route}
+              weather={dayData.weather}
+              isMobile={isMobileLayout}
+            />
+          )}
 
           {/* Claims On Deck - Secondary section */}
-          <ClaimsOnDeck claims={dayData.onDeck} isMobile={isMobileLayout} />
+          {dayData.onDeck.length > 0 && (
+            <ClaimsOnDeck claims={dayData.onDeck} isMobile={isMobileLayout} />
+          )}
 
           {/* SLA & Hygiene - Collapsible, low priority */}
-          <SlaHygiene items={dayData.slaHygiene} isMobile={isMobileLayout} />
+          {dayData.slaHygiene.length > 0 && (
+            <SlaHygiene items={dayData.slaHygiene} isMobile={isMobileLayout} />
+          )}
         </div>
       </div>
     </Layout>
