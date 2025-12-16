@@ -253,7 +253,7 @@ export async function registerRoutes(
   });
 
   // Get current user endpoint
-  app.get('/api/auth/me', (req, res) => {
+  app.get('/api/auth/me', async (req, res) => {
     // Disable all caching for auth endpoints
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -262,12 +262,31 @@ export async function registerRoutes(
       'Content-Type': 'application/json; charset=utf-8'
     });
     
-    const data = req.isAuthenticated() && req.user
-      ? { user: { id: req.user.id, username: req.user.username }, authenticated: true }
-      : { user: null, authenticated: false };
-    
-    // Use send() instead of json() to bypass ETag generation
-    res.status(200).send(JSON.stringify(data));
+    if (req.isAuthenticated() && req.user) {
+      // Fetch full user data including name and email
+      try {
+        const { pool } = await import('./db');
+        const result = await pool.query(
+          'SELECT id, username, name, email FROM users WHERE id = $1',
+          [req.user.id]
+        );
+        const user = result.rows[0];
+        const data = {
+          user: {
+            id: user.id,
+            username: user.username,
+            name: user.name || user.username,
+            email: user.email || ''
+          },
+          authenticated: true
+        };
+        res.status(200).send(JSON.stringify(data));
+      } catch (error) {
+        res.status(200).send(JSON.stringify({ user: { id: req.user.id, username: req.user.username }, authenticated: true }));
+      }
+    } else {
+      res.status(200).send(JSON.stringify({ user: null, authenticated: false }));
+    }
   });
 
   // Check authentication status
