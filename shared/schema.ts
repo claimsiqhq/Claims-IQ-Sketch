@@ -273,6 +273,118 @@ export type InsertEndorsement = z.infer<typeof insertEndorsementSchema>;
 export type Endorsement = typeof endorsements.$inferSelect;
 
 // ============================================
+// CLAIM ROOMS TABLE (Voice Sketch)
+// ============================================
+
+export const claimRooms = pgTable("claim_rooms", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull(),
+  organizationId: uuid("organization_id").notNull(),
+
+  // Room identification
+  name: varchar("name", { length: 100 }).notNull(), // "Living Room", "Kitchen", etc.
+  roomType: varchar("room_type", { length: 50 }), // living_room, kitchen, bedroom, bathroom, etc.
+  floorLevel: varchar("floor_level", { length: 20 }).default("1"), // 1, 2, basement, attic
+
+  // Shape and dimensions
+  shape: varchar("shape", { length: 30 }).notNull().default("rectangular"), // rectangular, l_shaped, t_shaped, custom
+  widthFt: decimal("width_ft", { precision: 8, scale: 2 }).notNull(),
+  lengthFt: decimal("length_ft", { precision: 8, scale: 2 }).notNull(),
+  ceilingHeightFt: decimal("ceiling_height_ft", { precision: 6, scale: 2 }).default("8.0"),
+
+  // Floor plan positioning
+  originXFt: decimal("origin_x_ft", { precision: 8, scale: 2 }).default("0"),
+  originYFt: decimal("origin_y_ft", { precision: 8, scale: 2 }).default("0"),
+
+  // Polygon coordinates (for complex shapes)
+  polygon: jsonb("polygon").default(sql`'[]'::jsonb`), // Array of {x, y} points
+
+  // Shape-specific configurations
+  lShapeConfig: jsonb("l_shape_config"), // {main_width, main_length, extension_width, extension_length, extension_position}
+  tShapeConfig: jsonb("t_shape_config"), // Similar structure for T-shaped rooms
+
+  // Room contents and features
+  openings: jsonb("openings").default(sql`'[]'::jsonb`), // doors, windows with positions
+  features: jsonb("features").default(sql`'[]'::jsonb`), // built-ins, fixtures, etc.
+
+  // Notes
+  notes: jsonb("notes").default(sql`'[]'::jsonb`), // Array of {text, timestamp}
+
+  // Sort order for display
+  sortOrder: integer("sort_order").default(0),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  claimIdx: index("claim_rooms_claim_idx").on(table.claimId),
+  orgIdx: index("claim_rooms_org_idx").on(table.organizationId),
+}));
+
+export const insertClaimRoomSchema = createInsertSchema(claimRooms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimRoom = z.infer<typeof insertClaimRoomSchema>;
+export type ClaimRoom = typeof claimRooms.$inferSelect;
+
+// ============================================
+// CLAIM DAMAGE ZONES TABLE (Voice Sketch)
+// ============================================
+
+export const claimDamageZones = pgTable("claim_damage_zones", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull(),
+  roomId: uuid("room_id"), // Optional link to specific room
+  organizationId: uuid("organization_id").notNull(),
+
+  // Damage identification
+  damageType: varchar("damage_type", { length: 50 }).notNull(), // water, fire, smoke, mold, wind, hail, impact
+  category: varchar("category", { length: 50 }), // For water: category_1, category_2, category_3
+
+  // Affected areas
+  affectedWalls: jsonb("affected_walls").default(sql`'[]'::jsonb`), // ["north", "south", "east", "west"]
+  floorAffected: boolean("floor_affected").default(false),
+  ceilingAffected: boolean("ceiling_affected").default(false),
+
+  // Extent of damage
+  extentFt: decimal("extent_ft", { precision: 6, scale: 2 }).default("0"), // How far from wall the damage extends
+  severity: varchar("severity", { length: 20 }), // minor, moderate, severe
+
+  // Source information
+  source: varchar("source", { length: 255 }), // e.g., "burst pipe under sink"
+
+  // Polygon for precise damage zone boundaries
+  polygon: jsonb("polygon").default(sql`'[]'::jsonb`), // Array of {x, y} points
+  isFreeform: boolean("is_freeform").default(false), // For irregular damage zones
+
+  // Notes
+  notes: text("notes"),
+
+  // Sort order for display
+  sortOrder: integer("sort_order").default(0),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  claimIdx: index("claim_damage_zones_claim_idx").on(table.claimId),
+  roomIdx: index("claim_damage_zones_room_idx").on(table.roomId),
+  orgIdx: index("claim_damage_zones_org_idx").on(table.organizationId),
+}));
+
+export const insertClaimDamageZoneSchema = createInsertSchema(claimDamageZones).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimDamageZone = z.infer<typeof insertClaimDamageZoneSchema>;
+export type ClaimDamageZone = typeof claimDamageZones.$inferSelect;
+
+// ============================================
 // DOCUMENTS TABLE
 // ============================================
 
