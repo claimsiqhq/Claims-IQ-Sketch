@@ -7,6 +7,11 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { xactCategories, xactLineItems, xactComponents } from "@shared/schema";
 import { sql, eq, and } from "drizzle-orm";
+import {
+  calculateXactPrice,
+  searchXactItemsWithPricing,
+  getXactItemForEstimate
+} from "./services/xactPricing";
 import { runScrapeJob, testScrape, PRODUCT_MAPPINGS, STORE_REGIONS } from "./scraper/homeDepot";
 import {
   searchLineItems,
@@ -4087,6 +4092,98 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Component not found' });
       }
       res.json(result[0]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/search
+   * Search Xactimate line items WITH calculated prices
+   * Query params:
+   *   - q: search query (required)
+   *   - category: filter by category code
+   *   - limit: max results (default 20)
+   *   - offset: pagination offset
+   */
+  app.get('/api/xact/search', async (req, res) => {
+    try {
+      const { q, category, limit = '20', offset = '0' } = req.query;
+      
+      if (!q) {
+        return res.status(400).json({ error: 'Search query (q) is required' });
+      }
+      
+      const result = await searchXactItemsWithPricing(q as string, {
+        category: category as string | undefined,
+        limit: Math.min(parseInt(limit as string) || 20, 100),
+        offset: parseInt(offset as string) || 0,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/price/:code
+   * Get full price breakdown for a Xactimate line item
+   */
+  app.get('/api/xact/price/:code', async (req, res) => {
+    try {
+      const result = await calculateXactPrice(req.params.code);
+      if (!result) {
+        return res.status(404).json({ error: 'Line item not found' });
+      }
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/estimates/:id/xact-items
+   * Add a Xactimate line item to an estimate with auto-calculated pricing
+   */
+  app.post('/api/estimates/:id/xact-items', requireAuth, async (req, res) => {
+    try {
+      const { lineItemCode, quantity, damageZoneId, roomName, notes } = req.body;
+      
+      if (!lineItemCode || !quantity) {
+        return res.status(400).json({ error: 'lineItemCode and quantity are required' });
+      }
+      
+      const xactItem = await getXactItemForEstimate(lineItemCode, quantity);
+      if (!xactItem) {
+        return res.status(404).json({ error: `Xactimate line item ${lineItemCode} not found` });
+      }
+      
+      const lineItem = await addLineItemToEstimate(req.params.id, {
+        lineItemCode: xactItem.code,
+        description: xactItem.description,
+        categoryId: xactItem.categoryCode,
+        unit: xactItem.unit,
+        quantity: xactItem.quantity,
+        unitPrice: xactItem.unitPrice,
+        materialCost: xactItem.materialCost,
+        laborCost: xactItem.laborCost,
+        equipmentCost: xactItem.equipmentCost,
+        subtotal: xactItem.subtotal,
+        source: 'xactimate',
+        damageZoneId,
+        roomName,
+        notes,
+      });
+      
+      res.json({
+        success: true,
+        lineItem,
+        pricing: xactItem,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
