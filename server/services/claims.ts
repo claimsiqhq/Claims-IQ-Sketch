@@ -3,95 +3,121 @@ import { pool } from '../db';
 export interface ClaimWithDocuments {
   id: string;
   organizationId: string;
-  claimId: string; // Format: XX-XXX-XXXXXX or claim_number
-  claimNumber?: string; // Display claim number
+  // Claim identifier
+  claimId: string; // Format: XX-XXX-XXXXXX (alias for claimNumber)
+  claimNumber?: string;
   carrierId?: string;
-  policyNumber?: string;
-  dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM or date
-  claimType?: string;
-  status: string;
   regionId?: string;
-  policyholder?: string; // Also known as insured_name
+  // Policyholder info (from FNOL)
+  policyholder?: string; // Alias for insuredName
   insuredName?: string;
-  riskLocation?: string; // Full address string
+  insuredEmail?: string;
+  insuredPhone?: string;
+  // Property/Risk location (from FNOL)
+  riskLocation?: string; // Computed from property fields
   propertyAddress?: string;
   propertyCity?: string;
   propertyState?: string;
   propertyZip?: string;
-  causeOfLoss?: string; // Also known as loss_type
+  // Loss details (from FNOL)
+  dateOfLoss?: string;
+  causeOfLoss?: string; // Alias for lossType
   lossType?: string;
   lossDescription?: string;
-  state?: string; // State code (e.g., CO)
-  yearRoofInstall?: string; // Format: MM-DD-YYYY
-  windHailDeductible?: string; // Format: $X,XXX X%
-  dwellingLimit?: string; // Format: $XXX,XXX
+  // Policy details (from FNOL)
+  policyNumber?: string;
+  claimType?: string;
+  state?: string; // Alias for propertyState
+  yearRoofInstall?: string; // Format: "01-01-2016"
+  windHailDeductible?: string; // Format: "$7,932 1%"
+  dwellingLimit?: string; // Format: "$793,200"
+  endorsementsListed?: string[]; // Array of endorsement codes from FNOL
+  // Coverage amounts
   coverageA?: string;
   coverageB?: string;
   coverageC?: string;
   coverageD?: string;
   deductible?: string;
-  endorsementsListed?: string[]; // JSONB array of endorsement codes
+  // Status
+  status: string;
   assignedAdjusterId?: string;
+  // Totals
   totalRcv?: string;
   totalAcv?: string;
   totalPaid?: string;
+  // Metadata
   metadata?: Record<string, any>;
+  // Timestamps
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
+  // Counts
   documentCount?: number;
   estimateCount?: number;
 }
 
 /**
  * Map database row to ClaimWithDocuments (converts snake_case to camelCase)
- * Uses actual database column names from the claims table
+ * Includes all FNOL fields from the claims table
  */
 function mapRowToClaim(row: any): ClaimWithDocuments {
-  // Build risk location from individual address parts if present
+  // Build risk location from individual address parts
   const riskLocation = row.property_address 
     ? [row.property_address, row.property_city, row.property_state, row.property_zip].filter(Boolean).join(', ')
-    : row.risk_location;
+    : undefined;
     
   return {
     id: row.id,
     organizationId: row.organization_id,
-    claimId: row.claim_number || row.claim_id, // claim_number is the actual DB column
+    // Claim identifier
+    claimId: row.claim_number, // Primary identifier
     claimNumber: row.claim_number,
     carrierId: row.carrier_id,
-    policyNumber: row.policy_number,
-    dateOfLoss: row.date_of_loss,
-    claimType: row.claim_type,
-    status: row.status,
     regionId: row.region_id,
-    policyholder: row.insured_name || row.policyholder, // insured_name is actual DB column
+    // Policyholder info (from FNOL)
+    policyholder: row.insured_name, // Alias
     insuredName: row.insured_name,
+    insuredEmail: row.insured_email,
+    insuredPhone: row.insured_phone,
+    // Property/Risk location (from FNOL)
     riskLocation: riskLocation,
     propertyAddress: row.property_address,
     propertyCity: row.property_city,
     propertyState: row.property_state,
     propertyZip: row.property_zip,
-    causeOfLoss: row.loss_type || row.cause_of_loss, // loss_type is actual DB column
+    // Loss details (from FNOL)
+    dateOfLoss: row.date_of_loss,
+    causeOfLoss: row.loss_type, // Alias
     lossType: row.loss_type,
     lossDescription: row.loss_description,
-    state: row.property_state || row.state,
+    // Policy details (from FNOL)
+    policyNumber: row.policy_number,
+    claimType: row.claim_type,
+    state: row.property_state, // Alias
     yearRoofInstall: row.year_roof_install,
     windHailDeductible: row.wind_hail_deductible,
     dwellingLimit: row.dwelling_limit,
+    endorsementsListed: row.endorsements_listed,
+    // Coverage amounts
     coverageA: row.coverage_a,
     coverageB: row.coverage_b,
     coverageC: row.coverage_c,
     coverageD: row.coverage_d,
     deductible: row.deductible,
-    endorsementsListed: row.endorsements_listed,
+    // Status
+    status: row.status,
     assignedAdjusterId: row.assigned_adjuster_id,
+    // Totals
     totalRcv: row.total_rcv,
     totalAcv: row.total_acv,
     totalPaid: row.total_paid,
+    // Metadata
     metadata: row.metadata,
+    // Timestamps
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     closedAt: row.closed_at,
+    // Counts
     documentCount: row.document_count ? parseInt(row.document_count) : undefined,
     estimateCount: row.estimate_count ? parseInt(row.estimate_count) : undefined
   };
@@ -118,8 +144,7 @@ async function generateClaimNumber(organizationId: string): Promise<string> {
 }
 
 /**
- * Create a new claim
- * Only uses columns that exist in the actual claims table
+ * Create a new claim with all FNOL fields
  */
 export async function createClaim(
   organizationId: string,
@@ -136,6 +161,10 @@ export async function createClaim(
     propertyCity?: string;
     propertyState?: string;
     propertyZip?: string;
+    yearRoofInstall?: string;
+    windHailDeductible?: string;
+    dwellingLimit?: string;
+    endorsementsListed?: string[];
     coverageA?: number;
     coverageB?: number;
     coverageC?: number;
@@ -155,9 +184,10 @@ export async function createClaim(
         date_of_loss, claim_type, status,
         insured_name, loss_type, loss_description,
         property_address, property_city, property_state, property_zip,
+        year_roof_install, wind_hail_deductible, dwelling_limit, endorsements_listed,
         coverage_a, coverage_b, coverage_c, coverage_d, deductible,
         assigned_adjuster_id, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
       RETURNING *`,
       [
         organizationId,
@@ -173,6 +203,10 @@ export async function createClaim(
         data.propertyCity || null,
         data.propertyState || null,
         data.propertyZip || null,
+        data.yearRoofInstall || null,
+        data.windHailDeductible || null,
+        data.dwellingLimit || null,
+        JSON.stringify(data.endorsementsListed || []),
         data.coverageA || null,
         data.coverageB || null,
         data.coverageC || null,
@@ -340,7 +374,6 @@ export async function updateClaim(
     let paramIndex = 1;
 
     // Map camelCase field names to actual database column names
-    // Only includes columns that exist in the claims table
     const fieldMap: Record<string, string> = {
       claimId: 'claim_number',
       claimNumber: 'claim_number',
@@ -357,6 +390,9 @@ export async function updateClaim(
       propertyCity: 'property_city',
       propertyState: 'property_state',
       propertyZip: 'property_zip',
+      yearRoofInstall: 'year_roof_install',
+      windHailDeductible: 'wind_hail_deductible',
+      dwellingLimit: 'dwelling_limit',
       coverageA: 'coverage_a',
       coverageB: 'coverage_b',
       coverageC: 'coverage_c',
