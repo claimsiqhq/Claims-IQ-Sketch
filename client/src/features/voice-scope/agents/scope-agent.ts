@@ -155,9 +155,34 @@ const searchLineItemsTool = tool({
     category: z.string().optional().describe('Category to filter (DEM, WTR, DRW, etc.)'),
   }),
   execute: async (params) => {
-    // This will be implemented to call the backend API
-    // For now, return a placeholder that the voice session hook will handle
-    return JSON.stringify({ action: 'search', query: params.query, category: params.category });
+    try {
+      const url = `/api/line-items/search?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ''}`;
+      const response = await fetch(url, { credentials: 'include' });
+
+      if (!response.ok) {
+        return 'Search failed: Unable to fetch line items from the database.';
+      }
+
+      const data = await response.json();
+      const items = data.items || data || [];
+
+      // Return top 5 results as a concise string for the agent
+      const topResults = items.slice(0, 5).map((item: { code: string; description: string; unit: string; basePrice?: number }) => ({
+        code: item.code,
+        description: item.description,
+        unit: item.unit,
+        price: item.basePrice,
+      }));
+
+      if (topResults.length === 0) {
+        return `No line items found for "${params.query}". Try different search terms or check the category.`;
+      }
+
+      return JSON.stringify(topResults);
+    } catch (error) {
+      console.error('Search line items error:', error);
+      return 'Search failed: Network error or service unavailable.';
+    }
   },
 });
 
