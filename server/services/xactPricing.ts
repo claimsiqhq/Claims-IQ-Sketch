@@ -48,7 +48,7 @@ interface XactSearchResult {
 }
 
 const componentCache = new Map<string, { type: string; amount: number; description: string; unit: string; code: string }>();
-const componentByXactId = new Map<string, { type: string; amount: number; description: string; unit: string; code: string }>();
+const componentByShortId = new Map<string, { type: string; amount: number; description: string; unit: string; code: string }>();
 
 async function loadComponentCache(): Promise<void> {
   if (componentCache.size > 0) return;
@@ -65,14 +65,16 @@ async function loadComponentCache(): Promise<void> {
     componentCache.set(comp.code.toUpperCase(), entry);
     
     if (comp.xactId) {
-      componentByXactId.set(comp.xactId.toUpperCase(), entry);
-      const shortId = comp.xactId.replace(/^[0-9]+/, "");
-      if (shortId) {
-        componentByXactId.set(shortId.toUpperCase(), entry);
+      const match = comp.xactId.match(/^(\d+)(.+)$/);
+      if (match) {
+        const shortId = match[2];
+        if (!componentByShortId.has(shortId.toUpperCase())) {
+          componentByShortId.set(shortId.toUpperCase(), entry);
+        }
       }
     }
   }
-  console.log(`Loaded ${componentCache.size} components, ${componentByXactId.size} xact IDs into cache`);
+  console.log(`Loaded ${componentCache.size} components, ${componentByShortId.size} short IDs into cache`);
 }
 
 function parseFormula(formula: string): Array<{ code: string; quantity: number }> {
@@ -99,10 +101,20 @@ function parseLaborFormula(formula: string): { hours: number; rate: number } {
   const match = formula.match(/([A-Za-z0-9]+),?([\d.]+)?/);
   if (match) {
     const efficiency = match[2] ? parseFloat(match[2]) : 0;
-    return { hours: efficiency / 60, rate: 65 };
+    return { hours: efficiency / 60 / 100, rate: 65 };
   }
   
   return { hours: 0, rate: 0 };
+}
+
+function calculatePerUnitMaterials(
+  materialComponents: ComponentPrice[],
+  laborEfficiency: number | null
+): number {
+  if (!materialComponents.length) return 0;
+  
+  const divisor = laborEfficiency && laborEfficiency > 0 ? laborEfficiency : 100;
+  return materialComponents.reduce((sum, c) => sum + c.total, 0) / divisor;
 }
 
 export async function calculateXactPrice(lineItemCode: string): Promise<XactPriceBreakdown | null> {
@@ -132,7 +144,7 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
       const matParts = parseFormula(activity.materialFormula);
       for (const part of matParts) {
         const comp = componentCache.get(part.code.toUpperCase()) 
-          || componentByXactId.get(part.code.toUpperCase());
+          || componentByShortId.get(part.code.toUpperCase());
         if (comp) {
           const total = comp.amount * part.quantity;
           materialComponents.push({
@@ -167,7 +179,8 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
     }
   }
   
-  const unitPrice = materialTotal + laborTotal + equipmentTotal;
+  const perUnitMaterial = calculatePerUnitMaterials(materialComponents, item.laborEfficiency);
+  const unitPrice = perUnitMaterial + laborTotal + equipmentTotal;
   
   return {
     lineItemCode: item.fullCode,
@@ -175,7 +188,7 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
     unit: item.unit,
     categoryCode: item.categoryCode,
     
-    materialTotal: Math.round(materialTotal * 100) / 100,
+    materialTotal: Math.round(perUnitMaterial * 100) / 100,
     laborTotal: Math.round(laborTotal * 100) / 100,
     equipmentTotal: Math.round(equipmentTotal * 100) / 100,
     unitPrice: Math.round(unitPrice * 100) / 100,
