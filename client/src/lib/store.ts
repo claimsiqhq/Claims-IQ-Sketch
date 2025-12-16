@@ -21,12 +21,22 @@ interface EstimateSettings {
   profitPct: number;
 }
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+}
+
 interface StoreState {
   // Auth state
   authUser: AuthUser | null;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
   authError: string | null;
+
+  // Legacy user object for backward compatibility
+  user: User;
 
   claims: Claim[];
   activeClaim: Claim | null;
@@ -71,6 +81,13 @@ export const useStore = create<StoreState>((set, get) => ({
   isAuthenticated: false,
   isAuthLoading: true, // Start as loading until we check
   authError: null,
+
+  // Legacy user object for backward compatibility
+  user: {
+    id: 'default',
+    name: 'User',
+    email: 'user@claims-iq.com',
+  },
 
   claims: [],
   activeClaim: null,
