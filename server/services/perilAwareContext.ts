@@ -321,7 +321,7 @@ export async function buildPerilAwareClaimContext(
     // Build policy context
     const policyContext: PolicyContext = {
       policyNumber: claim.policyNumber,
-      state: claim.state,
+      state: claim.propertyState,
       dwellingLimit: claim.dwellingLimit,
       windHailDeductible: claim.windHailDeductible,
       coverageA: claim.coverageA,
