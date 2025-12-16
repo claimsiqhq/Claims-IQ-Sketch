@@ -1,0 +1,378 @@
+import { pool } from '../db';
+import type { ClaimRoom, ClaimDamageZone, InsertClaimRoom, InsertClaimDamageZone } from '@shared/schema';
+
+interface RoomRow {
+  id: string;
+  claim_id: string;
+  organization_id: string;
+  name: string;
+  room_type: string | null;
+  floor_level: string | null;
+  shape: string;
+  width_ft: string;
+  length_ft: string;
+  ceiling_height_ft: string | null;
+  origin_x_ft: string | null;
+  origin_y_ft: string | null;
+  polygon: unknown;
+  l_shape_config: unknown;
+  t_shape_config: unknown;
+  openings: unknown;
+  features: unknown;
+  notes: unknown;
+  sort_order: number | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface DamageZoneRow {
+  id: string;
+  claim_id: string;
+  room_id: string | null;
+  organization_id: string;
+  damage_type: string;
+  category: string | null;
+  affected_walls: unknown;
+  floor_affected: boolean;
+  ceiling_affected: boolean;
+  extent_ft: string | null;
+  severity: string | null;
+  source: string | null;
+  polygon: unknown;
+  is_freeform: boolean;
+  notes: string | null;
+  sort_order: number | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function mapRowToRoom(row: RoomRow): ClaimRoom {
+  return {
+    id: row.id,
+    claimId: row.claim_id,
+    organizationId: row.organization_id,
+    name: row.name,
+    roomType: row.room_type,
+    floorLevel: row.floor_level,
+    shape: row.shape,
+    widthFt: row.width_ft,
+    lengthFt: row.length_ft,
+    ceilingHeightFt: row.ceiling_height_ft,
+    originXFt: row.origin_x_ft,
+    originYFt: row.origin_y_ft,
+    polygon: row.polygon,
+    lShapeConfig: row.l_shape_config,
+    tShapeConfig: row.t_shape_config,
+    openings: row.openings,
+    features: row.features,
+    notes: row.notes,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapRowToDamageZone(row: DamageZoneRow): ClaimDamageZone {
+  return {
+    id: row.id,
+    claimId: row.claim_id,
+    roomId: row.room_id,
+    organizationId: row.organization_id,
+    damageType: row.damage_type,
+    category: row.category,
+    affectedWalls: row.affected_walls,
+    floorAffected: row.floor_affected,
+    ceilingAffected: row.ceiling_affected,
+    extentFt: row.extent_ft,
+    severity: row.severity,
+    source: row.source,
+    polygon: row.polygon,
+    isFreeform: row.is_freeform,
+    notes: row.notes,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getRoomsByClaimId(claimId: string): Promise<ClaimRoom[]> {
+  const result = await pool.query<RoomRow>(
+    `SELECT * FROM claim_rooms WHERE claim_id = $1 ORDER BY sort_order, created_at`,
+    [claimId]
+  );
+  return result.rows.map(mapRowToRoom);
+}
+
+export async function getDamageZonesByClaimId(claimId: string): Promise<ClaimDamageZone[]> {
+  const result = await pool.query<DamageZoneRow>(
+    `SELECT * FROM claim_damage_zones WHERE claim_id = $1 ORDER BY sort_order, created_at`,
+    [claimId]
+  );
+  return result.rows.map(mapRowToDamageZone);
+}
+
+export async function getDamageZonesByRoomId(roomId: string): Promise<ClaimDamageZone[]> {
+  const result = await pool.query<DamageZoneRow>(
+    `SELECT * FROM claim_damage_zones WHERE room_id = $1 ORDER BY sort_order, created_at`,
+    [roomId]
+  );
+  return result.rows.map(mapRowToDamageZone);
+}
+
+export async function createRoom(room: Omit<InsertClaimRoom, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimRoom> {
+  const result = await pool.query<RoomRow>(
+    `INSERT INTO claim_rooms (
+      claim_id, organization_id, name, room_type, floor_level,
+      shape, width_ft, length_ft, ceiling_height_ft,
+      origin_x_ft, origin_y_ft, polygon, l_shape_config, t_shape_config,
+      openings, features, notes, sort_order
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    RETURNING *`,
+    [
+      room.claimId,
+      room.organizationId,
+      room.name,
+      room.roomType || null,
+      room.floorLevel || '1',
+      room.shape || 'rectangular',
+      room.widthFt,
+      room.lengthFt,
+      room.ceilingHeightFt || 8.0,
+      room.originXFt || 0,
+      room.originYFt || 0,
+      JSON.stringify(room.polygon || []),
+      room.lShapeConfig ? JSON.stringify(room.lShapeConfig) : null,
+      room.tShapeConfig ? JSON.stringify(room.tShapeConfig) : null,
+      JSON.stringify(room.openings || []),
+      JSON.stringify(room.features || []),
+      JSON.stringify(room.notes || []),
+      room.sortOrder || 0,
+    ]
+  );
+  return mapRowToRoom(result.rows[0]);
+}
+
+export async function createDamageZone(zone: Omit<InsertClaimDamageZone, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimDamageZone> {
+  const result = await pool.query<DamageZoneRow>(
+    `INSERT INTO claim_damage_zones (
+      claim_id, room_id, organization_id, damage_type, category,
+      affected_walls, floor_affected, ceiling_affected, extent_ft,
+      severity, source, polygon, is_freeform, notes, sort_order
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    RETURNING *`,
+    [
+      zone.claimId,
+      zone.roomId || null,
+      zone.organizationId,
+      zone.damageType,
+      zone.category || null,
+      JSON.stringify(zone.affectedWalls || []),
+      zone.floorAffected || false,
+      zone.ceilingAffected || false,
+      zone.extentFt || 0,
+      zone.severity || null,
+      zone.source || null,
+      JSON.stringify(zone.polygon || []),
+      zone.isFreeform || false,
+      zone.notes || null,
+      zone.sortOrder || 0,
+    ]
+  );
+  return mapRowToDamageZone(result.rows[0]);
+}
+
+export async function updateRoom(id: string, updates: Partial<InsertClaimRoom>): Promise<ClaimRoom | null> {
+  const fieldMap: Record<string, string> = {
+    name: 'name',
+    roomType: 'room_type',
+    floorLevel: 'floor_level',
+    shape: 'shape',
+    widthFt: 'width_ft',
+    lengthFt: 'length_ft',
+    ceilingHeightFt: 'ceiling_height_ft',
+    originXFt: 'origin_x_ft',
+    originYFt: 'origin_y_ft',
+    polygon: 'polygon',
+    lShapeConfig: 'l_shape_config',
+    tShapeConfig: 't_shape_config',
+    openings: 'openings',
+    features: 'features',
+    notes: 'notes',
+    sortOrder: 'sort_order',
+  };
+
+  const setClauses: string[] = ['updated_at = NOW()'];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (fieldMap[key] && value !== undefined) {
+      setClauses.push(`${fieldMap[key]} = $${paramIndex}`);
+      const jsonFields = ['polygon', 'lShapeConfig', 'tShapeConfig', 'openings', 'features', 'notes'];
+      values.push(jsonFields.includes(key) ? JSON.stringify(value) : value);
+      paramIndex++;
+    }
+  }
+
+  values.push(id);
+
+  const result = await pool.query<RoomRow>(
+    `UPDATE claim_rooms SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  return result.rows.length > 0 ? mapRowToRoom(result.rows[0]) : null;
+}
+
+export async function updateDamageZone(id: string, updates: Partial<InsertClaimDamageZone>): Promise<ClaimDamageZone | null> {
+  const fieldMap: Record<string, string> = {
+    roomId: 'room_id',
+    damageType: 'damage_type',
+    category: 'category',
+    affectedWalls: 'affected_walls',
+    floorAffected: 'floor_affected',
+    ceilingAffected: 'ceiling_affected',
+    extentFt: 'extent_ft',
+    severity: 'severity',
+    source: 'source',
+    polygon: 'polygon',
+    isFreeform: 'is_freeform',
+    notes: 'notes',
+    sortOrder: 'sort_order',
+  };
+
+  const setClauses: string[] = ['updated_at = NOW()'];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (fieldMap[key] && value !== undefined) {
+      setClauses.push(`${fieldMap[key]} = $${paramIndex}`);
+      const jsonFields = ['affectedWalls', 'polygon'];
+      values.push(jsonFields.includes(key) ? JSON.stringify(value) : value);
+      paramIndex++;
+    }
+  }
+
+  values.push(id);
+
+  const result = await pool.query<DamageZoneRow>(
+    `UPDATE claim_damage_zones SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  return result.rows.length > 0 ? mapRowToDamageZone(result.rows[0]) : null;
+}
+
+export async function deleteRoom(id: string): Promise<boolean> {
+  await pool.query(`DELETE FROM claim_damage_zones WHERE room_id = $1`, [id]);
+  const result = await pool.query(`DELETE FROM claim_rooms WHERE id = $1`, [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function deleteDamageZone(id: string): Promise<boolean> {
+  const result = await pool.query(`DELETE FROM claim_damage_zones WHERE id = $1`, [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function deleteRoomsByClaimId(claimId: string): Promise<number> {
+  await pool.query(`DELETE FROM claim_damage_zones WHERE claim_id = $1`, [claimId]);
+  const result = await pool.query(`DELETE FROM claim_rooms WHERE claim_id = $1`, [claimId]);
+  return result.rowCount ?? 0;
+}
+
+export async function saveClaimRoomsAndZones(
+  claimId: string,
+  organizationId: string,
+  rooms: Array<{
+    id?: string;
+    name: string;
+    shape?: string;
+    width_ft: number;
+    length_ft: number;
+    ceiling_height_ft?: number;
+    polygon?: Array<{ x: number; y: number }>;
+    openings?: unknown[];
+    features?: unknown[];
+    damageZones?: Array<{
+      id?: string;
+      type: string;
+      category?: string;
+      affected_walls?: string[];
+      floor_affected?: boolean;
+      ceiling_affected?: boolean;
+      extent_ft?: number;
+      source?: string;
+      notes?: string;
+      polygon?: Array<{ x: number; y: number }>;
+      is_freeform?: boolean;
+    }>;
+    notes?: unknown[];
+    origin_x_ft?: number;
+    origin_y_ft?: number;
+    l_shape_config?: unknown;
+    t_shape_config?: unknown;
+  }>
+): Promise<{ rooms: ClaimRoom[]; damageZones: ClaimDamageZone[] }> {
+  await deleteRoomsByClaimId(claimId);
+
+  const savedRooms: ClaimRoom[] = [];
+  const savedDamageZones: ClaimDamageZone[] = [];
+
+  for (let i = 0; i < rooms.length; i++) {
+    const room = rooms[i];
+    const savedRoom = await createRoom({
+      claimId,
+      organizationId,
+      name: room.name,
+      shape: room.shape || 'rectangular',
+      widthFt: String(room.width_ft),
+      lengthFt: String(room.length_ft),
+      ceilingHeightFt: room.ceiling_height_ft ? String(room.ceiling_height_ft) : '8.0',
+      polygon: room.polygon || [],
+      openings: room.openings || [],
+      features: room.features || [],
+      notes: room.notes || [],
+      originXFt: room.origin_x_ft ? String(room.origin_x_ft) : '0',
+      originYFt: room.origin_y_ft ? String(room.origin_y_ft) : '0',
+      lShapeConfig: room.l_shape_config || null,
+      tShapeConfig: room.t_shape_config || null,
+      sortOrder: i,
+    });
+    savedRooms.push(savedRoom);
+
+    if (room.damageZones && room.damageZones.length > 0) {
+      for (let j = 0; j < room.damageZones.length; j++) {
+        const zone = room.damageZones[j];
+        const savedZone = await createDamageZone({
+          claimId,
+          roomId: savedRoom.id,
+          organizationId,
+          damageType: zone.type,
+          category: zone.category || null,
+          affectedWalls: zone.affected_walls || [],
+          floorAffected: zone.floor_affected || false,
+          ceilingAffected: zone.ceiling_affected || false,
+          extentFt: zone.extent_ft ? String(zone.extent_ft) : '0',
+          source: zone.source || null,
+          polygon: zone.polygon || [],
+          isFreeform: zone.is_freeform || false,
+          notes: zone.notes || null,
+          sortOrder: j,
+        });
+        savedDamageZones.push(savedZone);
+      }
+    }
+  }
+
+  return { rooms: savedRooms, damageZones: savedDamageZones };
+}
+
+export async function getClaimRoomsAndZones(claimId: string): Promise<{
+  rooms: ClaimRoom[];
+  damageZones: ClaimDamageZone[];
+}> {
+  const rooms = await getRoomsByClaimId(claimId);
+  const damageZones = await getDamageZonesByClaimId(claimId);
+  return { rooms, damageZones };
+}

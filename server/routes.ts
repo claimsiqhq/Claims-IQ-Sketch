@@ -2525,63 +2525,58 @@ export async function registerRoutes(
     }
   });
 
-  // Save rooms to claim (stores in metadata.rooms)
+  // Save rooms to claim (uses claim_rooms and claim_damage_zones tables)
   app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { rooms, damageZones } = req.body;
+      const { rooms } = req.body;
+      const { saveClaimRoomsAndZones } = await import('./services/rooms');
+      
+      // Verify claim exists and belongs to organization
       const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const existingClaim = await client.query(
-          `SELECT metadata FROM claims WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (existingClaim.rows.length === 0) {
-          return res.status(404).json({ error: 'Claim not found' });
-        }
-        const existingMetadata = existingClaim.rows[0].metadata || {};
-        const existingRooms = existingMetadata.rooms || [];
-        const existingDamageZones = existingMetadata.damageZones || [];
-        const updatedMetadata = {
-          ...existingMetadata,
-          rooms: [...existingRooms, ...(rooms || [])],
-          damageZones: [...existingDamageZones, ...(damageZones || [])],
-        };
-        await client.query(
-          `UPDATE claims SET metadata = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`,
-          [JSON.stringify(updatedMetadata), req.params.id, req.organizationId]
-        );
-        res.json({ success: true, roomsAdded: rooms?.length || 0, damageZonesAdded: damageZones?.length || 0 });
-      } finally {
-        client.release();
+      const claimCheck = await pool.query(
+        `SELECT id FROM claims WHERE id = $1 AND organization_id = $2`,
+        [req.params.id, req.organizationId]
+      );
+      if (claimCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Claim not found' });
       }
+      
+      const result = await saveClaimRoomsAndZones(
+        req.params.id,
+        req.organizationId!,
+        rooms || []
+      );
+      
+      res.json({ 
+        success: true, 
+        roomsSaved: result.rooms.length, 
+        damageZonesSaved: result.damageZones.length,
+        rooms: result.rooms,
+        damageZones: result.damageZones
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
     }
   });
 
-  // Get claim rooms (from metadata.rooms)
+  // Get claim rooms (from claim_rooms and claim_damage_zones tables)
   app.get('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
     try {
+      const { getClaimRoomsAndZones } = await import('./services/rooms');
+      
+      // Verify claim exists and belongs to organization
       const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT metadata FROM claims WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (result.rows.length === 0) {
-          return res.status(404).json({ error: 'Claim not found' });
-        }
-        const metadata = result.rows[0].metadata || {};
-        res.json({
-          rooms: metadata.rooms || [],
-          damageZones: metadata.damageZones || [],
-        });
-      } finally {
-        client.release();
+      const claimCheck = await pool.query(
+        `SELECT id FROM claims WHERE id = $1 AND organization_id = $2`,
+        [req.params.id, req.organizationId]
+      );
+      if (claimCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Claim not found' });
       }
+      
+      const result = await getClaimRoomsAndZones(req.params.id);
+      res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
