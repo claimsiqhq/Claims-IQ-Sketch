@@ -1,15 +1,6 @@
 import { pool } from '../db';
+import { getSupabaseAdmin, DOCUMENTS_BUCKET } from '../lib/supabase';
 import { InsertDocument } from '../../shared/schema';
-import fs from 'fs';
-import path from 'path';
-
-// Storage directory for uploads
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
-
-// Ensure upload directory exists
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
 
 export interface DocumentInfo {
   id: string;
@@ -54,7 +45,51 @@ function mapRowToDocument(row: any): DocumentInfo {
 }
 
 /**
- * Save uploaded file and create document record
+ * Initialize Supabase Storage bucket (call this on app startup)
+ */
+export async function initializeStorageBucket(): Promise<void> {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  // Check if bucket exists
+  const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+
+  if (listError) {
+    console.error('Error listing storage buckets:', listError);
+    throw listError;
+  }
+
+  const bucketExists = buckets?.some(b => b.name === DOCUMENTS_BUCKET);
+
+  if (!bucketExists) {
+    // Create the documents bucket
+    const { error: createError } = await supabaseAdmin.storage.createBucket(DOCUMENTS_BUCKET, {
+      public: false, // Documents are private by default
+      fileSizeLimit: 52428800, // 50MB max file size
+      allowedMimeTypes: [
+        'image/*',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/plain',
+        'text/csv',
+      ],
+    });
+
+    if (createError) {
+      console.error('Error creating storage bucket:', createError);
+      throw createError;
+    }
+
+    console.log(`Created Supabase storage bucket: ${DOCUMENTS_BUCKET}`);
+  } else {
+    console.log(`Supabase storage bucket "${DOCUMENTS_BUCKET}" already exists`);
+  }
+}
+
+/**
+ * Save uploaded file to Supabase Storage and create document record
  */
 export async function createDocument(
   organizationId: string,
@@ -74,26 +109,33 @@ export async function createDocument(
     uploadedBy?: string;
   }
 ): Promise<DocumentInfo> {
+  const supabaseAdmin = getSupabaseAdmin();
   const client = await pool.connect();
-  try {
-    // Create organization subdirectory
-    const orgDir = path.join(UPLOAD_DIR, organizationId);
-    if (!fs.existsSync(orgDir)) {
-      fs.mkdirSync(orgDir, { recursive: true });
-    }
 
-    // Generate unique filename
+  try {
+    // Generate unique storage path: organizationId/timestamp-filename
     const timestamp = Date.now();
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext)
+    const ext = file.originalname.split('.').pop() || '';
+    const baseName = file.originalname
+      .replace(/\.[^/.]+$/, '') // Remove extension
       .replace(/[^a-zA-Z0-9-_]/g, '_')
       .substring(0, 50);
-    const uniqueFileName = `${timestamp}-${baseName}${ext}`;
-    const storagePath = path.join(organizationId, uniqueFileName);
-    const fullPath = path.join(UPLOAD_DIR, storagePath);
+    const uniqueFileName = `${timestamp}-${baseName}${ext ? '.' + ext : ''}`;
+    const storagePath = `${organizationId}/${uniqueFileName}`;
 
-    // Write file to disk
-    fs.writeFileSync(fullPath, file.buffer);
+    // Upload file to Supabase Storage
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from(DOCUMENTS_BUCKET)
+      .upload(storagePath, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Supabase storage upload error:', uploadError);
+      throw new Error(`Failed to upload file: ${uploadError.message}`);
+    }
 
     // Create database record
     const result = await client.query(
@@ -122,9 +164,11 @@ export async function createDocument(
 
     return mapRowToDocument(result.rows[0]);
   } catch (error) {
-    // Clean up file if database insert fails
-    const storagePath = path.join(UPLOAD_DIR, organizationId, `${Date.now()}-*`);
-    // Note: In production, you'd want better cleanup logic
+    // If database insert failed, try to clean up the uploaded file
+    const timestamp = Date.now();
+    const storagePath = `${organizationId}/${timestamp}-*`;
+    // Note: We can't easily clean up with wildcard, but the storage path in error
+    // context should be specific. In production, implement cleanup logic.
     throw error;
   } finally {
     client.release();
@@ -151,10 +195,39 @@ export async function getDocument(
 }
 
 /**
- * Get document file path for download
+ * Get a signed URL for downloading a document from Supabase Storage
  */
-export function getDocumentFilePath(storagePath: string): string {
-  return path.join(UPLOAD_DIR, storagePath);
+export async function getDocumentDownloadUrl(storagePath: string, expiresIn: number = 3600): Promise<string> {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUrl(storagePath, expiresIn);
+
+  if (error) {
+    console.error('Error creating signed URL:', error);
+    throw new Error(`Failed to create download URL: ${error.message}`);
+  }
+
+  return data.signedUrl;
+}
+
+/**
+ * Download file content from Supabase Storage
+ */
+export async function downloadDocumentFile(storagePath: string): Promise<{ data: Blob; contentType: string }> {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(DOCUMENTS_BUCKET)
+    .download(storagePath);
+
+  if (error) {
+    console.error('Error downloading file:', error);
+    throw new Error(`Failed to download file: ${error.message}`);
+  }
+
+  return { data, contentType: data.type };
 }
 
 /**
@@ -310,30 +383,37 @@ export async function updateDocument(
 }
 
 /**
- * Delete document (removes file and database record)
+ * Delete document (removes file from Supabase Storage and database record)
  */
 export async function deleteDocument(
   id: string,
   organizationId: string
 ): Promise<boolean> {
+  const supabaseAdmin = getSupabaseAdmin();
   const client = await pool.connect();
+
   try {
-    // Get document to find file path
+    // Get document to find storage path
     const doc = await getDocument(id, organizationId);
     if (!doc) return false;
 
-    // Delete database record
+    // Delete database record first
     const result = await client.query(
       `DELETE FROM documents WHERE id = $1 AND organization_id = $2`,
       [id, organizationId]
     );
 
     if (result.rowCount && result.rowCount > 0) {
-      // Delete file
-      const filePath = getDocumentFilePath(doc.storagePath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      // Delete file from Supabase Storage
+      const { error } = await supabaseAdmin.storage
+        .from(DOCUMENTS_BUCKET)
+        .remove([doc.storagePath]);
+
+      if (error) {
+        console.error('Error deleting file from storage:', error);
+        // Note: Database record is already deleted, log the orphaned file
       }
+
       return true;
     }
 
@@ -435,4 +515,19 @@ export async function getDocumentStats(organizationId: string): Promise<{
   } finally {
     client.release();
   }
+}
+
+/**
+ * Get a public URL for a document (for temporary sharing)
+ * Note: Creates a signed URL that expires after the specified duration
+ */
+export async function getDocumentPublicUrl(
+  id: string,
+  organizationId: string,
+  expiresIn: number = 3600
+): Promise<string | null> {
+  const doc = await getDocument(id, organizationId);
+  if (!doc) return null;
+
+  return getDocumentDownloadUrl(doc.storagePath, expiresIn);
 }
