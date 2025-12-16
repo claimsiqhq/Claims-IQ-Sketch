@@ -390,6 +390,90 @@ export type InsertEndorsement = z.infer<typeof insertEndorsementSchema>;
 export type Endorsement = typeof endorsements.$inferSelect;
 
 // ============================================
+// CLAIM BRIEFINGS TABLE
+// ============================================
+
+/**
+ * AI-generated claim briefings for field adjusters.
+ * Briefings are cached by source_hash to avoid regeneration.
+ */
+export const claimBriefings = pgTable("claim_briefings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id").notNull(),
+
+  // Peril context
+  peril: varchar("peril", { length: 50 }).notNull(),
+  secondaryPerils: jsonb("secondary_perils").default(sql`'[]'::jsonb`),
+
+  // Cache key - hash of inputs used to generate briefing
+  sourceHash: varchar("source_hash", { length: 64 }).notNull(),
+
+  // The briefing content (structured JSON)
+  briefingJson: jsonb("briefing_json").notNull(),
+
+  // Status tracking: 'generating', 'generated', 'error', 'stale'
+  status: varchar("status", { length: 20 }).notNull().default("generated"),
+
+  // AI model used
+  model: varchar("model", { length: 100 }),
+
+  // Token usage tracking
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  totalTokens: integer("total_tokens"),
+
+  // Error tracking (if generation failed)
+  errorMessage: text("error_message"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  claimIdx: index("claim_briefings_claim_idx").on(table.claimId),
+  sourceHashIdx: index("claim_briefings_source_hash_idx").on(table.claimId, table.sourceHash),
+  orgIdx: index("claim_briefings_org_idx").on(table.organizationId),
+}));
+
+export const insertClaimBriefingSchema = createInsertSchema(claimBriefings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimBriefing = z.infer<typeof insertClaimBriefingSchema>;
+export type ClaimBriefing = typeof claimBriefings.$inferSelect;
+
+/**
+ * ClaimBriefingContent - The structured JSON content of a briefing
+ */
+export interface ClaimBriefingContent {
+  claim_summary: {
+    primary_peril: string;
+    secondary_perils: string[];
+    overview: string[];
+  };
+  inspection_strategy: {
+    where_to_start: string[];
+    what_to_prioritize: string[];
+    common_misses: string[];
+  };
+  peril_specific_risks: string[];
+  endorsement_watchouts: {
+    endorsement_id: string;
+    impact: string;
+    inspection_implications: string[];
+  }[];
+  photo_requirements: {
+    category: string;
+    items: string[];
+  }[];
+  sketch_requirements: string[];
+  depreciation_considerations: string[];
+  open_questions_for_adjuster: string[];
+}
+
+// ============================================
 // CLAIM ROOMS TABLE (Voice Sketch)
 // ============================================
 
@@ -1268,6 +1352,10 @@ export const carrierProfiles = pgTable("carrier_profiles", {
   // Rule Configuration
   ruleConfig: jsonb("rule_config").default(sql`'{}'::jsonb`),
 
+  // Carrier-Specific Inspection Overlays
+  // Per-peril inspection preferences that influence AI guidance
+  carrierInspectionOverlays: jsonb("carrier_inspection_overlays").default(sql`'{}'::jsonb`),
+
   // Status
   isActive: boolean("is_active").default(true),
 
@@ -1284,6 +1372,56 @@ export const insertCarrierProfileSchema = createInsertSchema(carrierProfiles).om
 
 export type InsertCarrierProfile = z.infer<typeof insertCarrierProfileSchema>;
 export type CarrierProfile = typeof carrierProfiles.$inferSelect;
+
+/**
+ * Carrier Inspection Overlay - Per-peril inspection preferences
+ */
+export interface CarrierPerilOverlay {
+  // Test square requirements (wind/hail)
+  require_test_squares?: boolean;
+  test_square_count?: number;
+
+  // Photo requirements
+  photo_density?: 'low' | 'standard' | 'high';
+
+  // Duration confirmation (water)
+  require_duration_confirmation?: boolean;
+
+  // Moisture readings (water)
+  require_moisture_readings?: boolean;
+
+  // Origin documentation (fire)
+  require_origin_documentation?: boolean;
+
+  // High water mark (flood)
+  require_high_water_mark?: boolean;
+
+  // Mold protocol
+  require_mold_testing?: boolean;
+
+  // Areas to emphasize during inspection
+  emphasis?: string[];
+
+  // Areas to de-emphasize (but not ignore)
+  de_emphasis?: string[];
+
+  // Custom carrier notes
+  notes?: string;
+}
+
+/**
+ * Complete carrier inspection overlays structure
+ */
+export interface CarrierInspectionOverlays {
+  wind_hail?: CarrierPerilOverlay;
+  fire?: CarrierPerilOverlay;
+  water?: CarrierPerilOverlay;
+  flood?: CarrierPerilOverlay;
+  smoke?: CarrierPerilOverlay;
+  mold?: CarrierPerilOverlay;
+  impact?: CarrierPerilOverlay;
+  other?: CarrierPerilOverlay;
+}
 
 // ============================================
 // CARRIER RULES TABLE

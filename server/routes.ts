@@ -95,6 +95,28 @@ import {
   getSketchState
 } from "./services/sketchTools";
 import {
+  getInspectionRulesForPeril,
+  getQuickInspectionTips,
+  getEscalationTriggers,
+  getMergedInspectionGuidance,
+} from "./config/perilInspectionRules";
+import {
+  buildInspectionIntelligence,
+  getInspectionIntelligenceForPeril,
+} from "./services/perilAwareContext";
+import {
+  generateClaimBriefing,
+  getClaimBriefing,
+  isBriefingStale,
+  deleteClaimBriefings,
+} from "./services/claimBriefingService";
+import {
+  getCarrierOverlays,
+  getCarrierOverlaysForClaim,
+  getMergedInspectionForClaim,
+  updateCarrierOverlays,
+} from "./services/carrierOverlayService";
+import {
   createStructure,
   getStructure,
   updateStructure,
@@ -2696,6 +2718,237 @@ export async function registerRoutes(
           [req.params.id, req.organizationId]
         );
         res.json(result.rows);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // INSPECTION INTELLIGENCE ROUTES
+  // ============================================
+
+  /**
+   * GET /api/inspection-intelligence/:peril
+   * Get inspection intelligence for a specific peril.
+   * Returns deterministic inspection rules, tips, and escalation triggers.
+   */
+  app.get('/api/inspection-intelligence/:peril', requireAuth, async (req, res) => {
+    try {
+      const { peril } = req.params;
+      const intelligence = getInspectionIntelligenceForPeril(peril);
+      res.json(intelligence);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/inspection-intelligence/:peril/tips
+   * Get quick inspection tips for a specific peril (for UI micro-hints).
+   */
+  app.get('/api/inspection-intelligence/:peril/tips', requireAuth, async (req, res) => {
+    try {
+      const { peril } = req.params;
+      const limit = parseInt(req.query.limit as string) || 5;
+      const tips = getQuickInspectionTips(peril, limit);
+      res.json({ tips });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/inspection-intelligence
+   * Get inspection intelligence for a claim based on its peril.
+   */
+  app.get('/api/claims/:id/inspection-intelligence', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        // Get the claim's peril
+        const claimResult = await client.query(
+          `SELECT primary_peril, secondary_perils FROM claims WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (claimResult.rows.length === 0) {
+          return res.status(404).json({ error: 'Claim not found' });
+        }
+        const { primary_peril, secondary_perils } = claimResult.rows[0];
+        const peril = primary_peril || 'other';
+        const secondaryPerils = Array.isArray(secondary_perils) ? secondary_perils : [];
+
+        // Build inspection intelligence
+        const intelligence = buildInspectionIntelligence(peril, secondaryPerils);
+        res.json(intelligence);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // CLAIM BRIEFING ROUTES
+  // ============================================
+
+  /**
+   * GET /api/claims/:id/briefing
+   * Get the latest AI-generated briefing for a claim.
+   */
+  app.get('/api/claims/:id/briefing', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
+      if (!briefing) {
+        return res.status(404).json({ error: 'No briefing found for this claim' });
+      }
+      res.json(briefing);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/claims/:id/briefing/generate
+   * Generate a new AI briefing for a claim.
+   * Query params:
+   * - force: boolean - Force regeneration even if cached
+   */
+  app.post('/api/claims/:id/briefing/generate', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const forceRegenerate = req.query.force === 'true';
+      const result = await generateClaimBriefing(
+        req.params.id,
+        req.organizationId!,
+        forceRegenerate
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        briefing: result.briefing,
+        briefingId: result.briefingId,
+        sourceHash: result.sourceHash,
+        cached: result.cached,
+        model: result.model,
+        tokenUsage: result.tokenUsage,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/briefing/status
+   * Check if the briefing is stale (claim data has changed).
+   */
+  app.get('/api/claims/:id/briefing/status', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
+      const isStale = await isBriefingStale(req.params.id, req.organizationId!);
+
+      res.json({
+        hasBriefing: !!briefing,
+        isStale,
+        lastUpdated: briefing?.updatedAt || null,
+        model: briefing?.model || null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * DELETE /api/claims/:id/briefing
+   * Delete all briefings for a claim.
+   */
+  app.delete('/api/claims/:id/briefing', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const deletedCount = await deleteClaimBriefings(req.params.id, req.organizationId!);
+      res.json({ deleted: deletedCount });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // CARRIER OVERLAY ROUTES
+  // ============================================
+
+  /**
+   * GET /api/carriers/:id/overlays
+   * Get carrier-specific inspection overlays.
+   */
+  app.get('/api/carriers/:id/overlays', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { carrier, overlays } = await getCarrierOverlays(req.params.id);
+      if (!carrier) {
+        return res.status(404).json({ error: 'Carrier not found' });
+      }
+      res.json({ carrier, overlays });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * PUT /api/carriers/:id/overlays
+   * Update carrier-specific inspection overlays.
+   */
+  app.put('/api/carriers/:id/overlays', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
+    try {
+      const { overlays } = req.body;
+      if (!overlays) {
+        return res.status(400).json({ error: 'overlays object required' });
+      }
+      const success = await updateCarrierOverlays(req.params.id, overlays);
+      if (!success) {
+        return res.status(404).json({ error: 'Carrier not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/carrier-guidance
+   * Get carrier guidance for a claim based on its carrier and peril.
+   */
+  app.get('/api/claims/:id/carrier-guidance', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { pool } = await import('./db');
+      const client = await pool.connect();
+      try {
+        // Get the claim's peril
+        const claimResult = await client.query(
+          `SELECT primary_peril FROM claims WHERE id = $1 AND organization_id = $2`,
+          [req.params.id, req.organizationId]
+        );
+        if (claimResult.rows.length === 0) {
+          return res.status(404).json({ error: 'Claim not found' });
+        }
+        const peril = claimResult.rows[0].primary_peril || 'other';
+
+        // Get merged inspection with carrier overlay
+        const mergedInspection = await getMergedInspectionForClaim(req.params.id, peril);
+        res.json(mergedInspection);
       } finally {
         client.release();
       }

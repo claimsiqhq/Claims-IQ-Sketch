@@ -105,6 +105,9 @@ import LineItemPicker from "@/components/line-item-picker";
 import DocumentViewer from "@/components/document-viewer";
 import { VoiceScopeController } from "@/features/voice-scope";
 import { PerilBadgeGroup, PerilAdvisoryBanner, PerilHint } from "@/components/peril-badge";
+import { InspectionTipsPanel } from "@/components/inspection-tips-panel";
+import { BriefingPanel } from "@/components/briefing-panel";
+import { CarrierGuidancePanel } from "@/components/carrier-guidance-panel";
 import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DoorOpen } from "lucide-react";
@@ -706,6 +709,7 @@ export default function ClaimDetail() {
 
   const tabs = [
     { id: "info", label: "Info", icon: Home },
+    { id: "briefing", label: "Briefing", icon: Sparkles },
     { id: "documents", label: "Documents", icon: File },
     { id: "sketch", label: "Sketch", icon: PenTool },
     { id: "scope", label: "Scope", icon: ClipboardList },
@@ -932,6 +936,24 @@ export default function ClaimDetail() {
                   <PerilAdvisoryBanner peril={apiClaim.primaryPeril} />
                 )}
 
+                {/* Inspection Tips Panel - peril-specific inspection guidance */}
+                {apiClaim?.primaryPeril && (
+                  <InspectionTipsPanel
+                    peril={apiClaim.primaryPeril}
+                    secondaryPerils={apiClaim.secondaryPerils}
+                    claimId={apiClaim.id}
+                    defaultExpanded={false}
+                  />
+                )}
+
+                {/* Carrier Guidance Panel - carrier-specific requirements (read-only) */}
+                {apiClaim?.id && (
+                  <CarrierGuidancePanel
+                    claimId={apiClaim.id}
+                    defaultExpanded={false}
+                  />
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* FNOL Details Card */}
                   <Card>
@@ -1091,6 +1113,19 @@ export default function ClaimDetail() {
                     <DocumentViewer documents={documents} claimId={params?.id || ''} />
                   </div>
                 </div>
+              </div>
+            </TabsContent>
+
+            {/* TAB: BRIEFING */}
+            <TabsContent value="briefing" className="h-full p-4 md:p-6 m-0 overflow-auto">
+              <div className="max-w-4xl mx-auto">
+                {apiClaim?.id ? (
+                  <BriefingPanel claimId={apiClaim.id} />
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    Loading claim data...
+                  </div>
+                )}
               </div>
             </TabsContent>
 
