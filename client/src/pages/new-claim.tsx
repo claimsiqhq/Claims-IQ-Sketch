@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { uploadDocument, processDocument, createClaim, updateClaim, type Document, type Claim } from "@/lib/api";
+import { uploadDocument, processDocument, createClaim, updateClaim, getMyOrganizations, type Document, type Claim } from "@/lib/api";
 
 // Step types for the wizard
 type WizardStep = 'fnol' | 'policy' | 'endorsements' | 'review';
@@ -200,6 +200,26 @@ export default function NewClaim() {
   // Draft claim - created early and updated as documents are processed
   const [draftClaim, setDraftClaim] = useState<Claim | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+
+  // Current organization ID for claim creation
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
+
+  // Fetch current organization on mount
+  useEffect(() => {
+    const fetchOrg = async () => {
+      try {
+        const result = await getMyOrganizations();
+        if (result.currentOrganizationId) {
+          setCurrentOrgId(result.currentOrganizationId);
+        } else if (result.organizations.length > 0) {
+          setCurrentOrgId(result.organizations[0].id);
+        }
+      } catch (err) {
+        console.error('Failed to fetch organization:', err);
+      }
+    };
+    fetchOrg();
+  }, []);
 
   // Creating claim state
   const [isCreating, setIsCreating] = useState(false);
@@ -434,6 +454,12 @@ export default function NewClaim() {
 
   // Save or update the draft claim
   const saveDraftClaim = async (mergedData: ExtractedData, docs: { fnol?: UploadedDocument | null; policy?: UploadedDocument | null; endorsements: UploadedDocument[] }) => {
+    // Can't create claim without organization
+    if (!currentOrgId && !draftClaim) {
+      console.warn('No organization ID available for draft claim creation');
+      return null;
+    }
+    
     setIsSavingDraft(true);
     try {
       const payload = buildClaimPayload(mergedData, docs);
@@ -444,8 +470,12 @@ export default function NewClaim() {
         setDraftClaim(updated);
         return updated;
       } else {
-        // Create new draft
-        const created = await createClaim({ ...payload, status: 'draft' });
+        // Create new draft with organization ID
+        const created = await createClaim({ 
+          ...payload, 
+          status: 'draft',
+          organizationId: currentOrgId!,
+        });
         setDraftClaim(created);
         return created;
       }
@@ -721,7 +751,11 @@ export default function NewClaim() {
         });
       } else {
         // No draft exists - create claim directly (fallback)
+        if (!currentOrgId) {
+          throw new Error('No organization selected. Please refresh the page and try again.');
+        }
         claim = await createClaim({
+          organizationId: currentOrgId,
           claimId: claimData.claimId,
           policyholder: claimData.policyholder,
           dateOfLoss: claimData.dateOfLoss,

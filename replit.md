@@ -135,13 +135,25 @@ The database schema supports:
 ### Claims
 - `GET /api/claims` - List claims for organization
 - `GET /api/claims/:id` - Get single claim
-- `POST /api/claims` - Create new claim
+- `POST /api/claims` - Create new claim (requires organizationId)
 - `PUT /api/claims/:id` - Update claim
 - `DELETE /api/claims/:id` - Delete claim
 - `POST /api/claims/:id/rooms` - Save rooms/damage zones to claim (stored in metadata.rooms)
 - `GET /api/claims/:id/rooms` - Get rooms/damage zones from claim
 - `GET /api/claims/:id/documents` - Get claim documents
 - `GET /api/claims/:id/endorsements` - Get claim endorsements
+
+**Claim Statuses:**
+- `draft` - Initial status, claim created incrementally during New Claim wizard
+- `fnol` - First Notice of Loss received, claim finalized
+- `open` - Claim is open and being worked
+- `in_progress` - Active work on the claim
+- `review` - Claim under review
+- `approved` - Claim approved
+- `closed` - Claim closed
+
+**Draft Claim Workflow:**
+The New Claim wizard creates a draft claim as soon as the first document (FNOL) is processed. As the user progresses through steps (Policy, Endorsements), the draft is automatically updated with extracted data. When the user clicks "Finalize Claim" on the Review step, the status changes from `draft` to `fnol`. This allows users to close the browser and return later to complete the claim creation process.
 
 ### Estimates
 - `POST /api/estimates/calculate` - Calculate estimate without saving
