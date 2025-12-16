@@ -987,7 +987,7 @@ function RiskMitigationWatch({
 function WeatherCard({ condition, isMobile }: { condition: WeatherCondition; isMobile: boolean }) {
   const WeatherIcon = getWeatherIcon(condition.type);
   const severityStyles = {
-    advisory: "bg-secondary/10 border-secondary/30 text-secondary-foreground",
+    advisory: "bg-sky-50 border-sky-300 text-sky-800",
     warning: "bg-amber-50 border-amber-300 text-amber-800",
     danger: "bg-destructive/10 border-destructive/30 text-destructive",
   };
