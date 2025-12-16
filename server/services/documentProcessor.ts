@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { inferPeril, type PerilInferenceInput } from './perilNormalizer';
 import { Peril } from '../../shared/schema';
+import { getSupabaseAdmin } from '../lib/supabase';
 
 const execAsync = promisify(exec);
 
@@ -16,6 +17,36 @@ const openai = new OpenAI({
 });
 
 const TEMP_DIR = path.join(os.tmpdir(), 'claimsiq-pdf');
+const DOCUMENTS_BUCKET = 'documents';
+
+/**
+ * Download a file from Supabase Storage to a local temp path
+ */
+async function downloadFromStorage(storagePath: string): Promise<string> {
+  const supabase = getSupabaseAdmin();
+  
+  // Download file from Supabase Storage
+  const { data, error } = await supabase.storage
+    .from(DOCUMENTS_BUCKET)
+    .download(storagePath);
+  
+  if (error || !data) {
+    throw new Error(`Failed to download from storage: ${error?.message || 'No data returned'}`);
+  }
+  
+  // Create temp directory if needed
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+  
+  // Write to temp file
+  const ext = path.extname(storagePath) || '.bin';
+  const tempPath = path.join(TEMP_DIR, `doc-${Date.now()}${ext}`);
+  const buffer = Buffer.from(await data.arrayBuffer());
+  fs.writeFileSync(tempPath, buffer);
+  
+  return tempPath;
+}
 
 // Coverage details interface
 export interface CoverageDetail {
@@ -174,21 +205,30 @@ export async function processDocument(
         console.warn('OpenAI API key not configured, skipping AI extraction');
         extractedData = { rawText: 'AI extraction not available - OPENAI_API_KEY not configured' };
       } else {
-        // Read file
-        const uploadDir = process.env.UPLOAD_DIR || './uploads';
-        const filePath = path.join(uploadDir, doc.storage_path);
+        // Download file from Supabase Storage to temp location
+        let tempFilePath: string | null = null;
+        try {
+          console.log(`Downloading document from storage: ${doc.storage_path}`);
+          tempFilePath = await downloadFromStorage(doc.storage_path);
+          console.log(`Downloaded to temp: ${tempFilePath}`);
 
-        if (!fs.existsSync(filePath)) {
-          throw new Error('Document file not found on disk');
-        }
-
-        // Process based on document type
-        if (doc.mime_type === 'application/pdf') {
-          extractedData = await extractFromPDF(filePath, doc.type);
-        } else if (doc.mime_type.startsWith('image/')) {
-          extractedData = await extractFromImage(filePath, doc.type);
-        } else {
-          extractedData = { rawText: 'Unsupported file type for extraction' };
+          // Process based on document type
+          if (doc.mime_type === 'application/pdf') {
+            extractedData = await extractFromPDF(tempFilePath, doc.type);
+          } else if (doc.mime_type.startsWith('image/')) {
+            extractedData = await extractFromImage(tempFilePath, doc.type);
+          } else {
+            extractedData = { rawText: 'Unsupported file type for extraction' };
+          }
+        } finally {
+          // Clean up temp file
+          if (tempFilePath && fs.existsSync(tempFilePath)) {
+            try {
+              fs.unlinkSync(tempFilePath);
+            } catch (cleanupErr) {
+              console.warn('Failed to cleanup temp file:', tempFilePath);
+            }
+          }
         }
       }
 
