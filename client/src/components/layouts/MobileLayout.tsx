@@ -11,6 +11,8 @@ import {
   Building2,
   Check,
   Menu,
+  CalendarDays,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,9 +37,9 @@ import { useOrganization } from "@/hooks/useOrganization";
 
 // Navigation items for bottom bar - focused on core mobile actions
 const bottomNavItems = [
-  { label: "Home", icon: LayoutDashboard, href: "/" },
+  { label: "My Day", icon: CalendarDays, href: "/" },
+  { label: "Claims", icon: FolderOpen, href: "/claims" },
   { label: "New", icon: PlusCircle, href: "/new-claim" },
-  { label: "Voice", icon: Mic, href: "/voice-sketch" },
   { label: "More", icon: Menu, href: "#more" }, // Opens sheet
 ];
 
@@ -186,6 +188,13 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
                             </div>
                           </div>
                         )}
+
+                        <Link href="/voice-sketch" onClick={() => setIsMoreOpen(false)}>
+                          <div className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg transition-colors min-tap-target">
+                            <Mic className="h-5 w-5 text-muted-foreground" />
+                            <span className="font-medium">Voice Sketch</span>
+                          </div>
+                        </Link>
 
                         <Link href="/settings" onClick={() => setIsMoreOpen(false)}>
                           <div className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg transition-colors min-tap-target">

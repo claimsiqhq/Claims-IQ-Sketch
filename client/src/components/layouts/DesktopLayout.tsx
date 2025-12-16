@@ -10,7 +10,9 @@ import {
   ChevronDown,
   Building2,
   Check,
-  Loader2
+  Loader2,
+  CalendarDays,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,7 +50,8 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
   } = useOrganization();
 
   const navItems = [
-    { label: "Dashboard", icon: LayoutDashboard, href: "/" },
+    { label: "My Day", icon: CalendarDays, href: "/" },
+    { label: "All Claims", icon: FolderOpen, href: "/claims" },
     { label: "New Claim", icon: PlusCircle, href: "/new-claim" },
     { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },
     { label: "Settings", icon: Settings, href: "/settings" },
