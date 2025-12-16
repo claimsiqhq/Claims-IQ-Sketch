@@ -183,6 +183,9 @@ export default function ClaimDetail() {
   // Initialize estimate builder hook with claim id as estimate id
   const estimateBuilder = useEstimateBuilder(params?.id || "");
 
+  // Derive claimId for use throughout component
+  const claimId = apiClaim?.id || params?.id || "";
+
   // Cleanup: clear active claim when leaving the page
   useEffect(() => {
     return () => setActiveClaim(null);
@@ -340,52 +343,10 @@ export default function ClaimDetail() {
     }
   };
 
-  // Show loading state while API data is being fetched
-  if (loadingApiData) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <span className="text-muted-foreground">Loading claim...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error state if claim couldn't be loaded
-  if (apiError || !apiClaim) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Claim Not Found</h2>
-          <p className="text-muted-foreground mb-4">
-            {apiError || "The requested claim could not be loaded."}
-          </p>
-          <Link href="/">
-            <Button variant="outline">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  // Wait for claim to be ensured in store (should be quick after apiClaim loads)
-  if (!claim) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  const selectedRoom = (claim.rooms || []).find(r => r.id === selectedRoomId);
+  const selectedRoom = (claim?.rooms || []).find(r => r.id === selectedRoomId);
 
   const handleAddRoom = () => {
-    addRoom(claim.id, {
+    addRoom(claimId, {
       id: `r${Date.now()}`,
       name: "New Room",
       type: "Bedroom",
@@ -655,7 +616,7 @@ export default function ClaimDetail() {
   }, [estimateBuilder.hierarchy]);
 
   // Calculate display totals - use API result if available, otherwise use local subtotal
-  const localSubtotal = (claim.lineItems || []).reduce((sum, item) => sum + item.total, 0);
+  const localSubtotal = (claim?.lineItems || []).reduce((sum, item) => sum + item.total, 0);
   const displaySubtotal = calculatedEstimate?.subtotal ?? localSubtotal;
   const displayOverhead = calculatedEstimate?.overheadAmount ?? (localSubtotal * (estimateSettings.overheadPct / 100));
   const displayProfit = calculatedEstimate?.profitAmount ?? (localSubtotal * (estimateSettings.profitPct / 100));
@@ -670,6 +631,36 @@ export default function ClaimDetail() {
     { id: "estimate", label: "Estimate", icon: FileText },
     { id: "photos", label: "Photos", icon: ImageIcon },
   ];
+
+  // Show loading state while API data is being fetched
+  if (loadingApiData) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="text-muted-foreground">Loading claim...</span>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show error state if claim couldn't be loaded
+  if (apiError || !apiClaim) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center h-full gap-4">
+          <AlertCircle className="h-12 w-12 text-destructive" />
+          <h2 className="text-xl font-semibold">Claim Not Found</h2>
+          <p className="text-muted-foreground">{apiError || "Could not load claim data"}</p>
+          <Link href="/">
+            <Button>Back to Claims</Button>
+          </Link>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout hideNav={isMobileLayout}>
