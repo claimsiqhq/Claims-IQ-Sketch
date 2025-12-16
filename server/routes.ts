@@ -4,6 +4,9 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { storage } from "./storage";
+import { db } from "./db";
+import { xactCategories, xactLineItems } from "@shared/schema";
+import { sql, eq, and } from "drizzle-orm";
 import { runScrapeJob, testScrape, PRODUCT_MAPPINGS, STORE_REGIONS } from "./scraper/homeDepot";
 import {
   searchLineItems,
@@ -3847,6 +3850,150 @@ export async function registerRoutes(
         return res.status(400).json({ error: result.error });
       }
       res.json(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // XACTIMATE LINE ITEM CATALOG ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/xact/categories
+   * List all Xactimate categories
+   */
+  app.get('/api/xact/categories', async (req, res) => {
+    try {
+      const result = await db.query.xactCategories.findMany({
+        orderBy: (cat, { asc }) => [asc(cat.code)],
+      });
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/categories/:code
+   * Get a specific category by code
+   */
+  app.get('/api/xact/categories/:code', async (req, res) => {
+    try {
+      const result = await db.query.xactCategories.findFirst({
+        where: (cat, { eq }) => eq(cat.code, req.params.code.toUpperCase()),
+      });
+      if (!result) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/line-items
+   * Search line items with optional filters
+   * Query params:
+   *   - q: search query (matches description, fullCode, or selectorCode)
+   *   - category: filter by category code
+   *   - limit: max results (default 50, max 500)
+   *   - offset: pagination offset
+   */
+  app.get('/api/xact/line-items', async (req, res) => {
+    try {
+      const { q, category, limit = '50', offset = '0' } = req.query;
+      const limitNum = Math.min(parseInt(limit as string) || 50, 500);
+      const offsetNum = parseInt(offset as string) || 0;
+
+      let query = db.select().from(xactLineItems);
+      const conditions: any[] = [];
+
+      if (q) {
+        const searchTerm = `%${(q as string).toLowerCase()}%`;
+        conditions.push(
+          sql`(LOWER(${xactLineItems.description}) LIKE ${searchTerm} 
+               OR LOWER(${xactLineItems.fullCode}) LIKE ${searchTerm}
+               OR LOWER(${xactLineItems.selectorCode}) LIKE ${searchTerm})`
+        );
+      }
+
+      if (category) {
+        conditions.push(eq(xactLineItems.categoryCode, (category as string).toUpperCase()));
+      }
+
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+
+      const results = await query
+        .orderBy(xactLineItems.fullCode)
+        .limit(limitNum)
+        .offset(offsetNum);
+
+      const countResult = await db.select({ count: sql<number>`count(*)` })
+        .from(xactLineItems)
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+      res.json({
+        items: results,
+        total: Number(countResult[0]?.count || 0),
+        limit: limitNum,
+        offset: offsetNum,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/line-items/:code
+   * Get a specific line item by full code
+   */
+  app.get('/api/xact/line-items/:code', async (req, res) => {
+    try {
+      const result = await db.query.xactLineItems.findFirst({
+        where: (item, { eq }) => eq(item.fullCode, req.params.code.toUpperCase()),
+      });
+      if (!result) {
+        return res.status(404).json({ error: 'Line item not found' });
+      }
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/xact/stats
+   * Get statistics about the Xactimate catalog
+   */
+  app.get('/api/xact/stats', async (req, res) => {
+    try {
+      const catCount = await db.select({ count: sql<number>`count(*)` }).from(xactCategories);
+      const itemCount = await db.select({ count: sql<number>`count(*)` }).from(xactLineItems);
+      
+      const topCategories = await db
+        .select({
+          code: xactLineItems.categoryCode,
+          count: sql<number>`count(*)`,
+        })
+        .from(xactLineItems)
+        .groupBy(xactLineItems.categoryCode)
+        .orderBy(sql`count(*) DESC`)
+        .limit(10);
+
+      res.json({
+        totalCategories: Number(catCount[0]?.count || 0),
+        totalLineItems: Number(itemCount[0]?.count || 0),
+        topCategories,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
