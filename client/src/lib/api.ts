@@ -659,8 +659,8 @@ export interface Claim {
   insuredName?: string; // Alternative name field
   dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
   riskLocation?: string; // Full address string
-  causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
-  lossType?: string; // Alternative loss type field
+  causeOfLoss?: string; // Hail, Fire, Water, Wind, etc. - LEGACY field
+  lossType?: string; // Alternative loss type field - LEGACY
   lossDescription?: string;
   policyNumber?: string;
   state?: string;
@@ -688,6 +688,12 @@ export interface Claim {
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
+
+  // Peril Parity Fields - canonical peril tracking for ALL perils
+  primaryPeril?: string;  // Canonical peril enum value (wind_hail, fire, water, flood, smoke, mold, impact, other)
+  secondaryPerils?: string[];  // Array of secondary perils
+  perilConfidence?: number;  // 0.00-1.00 confidence in inference
+  perilMetadata?: Record<string, any>;  // Peril-specific structured data
 }
 
 export interface ClaimStats {

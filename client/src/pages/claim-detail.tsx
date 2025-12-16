@@ -104,7 +104,8 @@ import OpeningModal from "@/components/opening-modal";
 import LineItemPicker from "@/components/line-item-picker";
 import DocumentViewer from "@/components/document-viewer";
 import { VoiceScopeController } from "@/features/voice-scope";
-import { Room, RoomOpening } from "@/lib/types";
+import { PerilBadgeGroup, PerilAdvisoryBanner, PerilHint } from "@/components/peril-badge";
+import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DoorOpen } from "lucide-react";
 
@@ -900,9 +901,18 @@ export default function ClaimDetail() {
               <div className="max-w-6xl mx-auto space-y-6">
                 {/* FNOL Header */}
                 <div className="flex items-center justify-between">
-                  <div>
+                  <div className="space-y-1">
                     <h2 className="text-2xl font-bold">{apiClaim?.policyholder || 'Unknown Policyholder'}</h2>
                     <p className="text-muted-foreground">Claim ID: {apiClaim?.claimId || params?.id}</p>
+                    {/* Peril badges - display primary and secondary perils */}
+                    {apiClaim?.primaryPeril && (
+                      <PerilBadgeGroup
+                        primaryPeril={apiClaim.primaryPeril}
+                        secondaryPerils={apiClaim.secondaryPerils}
+                        size="md"
+                        className="mt-2"
+                      />
+                    )}
                   </div>
                   <Badge className={cn(
                     "text-sm px-3 py-1",
@@ -916,6 +926,11 @@ export default function ClaimDetail() {
                     {(apiClaim?.status || 'fnol').replace('_', ' ').toUpperCase()}
                   </Badge>
                 </div>
+
+                {/* Peril Advisory Banner - shows coverage warnings for flood/mold */}
+                {apiClaim?.primaryPeril && (
+                  <PerilAdvisoryBanner peril={apiClaim.primaryPeril} />
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* FNOL Details Card */}
@@ -948,10 +963,23 @@ export default function ClaimDetail() {
                           <p className="font-medium">{apiClaim?.dateOfLoss || '-'}</p>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Cause of Loss</Label>
-                          <Badge variant="outline" className="font-medium">
-                            {apiClaim?.causeOfLoss || '-'}
-                          </Badge>
+                          <Label className="text-xs text-muted-foreground uppercase">Peril / Cause of Loss</Label>
+                          {apiClaim?.primaryPeril ? (
+                            <div className="space-y-1">
+                              <PerilBadgeGroup
+                                primaryPeril={apiClaim.primaryPeril}
+                                secondaryPerils={apiClaim.secondaryPerils}
+                                size="sm"
+                                showIcons={true}
+                              />
+                              {/* Subtle peril-specific hint */}
+                              <PerilHint peril={apiClaim.primaryPeril} />
+                            </div>
+                          ) : (
+                            <Badge variant="outline" className="font-medium">
+                              {apiClaim?.causeOfLoss || '-'}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <Separator />

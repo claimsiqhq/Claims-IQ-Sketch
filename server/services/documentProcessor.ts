@@ -5,6 +5,8 @@ import { pool } from '../db';
 import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { inferPeril, type PerilInferenceInput } from './perilNormalizer';
+import { Peril } from '../../shared/schema';
 
 const execAsync = promisify(exec);
 
@@ -673,15 +675,39 @@ export async function createClaimFromDocuments(
     // Generate claim ID if not provided
     const generatedClaimId = claimData.claimId || await generateClaimId(client, organizationId);
 
-    // Create claim with NEW database schema (post migration 005)
+    // ========================================
+    // PERIL NORMALIZATION (Peril Parity)
+    // ========================================
+    // Infer primary peril, secondary perils, and peril-specific metadata
+    // This ensures all perils are treated equally, not just wind/hail
+    const perilInput: PerilInferenceInput = {
+      causeOfLoss: claimData.causeOfLoss,
+      lossDescription: claimData.lossDescription,
+      damageLocation: claimData.damageLocation,
+      dwellingDamageDescription: claimData.dwellingDamageDescription,
+      otherStructureDamageDescription: claimData.otherStructureDamageDescription,
+      fullText: claimData.fullText,
+    };
+
+    const perilInference = inferPeril(perilInput);
+
+    console.log(`[Peril Normalization] Claim ${generatedClaimId}:`, {
+      primaryPeril: perilInference.primaryPeril,
+      secondaryPerils: perilInference.secondaryPerils,
+      confidence: perilInference.confidence,
+      reasoning: perilInference.inferenceReasoning
+    });
+
+    // Create claim with NEW database schema (post migration 009 - peril parity)
     const claimResult = await client.query(
       `INSERT INTO claims (
         organization_id, claim_id, policyholder,
         date_of_loss, risk_location, cause_of_loss, loss_description,
         policy_number, state, year_roof_install, wind_hail_deductible,
         dwelling_limit, endorsements_listed,
+        primary_peril, secondary_perils, peril_confidence, peril_metadata,
         status, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING id`,
       [
         organizationId,
@@ -697,6 +723,10 @@ export async function createClaimFromDocuments(
         windHailDeductible,
         dwellingLimit,
         JSON.stringify(endorsementsListed),
+        perilInference.primaryPeril,
+        JSON.stringify(perilInference.secondaryPerils),
+        perilInference.confidence,
+        JSON.stringify(perilInference.perilMetadata),
         'fnol',
         JSON.stringify({
           extractedFrom: documentIds,
@@ -713,6 +743,8 @@ export async function createClaimFromDocuments(
           endorsementDetails: claimData.endorsementDetails,
           mortgagee: claimData.mortgagee,
           producer: claimData.producer,
+          // Peril inference details for debugging/auditing
+          perilInferenceReasoning: perilInference.inferenceReasoning,
         })
       ]
     );
