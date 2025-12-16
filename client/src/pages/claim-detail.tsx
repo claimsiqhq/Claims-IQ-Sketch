@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRoute } from "wouter";
 import { useStore } from "@/lib/store";
 import Layout from "@/components/layout";
+import { useDeviceMode } from "@/contexts/DeviceModeContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,8 @@ import {
   FileDown,
   CheckCircle2,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  ArrowLeft
 } from "lucide-react";
 import {
   useEstimateBuilder,
@@ -102,6 +104,8 @@ import { DoorOpen } from "lucide-react";
 export default function ClaimDetail() {
   const [, params] = useRoute("/claim/:id");
   const [, setLocation] = useLocation();
+  const { layoutMode, isMobile, isTablet } = useDeviceMode();
+  const isMobileLayout = layoutMode === "mobile";
   const {
     activeClaim: claim,
     setActiveClaim,
@@ -627,18 +631,31 @@ export default function ClaimDetail() {
   ];
 
   return (
-    <Layout>
+    <Layout hideNav={isMobileLayout}>
       <div className="flex flex-col h-full relative">
         {/* Header */}
         <div className="bg-white border-b border-border px-4 md:px-6 py-4 flex items-center justify-between shrink-0">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-lg md:text-xl font-display font-bold text-slate-900 truncate max-w-[200px] md:max-w-none">{claim.policyholder || 'Unknown'}</h1>
-              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs font-medium text-slate-600 border border-slate-200 hidden md:inline-block">
-                {claim.status.toUpperCase()}
-              </span>
+          <div className="flex items-center gap-3">
+            {/* Mobile Back Button */}
+            {isMobileLayout && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={() => setLocation("/")}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg md:text-xl font-display font-bold text-slate-900 truncate max-w-[180px] md:max-w-none">{claim.policyholder || 'Unknown'}</h1>
+                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs font-medium text-slate-600 border border-slate-200 hidden md:inline-block">
+                  {claim.status.toUpperCase()}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground font-mono mt-0.5 hidden md:block">{claim.policyNumber}</p>
             </div>
-            <p className="text-sm text-muted-foreground font-mono mt-0.5 hidden md:block">{claim.policyNumber}</p>
           </div>
           <div className="flex items-center gap-2">
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

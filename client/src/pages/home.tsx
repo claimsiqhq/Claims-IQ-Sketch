@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
 import Layout from "@/components/layout";
+import { useDeviceMode } from "@/contexts/DeviceModeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,9 @@ import {
   Loader2,
   AlertCircle,
   Building2,
-  Shield
+  Shield,
+  Mic,
+  ChevronRight
 } from "lucide-react";
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
@@ -117,9 +120,54 @@ function ClaimCard({ claim }: { claim: Claim }) {
   );
 }
 
+// Mobile-optimized claim card for compact display
+function MobileClaimCard({ claim }: { claim: Claim }) {
+  const statusColors: Record<string, string> = {
+    fnol: "bg-purple-100 text-purple-700",
+    open: "bg-blue-100 text-blue-700",
+    in_progress: "bg-amber-100 text-amber-700",
+    review: "bg-orange-100 text-orange-700",
+    approved: "bg-green-100 text-green-700",
+    closed: "bg-slate-100 text-slate-700",
+  };
+
+  const lossTypeIcons: Record<string, string> = {
+    Water: "💧",
+    Fire: "🔥",
+    "Wind/Hail": "💨",
+    Impact: "💥",
+    Other: "📋",
+  };
+
+  return (
+    <Link href={`/claim/${claim.id}`}>
+      <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-border active:bg-muted transition-colors min-tap-target">
+        <div className="text-2xl shrink-0">
+          {lossTypeIcons[claim.lossType || "Other"] || "📋"}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-slate-900 truncate">{claim.claimNumber}</span>
+            <Badge className={`${statusColors[claim.status] || statusColors.fnol} text-xs shrink-0`}>
+              {claim.status.replace("_", " ").toUpperCase()}
+            </Badge>
+          </div>
+          <p className="text-sm text-slate-500 truncate">
+            {claim.insuredName || "Unknown Insured"}
+            {claim.propertyCity && ` • ${claim.propertyCity}`}
+          </p>
+        </div>
+        <ChevronRight className="h-5 w-5 text-slate-400 shrink-0" />
+      </div>
+    </Link>
+  );
+}
+
 export default function Home() {
   const user = useStore((state) => state.user);
   const authUser = useStore((state) => state.authUser);
+  const { layoutMode, isMobile, isTablet } = useDeviceMode();
+  const isMobileLayout = layoutMode === "mobile";
 
   const [claims, setClaims] = useState<Claim[]>([]);
   const [stats, setStats] = useState<ClaimStats | null>(null);
@@ -164,6 +212,160 @@ export default function Home() {
 
   const displayName = authUser?.username || user.name;
 
+  // Mobile Layout
+  if (isMobileLayout) {
+    return (
+      <Layout>
+        <div className="p-4">
+          {/* Mobile Welcome */}
+          <div className="mb-4">
+            <h1 className="text-xl font-display font-bold text-slate-900">
+              Hi, {displayName.split(' ')[0]}
+            </h1>
+            <p className="text-sm text-slate-500">
+              {stats ? `${(stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims` : 'Loading...'}
+            </p>
+          </div>
+
+          {/* Mobile Quick Actions */}
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <Link href="/new-claim">
+              <div className="bg-primary text-primary-foreground p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
+                <Plus className="h-6 w-6" />
+                <span className="text-sm font-medium">New Claim</span>
+              </div>
+            </Link>
+            <Link href="/voice-sketch">
+              <div className="bg-gradient-to-br from-purple-500 to-primary text-white p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
+                <Mic className="h-6 w-6" />
+                <span className="text-sm font-medium">Voice Sketch</span>
+              </div>
+            </Link>
+          </div>
+
+          {/* Mobile Stats - Compact horizontal scroll */}
+          <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
+            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+                <FileText className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">FNOL</p>
+                <p className="text-lg font-bold">{stats?.byStatus.fnol || 0}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center text-primary">
+                <Clock className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Active</p>
+                <p className="text-lg font-bold">{(stats?.byStatus.open || 0) + (stats?.byStatus.in_progress || 0)}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+                <BarChart3 className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Review</p>
+                <p className="text-lg font-bold">{stats?.byStatus.review || 0}</p>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center text-green-600">
+                <CheckCircle2 className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Closed</p>
+                <p className="text-lg font-bold">{stats?.byStatus.closed || 0}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Search */}
+          <form onSubmit={handleSearch} className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search claims..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-20"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant="ghost"
+              className="absolute right-1 top-1/2 -translate-y-1/2"
+            >
+              Search
+            </Button>
+          </form>
+
+          {/* Status Filter - Horizontal pills */}
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
+            {[
+              { value: "all", label: "All" },
+              { value: "fnol", label: "FNOL" },
+              { value: "open", label: "Open" },
+              { value: "in_progress", label: "In Progress" },
+              { value: "review", label: "Review" },
+            ].map((status) => (
+              <button
+                key={status.value}
+                onClick={() => setStatusFilter(status.value)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors min-tap-target ${
+                  statusFilter === status.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {status.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile Claims List */}
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Recent Claims
+            </h2>
+
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : error ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <AlertCircle className="h-10 w-10 text-red-400 mb-3" />
+                <p className="text-sm text-slate-500 mb-3">{error}</p>
+                <Button size="sm" onClick={loadData}>Retry</Button>
+              </div>
+            ) : claims.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <Building2 className="h-10 w-10 text-slate-300 mb-3" />
+                <p className="text-sm text-slate-500 mb-3">No claims yet</p>
+                <Link href="/new-claim">
+                  <Button size="sm">
+                    <Plus className="mr-1 h-4 w-4" />
+                    New Claim
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {claims.map((claim) => (
+                  <MobileClaimCard key={claim.id} claim={claim} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Desktop Layout (original)
   return (
     <Layout>
       <div className="max-w-6xl mx-auto p-6 md:p-8">
