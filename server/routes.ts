@@ -3650,13 +3650,23 @@ export async function registerRoutes(
 
         // Check if page image is already cached
         if (!fs.existsSync(outputFile)) {
-          // Convert specific page
-          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${pdfFilePath}" "${outputFile.replace('.png', '')}"`);
+          // Convert specific page using pdftoppm
+          const outputPrefix = path.join(tempDir, `${req.params.id}-page${pageNum}`);
+          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${pdfFilePath}" "${outputPrefix}"`);
 
-          // pdftoppm adds page number suffix
-          const generatedFile = `${outputFile.replace('.png', '')}-${pageNum}.png`;
-          if (fs.existsSync(generatedFile)) {
-            fs.renameSync(generatedFile, outputFile);
+          // pdftoppm adds page number suffix with zero-padding
+          // Try various formats: -1.png, -01.png, -001.png
+          const possibleFiles = [
+            `${outputPrefix}-${pageNum}.png`,
+            `${outputPrefix}-${String(pageNum).padStart(2, '0')}.png`,
+            `${outputPrefix}-${String(pageNum).padStart(3, '0')}.png`,
+          ];
+          
+          for (const generatedFile of possibleFiles) {
+            if (fs.existsSync(generatedFile)) {
+              fs.renameSync(generatedFile, outputFile);
+              break;
+            }
           }
         }
 
