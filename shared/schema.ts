@@ -1825,3 +1825,105 @@ export interface RuleAuditEntry {
   modifiedValue?: unknown;
   explanation: string;
 }
+
+// ============================================
+// XACTIMATE PRICE LIST TABLES
+// ============================================
+// These tables store the imported Xactimate price list data
+// for line item lookup and estimate building.
+
+export const xactCategories = pgTable("xact_categories", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  // Xactimate identifiers
+  catId: integer("cat_id").notNull(),
+  xactId: integer("xact_id").notNull(),
+  code: varchar("code", { length: 10 }).notNull().unique(),
+  
+  // Description
+  description: text("description").notNull(),
+  
+  // Coverage type: 0=Structure, 1=Landscaping, 2=Contents
+  coverageType: integer("coverage_type").default(0),
+  
+  // Cost distribution percentages
+  laborDistPct: integer("labor_dist_pct").default(59),
+  materialDistPct: integer("material_dist_pct").default(41),
+  
+  // Flags
+  opEligible: boolean("op_eligible").default(true),
+  taxable: boolean("taxable").default(true),
+  noPrefix: boolean("no_prefix").default(false),
+  
+  // Metadata
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  codeIdx: index("xact_cat_code_idx").on(table.code),
+}));
+
+export type XactCategory = typeof xactCategories.$inferSelect;
+
+export const xactLineItems = pgTable("xact_line_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  // Xactimate identifiers
+  itemId: integer("item_id").notNull(),
+  xactId: integer("xact_id").notNull(),
+  
+  // Category reference
+  categoryCode: varchar("category_code", { length: 10 }).notNull(),
+  
+  // Item code and full code
+  selectorCode: varchar("selector_code", { length: 30 }).notNull(),
+  fullCode: varchar("full_code", { length: 40 }).notNull(),
+  
+  // Description
+  description: text("description").notNull(),
+  
+  // Unit of measure
+  unit: varchar("unit", { length: 10 }).notNull(),
+  
+  // Flags
+  opEligible: boolean("op_eligible").default(true),
+  taxable: boolean("taxable").default(true),
+  
+  // Labor efficiency (minutes)
+  laborEfficiency: integer("labor_efficiency"),
+  
+  // Material distribution percentage (item-level override)
+  materialDistPct: integer("material_dist_pct"),
+  
+  // Search optimization
+  searchGroup: varchar("search_group", { length: 20 }),
+  searchCategory: varchar("search_category", { length: 20 }),
+  
+  // Activity type data (stored as JSONB for flexibility)
+  activities: jsonb("activities").default(sql`'[]'::jsonb`),
+  
+  // Additional metadata
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  catCodeIdx: index("xact_items_cat_idx").on(table.categoryCode),
+  fullCodeIdx: index("xact_items_full_code_idx").on(table.fullCode),
+  selectorIdx: index("xact_items_selector_idx").on(table.selectorCode),
+  descIdx: index("xact_items_desc_idx").on(table.description),
+}));
+
+export type XactLineItem = typeof xactLineItems.$inferSelect;
+
+export const insertXactCategorySchema = createInsertSchema(xactCategories).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertXactCategory = z.infer<typeof insertXactCategorySchema>;
+
+export const insertXactLineItemSchema = createInsertSchema(xactLineItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertXactLineItem = z.infer<typeof insertXactLineItemSchema>;
