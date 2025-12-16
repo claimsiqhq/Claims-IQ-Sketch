@@ -256,7 +256,9 @@ export async function searchLineItems(params: {
   if (params.limit) searchParams.set('limit', String(params.limit));
   if (params.offset) searchParams.set('offset', String(params.offset));
 
-  const response = await fetch(`${API_BASE}/line-items?${searchParams}`);
+  const response = await fetch(`${API_BASE}/line-items?${searchParams}`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch line items');
   }
@@ -264,7 +266,9 @@ export async function searchLineItems(params: {
 }
 
 export async function getCategories(): Promise<Category[]> {
-  const response = await fetch(`${API_BASE}/line-items/categories`);
+  const response = await fetch(`${API_BASE}/line-items/categories`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch categories');
   }
@@ -276,7 +280,9 @@ export async function getCategories(): Promise<Category[]> {
 // ============================================
 
 export async function getRegions(): Promise<Region[]> {
-  const response = await fetch(`${API_BASE}/regions`);
+  const response = await fetch(`${API_BASE}/regions`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch regions');
   }
@@ -284,7 +290,9 @@ export async function getRegions(): Promise<Region[]> {
 }
 
 export async function getCarrierProfiles(): Promise<CarrierProfile[]> {
-  const response = await fetch(`${API_BASE}/carrier-profiles`);
+  const response = await fetch(`${API_BASE}/carrier-profiles`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch carrier profiles');
   }
@@ -305,6 +313,7 @@ export async function calculateEstimate(params: {
   const response = await fetch(`${API_BASE}/estimates/calculate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(params),
   });
   if (!response.ok) {
@@ -325,6 +334,7 @@ export async function createEstimate(params: {
   const response = await fetch(`${API_BASE}/estimates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(params),
   });
   if (!response.ok) {
@@ -335,7 +345,9 @@ export async function createEstimate(params: {
 }
 
 export async function getEstimate(id: string): Promise<SavedEstimate> {
-  const response = await fetch(`${API_BASE}/estimates/${id}`);
+  const response = await fetch(`${API_BASE}/estimates/${id}`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch estimate');
   }
@@ -384,6 +396,7 @@ export async function submitEstimate(estimateId: string): Promise<SubmissionResu
   const response = await fetch(`${API_BASE}/estimates/${estimateId}/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   });
 
   const data = await response.json();
@@ -404,7 +417,9 @@ export async function validateEstimate(estimateId: string): Promise<{
   warnings: ValidationIssue[];
   info: ValidationIssue[];
 }> {
-  const response = await fetch(`${API_BASE}/estimates/${estimateId}/validate`);
+  const response = await fetch(`${API_BASE}/estimates/${estimateId}/validate`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to validate estimate');
   }
@@ -412,7 +427,9 @@ export async function validateEstimate(estimateId: string): Promise<{
 }
 
 export async function getEstimateLockStatus(estimateId: string): Promise<EstimateLockStatus> {
-  const response = await fetch(`${API_BASE}/estimates/${estimateId}/lock-status`);
+  const response = await fetch(`${API_BASE}/estimates/${estimateId}/lock-status`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to get lock status');
   }
@@ -429,7 +446,7 @@ export function getEstimateHtmlUrl(estimateId: string): string {
 
 export async function downloadEstimatePdf(estimateId: string): Promise<void> {
   const url = getEstimatePdfUrl(estimateId);
-  const response = await fetch(url);
+  const response = await fetch(url, { credentials: 'include' });
 
   if (!response.ok) {
     throw new Error('Failed to download PDF');
@@ -469,7 +486,9 @@ export async function listEstimates(params?: {
   if (params?.limit) searchParams.set('limit', String(params.limit));
   if (params?.offset) searchParams.set('offset', String(params.offset));
 
-  const response = await fetch(`${API_BASE}/estimates?${searchParams}`);
+  const response = await fetch(`${API_BASE}/estimates?${searchParams}`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch estimates');
   }
@@ -484,7 +503,9 @@ export async function getEstimateTemplates(damageType?: string): Promise<Estimat
   const searchParams = new URLSearchParams();
   if (damageType) searchParams.set('damage_type', damageType);
 
-  const response = await fetch(`${API_BASE}/estimate-templates?${searchParams}`);
+  const response = await fetch(`${API_BASE}/estimate-templates?${searchParams}`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch templates');
   }
@@ -505,6 +526,7 @@ export async function createEstimateFromTemplate(
   const response = await fetch(`${API_BASE}/estimate-templates/${templateId}/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ quantities, ...params }),
   });
   if (!response.ok) {
@@ -538,6 +560,7 @@ export async function calculateLineItemPrice(params: {
   const response = await fetch(`${API_BASE}/pricing/calculate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({
       line_item_code: params.lineItemCode,
       quantity: params.quantity,
