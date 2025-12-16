@@ -875,6 +875,226 @@ function drawDamageZone(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(labelText, cx, cy);
+
+  if (zone.extent_ft && zone.extent_ft > 0) {
+    const extentLabel = `${formatDimension(zone.extent_ft)} extent`;
+    ctx.font = '8px Inter, sans-serif';
+    const extentTextWidth = ctx.measureText(extentLabel).width;
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillRect(cx - extentTextWidth / 2 - 3, cy + 10, extentTextWidth + 6, 12);
+    
+    ctx.fillStyle = strokeColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(extentLabel, cx, cy + 16);
+  }
+}
+
+interface WallSegment {
+  startFt: number;
+  endFt: number;
+  type: 'wall' | 'opening' | 'feature';
+  label?: string;
+  color?: string;
+}
+
+function getWallSegments(
+  wall: WallDirection,
+  wallLength: number,
+  openings: Opening[],
+  features: Feature[]
+): WallSegment[] {
+  const items: { startFt: number; endFt: number; type: 'opening' | 'feature'; label: string; color?: string }[] = [];
+  
+  openings.filter(o => o.wall === wall).forEach(opening => {
+    const centerPos = calculatePositionInFeet(opening.position, wallLength, opening.width_ft, opening.position_from ?? 'start');
+    const halfWidth = opening.width_ft / 2;
+    items.push({
+      startFt: centerPos - halfWidth,
+      endFt: centerPos + halfWidth,
+      type: 'opening',
+      label: opening.type.charAt(0).toUpperCase(),
+      color: opening.type.includes('door') ? COLORS.door : COLORS.window,
+    });
+  });
+  
+  features.filter(f => f.wall === wall).forEach(feature => {
+    const centerPos = calculatePositionInFeet(feature.position, wallLength, feature.width_ft, feature.position_from ?? 'start');
+    const halfWidth = feature.width_ft / 2;
+    items.push({
+      startFt: centerPos - halfWidth,
+      endFt: centerPos + halfWidth,
+      type: 'feature',
+      label: feature.type.charAt(0).toUpperCase(),
+    });
+  });
+  
+  items.sort((a, b) => a.startFt - b.startFt);
+  
+  const segments: WallSegment[] = [];
+  let currentPos = 0;
+  
+  for (const item of items) {
+    if (item.startFt > currentPos + 0.1) {
+      segments.push({ startFt: currentPos, endFt: item.startFt, type: 'wall' });
+    }
+    segments.push({ startFt: item.startFt, endFt: item.endFt, type: item.type, label: item.label, color: item.color });
+    currentPos = item.endFt;
+  }
+  
+  if (currentPos < wallLength - 0.1) {
+    segments.push({ startFt: currentPos, endFt: wallLength, type: 'wall' });
+  }
+  
+  return segments;
+}
+
+function drawDimensionLine(
+  ctx: CanvasRenderingContext2D,
+  x1: number, y1: number,
+  x2: number, y2: number,
+  offset: number,
+  label: string,
+  color: string = COLORS.dimension,
+  isVertical: boolean = false,
+  tickLength: number = 6
+) {
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+  
+  let lineX1: number, lineY1: number, lineX2: number, lineY2: number;
+  let labelX: number, labelY: number;
+  
+  if (isVertical) {
+    lineX1 = x1 + offset;
+    lineY1 = y1;
+    lineX2 = x2 + offset;
+    lineY2 = y2;
+    labelX = lineX1;
+    labelY = midY;
+  } else {
+    lineX1 = x1;
+    lineY1 = y1 + offset;
+    lineX2 = x2;
+    lineY2 = y2 + offset;
+    labelX = midX;
+    labelY = lineY1;
+  }
+  
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  
+  ctx.beginPath();
+  ctx.moveTo(lineX1, lineY1);
+  ctx.lineTo(lineX2, lineY2);
+  ctx.stroke();
+  
+  if (isVertical) {
+    ctx.beginPath();
+    ctx.moveTo(lineX1 - tickLength/2, lineY1);
+    ctx.lineTo(lineX1 + tickLength/2, lineY1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lineX2 - tickLength/2, lineY2);
+    ctx.lineTo(lineX2 + tickLength/2, lineY2);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(lineX1, lineY1 - tickLength/2);
+    ctx.lineTo(lineX1, lineY1 + tickLength/2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lineX2, lineY2 - tickLength/2);
+    ctx.lineTo(lineX2, lineY2 + tickLength/2);
+    ctx.stroke();
+  }
+  
+  const length = Math.abs(isVertical ? y2 - y1 : x2 - x1);
+  if (length < 20) return;
+  
+  ctx.font = '9px Inter, sans-serif';
+  const textWidth = ctx.measureText(label).width;
+  
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  if (isVertical) {
+    ctx.save();
+    ctx.translate(labelX, labelY);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillRect(-textWidth/2 - 3, -6, textWidth + 6, 12);
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  } else {
+    ctx.fillRect(labelX - textWidth/2 - 3, labelY - 6, textWidth + 6, 12);
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, labelX, labelY);
+  }
+}
+
+function drawSegmentedWallDimensions(
+  ctx: CanvasRenderingContext2D,
+  room: RoomGeometry,
+  wall: WallDirection,
+  offsetX: number,
+  offsetY: number,
+  scale: number
+) {
+  const wallLength = getWallLength(wall, room.width_ft, room.length_ft);
+  const segments = getWallSegments(wall, wallLength, room.openings, room.features);
+  
+  const hasSegments = segments.some(s => s.type !== 'wall') || segments.length > 1;
+  if (!hasSegments) return;
+  
+  const w = room.width_ft * scale;
+  const h = room.length_ft * scale;
+  
+  const outerOffset = 35;
+  const innerOffset = 18;
+  
+  for (const segment of segments) {
+    const segmentLength = segment.endFt - segment.startFt;
+    if (segmentLength < 0.25) continue;
+    
+    const label = formatDimension(segmentLength);
+    const color = segment.color || (segment.type === 'wall' ? '#475569' : COLORS.dimension);
+    
+    switch (wall) {
+      case 'north': {
+        const x1 = offsetX + segment.startFt * scale;
+        const x2 = offsetX + segment.endFt * scale;
+        const y = offsetY;
+        drawDimensionLine(ctx, x1, y, x2, y, -innerOffset, label, color, false, 4);
+        break;
+      }
+      case 'south': {
+        const x1 = offsetX + segment.startFt * scale;
+        const x2 = offsetX + segment.endFt * scale;
+        const y = offsetY + h;
+        drawDimensionLine(ctx, x1, y, x2, y, innerOffset, label, color, false, 4);
+        break;
+      }
+      case 'east': {
+        const y1 = offsetY + segment.startFt * scale;
+        const y2 = offsetY + segment.endFt * scale;
+        const x = offsetX + w;
+        drawDimensionLine(ctx, x, y1, x, y2, innerOffset, label, color, true, 4);
+        break;
+      }
+      case 'west': {
+        const y1 = offsetY + segment.startFt * scale;
+        const y2 = offsetY + segment.endFt * scale;
+        const x = offsetX;
+        drawDimensionLine(ctx, x, y1, x, y2, -innerOffset, label, color, true, 4);
+        break;
+      }
+    }
+  }
 }
 
 function drawDimensions(
@@ -887,28 +1107,56 @@ function drawDimensions(
   const w = room.width_ft * scale;
   const h = room.length_ft * scale;
 
+  const outerOffset = 38;
+
+  ctx.strokeStyle = COLORS.dimension;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  
+  ctx.beginPath();
+  ctx.moveTo(offsetX, offsetY - outerOffset);
+  ctx.lineTo(offsetX + w, offsetY - outerOffset);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(offsetX, offsetY - outerOffset - 4);
+  ctx.lineTo(offsetX, offsetY - outerOffset + 4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(offsetX + w, offsetY - outerOffset - 4);
+  ctx.lineTo(offsetX + w, offsetY - outerOffset + 4);
+  ctx.stroke();
+  
   ctx.fillStyle = COLORS.dimension;
-  ctx.font = 'bold 12px Inter, sans-serif';
+  ctx.font = 'bold 11px Inter, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.fillText(formatDimension(room.width_ft), offsetX + w / 2, offsetY - outerOffset - 10);
 
-  // Width dimension (top)
-  ctx.fillText(formatDimension(room.width_ft), offsetX + w / 2, offsetY - 20);
-
-  // Length dimension (right)
+  ctx.beginPath();
+  ctx.moveTo(offsetX + w + outerOffset, offsetY);
+  ctx.lineTo(offsetX + w + outerOffset, offsetY + h);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(offsetX + w + outerOffset - 4, offsetY);
+  ctx.lineTo(offsetX + w + outerOffset + 4, offsetY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(offsetX + w + outerOffset - 4, offsetY + h);
+  ctx.lineTo(offsetX + w + outerOffset + 4, offsetY + h);
+  ctx.stroke();
+  
   ctx.save();
-  ctx.translate(offsetX + w + 20, offsetY + h / 2);
+  ctx.translate(offsetX + w + outerOffset + 12, offsetY + h / 2);
   ctx.rotate(Math.PI / 2);
   ctx.fillText(formatDimension(room.length_ft), 0, 0);
   ctx.restore();
 
-  // Draw opening dimensions
-  room.openings.forEach((opening) => {
-    drawOpeningDimension(ctx, opening, room, offsetX, offsetY, scale);
-  });
+  const walls: WallDirection[] = ['north', 'south', 'east', 'west'];
+  for (const wall of walls) {
+    drawSegmentedWallDimensions(ctx, room, wall, offsetX, offsetY, scale);
+  }
 
-  // Draw feature dimensions
-  room.features.forEach((feature) => {
+  room.features.filter(f => f.wall === 'freestanding').forEach((feature) => {
     drawFeatureDimension(ctx, feature, room, offsetX, offsetY, scale);
   });
 }
