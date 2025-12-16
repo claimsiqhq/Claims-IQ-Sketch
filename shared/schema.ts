@@ -96,32 +96,57 @@ export const organizationMemberships = pgTable("organization_memberships", {
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect;
 
 // ============================================
-// CLAIMS TABLE
+// CLAIMS TABLE (FNOL Data)
 // ============================================
 
 export const claims = pgTable("claims", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: uuid("organization_id").notNull(),
+  assignedUserId: uuid("assigned_user_id"),
 
-  // Claim identifier
-  claimId: varchar("claim_id", { length: 50 }).notNull(),
+  // Claim identifier (format: XX-XXX-XXXXXX)
+  claimNumber: varchar("claim_number", { length: 50 }).notNull(),
 
-  // Policyholder info
-  policyholder: varchar("policyholder", { length: 255 }),
+  // Carrier/Region
+  carrierId: uuid("carrier_id"),
+  regionId: varchar("region_id", { length: 50 }),
 
-  // Loss details
-  dateOfLoss: varchar("date_of_loss", { length: 50 }), // Format: "MM/DD/YYYY@HH:MM AM/PM"
-  riskLocation: text("risk_location"), // Full address string
-  causeOfLoss: varchar("cause_of_loss", { length: 100 }), // Hail, Fire, Water, Wind, etc.
-  lossDescription: text("loss_description"),
+  // Policyholder info (from FNOL)
+  insuredName: varchar("insured_name", { length: 255 }), // "BRAD GILTAS KHRIS GILTAS"
+  insuredEmail: varchar("insured_email", { length: 255 }),
+  insuredPhone: varchar("insured_phone", { length: 50 }),
 
-  // Policy details (nested in JSON format for flexibility)
-  policyNumber: varchar("policy_number", { length: 50 }),
-  state: varchar("state", { length: 10 }),
-  yearRoofInstall: varchar("year_roof_install", { length: 20 }), // Format: "MM-DD-YYYY"
-  windHailDeductible: varchar("wind_hail_deductible", { length: 50 }), // Format: "$X,XXX X%"
-  dwellingLimit: varchar("dwelling_limit", { length: 50 }), // Format: "$XXX,XXX"
-  endorsementsListed: jsonb("endorsements_listed").default(sql`'[]'::jsonb`), // Array of endorsement strings
+  // Property/Risk Location (from FNOL)
+  propertyAddress: text("property_address"), // "2215 Bright Spot Loop"
+  propertyCity: varchar("property_city", { length: 100 }), // "Castle Rock"
+  propertyState: varchar("property_state", { length: 10 }), // "CO"
+  propertyZip: varchar("property_zip", { length: 20 }), // "80109-3747"
+  propertyLatitude: decimal("property_latitude", { precision: 10, scale: 7 }),
+  propertyLongitude: decimal("property_longitude", { precision: 10, scale: 7 }),
+  geocodeStatus: varchar("geocode_status", { length: 30 }),
+  geocodedAt: timestamp("geocoded_at"),
+
+  // Loss details (from FNOL)
+  dateOfLoss: date("date_of_loss"), // Date portion
+  lossType: varchar("loss_type", { length: 100 }), // "Hail", "Fire", "Water", "Wind"
+  lossDescription: text("loss_description"), // "Hail storm, roofing company says damage..."
+
+  // Policy details (from FNOL)
+  policyNumber: varchar("policy_number", { length: 50 }), // "070269410955"
+  claimType: varchar("claim_type", { length: 50 }),
+
+  // FNOL Policy fields (new - to be added)
+  yearRoofInstall: varchar("year_roof_install", { length: 20 }), // "01-01-2016"
+  windHailDeductible: varchar("wind_hail_deductible", { length: 50 }), // "$7,932 1%"
+  dwellingLimit: varchar("dwelling_limit", { length: 50 }), // "$793,200"
+  endorsementsListed: jsonb("endorsements_listed").default(sql`'[]'::jsonb`), // ["HO 84 28-Hidden Water Coverage", ...]
+
+  // Coverage amounts (numeric for calculations)
+  coverageA: decimal("coverage_a", { precision: 12, scale: 2 }),
+  coverageB: decimal("coverage_b", { precision: 12, scale: 2 }),
+  coverageC: decimal("coverage_c", { precision: 12, scale: 2 }),
+  coverageD: decimal("coverage_d", { precision: 12, scale: 2 }),
+  deductible: decimal("deductible", { precision: 12, scale: 2 }),
 
   // Status tracking
   status: varchar("status", { length: 30 }).notNull().default("fnol"), // fnol, open, in_progress, review, approved, closed
@@ -134,6 +159,9 @@ export const claims = pgTable("claims", {
   totalAcv: decimal("total_acv", { precision: 12, scale: 2 }).default("0"),
   totalPaid: decimal("total_paid", { precision: 12, scale: 2 }).default("0"),
 
+  // Pricing snapshot for estimate calculations
+  pricingSnapshot: jsonb("pricing_snapshot").default(sql`'{}'::jsonb`),
+
   // Metadata for additional fields
   metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
 
@@ -143,7 +171,7 @@ export const claims = pgTable("claims", {
   closedAt: timestamp("closed_at"),
 }, (table) => ({
   orgIdx: index("claims_org_idx").on(table.organizationId),
-  claimIdIdx: index("claims_claim_id_idx").on(table.claimId),
+  claimNumberIdx: index("claims_claim_number_idx").on(table.claimNumber),
   statusIdx: index("claims_status_idx").on(table.status),
 }));
 
