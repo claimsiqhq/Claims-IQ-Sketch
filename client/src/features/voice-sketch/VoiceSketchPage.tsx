@@ -4,27 +4,26 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Save, Mic, AlertCircle, Loader2 } from 'lucide-react';
 import Layout from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine } from './services/geometry-engine';
-import { useStore } from '@/lib/store';
-import { getClaim } from '@/lib/api';
+import { getClaim, saveClaimRooms } from '@/lib/api';
 import { toast } from 'sonner';
 import type { RoomGeometry } from './types/geometry';
-import type { Room, DamageZone } from '@/lib/types';
-import type { Claim } from '@/lib/api';
+import type { ClaimRoom, ClaimDamageZone, Claim } from '@/lib/api';
 
 export default function VoiceSketchPage() {
   const params = useParams();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const claimId = params.claimId;
 
   const { rooms, currentRoom, resetSession } = useGeometryEngine();
-  const { addRoom, addDamageZone } = useStore();
+  const [isSaving, setIsSaving] = useState(false);
 
   // Fetch the real claim from the database
   const { data: claim, isLoading, error } = useQuery({
@@ -54,7 +53,7 @@ export default function VoiceSketchPage() {
     []
   );
 
-  const saveRoomsToClaim = useCallback((targetClaimId: string) => {
+  const saveRoomsToClaim = useCallback(async (targetClaimId: string) => {
     const confirmedRooms = useGeometryEngine.getState().rooms;
     const currentRoomState = useGeometryEngine.getState().currentRoom;
     
@@ -69,11 +68,11 @@ export default function VoiceSketchPage() {
       ? [...confirmedRooms, currentRoomState]
       : confirmedRooms;
 
-    let roomsAdded = 0;
-    let damageZonesAdded = 0;
+    const claimRooms: ClaimRoom[] = [];
+    const claimDamageZones: ClaimDamageZone[] = [];
 
     roomsToSave.forEach((voiceRoom) => {
-      const claimRoom: Room = {
+      const claimRoom: ClaimRoom = {
         id: voiceRoom.id,
         name: voiceRoom.name.replace(/_/g, ' '),
         type: inferRoomType(voiceRoom.name),
@@ -83,12 +82,10 @@ export default function VoiceSketchPage() {
         y: 0,
         ceilingHeight: voiceRoom.ceiling_height_ft,
       };
-
-      addRoom(targetClaimId, claimRoom);
-      roomsAdded++;
+      claimRooms.push(claimRoom);
 
       voiceRoom.damageZones.forEach((vDamage) => {
-        const claimDamage: DamageZone = {
+        const claimDamage: ClaimDamageZone = {
           id: vDamage.id,
           roomId: voiceRoom.id,
           type: mapDamageType(vDamage.type),
@@ -102,27 +99,41 @@ export default function VoiceSketchPage() {
           notes: vDamage.source || '',
           photos: [],
         };
-
-        addDamageZone(targetClaimId, claimDamage);
-        damageZonesAdded++;
+        claimDamageZones.push(claimDamage);
       });
     });
 
-    toast.success('Rooms saved to claim!', {
-      description: `Added ${roomsAdded} room(s) and ${damageZonesAdded} damage zone(s).`,
-    });
+    try {
+      setIsSaving(true);
+      const result = await saveClaimRooms(targetClaimId, claimRooms, claimDamageZones);
+      
+      toast.success('Rooms saved to claim!', {
+        description: `Added ${result.roomsAdded} room(s) and ${result.damageZonesAdded} damage zone(s).`,
+      });
 
-    resetSession();
-    return true;
-  }, [addRoom, addDamageZone, resetSession]);
+      // Invalidate claim query to refresh data
+      queryClient.invalidateQueries({ queryKey: ['claim', targetClaimId] });
+      queryClient.invalidateQueries({ queryKey: ['claim-rooms', targetClaimId] });
 
-  const handleSaveToClaimClick = useCallback(() => {
+      resetSession();
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save rooms';
+      toast.error('Failed to save rooms', { description: message });
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [resetSession, queryClient]);
+
+  const handleSaveToClaimClick = useCallback(async () => {
     if (!claimId) {
       toast.error('No claim selected');
       return;
     }
 
-    if (saveRoomsToClaim(claimId)) {
+    const success = await saveRoomsToClaim(claimId);
+    if (success) {
       setLocation(`/claims/${claimId}`);
     }
   }, [claimId, saveRoomsToClaim, setLocation]);
@@ -197,9 +208,17 @@ export default function VoiceSketchPage() {
 
           <div className="flex items-center gap-2">
             {hasRooms && (
-              <Button onClick={handleSaveToClaimClick} data-testid="button-save-to-claim">
-                <Save className="h-4 w-4 mr-2" />
-                Save to Claim ({roomCount} room{roomCount !== 1 ? 's' : ''})
+              <Button 
+                onClick={handleSaveToClaimClick} 
+                disabled={isSaving}
+                data-testid="button-save-to-claim"
+              >
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                {isSaving ? 'Saving...' : `Save to Claim (${roomCount} room${roomCount !== 1 ? 's' : ''})`}
               </Button>
             )}
           </div>

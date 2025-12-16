@@ -768,6 +768,60 @@ export async function deleteClaim(id: string): Promise<void> {
   }
 }
 
+export interface ClaimRoom {
+  id: string;
+  name: string;
+  type: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  ceilingHeight: number;
+  flooringType?: string;
+  wallFinish?: string;
+}
+
+export interface ClaimDamageZone {
+  id: string;
+  roomId: string;
+  type: 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other';
+  severity: 'Low' | 'Medium' | 'High' | 'Total';
+  affectedSurfaces: string[];
+  affectedArea: number;
+  notes?: string;
+  photos: string[];
+}
+
+export async function saveClaimRooms(
+  claimId: string,
+  rooms: ClaimRoom[],
+  damageZones: ClaimDamageZone[]
+): Promise<{ success: boolean; roomsAdded: number; damageZonesAdded: number }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rooms, damageZones }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to save rooms');
+  }
+  return response.json();
+}
+
+export async function getClaimRooms(
+  claimId: string
+): Promise<{ rooms: ClaimRoom[]; damageZones: ClaimDamageZone[] }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch claim rooms');
+  }
+  return response.json();
+}
+
 // ============================================
 // DOCUMENTS API
 // ============================================
