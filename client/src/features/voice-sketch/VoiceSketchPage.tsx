@@ -108,7 +108,7 @@ export default function VoiceSketchPage() {
       const result = await saveClaimRooms(targetClaimId, claimRooms, claimDamageZones);
       
       toast.success('Rooms saved to claim!', {
-        description: `Added ${result.roomsAdded} room(s) and ${result.damageZonesAdded} damage zone(s).`,
+        description: `Saved ${result.roomsSaved} room(s) and ${result.damageZonesSaved} damage zone(s).`,
       });
 
       // Invalidate claim query to refresh data

@@ -810,18 +810,63 @@ export async function saveClaimRooms(
   claimId: string,
   rooms: ClaimRoom[],
   damageZones: ClaimDamageZone[]
-): Promise<{ success: boolean; roomsAdded: number; damageZonesAdded: number }> {
+): Promise<{ success: boolean; roomsSaved: number; damageZonesSaved: number }> {
+  // Transform to new backend format: rooms with nested damageZones
+  const roomsWithZones = rooms.map((room) => {
+    const roomDamageZones = damageZones
+      .filter((dz) => dz.roomId === room.id)
+      .map((dz) => ({
+        id: dz.id,
+        type: dz.type.toLowerCase(),
+        category: null,
+        severity: dz.severity?.toLowerCase(),
+        affected_walls: dz.affectedSurfaces
+          .filter((s) => s.startsWith('Wall '))
+          .map((s) => s.replace('Wall ', '').toLowerCase()),
+        floor_affected: dz.affectedSurfaces.includes('Floor'),
+        ceiling_affected: dz.affectedSurfaces.includes('Ceiling'),
+        extent_ft: dz.affectedArea || 0,
+        source: dz.notes,
+        notes: dz.notes,
+        polygon: [],
+        is_freeform: false,
+      }));
+
+    return {
+      id: room.id,
+      name: room.name,
+      room_type: room.type,
+      shape: 'rectangular',
+      width_ft: room.width,
+      length_ft: room.height,
+      ceiling_height_ft: room.ceilingHeight,
+      origin_x_ft: room.x,
+      origin_y_ft: room.y,
+      polygon: [],
+      openings: [],
+      features: [],
+      damageZones: roomDamageZones,
+      notes: [],
+    };
+  });
+
   const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rooms, damageZones }),
+    body: JSON.stringify({ rooms: roomsWithZones }),
     credentials: 'include',
   });
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || 'Failed to save rooms');
   }
-  return response.json();
+  const result = await response.json();
+  // Map new response format to expected format
+  return {
+    success: result.success,
+    roomsSaved: result.roomsSaved || result.roomsAdded || 0,
+    damageZonesSaved: result.damageZonesSaved || result.damageZonesAdded || 0,
+  };
 }
 
 export async function getClaimRooms(

@@ -298,6 +298,7 @@ export async function saveClaimRoomsAndZones(
       id?: string;
       type: string;
       category?: string;
+      severity?: string;
       affected_walls?: string[];
       floor_affected?: boolean;
       ceiling_affected?: boolean;
@@ -350,6 +351,7 @@ export async function saveClaimRoomsAndZones(
           organizationId,
           damageType: zone.type,
           category: zone.category || null,
+          severity: zone.severity || null,
           affectedWalls: zone.affected_walls || [],
           floorAffected: zone.floor_affected || false,
           ceilingAffected: zone.ceiling_affected || false,
