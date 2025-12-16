@@ -1374,6 +1374,8 @@ function mapZoneRow(row: any): EstimateZone {
     acvTotal: row.acv_total,
     notes: row.notes,
     sortOrder: row.sort_order,
+    associatedPeril: row.associated_peril,
+    perilConfidence: row.peril_confidence,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -22,12 +22,23 @@ interface EstimateSettings {
   profitPct: number;
 }
 
+// Mock user for fallback when authUser is null
+const DEFAULT_USER = {
+  id: 'default',
+  name: 'Guest User',
+  email: '',
+  avatar: '',
+};
+
 interface StoreState {
   // Auth state
   authUser: AuthUser | null;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
   authError: string | null;
+
+  // Derived user object (for UI that expects a user object)
+  user: { id: string; name: string; email: string; avatar: string };
 
   claims: Claim[];
   activeClaim: Claim | null;
@@ -73,6 +84,9 @@ export const useStore = create<StoreState>((set, get) => ({
   isAuthLoading: true, // Start as loading until we check
   authError: null,
 
+  // Default user object
+  user: DEFAULT_USER,
+
   claims: [],
   activeClaim: null,
 
@@ -100,6 +114,12 @@ export const useStore = create<StoreState>((set, get) => ({
           isAuthenticated: true,
           isAuthLoading: false,
           authError: null,
+          user: {
+            id: response.user.id,
+            name: response.user.username,
+            email: response.user.email || '',
+            avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(response.user.username)}`,
+          },
         });
         return true;
       }
@@ -123,6 +143,7 @@ export const useStore = create<StoreState>((set, get) => ({
       isAuthenticated: false,
       isAuthLoading: false,
       authError: null,
+      user: DEFAULT_USER,
     });
   },
 
@@ -134,6 +155,12 @@ export const useStore = create<StoreState>((set, get) => ({
         authUser: response.user,
         isAuthenticated: response.authenticated,
         isAuthLoading: false,
+        user: response.user ? {
+          id: response.user.id,
+          name: response.user.username,
+          email: response.user.email || '',
+          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(response.user.username)}`,
+        } : DEFAULT_USER,
       });
       return response.authenticated;
     } catch (error) {
@@ -141,6 +168,7 @@ export const useStore = create<StoreState>((set, get) => ({
         authUser: null,
         isAuthenticated: false,
         isAuthLoading: false,
+        user: DEFAULT_USER,
       });
       return false;
     }

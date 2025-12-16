@@ -219,7 +219,7 @@ export default function SketchCanvas({
   };
 
   // Get distance between two touch points for pinch-to-zoom
-  const getTouchDistance = (touches: TouchList): number => {
+  const getTouchDistance = (touches: TouchList | React.TouchList): number => {
     if (touches.length < 2) return 0;
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
@@ -227,7 +227,7 @@ export default function SketchCanvas({
   };
 
   // Get center point between two touches
-  const getTouchCenter = (touches: TouchList): { x: number; y: number } => {
+  const getTouchCenter = (touches: TouchList | React.TouchList): { x: number; y: number } => {
     if (touches.length < 2) {
       return { x: touches[0]?.clientX ?? 0, y: touches[0]?.clientY ?? 0 };
     }

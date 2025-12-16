@@ -289,7 +289,7 @@ export async function evaluateRules(
   // ============================================
   // PHASE 3: Apply carrier rules (complex conditions)
   // ============================================
-  for (const rule of carrierRules.sort((a, b) => a.priority - b.priority)) {
+  for (const rule of carrierRules.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))) {
     for (const item of estimate.lineItems) {
       const state = workingStates.get(item.id)!;
       if (state.status === 'denied') continue;
@@ -314,7 +314,7 @@ export async function evaluateRules(
   // ============================================
   // PHASE 4: Apply jurisdiction rules
   // ============================================
-  for (const rule of jurisdictionRules.sort((a, b) => a.priority - b.priority)) {
+  for (const rule of jurisdictionRules.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))) {
     for (const item of estimate.lineItems) {
       const state = workingStates.get(item.id)!;
       if (state.status === 'denied') continue;
@@ -615,7 +615,7 @@ function applyRuleEffect(
 
   switch (rule.effectType) {
     case 'exclude': {
-      const effect = effectValue as ExcludeEffect;
+      const effect = effectValue as unknown as ExcludeEffect;
       const appliedRule: AppliedRule = {
         ruleSource: source,
         ruleCode: rule.ruleCode,
@@ -721,7 +721,7 @@ function applyRuleEffect(
     }
 
     case 'require_doc': {
-      const effect = effectValue as RequireDocEffect;
+      const effect = effectValue as unknown as RequireDocEffect;
       if (effect.required && effect.required.length > 0) {
         for (const doc of effect.required) {
           if (!state.documentationRequired.includes(doc)) {
@@ -789,7 +789,7 @@ function applyRuleEffect(
     }
 
     case 'modify_pct': {
-      const effect = effectValue as ModifyPctEffect;
+      const effect = effectValue as unknown as ModifyPctEffect;
       if (effect.multiplier) {
         const originalPrice = state.current.unitPrice;
         state.current.unitPrice = originalPrice * effect.multiplier;
