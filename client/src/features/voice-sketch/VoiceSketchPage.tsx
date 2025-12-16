@@ -1,22 +1,22 @@
 // Voice Sketch Page
 // Full page component for voice-driven room sketching
+// REQUIRES a claim ID by default - must be tied to a real database claim
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
-import { ArrowLeft, Save, Mic, Plus, FileText, ChevronRight } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Save, Mic, AlertCircle, Loader2 } from 'lucide-react';
 import Layout from '@/components/layout';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine } from './services/geometry-engine';
 import { useStore } from '@/lib/store';
+import { getClaim } from '@/lib/api';
 import { toast } from 'sonner';
 import type { RoomGeometry } from './types/geometry';
-import type { Room, DamageZone, Claim } from '@/lib/types';
+import type { Room, DamageZone } from '@/lib/types';
+import type { Claim } from '@/lib/api';
 
 export default function VoiceSketchPage() {
   const params = useParams();
@@ -24,52 +24,25 @@ export default function VoiceSketchPage() {
   const claimId = params.claimId;
 
   const { rooms, currentRoom, resetSession } = useGeometryEngine();
-  const { claims, addRoom, addDamageZone, activeClaim, setActiveClaim, createClaim } = useStore();
+  const { addRoom, addDamageZone } = useStore();
 
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [saveMode, setSaveMode] = useState<'select' | 'create'>('select');
-  const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
-
-  const resetModalState = useCallback(() => {
-    setSaveMode('select');
-    setSelectedClaimId(null);
-    setNewClaimForm({
-      customerName: '',
-      street: '',
-      city: '',
-      state: '',
-      zip: '',
-      policyNumber: '',
-      carrier: '',
-      type: 'Water',
-      description: '',
-    });
-  }, []);
-
-  const handleModalOpenChange = useCallback((open: boolean) => {
-    setShowSaveModal(open);
-    if (!open) {
-      resetModalState();
-    }
-  }, [resetModalState]);
-  
-  const [newClaimForm, setNewClaimForm] = useState({
-    customerName: '',
-    street: '',
-    city: '',
-    state: '',
-    zip: '',
-    policyNumber: '',
-    carrier: '',
-    type: 'Water' as Claim['type'],
-    description: '',
+  // Fetch the real claim from the database
+  const { data: claim, isLoading, error } = useQuery({
+    queryKey: ['claim', claimId],
+    queryFn: () => getClaim(claimId!),
+    enabled: !!claimId,
+    staleTime: 30000,
   });
 
-  React.useEffect(() => {
-    if (claimId) {
-      setActiveClaim(claimId);
+  // If no claimId provided, redirect to claims list
+  useEffect(() => {
+    if (!claimId) {
+      toast.error('Voice Sketch requires a claim', {
+        description: 'Please select a claim first to use Voice Sketch.',
+      });
+      setLocation('/claims');
     }
-  }, [claimId, setActiveClaim]);
+  }, [claimId, setLocation]);
 
   const handleRoomConfirmed = useCallback(
     (roomData: unknown) => {
@@ -145,96 +118,80 @@ export default function VoiceSketchPage() {
 
   const handleSaveToClaimClick = useCallback(() => {
     if (!claimId) {
-      setShowSaveModal(true);
+      toast.error('No claim selected');
       return;
     }
 
     if (saveRoomsToClaim(claimId)) {
-      setLocation(`/claim/${claimId}`);
+      setLocation(`/claims/${claimId}`);
     }
   }, [claimId, saveRoomsToClaim, setLocation]);
-
-  const handleSaveToExistingClaim = useCallback(() => {
-    if (!selectedClaimId) {
-      toast.error('Please select a claim');
-      return;
-    }
-
-    if (saveRoomsToClaim(selectedClaimId)) {
-      setShowSaveModal(false);
-      setLocation(`/claim/${selectedClaimId}`);
-    }
-  }, [selectedClaimId, saveRoomsToClaim, setLocation]);
-
-  const handleCreateNewClaim = useCallback(() => {
-    if (!newClaimForm.customerName.trim() || !newClaimForm.street.trim()) {
-      toast.error('Please fill in customer name and street address');
-      return;
-    }
-
-    const newClaim: Omit<Claim, 'id' | 'createdAt' | 'updatedAt'> = {
-      customerName: newClaimForm.customerName,
-      policyNumber: newClaimForm.policyNumber || 'TBD',
-      carrier: newClaimForm.carrier || 'TBD',
-      status: 'draft',
-      address: {
-        street: newClaimForm.street,
-        city: newClaimForm.city,
-        state: newClaimForm.state,
-        zip: newClaimForm.zip,
-      },
-      dateOfLoss: new Date().toISOString().split('T')[0],
-      type: newClaimForm.type,
-      description: newClaimForm.description || 'Created from Voice Sketch',
-      rooms: [],
-      damageZones: [],
-      lineItems: [],
-    };
-
-    createClaim(newClaim);
-    
-    const { claims: updatedClaims } = useStore.getState();
-    const createdClaim = updatedClaims[0];
-
-    if (createdClaim && saveRoomsToClaim(createdClaim.id)) {
-      setShowSaveModal(false);
-      setLocation(`/claim/${createdClaim.id}`);
-    }
-  }, [newClaimForm, createClaim, saveRoomsToClaim, setLocation]);
 
   const hasRooms = rooms.length > 0 || currentRoom;
   const roomCount = rooms.length + (currentRoom ? 1 : 0);
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading claim...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Error state
+  if (error || !claim) {
+    return (
+      <Layout>
+        <div className="p-6">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Claim not found</AlertTitle>
+            <AlertDescription>
+              The claim could not be loaded. Please select a valid claim from the claims list.
+            </AlertDescription>
+          </Alert>
+          <div className="mt-4">
+            <Link href="/claims">
+              <Button data-testid="button-back-to-claims">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Claims
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Main render with valid claim
   return (
     <Layout>
       <div className="flex flex-col h-full">
         <div className="bg-white border-b border-border px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {claimId ? (
-              <Link href={`/claim/${claimId}`}>
-                <Button variant="ghost" size="sm" data-testid="button-back-to-claim">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Claim
-                </Button>
-              </Link>
-            ) : (
-              <Link href="/">
-                <Button variant="ghost" size="sm" data-testid="button-back-to-dashboard">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Dashboard
-                </Button>
-              </Link>
-            )}
+            <Link href={`/claims/${claimId}`}>
+              <Button variant="ghost" size="sm" data-testid="button-back-to-claim">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Claim
+              </Button>
+            </Link>
             <div>
               <h1 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
                 <Mic className="h-5 w-5 text-primary" />
                 Voice Room Sketching
               </h1>
-              {activeClaim && (
-                <p className="text-sm text-muted-foreground">
-                  Claim: {activeClaim.customerName} - {activeClaim.address.street}
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                Claim: {claim.policyholder || 'Unknown'} - {claim.riskLocation || 'No address'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}
+              </p>
             </div>
           </div>
 
@@ -255,171 +212,6 @@ export default function VoiceSketchPage() {
           />
         </div>
       </div>
-
-      <Dialog open={showSaveModal} onOpenChange={handleModalOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Save Rooms to Claim</DialogTitle>
-            <DialogDescription>
-              Choose where to save your {roomCount} sketched room{roomCount !== 1 ? 's' : ''}.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex gap-2 mb-4">
-            <Button
-              variant={saveMode === 'select' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSaveMode('select')}
-              className="flex-1"
-              data-testid="button-mode-existing"
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              Existing Claim
-            </Button>
-            <Button
-              variant={saveMode === 'create' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSaveMode('create')}
-              className="flex-1"
-              data-testid="button-mode-create"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Claim
-            </Button>
-          </div>
-
-          {saveMode === 'select' ? (
-            <div className="space-y-4">
-              <Label>Select a claim</Label>
-              {claims.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  No claims available. Create a new claim instead.
-                </p>
-              ) : (
-                <ScrollArea className="h-[240px] border rounded-md">
-                  <div className="p-2 space-y-1">
-                    {claims.map((claim) => (
-                      <button
-                        key={claim.id}
-                        onClick={() => setSelectedClaimId(claim.id)}
-                        className={`w-full text-left p-3 rounded-md transition-colors flex items-center justify-between ${
-                          selectedClaimId === claim.id
-                            ? 'bg-primary/10 border border-primary'
-                            : 'hover:bg-muted border border-transparent'
-                        }`}
-                        data-testid={`claim-option-${claim.id}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{claim.customerName}</p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {claim.address?.street || 'No address'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {claim.type} | {(claim.rooms?.length || 0)} room{(claim.rooms?.length || 0) !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-              <Button
-                onClick={handleSaveToExistingClaim}
-                disabled={!selectedClaimId}
-                className="w-full"
-                data-testid="button-confirm-save-existing"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                Save to Selected Claim
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid gap-3">
-                <div>
-                  <Label htmlFor="customerName">Customer Name *</Label>
-                  <Input
-                    id="customerName"
-                    value={newClaimForm.customerName}
-                    onChange={(e) => setNewClaimForm((f) => ({ ...f, customerName: e.target.value }))}
-                    placeholder="John Smith"
-                    data-testid="input-customer-name"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="street">Street Address *</Label>
-                  <Input
-                    id="street"
-                    value={newClaimForm.street}
-                    onChange={(e) => setNewClaimForm((f) => ({ ...f, street: e.target.value }))}
-                    placeholder="123 Main St"
-                    data-testid="input-street"
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      value={newClaimForm.city}
-                      onChange={(e) => setNewClaimForm((f) => ({ ...f, city: e.target.value }))}
-                      placeholder="Dallas"
-                      data-testid="input-city"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="state">State</Label>
-                    <Input
-                      id="state"
-                      value={newClaimForm.state}
-                      onChange={(e) => setNewClaimForm((f) => ({ ...f, state: e.target.value }))}
-                      placeholder="TX"
-                      data-testid="input-state"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="zip">ZIP</Label>
-                    <Input
-                      id="zip"
-                      value={newClaimForm.zip}
-                      onChange={(e) => setNewClaimForm((f) => ({ ...f, zip: e.target.value }))}
-                      placeholder="75001"
-                      data-testid="input-zip"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="type">Damage Type</Label>
-                  <Select
-                    value={newClaimForm.type}
-                    onValueChange={(v) => setNewClaimForm((f) => ({ ...f, type: v as Claim['type'] }))}
-                  >
-                    <SelectTrigger data-testid="select-damage-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Water">Water</SelectItem>
-                      <SelectItem value="Fire">Fire</SelectItem>
-                      <SelectItem value="Wind/Hail">Wind/Hail</SelectItem>
-                      <SelectItem value="Impact">Impact</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Button
-                onClick={handleCreateNewClaim}
-                className="w-full"
-                data-testid="button-create-claim-and-save"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Claim & Save Rooms
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </Layout>
   );
 }

@@ -8,11 +8,9 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-// Using Replit's AI Integrations service for OpenAI access
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+// Using user's own OpenAI API key
 const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 const TEMP_DIR = path.join(os.tmpdir(), 'claimsiq-pdf');
@@ -169,10 +167,10 @@ export async function processDocument(
     let extractedData: ExtractedClaimData = {};
 
     try {
-      // Check if OpenAI is configured (using Replit AI Integrations)
-      if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-        console.warn('OpenAI AI Integrations not configured, skipping AI extraction');
-        extractedData = { rawText: 'AI extraction not available - OpenAI integration not configured' };
+      // Check if OpenAI is configured
+      if (!process.env.OPENAI_API_KEY) {
+        console.warn('OpenAI API key not configured, skipping AI extraction');
+        extractedData = { rawText: 'AI extraction not available - OPENAI_API_KEY not configured' };
       } else {
         // Read file
         const uploadDir = process.env.UPLOAD_DIR || './uploads';
