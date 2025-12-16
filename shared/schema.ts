@@ -4,6 +4,116 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // ============================================
+// CANONICAL PERIL ENUM (PERIL PARITY FOUNDATION)
+// ============================================
+// This enum provides first-class support for ALL perils, ensuring no peril
+// is favored over another in schema, ingestion, or UI behavior.
+
+export enum Peril {
+  WIND_HAIL = "wind_hail",
+  FIRE = "fire",
+  WATER = "water",        // Non-flood water damage (pipes, appliances, etc.)
+  FLOOD = "flood",        // External water intrusion (rising water, storm surge)
+  SMOKE = "smoke",
+  MOLD = "mold",
+  IMPACT = "impact",      // Vehicle, tree, debris impact
+  OTHER = "other"
+}
+
+// Peril display labels for UI
+export const PERIL_LABELS: Record<Peril, string> = {
+  [Peril.WIND_HAIL]: "Wind / Hail",
+  [Peril.FIRE]: "Fire",
+  [Peril.WATER]: "Water",
+  [Peril.FLOOD]: "Flood",
+  [Peril.SMOKE]: "Smoke",
+  [Peril.MOLD]: "Mold",
+  [Peril.IMPACT]: "Impact",
+  [Peril.OTHER]: "Other"
+};
+
+// Secondary peril associations - perils that commonly co-occur
+export const SECONDARY_PERIL_MAP: Partial<Record<Peril, Peril[]>> = {
+  [Peril.FIRE]: [Peril.SMOKE, Peril.WATER],  // Fire often causes smoke and water (firefighting)
+  [Peril.WATER]: [Peril.MOLD],               // Water damage often leads to mold
+  [Peril.FLOOD]: [Peril.MOLD, Peril.WATER],  // Flood can cause mold and other water damage
+  [Peril.WIND_HAIL]: [Peril.WATER],          // Roof damage can lead to water intrusion
+};
+
+// Peril metadata type definitions
+export interface WaterPerilMetadata {
+  source?: "plumbing" | "appliance" | "weather" | "hvac" | "unknown";
+  duration?: "sudden" | "repeated" | "gradual" | "unknown";
+  contamination_level?: "clean" | "gray" | "black" | "unknown";  // IICRC categories
+  mold_risk?: boolean;
+  affected_levels?: string[];  // basement, main, upper
+}
+
+export interface FirePerilMetadata {
+  origin_room?: string;
+  damage_types?: ("flame" | "smoke" | "heat" | "soot")[];
+  habitability?: "habitable" | "partial" | "uninhabitable";
+  cause?: "electrical" | "cooking" | "heating" | "arson" | "lightning" | "unknown";
+}
+
+export interface FloodPerilMetadata {
+  source?: "rising_water" | "storm_surge" | "overflow" | "surface_runoff";
+  flood_zone?: string;  // FEMA flood zone if known
+  coverage_warning?: string;  // Advisory about flood coverage
+  water_depth_inches?: number;
+}
+
+export interface WindHailPerilMetadata {
+  wind_speed_mph?: number;
+  hail_size_inches?: number;
+  roof_damage?: boolean;
+  siding_damage?: boolean;
+  window_damage?: boolean;
+  exterior_only?: boolean;
+}
+
+export interface SmokePerilMetadata {
+  source?: "fire" | "neighboring_fire" | "wildfire" | "other";
+  migration_pattern?: string[];  // rooms/areas affected
+  residue_type?: "dry" | "wet" | "oily";
+}
+
+export interface MoldPerilMetadata {
+  cause?: "water_damage" | "humidity" | "flood" | "unknown";
+  testing_required?: boolean;
+  remediation_protocol?: string;
+}
+
+export interface ImpactPerilMetadata {
+  impact_source?: "vehicle" | "tree" | "debris" | "aircraft" | "other";
+  structural_damage?: boolean;
+  affected_area?: string;
+}
+
+// Union type for all peril metadata
+export type PerilMetadataValue =
+  | WaterPerilMetadata
+  | FirePerilMetadata
+  | FloodPerilMetadata
+  | WindHailPerilMetadata
+  | SmokePerilMetadata
+  | MoldPerilMetadata
+  | ImpactPerilMetadata
+  | Record<string, unknown>;
+
+// Full peril metadata structure - keyed by peril type
+export interface PerilMetadata {
+  water?: WaterPerilMetadata;
+  fire?: FirePerilMetadata;
+  flood?: FloodPerilMetadata;
+  wind_hail?: WindHailPerilMetadata;
+  smoke?: SmokePerilMetadata;
+  mold?: MoldPerilMetadata;
+  impact?: ImpactPerilMetadata;
+  other?: Record<string, unknown>;
+}
+
+// ============================================
 // ORGANIZATIONS (TENANTS) TABLE
 // ============================================
 
@@ -128,8 +238,15 @@ export const claims = pgTable("claims", {
 
   // Loss details (from FNOL)
   dateOfLoss: date("date_of_loss"), // Date portion
-  lossType: varchar("loss_type", { length: 100 }), // "Hail", "Fire", "Water", "Wind"
+  lossType: varchar("loss_type", { length: 100 }), // "Hail", "Fire", "Water", "Wind" - LEGACY, use primaryPeril
   lossDescription: text("loss_description"), // "Hail storm, roofing company says damage..."
+
+  // Peril Parity Fields (canonical peril tracking)
+  // These fields provide first-class support for ALL perils, not just wind/hail
+  primaryPeril: varchar("primary_peril", { length: 50 }), // Canonical peril enum value
+  secondaryPerils: jsonb("secondary_perils").default(sql`'[]'::jsonb`), // Array of secondary peril values
+  perilConfidence: decimal("peril_confidence", { precision: 3, scale: 2 }), // 0.00-1.00 confidence in peril inference
+  perilMetadata: jsonb("peril_metadata").default(sql`'{}'::jsonb`), // Peril-specific structured data
 
   // Policy details (from FNOL)
   policyNumber: varchar("policy_number", { length: 50 }), // "070269410955"
@@ -344,6 +461,11 @@ export const claimDamageZones = pgTable("claim_damage_zones", {
   damageType: varchar("damage_type", { length: 50 }).notNull(), // water, fire, smoke, mold, wind, hail, impact
   category: varchar("category", { length: 50 }), // For water: category_1, category_2, category_3
 
+  // Peril context (canonical peril association)
+  // Enables peril-aware AI and UI behavior without guessing
+  associatedPeril: varchar("associated_peril", { length: 50 }), // Canonical peril enum value
+  perilConfidence: decimal("peril_confidence", { precision: 3, scale: 2 }), // 0.00-1.00
+
   // Affected areas
   affectedWalls: jsonb("affected_walls").default(sql`'[]'::jsonb`), // ["north", "south", "east", "west"]
   floorAffected: boolean("floor_affected").default(false),
@@ -373,6 +495,7 @@ export const claimDamageZones = pgTable("claim_damage_zones", {
   claimIdx: index("claim_damage_zones_claim_idx").on(table.claimId),
   roomIdx: index("claim_damage_zones_room_idx").on(table.roomId),
   orgIdx: index("claim_damage_zones_org_idx").on(table.organizationId),
+  perilIdx: index("claim_damage_zones_peril_idx").on(table.associatedPeril),
 }));
 
 export const insertClaimDamageZoneSchema = createInsertSchema(claimDamageZones).omit({
@@ -564,6 +687,11 @@ export const damageZones = pgTable("damage_zones", {
   damageSeverity: varchar("damage_severity", { length: 20 }),
   waterCategory: integer("water_category"),
   waterClass: integer("water_class"),
+
+  // Peril context (canonical peril association)
+  // Links this damage zone to a canonical peril for AI and UI behavior
+  associatedPeril: varchar("associated_peril", { length: 50 }), // Canonical peril enum value
+  perilConfidence: decimal("peril_confidence", { precision: 3, scale: 2 }), // 0.00-1.00
 
   // Affected surfaces
   affectedSurfaces: jsonb("affected_surfaces").default(sql`'[]'::jsonb`),
@@ -912,6 +1040,10 @@ export const estimateZones = pgTable("estimate_zones", {
   waterCategory: integer("water_category"),
   waterClass: integer("water_class"),
   affectedSurfaces: jsonb("affected_surfaces").default(sql`'[]'::jsonb`),
+
+  // Peril context (canonical peril association)
+  associatedPeril: varchar("associated_peril", { length: 50 }), // Canonical peril enum value
+  perilConfidence: decimal("peril_confidence", { precision: 3, scale: 2 }), // 0.00-1.00
 
   // Photo references
   photoIds: jsonb("photo_ids").default(sql`'[]'::jsonb`),
