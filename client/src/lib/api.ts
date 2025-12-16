@@ -654,16 +654,28 @@ export interface Claim {
   id: string;
   organizationId: string;
   claimId: string; // Format: XX-XXX-XXXXXX
+  claimNumber?: string; // Display claim number
   policyholder?: string;
+  insuredName?: string; // Alternative name field
   dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
   riskLocation?: string; // Full address string
   causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
+  lossType?: string; // Alternative loss type field
   lossDescription?: string;
   policyNumber?: string;
   state?: string;
+  propertyAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZip?: string;
   yearRoofInstall?: string; // Format: MM-DD-YYYY
   windHailDeductible?: string; // Format: $X,XXX X%
   dwellingLimit?: string; // Format: $XXX,XXX
+  coverageA?: string;
+  coverageB?: string;
+  coverageC?: string;
+  coverageD?: string;
+  deductible?: string;
   endorsementsListed?: string[];
   status: string;
   assignedAdjusterId?: string;
@@ -706,6 +718,7 @@ export async function getClaims(params?: {
   search?: string;
   limit?: number;
   offset?: number;
+  includeClosed?: boolean;
 }): Promise<{ claims: Claim[]; total: number }> {
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set('status', params.status);
@@ -713,6 +726,7 @@ export async function getClaims(params?: {
   if (params?.search) searchParams.set('search', params.search);
   if (params?.limit) searchParams.set('limit', String(params.limit));
   if (params?.offset) searchParams.set('offset', String(params.offset));
+  if (params?.includeClosed) searchParams.set('include_closed', 'true');
 
   const response = await fetch(`${API_BASE}/claims?${searchParams}`, {
     credentials: 'include',

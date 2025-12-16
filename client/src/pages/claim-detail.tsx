@@ -54,7 +54,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  ArrowLeft
+  ArrowLeft,
+  Archive
 } from "lucide-react";
 import {
   useEstimateBuilder,
@@ -77,6 +78,7 @@ import {
   uploadDocument,
   getDocumentDownloadUrl,
   deleteClaim,
+  updateClaim,
   submitEstimate,
   downloadEstimatePdf,
   getEstimateLockStatus,
@@ -165,9 +167,11 @@ export default function ClaimDetail() {
   const [newMissingWallData, setNewMissingWallData] = useState<Partial<CreateMissingWallInput>>({});
   const [selectedAreaForNewZone, setSelectedAreaForNewZone] = useState<string | null>(null);
 
-  // Delete claim state
+  // Delete/close claim state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
   // Estimate finalization state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -340,6 +344,26 @@ export default function ClaimDetail() {
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
+    }
+  };
+
+  const handleCloseClaim = async () => {
+    if (!params?.id) return;
+    
+    setIsClosing(true);
+    try {
+      await updateClaim(params.id, { status: 'closed' });
+      setApiClaim(prev => prev ? { ...prev, status: 'closed' } : null);
+      toast.success("Claim closed successfully", {
+        description: "This claim is now hidden from the main list. Use 'Show closed' to view it."
+      });
+      setIsCloseDialogOpen(false);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to close claim";
+      toast.error(errorMessage);
+      console.error("Close claim error:", err);
+    } finally {
+      setIsClosing(false);
     }
   };
 
@@ -690,6 +714,49 @@ export default function ClaimDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Close Claim Button */}
+            {apiClaim?.status !== 'closed' && (
+              <AlertDialog open={isCloseDialogOpen} onOpenChange={setIsCloseDialogOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="hidden md:flex"
+                    data-testid="button-close-claim"
+                  >
+                    <Archive className="h-4 w-4 mr-2" />
+                    Close Claim
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Close Claim</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will mark the claim as closed. Closed claims are hidden from the main claims list but can still be viewed by enabling "Show closed" in the filters. You can reopen the claim later if needed.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isClosing}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleCloseClaim}
+                      disabled={isClosing}
+                      data-testid="button-confirm-close"
+                    >
+                      {isClosing ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Closing...
+                        </>
+                      ) : (
+                        "Close Claim"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            
+            {/* Delete Claim Button */}
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
               <AlertDialogTrigger asChild>
                 <Button

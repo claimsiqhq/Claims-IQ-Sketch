@@ -3,21 +3,33 @@ import { pool } from '../db';
 export interface ClaimWithDocuments {
   id: string;
   organizationId: string;
-  claimId: string; // Format: XX-XXX-XXXXXX (renamed from claim_number)
+  claimId: string; // Format: XX-XXX-XXXXXX or claim_number
+  claimNumber?: string; // Display claim number
   carrierId?: string;
   policyNumber?: string;
-  dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM (now VARCHAR)
+  dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM or date
   claimType?: string;
   status: string;
   regionId?: string;
-  policyholder?: string; // Renamed from insured_name
-  riskLocation?: string; // Replaces property_address, city, state, zip
-  causeOfLoss?: string; // Renamed from loss_type
+  policyholder?: string; // Also known as insured_name
+  insuredName?: string;
+  riskLocation?: string; // Full address string
+  propertyAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZip?: string;
+  causeOfLoss?: string; // Also known as loss_type
+  lossType?: string;
   lossDescription?: string;
   state?: string; // State code (e.g., CO)
   yearRoofInstall?: string; // Format: MM-DD-YYYY
   windHailDeductible?: string; // Format: $X,XXX X%
   dwellingLimit?: string; // Format: $XXX,XXX
+  coverageA?: string;
+  coverageB?: string;
+  coverageC?: string;
+  coverageD?: string;
+  deductible?: string;
   endorsementsListed?: string[]; // JSONB array of endorsement codes
   assignedAdjusterId?: string;
   totalRcv?: string;
@@ -33,26 +45,44 @@ export interface ClaimWithDocuments {
 
 /**
  * Map database row to ClaimWithDocuments (converts snake_case to camelCase)
+ * Uses actual database column names from the claims table
  */
 function mapRowToClaim(row: any): ClaimWithDocuments {
+  // Build risk location from individual address parts if present
+  const riskLocation = row.property_address 
+    ? [row.property_address, row.property_city, row.property_state, row.property_zip].filter(Boolean).join(', ')
+    : row.risk_location;
+    
   return {
     id: row.id,
     organizationId: row.organization_id,
-    claimId: row.claim_id, // Renamed from claim_number
+    claimId: row.claim_number || row.claim_id, // claim_number is the actual DB column
+    claimNumber: row.claim_number,
     carrierId: row.carrier_id,
     policyNumber: row.policy_number,
     dateOfLoss: row.date_of_loss,
     claimType: row.claim_type,
     status: row.status,
     regionId: row.region_id,
-    policyholder: row.policyholder, // Renamed from insured_name
-    riskLocation: row.risk_location, // Replaces property_address fields
-    causeOfLoss: row.cause_of_loss, // Renamed from loss_type
+    policyholder: row.insured_name || row.policyholder, // insured_name is actual DB column
+    insuredName: row.insured_name,
+    riskLocation: riskLocation,
+    propertyAddress: row.property_address,
+    propertyCity: row.property_city,
+    propertyState: row.property_state,
+    propertyZip: row.property_zip,
+    causeOfLoss: row.loss_type || row.cause_of_loss, // loss_type is actual DB column
+    lossType: row.loss_type,
     lossDescription: row.loss_description,
-    state: row.state,
+    state: row.property_state || row.state,
     yearRoofInstall: row.year_roof_install,
     windHailDeductible: row.wind_hail_deductible,
     dwellingLimit: row.dwelling_limit,
+    coverageA: row.coverage_a,
+    coverageB: row.coverage_b,
+    coverageC: row.coverage_c,
+    coverageD: row.coverage_d,
+    deductible: row.deductible,
     endorsementsListed: row.endorsements_listed,
     assignedAdjusterId: row.assigned_adjuster_id,
     totalRcv: row.total_rcv,
@@ -89,57 +119,65 @@ async function generateClaimNumber(organizationId: string): Promise<string> {
 
 /**
  * Create a new claim
+ * Only uses columns that exist in the actual claims table
  */
 export async function createClaim(
   organizationId: string,
   data: {
-    claimId?: string;
+    claimNumber?: string;
     policyNumber?: string;
     dateOfLoss?: string;
     claimType?: string;
     status?: string;
-    policyholder?: string;
-    riskLocation?: string;
-    causeOfLoss?: string;
+    insuredName?: string;
+    lossType?: string;
     lossDescription?: string;
-    state?: string;
-    yearRoofInstall?: string;
-    windHailDeductible?: string;
-    dwellingLimit?: string;
-    endorsementsListed?: string[];
+    propertyAddress?: string;
+    propertyCity?: string;
+    propertyState?: string;
+    propertyZip?: string;
+    coverageA?: number;
+    coverageB?: number;
+    coverageC?: number;
+    coverageD?: number;
+    deductible?: number;
     assignedAdjusterId?: string;
     metadata?: Record<string, any>;
   }
 ): Promise<ClaimWithDocuments> {
   const client = await pool.connect();
   try {
-    const claimId = data.claimId || await generateClaimNumber(organizationId);
+    const claimNumber = data.claimNumber || await generateClaimNumber(organizationId);
 
     const result = await client.query(
       `INSERT INTO claims (
-        organization_id, claim_id, policy_number,
+        organization_id, claim_number, policy_number,
         date_of_loss, claim_type, status,
-        policyholder, risk_location, cause_of_loss, loss_description,
-        state, year_roof_install, wind_hail_deductible, dwelling_limit,
-        endorsements_listed, assigned_adjuster_id, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        insured_name, loss_type, loss_description,
+        property_address, property_city, property_state, property_zip,
+        coverage_a, coverage_b, coverage_c, coverage_d, deductible,
+        assigned_adjuster_id, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING *`,
       [
         organizationId,
-        claimId,
+        claimNumber,
         data.policyNumber || null,
         data.dateOfLoss || null,
         data.claimType || null,
         data.status || 'fnol',
-        data.policyholder || null,
-        data.riskLocation || null,
-        data.causeOfLoss || null,
+        data.insuredName || null,
+        data.lossType || null,
         data.lossDescription || null,
-        data.state || null,
-        data.yearRoofInstall || null,
-        data.windHailDeductible || null,
-        data.dwellingLimit || null,
-        JSON.stringify(data.endorsementsListed || []),
+        data.propertyAddress || null,
+        data.propertyCity || null,
+        data.propertyState || null,
+        data.propertyZip || null,
+        data.coverageA || null,
+        data.coverageB || null,
+        data.coverageC || null,
+        data.coverageD || null,
+        data.deductible || null,
         data.assignedAdjusterId || null,
         JSON.stringify(data.metadata || {})
       ]
@@ -188,6 +226,7 @@ export async function listClaims(
     search?: string;
     limit?: number;
     offset?: number;
+    includeClosed?: boolean;
   }
 ): Promise<{ claims: ClaimWithDocuments[]; total: number }> {
   const client = await pool.connect();
@@ -196,13 +235,18 @@ export async function listClaims(
     const params: any[] = [organizationId];
     let paramIndex = 2;
 
+    // By default, exclude closed claims unless explicitly requested
+    if (!options?.includeClosed && !options?.status) {
+      conditions.push(`c.status != 'closed'`);
+    }
+
     if (options?.status) {
       conditions.push(`c.status = $${paramIndex}`);
       params.push(options.status);
       paramIndex++;
     }
     if (options?.lossType) {
-      conditions.push(`c.cause_of_loss = $${paramIndex}`);
+      conditions.push(`c.loss_type = $${paramIndex}`);
       params.push(options.lossType);
       paramIndex++;
     }
@@ -213,10 +257,10 @@ export async function listClaims(
     }
     if (options?.search) {
       conditions.push(`(
-        c.claim_id ILIKE $${paramIndex} OR
+        c.claim_number ILIKE $${paramIndex} OR
         c.policy_number ILIKE $${paramIndex} OR
-        c.policyholder ILIKE $${paramIndex} OR
-        c.risk_location ILIKE $${paramIndex}
+        c.insured_name ILIKE $${paramIndex} OR
+        c.property_address ILIKE $${paramIndex}
       )`);
       params.push(`%${options.search}%`);
       paramIndex++;
@@ -295,20 +339,29 @@ export async function updateClaim(
     const params: any[] = [];
     let paramIndex = 1;
 
+    // Map camelCase field names to actual database column names
+    // Only includes columns that exist in the claims table
     const fieldMap: Record<string, string> = {
-      claimId: 'claim_id',
+      claimId: 'claim_number',
+      claimNumber: 'claim_number',
       policyNumber: 'policy_number',
       dateOfLoss: 'date_of_loss',
       claimType: 'claim_type',
       status: 'status',
-      policyholder: 'policyholder',
-      riskLocation: 'risk_location',
-      causeOfLoss: 'cause_of_loss',
+      policyholder: 'insured_name',
+      insuredName: 'insured_name',
+      causeOfLoss: 'loss_type',
+      lossType: 'loss_type',
       lossDescription: 'loss_description',
-      state: 'state',
-      yearRoofInstall: 'year_roof_install',
-      windHailDeductible: 'wind_hail_deductible',
-      dwellingLimit: 'dwelling_limit',
+      propertyAddress: 'property_address',
+      propertyCity: 'property_city',
+      propertyState: 'property_state',
+      propertyZip: 'property_zip',
+      coverageA: 'coverage_a',
+      coverageB: 'coverage_b',
+      coverageC: 'coverage_c',
+      coverageD: 'coverage_d',
+      deductible: 'deductible',
       assignedAdjusterId: 'assigned_adjuster_id',
       totalRcv: 'total_rcv',
       totalAcv: 'total_acv',
@@ -409,9 +462,9 @@ export async function getClaimStats(organizationId: string): Promise<{
     );
 
     const lossTypeResult = await client.query(
-      `SELECT cause_of_loss, COUNT(*) as count FROM claims
-       WHERE organization_id = $1 AND status != 'deleted' AND cause_of_loss IS NOT NULL
-       GROUP BY cause_of_loss`,
+      `SELECT loss_type, COUNT(*) as count FROM claims
+       WHERE organization_id = $1 AND status != 'deleted' AND loss_type IS NOT NULL
+       GROUP BY loss_type`,
       [organizationId]
     );
 
@@ -422,7 +475,7 @@ export async function getClaimStats(organizationId: string): Promise<{
 
     const byLossType: Record<string, number> = {};
     lossTypeResult.rows.forEach(row => {
-      byLossType[row.cause_of_loss] = parseInt(row.count);
+      byLossType[row.loss_type] = parseInt(row.count);
     });
 
     return {

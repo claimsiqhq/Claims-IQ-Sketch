@@ -2409,14 +2409,15 @@ export async function registerRoutes(
   // List claims for organization
   app.get('/api/claims', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { status, loss_type, adjuster_id, search, limit, offset } = req.query;
+      const { status, loss_type, adjuster_id, search, limit, offset, include_closed } = req.query;
       const result = await listClaims(req.organizationId!, {
         status: status as string,
         lossType: loss_type as string,
         assignedAdjusterId: adjuster_id as string,
         search: search as string,
         limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined
+        offset: offset ? parseInt(offset as string) : undefined,
+        includeClosed: include_closed === 'true'
       });
       res.json(result);
     } catch (error) {

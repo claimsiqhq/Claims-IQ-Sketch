@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -28,7 +30,8 @@ import {
   Building2,
   Shield,
   Mic,
-  ChevronRight
+  ChevronRight,
+  Archive
 } from "lucide-react";
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
@@ -177,10 +180,11 @@ export default function Home() {
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [showClosed, setShowClosed] = useState(false);
 
   useEffect(() => {
     loadData();
-  }, [statusFilter]);
+  }, [statusFilter, showClosed]);
 
   async function loadData() {
     setLoading(true);
@@ -192,6 +196,7 @@ export default function Home() {
           status: statusFilter !== "all" ? statusFilter : undefined,
           search: searchQuery || undefined,
           limit: 20,
+          includeClosed: showClosed || statusFilter === 'closed',
         }),
         getClaimStats(),
       ]);
@@ -303,13 +308,14 @@ export default function Home() {
           </form>
 
           {/* Status Filter - Horizontal pills */}
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-2 -mx-4 px-4 scrollbar-hide">
             {[
               { value: "all", label: "All" },
               { value: "fnol", label: "FNOL" },
               { value: "open", label: "Open" },
               { value: "in_progress", label: "In Progress" },
               { value: "review", label: "Review" },
+              { value: "closed", label: "Closed" },
             ].map((status) => (
               <button
                 key={status.value}
@@ -323,6 +329,20 @@ export default function Home() {
                 {status.label}
               </button>
             ))}
+          </div>
+
+          {/* Show Closed Toggle */}
+          <div className="flex items-center gap-2 mb-4">
+            <Checkbox
+              id="show-closed-mobile"
+              checked={showClosed}
+              onCheckedChange={(checked) => setShowClosed(checked === true)}
+              data-testid="checkbox-show-closed-mobile"
+            />
+            <Label htmlFor="show-closed-mobile" className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1">
+              <Archive className="h-4 w-4" />
+              Include closed claims
+            </Label>
           </div>
 
           {/* Mobile Claims List */}
@@ -496,6 +516,19 @@ export default function Home() {
               <SelectItem value="closed">Closed</SelectItem>
             </SelectContent>
           </Select>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="show-closed"
+              checked={showClosed}
+              onCheckedChange={(checked) => setShowClosed(checked === true)}
+              data-testid="checkbox-show-closed"
+            />
+            <Label htmlFor="show-closed" className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1">
+              <Archive className="h-4 w-4" />
+              Show closed
+            </Label>
+          </div>
         </div>
 
         {/* Claims List */}
