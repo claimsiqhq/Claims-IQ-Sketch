@@ -47,6 +47,15 @@ import {
 } from "./services/estimateSubmission";
 import { passport, requireAuth } from "./middleware/auth";
 import { updateUserProfile, changeUserPassword } from "./services/auth";
+import {
+  signUp as supabaseSignUp,
+  signIn as supabaseSignIn,
+  signOut as supabaseSignOut,
+  verifyToken,
+  requestPasswordReset,
+  updatePassword,
+  findUserById as supabaseFindUser
+} from "./services/supabaseAuth";
 import { tenantMiddleware, requireOrganization, requireOrgRole, requireSuperAdmin } from "./middleware/tenant";
 import {
   createOrganization,
@@ -70,13 +79,15 @@ import {
 import {
   createDocument,
   getDocument,
-  getDocumentFilePath,
+  getDocumentDownloadUrl,
+  downloadDocumentFile,
   listDocuments,
   updateDocument,
   deleteDocument,
   getClaimDocuments,
   associateDocumentWithClaim,
-  getDocumentStats
+  getDocumentStats,
+  initializeStorageBucket
 } from "./services/documents";
 import {
   processDocument as processDocumentAI,
@@ -252,7 +263,7 @@ export async function registerRoutes(
     });
   });
 
-  // Get current user endpoint
+  // Get current user endpoint (supports both session and Supabase auth)
   app.get('/api/auth/me', async (req, res) => {
     // Disable all caching for auth endpoints
     res.set({
@@ -261,13 +272,13 @@ export async function registerRoutes(
       'Expires': '0',
       'Content-Type': 'application/json; charset=utf-8'
     });
-    
+
+    // Check session-based auth
     if (req.isAuthenticated() && req.user) {
-      // Fetch full user data including name and email
       try {
         const { pool } = await import('./db');
         const result = await pool.query(
-          'SELECT id, username, name, email FROM users WHERE id = $1',
+          'SELECT id, username, first_name, last_name, email FROM users WHERE id = $1',
           [req.user.id]
         );
         const user = result.rows[0];
@@ -275,7 +286,9 @@ export async function registerRoutes(
           user: {
             id: user.id,
             username: user.username,
-            name: user.name || user.username,
+            name: user.first_name && user.last_name
+              ? `${user.first_name} ${user.last_name}`
+              : user.username,
             email: user.email || ''
           },
           authenticated: true
@@ -284,9 +297,36 @@ export async function registerRoutes(
       } catch (error) {
         res.status(200).send(JSON.stringify({ user: { id: req.user.id, username: req.user.username }, authenticated: true }));
       }
-    } else {
-      res.status(200).send(JSON.stringify({ user: null, authenticated: false }));
+      return;
     }
+
+    // Check Supabase auth via Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        const user = await verifyToken(token);
+        if (user) {
+          const data = {
+            user: {
+              id: user.id,
+              username: user.username,
+              name: user.firstName && user.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user.username,
+              email: user.email || ''
+            },
+            authenticated: true
+          };
+          res.status(200).send(JSON.stringify(data));
+          return;
+        }
+      } catch (error) {
+        console.error('Token verification error:', error);
+      }
+    }
+
+    res.status(200).send(JSON.stringify({ user: null, authenticated: false }));
   });
 
   // Check authentication status
@@ -298,9 +338,160 @@ export async function registerRoutes(
       'Expires': '0',
       'Content-Type': 'application/json; charset=utf-8'
     });
-    
-    // Use send() instead of json() to bypass ETag generation
-    res.status(200).send(JSON.stringify({ authenticated: req.isAuthenticated() }));
+
+    // Check both session and Supabase auth
+    const isAuthenticated = req.isAuthenticated() || !!(req as any).isSupabaseAuth;
+    res.status(200).send(JSON.stringify({ authenticated: isAuthenticated }));
+  });
+
+  // ============================================
+  // SUPABASE AUTH ROUTES
+  // ============================================
+
+  // Supabase login endpoint
+  app.post('/api/auth/supabase/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+
+      const { user, session, error } = await supabaseSignIn(email, password);
+
+      if (error) {
+        return res.status(401).json({ error });
+      }
+
+      res.json({
+        user: {
+          id: user!.id,
+          username: user!.username,
+          email: user!.email,
+          firstName: user!.firstName,
+          lastName: user!.lastName,
+        },
+        session: {
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          expires_at: session.expires_at,
+        },
+        message: 'Login successful'
+      });
+    } catch (error) {
+      console.error('Supabase login error:', error);
+      res.status(500).json({ error: 'Authentication error' });
+    }
+  });
+
+  // Supabase registration endpoint
+  app.post('/api/auth/supabase/register', async (req, res) => {
+    try {
+      const { email, password, username, firstName, lastName } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+
+      const { user, error } = await supabaseSignUp(email, password, {
+        username,
+        firstName,
+        lastName,
+      });
+
+      if (error) {
+        return res.status(400).json({ error });
+      }
+
+      res.json({
+        user: {
+          id: user!.id,
+          username: user!.username,
+          email: user!.email,
+        },
+        message: 'Registration successful. Please check your email to verify your account.'
+      });
+    } catch (error) {
+      console.error('Supabase registration error:', error);
+      res.status(500).json({ error: 'Registration error' });
+    }
+  });
+
+  // Supabase logout endpoint
+  app.post('/api/auth/supabase/logout', async (req, res) => {
+    try {
+      const { error } = await supabaseSignOut();
+
+      if (error) {
+        return res.status(500).json({ error });
+      }
+
+      res.json({ message: 'Logout successful' });
+    } catch (error) {
+      console.error('Supabase logout error:', error);
+      res.status(500).json({ error: 'Logout error' });
+    }
+  });
+
+  // Supabase password reset request
+  app.post('/api/auth/supabase/forgot-password', async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      const { error } = await requestPasswordReset(email);
+
+      if (error) {
+        return res.status(400).json({ error });
+      }
+
+      res.json({ message: 'Password reset email sent' });
+    } catch (error) {
+      console.error('Password reset error:', error);
+      res.status(500).json({ error: 'Failed to send password reset email' });
+    }
+  });
+
+  // Supabase get current user (from token)
+  app.get('/api/auth/supabase/me', async (req, res) => {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.json({ user: null, authenticated: false });
+      }
+
+      const token = authHeader.substring(7);
+      const user = await verifyToken(token);
+
+      if (!user) {
+        return res.json({ user: null, authenticated: false });
+      }
+
+      res.json({
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          currentOrganizationId: user.currentOrganizationId,
+        },
+        authenticated: true
+      });
+    } catch (error) {
+      console.error('Get current user error:', error);
+      res.json({ user: null, authenticated: false });
+    }
   });
 
   // ============================================
@@ -3313,7 +3504,7 @@ export async function registerRoutes(
     }
   });
 
-  // Download document file
+  // Download document file (redirects to Supabase Storage signed URL)
   app.get('/api/documents/:id/download', requireAuth, requireOrganization, async (req, res) => {
     try {
       const doc = await getDocument(req.params.id, req.organizationId!);
@@ -3321,8 +3512,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Document not found' });
       }
 
-      const filePath = getDocumentFilePath(doc.storagePath);
-      res.download(filePath, doc.fileName);
+      // Get a signed URL from Supabase Storage (valid for 1 hour)
+      const signedUrl = await getDocumentDownloadUrl(doc.storagePath, 3600);
+
+      // Redirect to the signed URL for download
+      res.redirect(signedUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3337,13 +3531,6 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Document not found' });
       }
 
-      const uploadDir = process.env.UPLOAD_DIR || './uploads';
-      const filePath = path.join(uploadDir, doc.storagePath);
-
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'Document file not found on disk' });
-      }
-
       // For images, return a single image reference
       if (doc.mimeType.startsWith('image/')) {
         return res.json({
@@ -3352,15 +3539,31 @@ export async function registerRoutes(
         });
       }
 
-      // For PDFs, convert to images and return page count
+      // For PDFs, download from Supabase and get page count
       if (doc.mimeType === 'application/pdf') {
         const { exec } = await import('child_process');
         const { promisify } = await import('util');
+        const os = await import('os');
         const execAsync = promisify(exec);
+
+        // Download file from Supabase to temp directory
+        const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const tempFilePath = path.join(tempDir, `${req.params.id}.pdf`);
+
+        // Download if not cached
+        if (!fs.existsSync(tempFilePath)) {
+          const { data } = await downloadDocumentFile(doc.storagePath);
+          const buffer = Buffer.from(await data.arrayBuffer());
+          fs.writeFileSync(tempFilePath, buffer);
+        }
 
         // Get page count using pdfinfo
         try {
-          const { stdout } = await execAsync(`pdfinfo "${filePath}" | grep Pages`);
+          const { stdout } = await execAsync(`pdfinfo "${tempFilePath}" | grep Pages`);
           const pageMatch = stdout.match(/Pages:\s*(\d+)/);
           const pageCount = pageMatch ? parseInt(pageMatch[1]) : 1;
 
@@ -3398,37 +3601,49 @@ export async function registerRoutes(
       }
 
       const pageNum = parseInt(req.params.page) || 1;
-      const uploadDir = process.env.UPLOAD_DIR || './uploads';
-      const filePath = path.join(uploadDir, doc.storagePath);
+      const os = await import('os');
+      const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
 
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'Document file not found on disk' });
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
       }
 
-      // For images, serve directly
+      // For images, download from Supabase and serve
       if (doc.mimeType.startsWith('image/')) {
+        const tempFilePath = path.join(tempDir, `${req.params.id}-image`);
+
+        // Download if not cached
+        if (!fs.existsSync(tempFilePath)) {
+          const { data } = await downloadDocumentFile(doc.storagePath);
+          const buffer = Buffer.from(await data.arrayBuffer());
+          fs.writeFileSync(tempFilePath, buffer);
+        }
+
         res.setHeader('Content-Type', doc.mimeType);
-        return res.sendFile(path.resolve(filePath));
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        return res.sendFile(path.resolve(tempFilePath));
       }
 
-      // For PDFs, convert to image and serve
+      // For PDFs, download from Supabase, convert to image and serve
       if (doc.mimeType === 'application/pdf') {
         const { exec } = await import('child_process');
         const { promisify } = await import('util');
-        const os = await import('os');
         const execAsync = promisify(exec);
 
-        const tempDir = path.join(os.tmpdir(), 'claimsiq-view');
-        if (!fs.existsSync(tempDir)) {
-          fs.mkdirSync(tempDir, { recursive: true });
-        }
-
+        const pdfFilePath = path.join(tempDir, `${req.params.id}.pdf`);
         const outputFile = path.join(tempDir, `${req.params.id}-page${pageNum}.png`);
 
-        // Check if already cached
+        // Download PDF if not cached
+        if (!fs.existsSync(pdfFilePath)) {
+          const { data } = await downloadDocumentFile(doc.storagePath);
+          const buffer = Buffer.from(await data.arrayBuffer());
+          fs.writeFileSync(pdfFilePath, buffer);
+        }
+
+        // Check if page image is already cached
         if (!fs.existsSync(outputFile)) {
           // Convert specific page
-          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${filePath}" "${outputFile.replace('.png', '')}"`);
+          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${pdfFilePath}" "${outputFile.replace('.png', '')}"`);
 
           // pdftoppm adds page number suffix
           const generatedFile = `${outputFile.replace('.png', '')}-${pageNum}.png`;

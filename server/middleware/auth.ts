@@ -4,15 +4,16 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { validateUser, findUserById, type AuthUser } from '../services/auth';
+import { verifyToken } from '../services/supabaseAuth';
 
-// Extend Express types for passport
+// Extend Express types for passport and Supabase auth
 declare global {
   namespace Express {
     interface User extends AuthUser {}
   }
 }
 
-// Configure Passport Local Strategy
+// Configure Passport Local Strategy (for legacy auth)
 passport.use(
   new LocalStrategy(async (username, password, done) => {
     try {
@@ -85,13 +86,46 @@ export function setupAuth(app: Express): void {
 
   app.use(passport.initialize());
   app.use(passport.session());
+
+  // Add Supabase Auth middleware - checks for Authorization header with Bearer token
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
+    // Skip if already authenticated via session
+    if (req.isAuthenticated()) {
+      return next();
+    }
+
+    // Check for Supabase JWT token in Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        const user = await verifyToken(token);
+        if (user) {
+          // Set user on request object for Supabase auth
+          (req as any).user = user;
+          (req as any).isSupabaseAuth = true;
+        }
+      } catch (error) {
+        console.error('Supabase token verification failed:', error);
+      }
+    }
+
+    next();
+  });
 }
 
-// Middleware to require authentication
+// Middleware to require authentication (supports both session and Supabase auth)
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  // Check session-based auth
   if (req.isAuthenticated()) {
     return next();
   }
+
+  // Check Supabase auth (set by middleware above)
+  if ((req as any).user && (req as any).isSupabaseAuth) {
+    return next();
+  }
+
   res.status(401).json({ error: 'Authentication required' });
 }
 

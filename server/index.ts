@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { setupAuth } from "./middleware/auth";
+import { initializeStorageBucket } from "./services/documents";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -79,6 +80,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize Supabase storage bucket
+  try {
+    await initializeStorageBucket();
+    log('Supabase storage bucket initialized', 'supabase');
+  } catch (error) {
+    log(`Warning: Could not initialize Supabase storage bucket: ${error}`, 'supabase');
+    // Continue startup - storage will fail at runtime if not configured
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
