@@ -882,6 +882,88 @@ export async function getClaimRooms(
 }
 
 // ============================================
+// SCOPE ITEMS API
+// ============================================
+
+export interface ScopeItem {
+  id: string;
+  lineItemCode: string;
+  description: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  total: number;
+  roomName?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export async function getScopeItems(claimId: string): Promise<ScopeItem[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/scope-items`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch scope items');
+  }
+  return response.json();
+}
+
+export async function addScopeItem(
+  claimId: string,
+  item: {
+    lineItemCode: string;
+    description: string;
+    category?: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    roomName?: string;
+    notes?: string;
+  }
+): Promise<ScopeItem> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/scope-items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(item),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to add scope item');
+  }
+  return response.json();
+}
+
+export async function updateScopeItem(
+  itemId: string,
+  data: { quantity?: number; notes?: string }
+): Promise<ScopeItem> {
+  const response = await fetch(`${API_BASE}/scope-items/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update scope item');
+  }
+  return response.json();
+}
+
+export async function deleteScopeItem(itemId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/scope-items/${itemId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to delete scope item');
+  }
+}
+
+// ============================================
 // DOCUMENTS API
 // ============================================
 

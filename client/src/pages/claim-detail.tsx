@@ -82,12 +82,17 @@ import {
   submitEstimate,
   downloadEstimatePdf,
   getEstimateLockStatus,
+  getScopeItems,
+  addScopeItem,
+  updateScopeItem as apiUpdateScopeItem,
+  deleteScopeItem as apiDeleteScopeItem,
   type Claim,
   type Document,
   type Endorsement,
   type SubmissionResult,
   type ValidationIssue,
   type EstimateLockStatus,
+  type ScopeItem,
 } from "@/lib/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -134,9 +139,11 @@ export default function ClaimDetail() {
   const [apiClaim, setApiClaim] = useState<Claim | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [endorsements, setEndorsements] = useState<Endorsement[]>([]);
+  const [scopeItems, setScopeItems] = useState<ScopeItem[]>([]);
   const [loadingApiData, setLoadingApiData] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [savingScopeItem, setSavingScopeItem] = useState(false);
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
@@ -208,14 +215,16 @@ export default function ClaimDetail() {
     setApiError(null);
 
     try {
-      const [claimData, docsData, endorsementsData] = await Promise.all([
+      const [claimData, docsData, endorsementsData, scopeData] = await Promise.all([
         getClaim(params.id),
         getClaimDocuments(params.id),
-        getClaimEndorsements(params.id).catch(() => []) // Don't fail if endorsements fail
+        getClaimEndorsements(params.id).catch(() => []), // Don't fail if endorsements fail
+        getScopeItems(params.id).catch(() => []) // Don't fail if scope items fail
       ]);
       setApiClaim(claimData);
       setDocuments(docsData);
       setEndorsements(endorsementsData);
+      setScopeItems(scopeData);
       // Ensure the claim exists in the store for sketch operations
       ensureClaim(params.id, claimData);
     } catch (err) {
@@ -300,6 +309,60 @@ export default function ClaimDetail() {
       console.error('Download PDF error:', err);
     } finally {
       setIsDownloadingPdf(false);
+    }
+  };
+
+  // Scope item handlers (persist to database via API)
+  const handleAddScopeItem = async (item: {
+    code: string;
+    description: string;
+    category?: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    roomName?: string;
+  }) => {
+    if (!params?.id) return;
+    
+    setSavingScopeItem(true);
+    try {
+      const newItem = await addScopeItem(params.id, {
+        lineItemCode: item.code,
+        description: item.description,
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        roomName: item.roomName,
+      });
+      setScopeItems(prev => [...prev, newItem]);
+      toast.success('Line item added');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add line item';
+      toast.error(errorMessage);
+    } finally {
+      setSavingScopeItem(false);
+    }
+  };
+
+  const handleUpdateScopeItem = async (itemId: string, data: { quantity?: number; notes?: string }) => {
+    try {
+      const updated = await apiUpdateScopeItem(itemId, data);
+      setScopeItems(prev => prev.map(item => item.id === itemId ? updated : item));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update line item';
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleDeleteScopeItem = async (itemId: string) => {
+    try {
+      await apiDeleteScopeItem(itemId);
+      setScopeItems(prev => prev.filter(item => item.id !== itemId));
+      toast.success('Line item removed');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete line item';
+      toast.error(errorMessage);
     }
   };
 
@@ -422,7 +485,7 @@ export default function ClaimDetail() {
   };
 
   const handleGenerateEstimate = async () => {
-    if ((claim.lineItems || []).length === 0) {
+    if (scopeItems.length === 0) {
       setIsEstimateSettingsOpen(true);
       return;
     }
@@ -640,7 +703,7 @@ export default function ClaimDetail() {
   }, [estimateBuilder.hierarchy]);
 
   // Calculate display totals - use API result if available, otherwise use local subtotal
-  const localSubtotal = (claim?.lineItems || []).reduce((sum, item) => sum + item.total, 0);
+  const localSubtotal = scopeItems.reduce((sum, item) => sum + item.total, 0);
   const displaySubtotal = calculatedEstimate?.subtotal ?? localSubtotal;
   const displayOverhead = calculatedEstimate?.overheadAmount ?? (localSubtotal * (estimateSettings.overheadPct / 100));
   const displayProfit = calculatedEstimate?.profitAmount ?? (localSubtotal * (estimateSettings.profitPct / 100));
@@ -808,7 +871,7 @@ export default function ClaimDetail() {
             <Button
               size="sm"
               onClick={handleGenerateEstimate}
-              disabled={isCalculating || (claim.lineItems || []).length === 0}
+              disabled={isCalculating || scopeItems.length === 0}
             >
               {isCalculating ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1886,7 +1949,7 @@ export default function ClaimDetail() {
                               <div className="col-span-1"></div>
                             </div>
 
-                            {(claim.lineItems || []).length === 0 ? (
+                            {scopeItems.length === 0 ? (
                               <div className="p-8 text-center text-muted-foreground">
                                 <ClipboardList className="h-12 w-12 text-slate-300 mx-auto mb-3" />
                                 <p>No line items added yet.</p>
@@ -1894,9 +1957,9 @@ export default function ClaimDetail() {
                               </div>
                             ) : (
                               <div className="divide-y">
-                                {(claim?.lineItems || []).map((item) => (
+                                {scopeItems.map((item) => (
                                   <div key={item.id} className="grid grid-cols-12 gap-2 md:gap-4 p-4 text-sm items-center hover:bg-slate-50 group">
-                                    <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.code}</div>
+                                    <div className="col-span-3 md:col-span-2 font-mono text-slate-600 text-xs md:text-sm">{item.lineItemCode}</div>
                                     <div className="col-span-4 md:col-span-3">
                                       <p className="font-medium truncate">{item.description}</p>
                                       <p className="text-xs text-muted-foreground">{item.category}</p>
@@ -1908,19 +1971,20 @@ export default function ClaimDetail() {
                                           variant="ghost"
                                           className="h-8 w-8 p-0 rounded-r-none"
                                           onClick={() => {
-                                            const newQty = Math.max(1, item.quantity - 1);
-                                            updateLineItem(claim.id, item.id, { quantity: newQty, total: newQty * item.unitPrice });
+                                            const newQty = Math.max(0.01, item.quantity - 1);
+                                            handleUpdateScopeItem(item.id, { quantity: newQty });
                                           }}
                                         >
                                           -
                                         </Button>
                                         <Input
                                           type="number"
-                                          min="1"
+                                          min="0.01"
+                                          step="any"
                                           value={item.quantity}
                                           onChange={(e) => {
-                                            const newQty = Math.max(1, Number(e.target.value) || 1);
-                                            updateLineItem(claim.id, item.id, { quantity: newQty, total: newQty * item.unitPrice });
+                                            const newQty = Math.max(0.01, Number(e.target.value) || 1);
+                                            handleUpdateScopeItem(item.id, { quantity: newQty });
                                           }}
                                           className="h-8 w-14 text-center border-0 rounded-none focus-visible:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                         />
@@ -1930,7 +1994,7 @@ export default function ClaimDetail() {
                                           className="h-8 w-8 p-0 rounded-l-none"
                                           onClick={() => {
                                             const newQty = item.quantity + 1;
-                                            updateLineItem(claim.id, item.id, { quantity: newQty, total: newQty * item.unitPrice });
+                                            handleUpdateScopeItem(item.id, { quantity: newQty });
                                           }}
                                         >
                                           +
@@ -1948,7 +2012,7 @@ export default function ClaimDetail() {
                                         size="sm"
                                         variant="ghost"
                                         className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                                        onClick={() => deleteLineItem(claim.id, item.id)}
+                                        onClick={() => handleDeleteScopeItem(item.id)}
                                       >
                                         <Trash2 className="h-4 w-4" />
                                       </Button>
@@ -2030,14 +2094,12 @@ export default function ClaimDetail() {
                   <VoiceScopeController
                     onClose={() => setIsVoiceScopeOpen(false)}
                     onLineItemAdded={(item) => {
-                      addLineItem(claim.id, {
-                        id: `li${Date.now()}`,
+                      handleAddScopeItem({
                         code: item.code,
                         description: item.description,
                         quantity: item.quantity,
                         unit: item.unit,
                         unitPrice: 0,
-                        total: 0,
                         category: "Voice Added",
                       });
                     }}
@@ -2046,17 +2108,17 @@ export default function ClaimDetail() {
 
                 {/* Mobile Line Items */}
                 <div className="space-y-2">
-                  {(claim.lineItems || []).length === 0 ? (
+                  {scopeItems.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <ClipboardList className="h-10 w-10 text-slate-300 mx-auto mb-2" />
                       <p>No line items yet</p>
                     </div>
                   ) : (
-                    (claim.lineItems || []).map((item) => (
+                    scopeItems.map((item) => (
                       <div key={item.id} className="bg-white border rounded-lg p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <span className="font-mono text-xs text-slate-500">{item.code}</span>
+                            <span className="font-mono text-xs text-slate-500">{item.lineItemCode}</span>
                             <p className="font-medium text-sm truncate">{item.description}</p>
                           </div>
                           <Badge variant="outline">{item.quantity} {item.unit}</Badge>
@@ -2198,9 +2260,9 @@ export default function ClaimDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {(claim?.lineItems || []).map((item) => (
+                        {scopeItems.map((item) => (
                           <tr key={item.id}>
-                            <td className="py-3 font-mono text-slate-600">{item.code}</td>
+                            <td className="py-3 font-mono text-slate-600">{item.lineItemCode}</td>
                             <td className="py-3">{item.description}</td>
                             <td className="py-3 text-right">{item.quantity}</td>
                             <td className="py-3 text-right">{item.unit}</td>
@@ -2290,12 +2352,13 @@ export default function ClaimDetail() {
         isOpen={isLineItemPickerOpen}
         onClose={() => setIsLineItemPickerOpen(false)}
         onSelect={(item) => {
-          const qty = item.quantity ?? 1;
-          addLineItem(claim.id, {
-            ...item,
-            quantity: qty,
-            total: item.unitPrice * qty,
-            id: `li${Date.now()}`
+          handleAddScopeItem({
+            code: item.code,
+            description: item.description,
+            category: item.category,
+            quantity: item.quantity ?? 1,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
           });
           setIsLineItemPickerOpen(false);
         }}
@@ -2618,7 +2681,7 @@ export default function ClaimDetail() {
                   setActiveTab("estimate");
                 }
               }}
-              disabled={isCalculating || (claim.lineItems || []).length === 0}
+              disabled={isCalculating || scopeItems.length === 0}
             >
               {isCalculating ? (
                 <>

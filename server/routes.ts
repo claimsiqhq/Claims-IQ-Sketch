@@ -125,6 +125,10 @@ import {
   getCoverages,
   updateLineItemCoverage,
   getLineItemsByCoverage,
+  addScopeItemToClaim,
+  getScopeItemsForClaim,
+  updateScopeItem,
+  deleteScopeItem,
 } from "./services/estimateHierarchy";
 
 // Configure multer for file uploads (memory storage for processing)
@@ -2577,6 +2581,73 @@ export async function registerRoutes(
       
       const result = await getClaimRoomsAndZones(req.params.id);
       res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // CLAIM SCOPE ITEMS (uses estimate infrastructure)
+  // ============================================
+
+  // Get scope items for a claim
+  app.get('/api/claims/:id/scope-items', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const items = await getScopeItemsForClaim(req.params.id);
+      res.json(items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Add scope item to claim
+  app.post('/api/claims/:id/scope-items', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes } = req.body;
+      
+      if (!lineItemCode || !description || !quantity || !unit || unitPrice === undefined) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: lineItemCode, description, quantity, unit, unitPrice' 
+        });
+      }
+
+      const item = await addScopeItemToClaim(
+        req.params.id,
+        req.organizationId!,
+        { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes }
+      );
+      res.status(201).json(item);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Update scope item
+  app.patch('/api/scope-items/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { quantity, notes } = req.body;
+      const item = await updateScopeItem(req.params.id, { quantity, notes });
+      if (!item) {
+        return res.status(404).json({ error: 'Scope item not found' });
+      }
+      res.json(item);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete scope item
+  app.delete('/api/scope-items/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const success = await deleteScopeItem(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Scope item not found' });
+      }
+      res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
