@@ -47,7 +47,12 @@ import {
   DollarSign,
   LayoutGrid,
   Check,
-  Play
+  Play,
+  Lock,
+  FileDown,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle
 } from "lucide-react";
 import {
   useEstimateBuilder,
@@ -63,7 +68,23 @@ import {
   type AddLineItemInput,
 } from "@/hooks/useEstimateBuilder";
 import { Link, useLocation } from "wouter";
-import { getClaim, getClaimDocuments, getClaimEndorsements, uploadDocument, getDocumentDownloadUrl, deleteClaim, type Claim, type Document, type Endorsement } from "@/lib/api";
+import {
+  getClaim,
+  getClaimDocuments,
+  getClaimEndorsements,
+  uploadDocument,
+  getDocumentDownloadUrl,
+  deleteClaim,
+  submitEstimate,
+  downloadEstimatePdf,
+  getEstimateLockStatus,
+  type Claim,
+  type Document,
+  type Endorsement,
+  type SubmissionResult,
+  type ValidationIssue,
+  type EstimateLockStatus,
+} from "@/lib/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -143,6 +164,17 @@ export default function ClaimDetail() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Estimate finalization state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [estimateLockStatus, setEstimateLockStatus] = useState<EstimateLockStatus | null>(null);
+  const [validationErrors, setValidationErrors] = useState<ValidationIssue[]>([]);
+  const [validationWarnings, setValidationWarnings] = useState<ValidationIssue[]>([]);
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
+
+  // Derived lock state
+  const isEstimateLocked = estimateLockStatus?.isLocked || false;
+
   // Initialize estimate builder hook with claim id as estimate id
   const estimateBuilder = useEstimateBuilder(params?.id || "");
 
@@ -184,6 +216,80 @@ export default function ClaimDetail() {
   useEffect(() => {
     loadApiData();
   }, [loadApiData]);
+
+  // Load estimate lock status
+  const loadLockStatus = useCallback(async () => {
+    if (!params?.id) return;
+    try {
+      const status = await getEstimateLockStatus(params.id);
+      setEstimateLockStatus(status);
+    } catch (err) {
+      // Estimate may not exist yet - that's ok
+      console.log('Could not load lock status:', err);
+    }
+  }, [params?.id]);
+
+  useEffect(() => {
+    loadLockStatus();
+  }, [loadLockStatus]);
+
+  // Handle estimate finalization (submit)
+  const handleFinalizeEstimate = async () => {
+    if (!params?.id || isSubmitting || isEstimateLocked) return;
+
+    setIsSubmitting(true);
+    setValidationErrors([]);
+    setValidationWarnings([]);
+
+    try {
+      const result = await submitEstimate(params.id);
+
+      if (result.success) {
+        // Success - estimate is now locked
+        toast.success(result.message);
+        setEstimateLockStatus({
+          isLocked: true,
+          status: result.status,
+          submittedAt: result.submittedAt,
+        });
+
+        // Show any warnings
+        if (result.validation.warnings.length > 0) {
+          setValidationWarnings(result.validation.warnings);
+          setShowValidationDialog(true);
+        }
+      } else {
+        // Validation errors - show them
+        setValidationErrors(result.validation.errors);
+        setValidationWarnings(result.validation.warnings);
+        setShowValidationDialog(true);
+        toast.error(`Submission blocked: ${result.validation.errorCount} error(s)`);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to submit estimate';
+      toast.error(errorMessage);
+      console.error('Finalize estimate error:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle PDF download
+  const handleDownloadPdf = async () => {
+    if (!params?.id || isDownloadingPdf) return;
+
+    setIsDownloadingPdf(true);
+    try {
+      await downloadEstimatePdf(params.id);
+      toast.success('PDF downloaded successfully');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to download PDF';
+      toast.error(errorMessage);
+      console.error('Download PDF error:', err);
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
 
   // Handle document upload
   const handleDocumentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1376,6 +1482,8 @@ export default function ClaimDetail() {
                                                 setSelectedAreaForNewZone(area.id);
                                                 setIsAddZoneDialogOpen(true);
                                               }}
+                                              disabled={isEstimateLocked}
+                                              title={isEstimateLocked ? "Estimate is finalized" : undefined}
                                             >
                                               <Plus className="h-3 w-3 mr-2" />
                                               Add Zone
@@ -1453,7 +1561,12 @@ export default function ClaimDetail() {
                             <Mic className="h-4 w-4 mr-2" />
                             Voice
                           </Button>
-                          <Button size="sm" onClick={() => setIsLineItemPickerOpen(true)}>
+                          <Button
+                            size="sm"
+                            onClick={() => setIsLineItemPickerOpen(true)}
+                            disabled={isEstimateLocked}
+                            title={isEstimateLocked ? "Estimate is finalized" : undefined}
+                          >
                             <Plus className="h-4 w-4 mr-2" />
                             Add Item
                           </Button>
@@ -1787,7 +1900,11 @@ export default function ClaimDetail() {
                     >
                       <Mic className="h-4 w-4" />
                     </Button>
-                    <Button size="sm" onClick={() => setIsLineItemPickerOpen(true)}>
+                    <Button
+                      size="sm"
+                      onClick={() => setIsLineItemPickerOpen(true)}
+                      disabled={isEstimateLocked}
+                    >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
@@ -1860,11 +1977,72 @@ export default function ClaimDetail() {
 
             {/* TAB: ESTIMATE */}
             <TabsContent value="estimate" className="h-full p-4 md:p-6 m-0 overflow-auto">
+              {/* Estimate Actions Bar */}
+              <div className="max-w-4xl mx-auto mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-slate-50 rounded-lg border">
+                  <div className="flex items-center gap-2">
+                    {isEstimateLocked ? (
+                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                        <Lock className="h-3 w-3 mr-1" />
+                        Finalized
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">
+                        Draft
+                      </Badge>
+                    )}
+                    {estimateLockStatus?.submittedAt && (
+                      <span className="text-sm text-muted-foreground">
+                        Submitted {formatDistanceToNow(new Date(estimateLockStatus.submittedAt), { addSuffix: true })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Download PDF button - always visible */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadPdf}
+                      disabled={isDownloadingPdf}
+                    >
+                      {isDownloadingPdf ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <FileDown className="h-4 w-4 mr-2" />
+                      )}
+                      Download PDF
+                    </Button>
+
+                    {/* Finalize button - only if not locked */}
+                    {!isEstimateLocked && (
+                      <Button
+                        onClick={handleFinalizeEstimate}
+                        disabled={isSubmitting}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                        )}
+                        Finalize Estimate
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="max-w-4xl mx-auto bg-white p-4 md:p-8 shadow-sm border min-h-[800px]">
                 <div className="flex flex-col md:flex-row justify-between items-start mb-8 md:mb-12 gap-4">
                   <div>
                     <h1 className="text-2xl md:text-3xl font-display font-bold text-primary mb-2">ESTIMATE</h1>
                     <p className="text-muted-foreground">Created: {new Date().toLocaleDateString()}</p>
+                    {isEstimateLocked && (
+                      <p className="text-sm text-green-600 font-medium mt-1">
+                        <Lock className="h-3 w-3 inline mr-1" />
+                        This estimate has been finalized
+                      </p>
+                    )}
                   </div>
                   <div className="text-left md:text-right">
                     <h2 className="text-xl font-bold">Claims IQ</h2>
@@ -2333,6 +2511,95 @@ export default function ClaimDetail() {
               ) : (
                 'Generate Estimate'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Validation Results Dialog */}
+      <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {validationErrors.length > 0 ? (
+                <>
+                  <XCircle className="h-5 w-5 text-red-500" />
+                  Validation Errors
+                </>
+              ) : validationWarnings.length > 0 ? (
+                <>
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  Estimate Submitted with Warnings
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  Validation Results
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {validationErrors.length > 0
+                ? `${validationErrors.length} error(s) must be resolved before submission.`
+                : validationWarnings.length > 0
+                ? `Your estimate has been submitted successfully. Please review ${validationWarnings.length} warning(s).`
+                : 'Validation complete.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Errors */}
+            {validationErrors.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-semibold text-red-600 flex items-center gap-2">
+                  <XCircle className="h-4 w-4" />
+                  Errors ({validationErrors.length})
+                </h4>
+                <div className="space-y-2">
+                  {validationErrors.map((error, idx) => (
+                    <div key={idx} className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="font-medium text-red-800">{error.message}</p>
+                      {error.details && (
+                        <p className="text-sm text-red-600 mt-1">{error.details}</p>
+                      )}
+                      {error.suggestion && (
+                        <p className="text-sm text-red-700 mt-2 italic">
+                          Suggestion: {error.suggestion}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Warnings */}
+            {validationWarnings.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-semibold text-amber-600 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  Warnings ({validationWarnings.length})
+                </h4>
+                <div className="space-y-2">
+                  {validationWarnings.map((warning, idx) => (
+                    <div key={idx} className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="font-medium text-amber-800">{warning.message}</p>
+                      {warning.details && (
+                        <p className="text-sm text-amber-600 mt-1">{warning.details}</p>
+                      )}
+                      {warning.suggestion && (
+                        <p className="text-sm text-amber-700 mt-2 italic">
+                          Suggestion: {warning.suggestion}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowValidationDialog(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

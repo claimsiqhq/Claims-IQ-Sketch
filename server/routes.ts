@@ -34,6 +34,17 @@ import {
   generateEsxXml,
   generateCsvExport
 } from "./services/reportGenerator";
+import { generateEstimatePdf, isPdfGenerationAvailable } from "./services/pdfGenerator";
+import {
+  submitEstimate,
+  validateEstimateForSubmission,
+  assertEstimateNotLocked,
+  getEstimateLockStatus,
+  getEstimateIdFromZone,
+  getEstimateIdFromLineItem,
+  getEstimateIdFromStructure,
+  getEstimateIdFromArea,
+} from "./services/estimateSubmission";
 import { passport, requireAuth } from "./middleware/auth";
 import { updateUserProfile, changeUserPassword } from "./services/auth";
 import { tenantMiddleware, requireOrganization, requireOrgRole, requireSuperAdmin } from "./middleware/tenant";
@@ -773,11 +784,16 @@ export async function registerRoutes(
   // Update estimate
   app.put('/api/estimates/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      await assertEstimateNotLocked(req.params.id);
+
       const updatedEstimate = await updateEstimate(req.params.id, req.body);
       res.json(updatedEstimate);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else if (message.includes('not found')) {
         res.status(404).json({ error: message });
       } else {
         res.status(500).json({ error: message });
@@ -788,6 +804,9 @@ export async function registerRoutes(
   // Add line item to estimate
   app.post('/api/estimates/:id/line-items', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      await assertEstimateNotLocked(req.params.id);
+
       const { lineItemCode, quantity, notes, roomName } = req.body;
       if (!lineItemCode || !quantity) {
         return res.status(400).json({
@@ -801,7 +820,9 @@ export async function registerRoutes(
       res.json(updatedEstimate);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else if (message.includes('not found')) {
         res.status(404).json({ error: message });
       } else {
         res.status(500).json({ error: message });
@@ -812,11 +833,80 @@ export async function registerRoutes(
   // Remove line item from estimate
   app.delete('/api/estimates/:id/line-items/:code', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      await assertEstimateNotLocked(req.params.id);
+
       const updatedEstimate = await removeLineItemFromEstimate(
         req.params.id,
         req.params.code
       );
       res.json(updatedEstimate);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // ============================================
+  // ESTIMATE SUBMISSION/FINALIZATION ROUTES
+  // ============================================
+
+  // Submit estimate for review (finalize)
+  app.post('/api/estimates/:id/submit', requireAuth, async (req, res) => {
+    try {
+      const result = await submitEstimate(req.params.id);
+
+      if (!result.success) {
+        // Validation errors block submission
+        return res.status(400).json(result);
+      }
+
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Validate estimate before submission (preview)
+  app.get('/api/estimates/:id/validate', requireAuth, async (req, res) => {
+    try {
+      const result = await validateEstimateForSubmission(req.params.id);
+
+      res.json({
+        isValid: result.isValid,
+        errorCount: result.errorCount,
+        warningCount: result.warningCount,
+        infoCount: result.infoCount,
+        errors: result.issues.filter(i => i.severity === 'error'),
+        warnings: result.issues.filter(i => i.severity === 'warning'),
+        info: result.issues.filter(i => i.severity === 'info'),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Get estimate lock status
+  app.get('/api/estimates/:id/lock-status', requireAuth, async (req, res) => {
+    try {
+      const status = await getEstimateLockStatus(req.params.id);
+      res.json(status);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('not found')) {
@@ -1223,8 +1313,54 @@ export async function registerRoutes(
   // REPORT & EXPORT ROUTES
   // ============================================
 
-  // Generate PDF report (returns HTML for PDF conversion)
+  // Generate PDF report (returns real PDF if Puppeteer available, HTML otherwise)
   app.get('/api/estimates/:id/report/pdf', async (req, res) => {
+    try {
+      const options = {
+        includeLineItemDetails: req.query.includeLineItems !== 'false',
+        includeDepreciation: req.query.includeDepreciation !== 'false',
+        includeCoverageSummary: req.query.includeCoverage !== 'false',
+        companyName: req.query.companyName as string,
+      };
+
+      // Check if client wants HTML only (for preview)
+      const htmlOnly = req.query.format === 'html';
+
+      if (htmlOnly) {
+        // Return HTML for preview
+        const html = await generatePdfReport(req.params.id, options);
+        res.setHeader('Content-Type', 'text/html');
+        res.send(html);
+        return;
+      }
+
+      // Try to generate real PDF
+      const pdfAvailable = await isPdfGenerationAvailable();
+
+      if (pdfAvailable) {
+        const pdfBuffer = await generateEstimatePdf(req.params.id, options);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.pdf"`);
+        res.send(pdfBuffer);
+      } else {
+        // Fallback to HTML with instructions
+        const html = await generatePdfReport(req.params.id, options);
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('X-PDF-Fallback', 'true');
+        res.send(html);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Get HTML report preview
+  app.get('/api/estimates/:id/report/html', async (req, res) => {
     try {
       const options = {
         includeLineItemDetails: req.query.includeLineItems !== 'false',
@@ -1342,6 +1478,9 @@ export async function registerRoutes(
   // Recalculate estimate totals
   app.post('/api/estimates/:id/recalculate', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      await assertEstimateNotLocked(req.params.id);
+
       const { pool } = await import('./db');
       const client = await pool.connect();
       try {
@@ -1353,7 +1492,11 @@ export async function registerRoutes(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1364,6 +1507,9 @@ export async function registerRoutes(
   // Create structure
   app.post('/api/estimates/:id/structures', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      await assertEstimateNotLocked(req.params.id);
+
       const structure = await createStructure({
         estimateId: req.params.id,
         ...req.body,
@@ -1371,7 +1517,11 @@ export async function registerRoutes(
       res.status(201).json(structure);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1392,6 +1542,12 @@ export async function registerRoutes(
   // Update structure
   app.put('/api/structures/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromStructure(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const structure = await updateStructure(req.params.id, req.body);
       if (!structure) {
         return res.status(404).json({ error: 'Structure not found' });
@@ -1399,13 +1555,23 @@ export async function registerRoutes(
       res.json(structure);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
   // Delete structure
   app.delete('/api/structures/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromStructure(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const success = await deleteStructure(req.params.id);
       if (!success) {
         return res.status(404).json({ error: 'Structure not found' });
@@ -1413,7 +1579,11 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1424,6 +1594,12 @@ export async function registerRoutes(
   // Create area in structure
   app.post('/api/structures/:id/areas', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromStructure(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const area = await createArea({
         structureId: req.params.id,
         ...req.body,
@@ -1431,7 +1607,11 @@ export async function registerRoutes(
       res.status(201).json(area);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1452,6 +1632,12 @@ export async function registerRoutes(
   // Update area
   app.put('/api/areas/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromArea(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const area = await updateArea(req.params.id, req.body);
       if (!area) {
         return res.status(404).json({ error: 'Area not found' });
@@ -1459,13 +1645,23 @@ export async function registerRoutes(
       res.json(area);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
   // Delete area
   app.delete('/api/areas/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromArea(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const success = await deleteArea(req.params.id);
       if (!success) {
         return res.status(404).json({ error: 'Area not found' });
@@ -1473,7 +1669,11 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1484,6 +1684,12 @@ export async function registerRoutes(
   // Create zone in area
   app.post('/api/areas/:id/zones', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromArea(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const zone = await createZone({
         areaId: req.params.id,
         ...req.body,
@@ -1491,7 +1697,11 @@ export async function registerRoutes(
       res.status(201).json(zone);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1526,6 +1736,12 @@ export async function registerRoutes(
   // Update zone
   app.put('/api/zones/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromZone(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const zone = await updateZone(req.params.id, req.body);
       if (!zone) {
         return res.status(404).json({ error: 'Zone not found' });
@@ -1533,24 +1749,44 @@ export async function registerRoutes(
       res.json(zone);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
   // Recalculate zone dimensions
   app.post('/api/zones/:id/calculate-dimensions', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromZone(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const dimensions = await recalculateZoneDimensions(req.params.id);
       res.json({ dimensions });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
   // Delete zone
   app.delete('/api/zones/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromZone(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const success = await deleteZone(req.params.id);
       if (!success) {
         return res.status(404).json({ error: 'Zone not found' });
@@ -1558,7 +1794,11 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
@@ -1689,6 +1929,12 @@ export async function registerRoutes(
   // Add line item to zone
   app.post('/api/zones/:id/line-items', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromZone(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const { lineItemCode, quantity } = req.body;
       if (!lineItemCode || !quantity) {
         return res.status(400).json({ error: 'lineItemCode and quantity required' });
@@ -1698,7 +1944,9 @@ export async function registerRoutes(
       res.status(201).json(zone);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else if (message.includes('not found')) {
         res.status(404).json({ error: message });
       } else {
         res.status(500).json({ error: message });
@@ -1709,6 +1957,12 @@ export async function registerRoutes(
   // Delete line item from zone
   app.delete('/api/line-items/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromLineItem(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const { pool } = await import('./db');
       const client = await pool.connect();
       try {
@@ -1725,13 +1979,23 @@ export async function registerRoutes(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (message.includes('finalized')) {
+        res.status(403).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
   // Update line item
   app.put('/api/line-items/:id', requireAuth, async (req, res) => {
     try {
+      // Check if estimate is locked
+      const estimateId = await getEstimateIdFromLineItem(req.params.id);
+      if (estimateId) {
+        await assertEstimateNotLocked(estimateId);
+      }
+
       const { pool } = await import('./db');
       const client = await pool.connect();
       try {

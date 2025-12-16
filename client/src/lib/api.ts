@@ -342,6 +342,121 @@ export async function getEstimate(id: string): Promise<SavedEstimate> {
   return response.json();
 }
 
+// ============================================
+// ESTIMATE SUBMISSION & FINALIZATION API
+// ============================================
+
+export interface ValidationIssue {
+  code: string;
+  severity: 'error' | 'warning' | 'info';
+  category: string;
+  message: string;
+  details?: string;
+  suggestion?: string;
+  relatedItems?: string[];
+  zoneId?: string;
+  zoneName?: string;
+}
+
+export interface SubmissionResult {
+  success: boolean;
+  estimateId: string;
+  status: string;
+  submittedAt?: string;
+  isLocked: boolean;
+  validation: {
+    isValid: boolean;
+    errorCount: number;
+    warningCount: number;
+    errors: ValidationIssue[];
+    warnings: ValidationIssue[];
+  };
+  message: string;
+}
+
+export interface EstimateLockStatus {
+  isLocked: boolean;
+  status: string;
+  submittedAt?: string;
+}
+
+export async function submitEstimate(estimateId: string): Promise<SubmissionResult> {
+  const response = await fetch(`${API_BASE}/estimates/${estimateId}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok && response.status !== 400) {
+    throw new Error(data.error || 'Failed to submit estimate');
+  }
+
+  return data;
+}
+
+export async function validateEstimate(estimateId: string): Promise<{
+  isValid: boolean;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  info: ValidationIssue[];
+}> {
+  const response = await fetch(`${API_BASE}/estimates/${estimateId}/validate`);
+  if (!response.ok) {
+    throw new Error('Failed to validate estimate');
+  }
+  return response.json();
+}
+
+export async function getEstimateLockStatus(estimateId: string): Promise<EstimateLockStatus> {
+  const response = await fetch(`${API_BASE}/estimates/${estimateId}/lock-status`);
+  if (!response.ok) {
+    throw new Error('Failed to get lock status');
+  }
+  return response.json();
+}
+
+export function getEstimatePdfUrl(estimateId: string): string {
+  return `${API_BASE}/estimates/${estimateId}/report/pdf`;
+}
+
+export function getEstimateHtmlUrl(estimateId: string): string {
+  return `${API_BASE}/estimates/${estimateId}/report/html`;
+}
+
+export async function downloadEstimatePdf(estimateId: string): Promise<void> {
+  const url = getEstimatePdfUrl(estimateId);
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error('Failed to download PDF');
+  }
+
+  const contentType = response.headers.get('content-type');
+  const blob = await response.blob();
+
+  // Create download link
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+
+  // Set filename based on content type
+  if (contentType?.includes('application/pdf')) {
+    link.download = `estimate-${estimateId}.pdf`;
+  } else {
+    // HTML fallback
+    link.download = `estimate-${estimateId}.html`;
+  }
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
 export async function listEstimates(params?: {
   status?: string;
   claimId?: string;
