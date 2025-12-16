@@ -1019,8 +1019,9 @@ function drawDimensionLine(
   
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
   if (isVertical) {
+    const labelNudge = Math.sign(offset) * (tickLength / 2 + 4);
     ctx.save();
-    ctx.translate(labelX, labelY);
+    ctx.translate(labelX + labelNudge, labelY);
     ctx.rotate(-Math.PI / 2);
     ctx.fillRect(-textWidth/2 - 3, -6, textWidth + 6, 12);
     ctx.fillStyle = color;
