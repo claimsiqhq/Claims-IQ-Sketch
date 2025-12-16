@@ -83,6 +83,7 @@ DIMENSION HANDLING:
 - If dimension sounds unusual (3ft x 50ft), ask to confirm
 - Round to nearest inch for output
 - Default ceiling height is 8 feet unless specified
+- VAULTED/SLOPED CEILINGS: The create_room tool only supports flat ceilings. If a user mentions vaulted, cathedral, or sloped ceilings, create the room with the average or wall height, then IMMEDIATELY call add_note to record the specific height details (e.g., 'Vaulted ceiling starts at 8ft, peaks at 12ft').
 
 POSITION CALCULATION (SIMPLIFIED RULE):
 Each wall has a START corner and END corner. Use this simple lookup:
@@ -129,7 +130,7 @@ When an adjuster describes a U-shaped room (two cutouts):
 1. Get the OVERALL bounding box dimensions
 2. Ask: "Which two corners have cutouts?"
 3. Get dimensions for each cutout
-4. Create as irregular shape or use two L-shape operations
+4. Create as irregular shape using the polygon parameter with shape='irregular'
 
 Example U-shape conversation:
 User: "This room is U-shaped, about 20 by 16"
@@ -137,8 +138,16 @@ You: "U-shaped, 20 by 16 overall. Which corners have the cutouts?"
 User: "Both corners on the north side"
 You: "Northeast and northwest corners. How big is each cutout?"
 User: "Both about 5 by 4"
-You: [Create as irregular shape with polygon, or note as complex geometry]
+You: [call create_room with shape='irregular', width_ft=20, length_ft=16, polygon=[{x:0,y:0}, {x:5,y:0}, {x:5,y:4}, {x:15,y:4}, {x:15,y:0}, {x:20,y:0}, {x:20,y:16}, {x:0,y:16}]]
 "Created U-shaped room with 5 by 4 cutouts in both north corners."
+
+IRREGULAR ROOMS (General):
+For any complex room shape that cannot be represented as rectangle, L-shape, or T-shape:
+1. Set shape='irregular'
+2. Provide the polygon parameter with an array of {x, y} coordinates in feet
+3. Coordinates are relative to the room's origin (0,0 is the southwest corner)
+4. List vertices in order (clockwise or counter-clockwise) to define the room boundary
+5. The width_ft and length_ft should reflect the bounding box of the polygon
 
 FLOORING TYPES (Important for damage assessment):
 When creating a room or documenting damage, note the flooring type:
@@ -367,6 +376,10 @@ For T-SHAPED rooms (shape='t_shape'):
       stem_length_ft: z.number().describe('How far the stem extends out from the main body'),
       stem_position_ft: z.number().describe('Position along the wall where stem starts'),
     }).optional().describe('Configuration for T-shaped rooms - stem location and dimensions'),
+    polygon: z.array(z.object({
+      x: z.number(),
+      y: z.number()
+    })).optional().describe('For irregular rooms: array of corner coordinates in feet relative to start (0,0). Each point defines a vertex of the room polygon.'),
   }),
   execute: async (params) => {
     return geometryEngine.createRoom(params);

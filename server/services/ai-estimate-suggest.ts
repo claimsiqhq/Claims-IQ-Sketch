@@ -132,12 +132,13 @@ IMPORTANT GUIDELINES:
 5. Group items by room/damage zone
 6. Consider IICRC S500/S520 standards for water/mold
 7. Include equipment charges (dehumidifiers, air movers) by the day
+8. DO NOT estimate or invent unit prices. Focus ONLY on accurate quantities and identifying the correct line item codes. Pricing will be applied separately based on regional pricing databases.
 
 Return your response as a valid JSON object with this exact structure:
 {
   "suggestions": [
     {
-      "lineItemCode": "string",
+      "lineItemCode": "string (MUST be from the available line items list)",
       "description": "string",
       "category": "string",
       "quantity": number,
