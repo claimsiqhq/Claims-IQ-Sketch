@@ -738,16 +738,17 @@ export async function createClaimFromDocuments(
       reasoning: perilInference.inferenceReasoning
     });
 
-    // Create claim with NEW database schema (post migration 009 - peril parity)
+    // Create claim with correct database schema columns
     const claimResult = await client.query(
       `INSERT INTO claims (
-        organization_id, claim_id, policyholder,
-        date_of_loss, risk_location, cause_of_loss, loss_description,
-        policy_number, state, year_roof_install, wind_hail_deductible,
+        organization_id, claim_number, insured_name,
+        date_of_loss, property_address, property_city, property_state, property_zip,
+        loss_type, loss_description,
+        policy_number, year_roof_install, wind_hail_deductible,
         dwelling_limit, endorsements_listed,
         primary_peril, secondary_perils, peril_confidence, peril_metadata,
         status, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING id`,
       [
         organizationId,
@@ -755,10 +756,12 @@ export async function createClaimFromDocuments(
         claimData.policyholder || null,
         claimData.dateOfLoss || null,
         claimData.riskLocation || null,
+        null,
+        state,
+        null,
         claimData.causeOfLoss || null,
         claimData.lossDescription || null,
         policyNumber,
-        state,
         yearRoofInstall,
         windHailDeductible,
         dwellingLimit,
@@ -770,7 +773,7 @@ export async function createClaimFromDocuments(
         'fnol',
         JSON.stringify({
           extractedFrom: documentIds,
-          // Store additional rich data in metadata
+          riskLocation: claimData.riskLocation,
           policyholderSecondary: claimData.policyholderSecondary,
           contactPhone: claimData.contactPhone,
           contactEmail: claimData.contactEmail,
@@ -783,7 +786,6 @@ export async function createClaimFromDocuments(
           endorsementDetails: claimData.endorsementDetails,
           mortgagee: claimData.mortgagee,
           producer: claimData.producer,
-          // Peril inference details for debugging/auditing
           perilInferenceReasoning: perilInference.inferenceReasoning,
         })
       ]
