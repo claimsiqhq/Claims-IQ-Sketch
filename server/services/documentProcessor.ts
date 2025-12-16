@@ -664,45 +664,54 @@ export async function createClaimFromDocuments(
     const policyDetails = claimData.policyDetails || {};
     const policyNumber = claimData.policyNumber || policyDetails.policyNumber || null;
     const dwellingLimit = claimData.dwellingLimit || policyDetails.dwellingLimit || null;
+    const state = claimData.state || policyDetails.state || null;
+    const yearRoofInstall = claimData.yearRoofInstall || policyDetails.yearRoofInstall || null;
+    const windHailDeductible = claimData.windHailDeductible || policyDetails.windHailDeductible || null;
+    const endorsementsListed = claimData.endorsementsListed || policyDetails.endorsementsListed || [];
 
-    // Parse address from riskLocation if present
-    let propertyAddress = claimData.riskLocation || null;
-    let propertyCity = null;
-    let propertyState = claimData.state || policyDetails.state || null;
-    let propertyZip = null;
+    // Generate claim ID if not provided
+    const generatedClaimId = claimData.claimId || await generateClaimId(client, organizationId);
 
-    // Generate claim number if not provided
-    const generatedClaimNumber = claimData.claimId || await generateClaimId(client, organizationId);
-
-    // Create claim with correct database schema
+    // Create claim with NEW database schema (post migration 005)
     const claimResult = await client.query(
       `INSERT INTO claims (
-        organization_id, claim_number, insured_name,
-        date_of_loss, property_address, property_city, property_state, property_zip,
-        loss_type, loss_description,
-        policy_number, coverage_a,
+        organization_id, claim_id, policyholder,
+        date_of_loss, risk_location, cause_of_loss, loss_description,
+        policy_number, state, year_roof_install, wind_hail_deductible,
+        dwelling_limit, endorsements_listed,
         status, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING id`,
       [
         organizationId,
-        generatedClaimNumber,
+        generatedClaimId,
         claimData.policyholder || null,
         claimData.dateOfLoss || null,
-        propertyAddress,
-        propertyCity,
-        propertyState,
-        propertyZip,
+        claimData.riskLocation || null,
         claimData.causeOfLoss || null,
         claimData.lossDescription || null,
         policyNumber,
+        state,
+        yearRoofInstall,
+        windHailDeductible,
         dwellingLimit,
+        JSON.stringify(endorsementsListed),
         'fnol',
         JSON.stringify({
           extractedFrom: documentIds,
-          yearRoofInstall: claimData.yearRoofInstall || policyDetails.yearRoofInstall || null,
-          windHailDeductible: claimData.windHailDeductible || policyDetails.windHailDeductible || null,
-          endorsementsListed: claimData.endorsementsListed || policyDetails.endorsementsListed || []
+          // Store additional rich data in metadata
+          policyholderSecondary: claimData.policyholderSecondary,
+          contactPhone: claimData.contactPhone,
+          contactEmail: claimData.contactEmail,
+          yearBuilt: claimData.yearBuilt,
+          carrier: claimData.carrier,
+          lineOfBusiness: claimData.lineOfBusiness,
+          coverages: claimData.coverages,
+          scheduledStructures: claimData.scheduledStructures,
+          additionalCoverages: claimData.additionalCoverages,
+          endorsementDetails: claimData.endorsementDetails,
+          mortgagee: claimData.mortgagee,
+          producer: claimData.producer,
         })
       ]
     );

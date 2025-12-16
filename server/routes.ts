@@ -2382,6 +2382,23 @@ export async function registerRoutes(
   app.post('/api/claims', requireAuth, requireOrganization, async (req, res) => {
     try {
       const claim = await createClaim(req.organizationId!, req.body);
+
+      // Associate documents with the claim if documentIds are provided in metadata
+      const documentIds = req.body.metadata?.documentIds;
+      if (documentIds && Array.isArray(documentIds) && documentIds.length > 0) {
+        const { pool } = await import('./db');
+        const client = await pool.connect();
+        try {
+          await client.query(
+            `UPDATE documents SET claim_id = $1, updated_at = NOW()
+             WHERE id = ANY($2) AND organization_id = $3`,
+            [claim.id, documentIds, req.organizationId]
+          );
+        } finally {
+          client.release();
+        }
+      }
+
       res.status(201).json(claim);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
