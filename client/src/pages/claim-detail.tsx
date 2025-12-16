@@ -121,9 +121,6 @@ export default function ClaimDetail() {
     updateRoom,
     deleteRoom,
     addDamageZone,
-    addLineItem,
-    updateLineItem,
-    deleteLineItem,
     regions,
     carriers,
     estimateSettings,
@@ -543,17 +540,15 @@ export default function ClaimDetail() {
     }
   };
 
-  const handleAddAISuggestion = (suggestion: typeof aiSuggestions extends (infer T)[] | null ? T : never) => {
+  const handleAddAISuggestion = async (suggestion: typeof aiSuggestions extends (infer T)[] | null ? T : never) => {
     if (!suggestion) return;
 
-    addLineItem(claim.id, {
-      id: `li${Date.now()}`,
+    await handleAddScopeItem({
       code: suggestion.lineItemCode,
       description: suggestion.description,
       quantity: suggestion.quantity,
       unit: suggestion.unit,
       unitPrice: suggestion.unitPrice || 0,
-      total: (suggestion.unitPrice || 0) * suggestion.quantity,
       category: "AI Suggested",
     });
 
@@ -561,21 +556,19 @@ export default function ClaimDetail() {
     setAiSuggestions(prev => prev?.filter(s => s.lineItemCode !== suggestion.lineItemCode) || null);
   };
 
-  const handleAddAllAISuggestions = () => {
+  const handleAddAllAISuggestions = async () => {
     if (!aiSuggestions) return;
 
-    aiSuggestions.forEach(suggestion => {
-      addLineItem(claim.id, {
-        id: `li${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+    for (const suggestion of aiSuggestions) {
+      await handleAddScopeItem({
         code: suggestion.lineItemCode,
         description: suggestion.description,
         quantity: suggestion.quantity,
         unit: suggestion.unit,
         unitPrice: suggestion.unitPrice || 0,
-        total: (suggestion.unitPrice || 0) * suggestion.quantity,
         category: "AI Suggested",
       });
-    });
+    }
 
     setAiSuggestions(null);
   };
@@ -1759,14 +1752,12 @@ export default function ClaimDetail() {
                             <VoiceScopeController
                               onClose={() => setIsVoiceScopeOpen(false)}
                               onLineItemAdded={(item) => {
-                                addLineItem(claim.id, {
-                                  id: `li${Date.now()}`,
+                                handleAddScopeItem({
                                   code: item.code,
                                   description: item.description,
                                   quantity: item.quantity,
                                   unit: item.unit,
                                   unitPrice: 0,
-                                  total: 0,
                                   category: "Voice Added",
                                 });
                               }}
