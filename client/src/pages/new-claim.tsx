@@ -238,7 +238,7 @@ const DocumentPageViewer = ({
     );
   }
 
-  // Fullscreen modal
+  // Fullscreen modal - shares state with inline viewer
   if (fullscreen) {
     return (
       <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
@@ -264,7 +264,28 @@ const DocumentPageViewer = ({
               <ChevronRight className="w-5 h-5" />
             </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setZoom(z => Math.max(50, z - 25))} 
+                disabled={zoom <= 50} 
+                className="text-white hover:bg-white/20"
+              >
+                <ZoomOut className="w-5 h-5" />
+              </Button>
+              <span className="text-sm w-14 text-center">{zoom}%</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setZoom(z => Math.min(200, z + 25))} 
+                disabled={zoom >= 200} 
+                className="text-white hover:bg-white/20"
+              >
+                <ZoomIn className="w-5 h-5" />
+              </Button>
+            </div>
             <span className="text-sm opacity-75">{documentName || 'Document'}</span>
             <Button 
               variant="ghost" 
@@ -280,7 +301,8 @@ const DocumentPageViewer = ({
           <img
             src={imageData.images[currentPage - 1]}
             alt={`${documentName || 'Document'} - Page ${currentPage}`}
-            className="max-h-full max-w-full object-contain"
+            style={{ width: zoom > 100 ? `${zoom}%` : undefined, maxWidth: zoom > 100 ? 'none' : undefined }}
+            className={zoom <= 100 ? "max-h-full max-w-full object-contain" : ""}
           />
         </div>
       </div>
