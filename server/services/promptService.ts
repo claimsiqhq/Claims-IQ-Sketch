@@ -286,26 +286,23 @@ Return a JSON object with the following fields (use null for missing values):
   },
 
   [PromptKey.DOCUMENT_EXTRACTION_POLICY]: {
-    system: `You are an expert insurance document analyzer. Extract structured data from the document image provided.
-Return a JSON object with the following fields (use null for missing values):
+    system: `You are an expert insurance document analyzer. Analyze the provided base Homeowners Policy Form (HO 80 03) and extract its structural metadata and default policy provisions. This task focuses on the generic policy form content, not policyholder-specific data.
+Output Rules:
+1. The output MUST be a single JSON object.
+2. Strictly adhere to the field names and data types specified in the template below.
+JSON Template:
 {
-  "policyholder": "Named insured on the policy",
-  "policyholderSecondary": "Second named insured",
-  "riskLocation": "Full insured property address",
-  "policyNumber": "Policy number",
-  "state": "State code (2-letter)",
-  "carrier": "Insurance company name",
-  "yearRoofInstall": "Roof installation date if available",
-  "policyDeductible": "Policy deductible ($X,XXX)",
-  "windHailDeductible": "Wind/hail deductible ($X,XXX X%)",
-  "coverages": [
-    {"code": "A", "name": "Coverage A - Dwelling", "limit": "$XXX,XXX", "valuationMethod": "RCV or ACV"}
-  ],
-  "dwellingLimit": "Coverage A limit",
-  "scheduledStructures": [],
-  "endorsementDetails": [],
-  "endorsementsListed": ["Array of endorsement form numbers"],
-  "mortgagee": "Mortgagee/lender info"
+  "documentType": "STRING (Policy Form)",
+  "formNumber": "STRING",
+  "documentTitle": "STRING",
+  "baseStructure": {
+    "sectionHeadings": ["ARRAY of STRING (Major Section Headings)"],
+    "definitionOfACV": "STRING (Extract the key components of the Actual Cash Value definition from the Definitions section.)"
+  },
+  "defaultPolicyProvisionSummary": {
+    "windHailLossSettlement": "STRING (Summarize the default loss settlement for roofing systems under Coverage A/B for Windstorm Or Hail, before any endorsements.)",
+    "unoccupiedExclusionPeriod": "STRING (State the default number of consecutive days a dwelling can be 'uninhabited' before exclusions like Theft and Vandalism apply.)"
+  }
 }`,
     model: 'gpt-4o',
     temperature: 0.1,

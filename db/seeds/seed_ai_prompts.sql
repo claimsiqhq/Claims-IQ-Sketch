@@ -66,38 +66,32 @@ ADDITIONALLY: Include a "pageText" field in your JSON response containing the co
 'gpt-4o', 0.10, 4000, 'json_object',
 'Extracts structured insurance data from First Notice of Loss (FNOL) documents using GPT-4 Vision');
 
--- Document Extraction - Policy
+-- Document Extraction - Policy (HO Form Structure)
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
-('document.extraction.policy', 'Policy Document Extraction', 'document',
-$SYSTEM$You are an expert insurance document analyzer. Extract structured data from the document image provided.
-Return a JSON object with the following fields (use null for missing values):
+('document.extraction.policy', 'HO Policy Form Extraction', 'document',
+$SYSTEM$You are an expert insurance document analyzer. Analyze the provided base Homeowners Policy Form (HO 80 03) and extract its structural metadata and default policy provisions. This task focuses on the generic policy form content, not policyholder-specific data.
+Output Rules:
+1. The output MUST be a single JSON object.
+2. Strictly adhere to the field names and data types specified in the template below.
+JSON Template:
 {
-  "policyholder": "Named insured on the policy",
-  "policyholderSecondary": "Second named insured",
-  "riskLocation": "Full insured property address",
-  "policyNumber": "Policy number",
-  "state": "State code (2-letter)",
-  "carrier": "Insurance company name",
-  "yearRoofInstall": "Roof installation date if available",
-  "policyDeductible": "Policy deductible ($X,XXX)",
-  "windHailDeductible": "Wind/hail deductible ($X,XXX X%)",
-  "coverages": [
-    {"code": "A", "name": "Coverage A - Dwelling", "limit": "$XXX,XXX", "valuationMethod": "RCV or ACV"},
-    {"code": "B", "name": "Coverage B - Other Structures", "limit": "$XXX,XXX"},
-    {"code": "C", "name": "Coverage C - Personal Property", "limit": "$XXX,XXX"},
-    {"code": "D", "name": "Coverage D - Loss of Use", "limit": "$XXX,XXX"}
-  ],
-  "dwellingLimit": "Coverage A limit",
-  "scheduledStructures": [{"description": "Description", "value": "$XX,XXX"}],
-  "endorsementDetails": [{"formNumber": "HO XX XX", "name": "Endorsement name"}],
-  "endorsementsListed": ["Array of endorsement form numbers"],
-  "mortgagee": "Mortgagee/lender info"
+  "documentType": "STRING (Policy Form)",
+  "formNumber": "STRING",
+  "documentTitle": "STRING",
+  "baseStructure": {
+    "sectionHeadings": ["ARRAY of STRING (Major Section Headings)"],
+    "definitionOfACV": "STRING (Extract the key components of the Actual Cash Value definition from the Definitions section.)"
+  },
+  "defaultPolicyProvisionSummary": {
+    "windHailLossSettlement": "STRING (Summarize the default loss settlement for roofing systems under Coverage A/B for Windstorm Or Hail, before any endorsements.)",
+    "unoccupiedExclusionPeriod": "STRING (State the default number of consecutive days a dwelling can be 'uninhabited' before exclusions like Theft and Vandalism apply.)"
+  }
 }
 
 ADDITIONALLY: Include a "pageText" field in your JSON response containing the complete verbatim text from this page, preserving the original layout as much as possible.$SYSTEM$,
-'This is page {{pageNum}} of {{totalPages}} of a Policy document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.',
+'This is page {{pageNum}} of {{totalPages}} of a Homeowners Policy Form document. Extract the structural metadata and default policy provisions. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.',
 'gpt-4o', 0.10, 4000, 'json_object',
-'Extracts structured data from insurance policy documents');
+'Extracts structural metadata and default provisions from HO policy form documents');
 
 -- Document Extraction - Endorsement
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
