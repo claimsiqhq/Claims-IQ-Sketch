@@ -474,6 +474,51 @@ export interface ClaimBriefingContent {
 }
 
 // ============================================
+// CLAIM STRUCTURES TABLE (Voice Sketch - Hierarchy)
+// ============================================
+
+export const claimStructures = pgTable("claim_structures", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull(),
+  organizationId: uuid("organization_id").notNull(),
+
+  // Structure identification
+  name: varchar("name", { length: 100 }).notNull(), // "Main House", "Detached Garage", etc.
+  structureType: varchar("structure_type", { length: 50 }).notNull(), // main_dwelling, detached_garage, shed, etc.
+  description: text("description"),
+  address: text("address"),
+
+  // Building characteristics
+  stories: integer("stories").default(1),
+  yearBuilt: integer("year_built"),
+  constructionType: varchar("construction_type", { length: 50 }), // frame, masonry, steel, etc.
+  roofType: varchar("roof_type", { length: 50 }), // shingle, tile, metal, flat, etc.
+
+  // Photos stored as JSON array
+  photos: jsonb("photos").default(sql`'[]'::jsonb`),
+  notes: jsonb("notes").default(sql`'[]'::jsonb`),
+
+  // Sort order for display
+  sortOrder: integer("sort_order").default(0),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  claimIdx: index("claim_structures_claim_idx").on(table.claimId),
+  orgIdx: index("claim_structures_org_idx").on(table.organizationId),
+}));
+
+export const insertClaimStructureSchema = createInsertSchema(claimStructures).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimStructure = z.infer<typeof insertClaimStructureSchema>;
+export type ClaimStructure = typeof claimStructures.$inferSelect;
+
+// ============================================
 // CLAIM ROOMS TABLE (Voice Sketch)
 // ============================================
 
@@ -481,6 +526,7 @@ export const claimRooms = pgTable("claim_rooms", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   claimId: uuid("claim_id").notNull(),
   organizationId: uuid("organization_id").notNull(),
+  structureId: uuid("structure_id"), // Links to claim_structures - the parent structure
 
   // Room identification
   name: varchar("name", { length: 100 }).notNull(), // "Living Room", "Kitchen", etc.
