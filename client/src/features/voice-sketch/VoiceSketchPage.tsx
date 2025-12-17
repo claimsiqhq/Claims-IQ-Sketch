@@ -25,23 +25,13 @@ export default function VoiceSketchPage() {
   const { rooms, currentRoom, resetSession } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch the real claim from the database
+  // Fetch the real claim from the database (only if claimId provided)
   const { data: claim, isLoading, error } = useQuery({
     queryKey: ['claim', claimId],
     queryFn: () => getClaim(claimId!),
     enabled: !!claimId,
     staleTime: 30000,
   });
-
-  // If no claimId provided, redirect to claims list
-  useEffect(() => {
-    if (!claimId) {
-      toast.error('Voice Sketch requires a claim', {
-        description: 'Please select a claim first to use Voice Sketch.',
-      });
-      setLocation('/claims');
-    }
-  }, [claimId, setLocation]);
 
   const handleRoomConfirmed = useCallback(
     (roomData: unknown) => {
@@ -141,8 +131,8 @@ export default function VoiceSketchPage() {
   const hasRooms = rooms.length > 0 || currentRoom;
   const roomCount = rooms.length + (currentRoom ? 1 : 0);
 
-  // Loading state
-  if (isLoading) {
+  // Loading state (only when loading a specific claim)
+  if (claimId && isLoading) {
     return (
       <Layout>
         <div className="flex items-center justify-center h-full">
@@ -155,8 +145,8 @@ export default function VoiceSketchPage() {
     );
   }
 
-  // Error state
-  if (error || !claim) {
+  // Error state (only when we tried to load a claim but it failed)
+  if (claimId && (error || !claim)) {
     return (
       <Layout>
         <div className="p-6">
@@ -180,34 +170,51 @@ export default function VoiceSketchPage() {
     );
   }
 
-  // Main render with valid claim
+  // Main render - works with or without a claim
   return (
     <Layout>
       <div className="flex flex-col h-full">
         <div className="bg-white border-b border-border px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href={`/claims/${claimId}`}>
-              <Button variant="ghost" size="sm" data-testid="button-back-to-claim">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Claim
-              </Button>
-            </Link>
+            {claim ? (
+              <Link href={`/claim/${claimId}`}>
+                <Button variant="ghost" size="sm" data-testid="button-back-to-claim">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Claim
+                </Button>
+              </Link>
+            ) : (
+              <Link href="/claims">
+                <Button variant="ghost" size="sm" data-testid="button-back-to-claims">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Button>
+              </Link>
+            )}
             <div>
               <h1 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
                 <Mic className="h-5 w-5 text-primary" />
                 Voice Room Sketching
               </h1>
-              <p className="text-sm text-muted-foreground">
-                Claim: {claim.policyholder || 'Unknown'} - {claim.riskLocation || 'No address'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}
-              </p>
+              {claim ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Claim: {claim.policyholder || 'Unknown'} - {claim.riskLocation || 'No address'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Practice mode - sketch rooms without a claim
+                </p>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {hasRooms && (
+            {hasRooms && claim && (
               <Button 
                 onClick={handleSaveToClaimClick} 
                 disabled={isSaving}
