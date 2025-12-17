@@ -102,7 +102,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
-import SketchCanvas from "@/components/sketch-canvas";
+import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
+import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
+import { saveClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
+import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
 import LineItemPicker from "@/components/line-item-picker";
@@ -138,6 +141,7 @@ export default function ClaimDetail() {
     loadRegionsAndCarriers,
     setEstimateSettings,
     calculateEstimate,
+    authUser,
   } = useStore();
 
   // API Claim Data
@@ -500,32 +504,6 @@ export default function ClaimDetail() {
 
   const selectedRoom = (claim?.rooms || []).find(r => r.id === selectedRoomId);
 
-  const handleAddRoom = () => {
-    addRoom(claimId, {
-      id: `r${Date.now()}`,
-      name: "New Room",
-      type: "Bedroom",
-      width: 12,
-      height: 12,
-      x: 0,
-      y: 0,
-      ceilingHeight: 8
-    });
-  };
-
-  const handleAddStructure = () => {
-    addRoom(claimId, {
-      id: `s${Date.now()}`,
-      name: "Structure",
-      type: "Exterior",
-      width: 20,
-      height: 24,
-      x: 100,
-      y: 0,
-      ceilingHeight: 10
-    });
-  };
-
   const handleSaveOpening = (openingData: Omit<RoomOpening, "id">) => {
     if (!selectedRoom || !claim) return;
 
@@ -574,6 +552,116 @@ export default function ClaimDetail() {
     const result = await calculateEstimate(claim.id);
     if (result) {
       setActiveTab("estimate");
+    }
+  };
+
+  // Helper functions for voice sketch save
+  const inferRoomType = (name: string): string => {
+    const nameLower = name.toLowerCase();
+    if (nameLower.includes('bedroom') || nameLower.includes('master')) return 'Bedroom';
+    if (nameLower.includes('bathroom') || nameLower.includes('bath')) return 'Bathroom';
+    if (nameLower.includes('kitchen')) return 'Kitchen';
+    if (nameLower.includes('living') || nameLower.includes('family')) return 'Living Room';
+    if (nameLower.includes('dining')) return 'Dining Room';
+    if (nameLower.includes('office') || nameLower.includes('study')) return 'Office';
+    if (nameLower.includes('garage')) return 'Garage';
+    if (nameLower.includes('basement')) return 'Basement';
+    if (nameLower.includes('laundry')) return 'Laundry';
+    if (nameLower.includes('closet')) return 'Closet';
+    if (nameLower.includes('hall')) return 'Hallway';
+    return 'Room';
+  };
+
+  const handleSaveVoiceSketch = async () => {
+    if (!claim) return;
+    
+    const geometryState = useGeometryEngine.getState();
+    const confirmedRooms = geometryState.rooms;
+    const currentRoomState = geometryState.currentRoom;
+    
+    if (confirmedRooms.length === 0 && !currentRoomState) {
+      toast.error('No rooms to save', {
+        description: 'Create and confirm at least one room first.',
+      });
+      return;
+    }
+
+    const roomsToSave = currentRoomState
+      ? [...confirmedRooms, currentRoomState]
+      : confirmedRooms;
+
+    const claimRooms: ClaimRoom[] = [];
+    const claimDamageZones: ClaimDamageZone[] = [];
+
+    roomsToSave.forEach((voiceRoom: RoomGeometry) => {
+      const claimRoom: ClaimRoom = {
+        id: voiceRoom.id,
+        name: voiceRoom.name.replace(/_/g, ' '),
+        type: inferRoomType(voiceRoom.name),
+        width: voiceRoom.width_ft,
+        height: voiceRoom.length_ft,
+        x: 0,
+        y: 0,
+        ceilingHeight: voiceRoom.ceiling_height_ft,
+      };
+      claimRooms.push(claimRoom);
+
+      voiceRoom.damageZones.forEach((vDamage) => {
+        const mapDamageType = (type: string): 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other' => {
+          const typeMap: Record<string, 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other'> = {
+            water: 'Water', fire: 'Fire', smoke: 'Smoke', mold: 'Mold', wind: 'Wind', impact: 'Impact',
+          };
+          return typeMap[type.toLowerCase()] || 'Other';
+        };
+        const mapSeverity = (cat?: string): 'Low' | 'Medium' | 'High' | 'Total' => {
+          if (!cat) return 'Medium';
+          switch (cat) { case '1': return 'Low'; case '2': return 'Medium'; case '3': return 'High'; default: return 'Medium'; }
+        };
+        const perimeter = 2 * (voiceRoom.width_ft + voiceRoom.length_ft);
+        const wallLength = perimeter / 4;
+        const affectedWallCount = vDamage.affected_walls.length;
+        
+        const claimDamage: ClaimDamageZone = {
+          id: vDamage.id,
+          roomId: voiceRoom.id,
+          type: mapDamageType(vDamage.type),
+          severity: mapSeverity(vDamage.category),
+          affectedSurfaces: [
+            ...vDamage.affected_walls.map((w) => `Wall ${w.charAt(0).toUpperCase() + w.slice(1)}`),
+            ...(vDamage.floor_affected ? ['Floor'] : []),
+            ...(vDamage.ceiling_affected ? ['Ceiling'] : []),
+          ],
+          affectedArea: vDamage.extent_ft * wallLength * affectedWallCount,
+          notes: vDamage.source || '',
+          photos: [],
+        };
+        claimDamageZones.push(claimDamage);
+      });
+    });
+
+    try {
+      const result = await saveClaimRooms(claim.id, claimRooms, claimDamageZones);
+      
+      toast.success('Rooms saved to claim!', {
+        description: `Saved ${result.roomsSaved} room(s) and ${result.damageZonesSaved} damage zone(s).`,
+      });
+
+      // Reset the geometry engine
+      useGeometryEngine.getState().resetSession();
+      
+      // Reload the claim data
+      if (params?.id) {
+        const updatedClaim = await getClaim(params.id);
+        if (updatedClaim) {
+          setApiClaim(updatedClaim);
+          // Force refresh by toggling active claim
+          setActiveClaim(null);
+          setActiveClaim(params.id);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save rooms';
+      toast.error('Failed to save rooms', { description: message });
     }
   };
 
@@ -1416,329 +1504,19 @@ export default function ClaimDetail() {
               </div>
             </TabsContent>
 
-            {/* TAB: SKETCH */}
+            {/* TAB: SKETCH - Uses the same Voice Sketch controller as the hamburger menu */}
             <TabsContent value="sketch" className="h-full m-0 flex flex-col">
-              {/* Mobile View: Optimized for small screens */}
-              <div className="md:hidden flex-1 flex flex-col overflow-hidden">
-                {/* Fixed Toolbar at Top - Always visible */}
-                <div className="flex-shrink-0 bg-white border-b border-border px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1">
-                      <Button size="sm" variant="outline" className="h-9" onClick={handleAddRoom} data-testid="button-add-room-mobile">
-                        <Plus className="h-4 w-4 mr-1" />
-                        Room
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-9" onClick={handleAddStructure} data-testid="button-add-structure-mobile">
-                        <Building2 className="h-4 w-4 mr-1" />
-                        Structure
-                      </Button>
-                    </div>
-                    <Link href={`/voice-sketch/${claim.id}`}>
-                      <Button size="sm" variant="default" className="h-9 bg-primary" data-testid="button-voice-sketch-mobile">
-                        <Mic className="h-4 w-4 mr-1" />
-                        Voice
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-                {/* Canvas Area - Takes most of the space */}
-                <div className="flex-1 min-h-0 relative border-b border-border overflow-hidden">
-                    <SketchCanvas
-                      rooms={claim.rooms || []}
-                      damageZones={claim.damageZones}
-                      selectedRoomId={selectedRoomId}
-                      onSelectRoom={setSelectedRoomId}
-                      onUpdateRoom={(id, data) => updateRoom(claim.id, id, data)}
-                    />
-                </div>
-                {/* Room Details Panel - Collapsible */}
-                <div className={cn(
-                  "bg-white transition-all duration-200 overflow-auto",
-                  selectedRoom ? "h-auto max-h-[40%]" : "h-12"
-                )}>
-                    {selectedRoom ? (
-                      <div className="p-3 space-y-3">
-                         <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-sm">{selectedRoom.name}</h3>
-                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSelectedRoomId(null)}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                         </div>
-                         <div className="grid grid-cols-3 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Name</Label>
-                              <Input
-                                className="h-9"
-                                value={selectedRoom.name}
-                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { name: e.target.value })}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Width (ft)</Label>
-                              <Input
-                                className="h-9"
-                                type="number"
-                                value={selectedRoom.width}
-                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { width: Number(e.target.value) })}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Length (ft)</Label>
-                              <Input
-                                className="h-9"
-                                type="number"
-                                value={selectedRoom.height}
-                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { height: Number(e.target.value) })}
-                              />
-                            </div>
-                          </div>
-                          {/* Openings summary for mobile */}
-                          {(selectedRoom.openings?.length ?? 0) > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {selectedRoom.openings?.map((o) => (
-                                <Badge key={o.id} variant="outline" className="text-amber-600 border-amber-200 text-xs">
-                                  {o.type.replace("_", " ")} ({o.wall})
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                          <div className="flex gap-2">
-                            <Button className="flex-1 h-9" variant="outline" onClick={handleAddOpeningClick}>
-                              <DoorOpen className="h-4 w-4 mr-1" /> Door/Window
-                            </Button>
-                            <Button className="flex-1 h-9" variant="destructive" onClick={() => setIsDamageModalOpen(true)}>
-                              Add Damage
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              className="h-9 px-3 text-muted-foreground hover:text-destructive"
-                              onClick={() => {
-                                deleteRoom(claim.id, selectedRoom.id);
-                                setSelectedRoomId(null);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                      </div>
-                    ) : (
-                      <div className="p-3 text-center text-muted-foreground text-sm flex items-center justify-center h-full">
-                        <span>Tap a room to edit • Pinch to zoom • Drag to pan</span>
-                      </div>
-                    )}
-                </div>
-              </div>
-
-              {/* Desktop View: Resizable */}
-              <div className="hidden md:block h-full">
-                <ResizablePanelGroup direction="horizontal">
-                  <ResizablePanel defaultSize={65}>
-                    <div className="h-full relative flex flex-col overflow-hidden">
-                      <div className="absolute top-4 left-4 right-4 flex justify-center z-10 pointer-events-none">
-                        <div className="bg-white/90 backdrop-blur border shadow-sm rounded-full px-4 py-2 flex gap-2 pointer-events-auto">
-                          <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)} data-testid="button-select-desktop">
-                            <Move className="h-4 w-4 mr-2" /> Select
-                          </Button>
-                          <Separator orientation="vertical" className="h-6" />
-                          <Button size="sm" variant="ghost" onClick={handleAddRoom} data-testid="button-add-room-desktop">
-                            <Plus className="h-4 w-4 mr-2" /> Add Room
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={handleAddStructure} data-testid="button-add-structure-desktop">
-                            <Building2 className="h-4 w-4 mr-2" /> Add Structure
-                          </Button>
-                          <Separator orientation="vertical" className="h-6" />
-                          <Link href={`/voice-sketch/${claim.id}`}>
-                            <Button size="sm" variant="default" className="bg-primary" data-testid="button-voice-sketch-desktop">
-                              <Mic className="h-4 w-4 mr-2" /> Voice Sketch
-                            </Button>
-                          </Link>
-                        </div>
-                      </div>
-                      <SketchCanvas 
-                        rooms={claim.rooms || []} 
-                        damageZones={claim.damageZones}
-                        selectedRoomId={selectedRoomId}
-                        onSelectRoom={setSelectedRoomId}
-                        onUpdateRoom={(id, data) => updateRoom(claim.id, id, data)}
-                      />
-                    </div>
-                  </ResizablePanel>
-                  
-                  <ResizableHandle />
-                  
-                  <ResizablePanel defaultSize={35} minSize={20}>
-                    <div className="h-full bg-white border-l border-border flex flex-col">
-                      <div className="p-4 border-b border-border bg-slate-50">
-                        <h3 className="font-semibold text-sm uppercase tracking-wide text-slate-500">
-                          {selectedRoom ? "Room Properties" : "Property Summary"}
-                        </h3>
-                      </div>
-                      
-                      <ScrollArea className="flex-1 p-4">
-                        {selectedRoom ? (
-                          <div className="space-y-6">
-                            <div className="space-y-2">
-                              <Label>Room Name</Label>
-                              <Input 
-                                value={selectedRoom.name} 
-                                onChange={(e) => updateRoom(claim.id, selectedRoom.id, { name: e.target.value })} 
-                              />
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label>Width (ft)</Label>
-                                <Input 
-                                  type="number" 
-                                  value={selectedRoom.width} 
-                                  onChange={(e) => updateRoom(claim.id, selectedRoom.id, { width: Number(e.target.value) })} 
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Length (ft)</Label>
-                                <Input 
-                                  type="number" 
-                                  value={selectedRoom.height} 
-                                  onChange={(e) => updateRoom(claim.id, selectedRoom.id, { height: Number(e.target.value) })} 
-                                />
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>Type</Label>
-                              <Select 
-                                value={selectedRoom.type} 
-                                onValueChange={(v) => updateRoom(claim.id, selectedRoom.id, { type: v })}
-                              >
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {["Kitchen", "Bedroom", "Bathroom", "Living Room", "Dining Room", "Hallway", "Garage"].map(t => (
-                                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>Ceiling Height</Label>
-                              <Select 
-                                value={String(selectedRoom.ceilingHeight)} 
-                                onValueChange={(v) => updateRoom(claim.id, selectedRoom.id, { ceilingHeight: Number(v) })}
-                              >
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {["8", "9", "10", "12", "14"].map(h => (
-                                    <SelectItem key={h} value={h}>{h} ft</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <Separator />
-
-                            {/* Openings (Doors/Windows) */}
-                            <div>
-                              <h4 className="font-medium mb-3 flex items-center gap-2">
-                                <DoorOpen className="h-4 w-4" />
-                                Doors & Windows
-                              </h4>
-                              <div className="space-y-2 mb-3">
-                                {(selectedRoom.openings || []).length === 0 ? (
-                                  <p className="text-sm text-muted-foreground text-center py-2">No openings added yet</p>
-                                ) : (
-                                  selectedRoom.openings?.map((opening) => (
-                                    <div
-                                      key={opening.id}
-                                      className="bg-amber-50 border border-amber-100 p-2 rounded text-sm flex items-center justify-between cursor-pointer hover:bg-amber-100 transition-colors"
-                                      onClick={() => handleEditOpening(opening)}
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <span className="capitalize">{opening.type.replace("_", " ")}</span>
-                                        <span className="text-muted-foreground">•</span>
-                                        <span className="text-muted-foreground capitalize">{opening.wall}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <Badge variant="outline" className="text-amber-600 bg-white border-amber-200">
-                                          {opening.width}' × {opening.height}'
-                                        </Badge>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteOpening(opening.id);
-                                          }}
-                                        >
-                                          <X className="h-3 w-3" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                              <Button className="w-full" variant="outline" onClick={handleAddOpeningClick}>
-                                <Plus className="h-4 w-4 mr-2" /> Add Door / Window
-                              </Button>
-                            </div>
-
-                            <Separator />
-
-                            <div>
-                              <h4 className="font-medium mb-3">Damage Zones</h4>
-                              <div className="space-y-2 mb-3">
-                                {(claim.damageZones || []).filter(dz => dz.roomId === selectedRoom.id).map(dz => (
-                                  <div key={dz.id} className="bg-red-50 border border-red-100 p-2 rounded text-sm flex items-center justify-between">
-                                    <span>{dz.type} - {dz.severity}</span>
-                                    <Badge variant="outline" className="text-red-600 bg-white border-red-200">{dz.affectedArea} SF</Badge>
-                                  </div>
-                                ))}
-                              </div>
-                              <Button className="w-full" variant="destructive" onClick={() => setIsDamageModalOpen(true)}>
-                                Add Damage Zone
-                              </Button>
-                            </div>
-
-                            <div className="pt-4">
-                              <Button 
-                                variant="ghost" 
-                                className="w-full text-muted-foreground hover:text-destructive"
-                                onClick={() => {
-                                  deleteRoom(claim.id, selectedRoom.id);
-                                  setSelectedRoomId(null);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" /> Delete Room
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-6 text-center py-10">
-                            <div className="mx-auto h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-4 text-slate-400">
-                              <Move className="h-6 w-6" />
-                            </div>
-                            <p className="text-muted-foreground">
-                              Select a room on the canvas to view details or add damage info.
-                            </p>
-                            <div className="p-4 bg-slate-50 rounded-lg border text-left space-y-2">
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Total Rooms:</span>
-                                <span className="font-medium">{(claim.rooms || []).length}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Total Area:</span>
-                                <span className="font-medium">
-                                  {(claim.rooms || []).reduce((acc, r) => acc + (r.width * r.height), 0).toFixed(0)} SF
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </ScrollArea>
-                    </div>
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-              </div>
+              <VoiceSketchController
+                userName={authUser?.username}
+                onRoomConfirmed={(roomData) => {
+                  toast.success('Room confirmed!', {
+                    description: 'Room has been added to your sketch session.',
+                  });
+                }}
+                claimId={claim?.id}
+                onSave={handleSaveVoiceSketch}
+                className="h-full"
+              />
             </TabsContent>
 
             {/* TAB: SCOPE - Enhanced with Xactimate Hierarchy */}

@@ -2,7 +2,7 @@
 // Main container for voice-driven room sketching using RealtimeSession
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2 } from 'lucide-react';
+import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -25,17 +25,22 @@ interface VoiceSketchControllerProps {
   userName?: string;
   onRoomConfirmed?: (roomData: unknown) => void;
   className?: string;
+  claimId?: string;
+  onSave?: () => Promise<void>;
 }
 
 export function VoiceSketchController({
   userName,
   onRoomConfirmed,
   className,
+  claimId,
+  onSave,
 }: VoiceSketchControllerProps) {
   const [lastToolCall, setLastToolCall] = useState<{
     name: string;
     result: string;
   } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const { currentRoom, rooms, resetSession, createRoom, confirmRoom } = useGeometryEngine();
 
@@ -136,6 +141,18 @@ export function VoiceSketchController({
     setLastToolCall(null);
   };
 
+  const handleSave = useCallback(async () => {
+    if (!onSave) return;
+    setIsSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setIsSaving(false);
+    }
+  }, [onSave]);
+
+  const hasRooms = rooms.length > 0 || currentRoom;
+
   const handlePhotoCaptured = useCallback((file: File) => {
     // Log the captured photo for now - upload logic can be added later
     console.log('Photo captured in VoiceSketchController:', {
@@ -207,6 +224,22 @@ export function VoiceSketchController({
           <Button onClick={handleReset} variant="ghost" size="sm" title="Reset session">
             <RotateCcw className="h-4 w-4" />
           </Button>
+          {onSave && hasRooms && (
+            <Button 
+              onClick={handleSave} 
+              variant="default" 
+              size="sm"
+              disabled={isSaving}
+              data-testid="button-save-sketch"
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 sm:mr-2" />
+              )}
+              <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save to Claim'}</span>
+            </Button>
+          )}
         </div>
       </div>
 
