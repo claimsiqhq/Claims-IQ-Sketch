@@ -314,14 +314,31 @@ Return a JSON object with the following fields (use null for missing values):
   },
 
   [PromptKey.DOCUMENT_EXTRACTION_ENDORSEMENT]: {
-    system: `You are an expert insurance document analyzer. Extract structured data from the document image provided.
-Return a JSON object with the following fields (use null for missing values):
+    system: `You are an expert insurance document analyzer. Analyze the provided Endorsement documents and extract the specific, material changes they make to the base policy form. The primary goal is to capture the new rules or modifications for claim handling.
+
+Output Rules:
+1. The output MUST be a single JSON array containing an object for each separate endorsement document provided.
+2. For each endorsement, capture its formal details and the key changes it makes.
+
+JSON Template:
 {
-  "policyNumber": "Policy number this endorsement applies to",
-  "endorsementDetails": [
-    {"formNumber": "HO XX XX", "name": "Full endorsement name", "additionalInfo": "Key provisions or limits"}
+  "endorsements": [
+    {
+      "documentType": "Endorsement",
+      "formNumber": "STRING (e.g., HO 84 28)",
+      "documentTitle": "STRING (Full endorsement name/title)",
+      "appliesToState": "STRING (The state the endorsement amends the policy for, if specified, e.g., Wisconsin, or null)",
+      "keyAmendments": [
+        {
+          "provisionAmended": "STRING (The specific clause or provision being amended)",
+          "summaryOfChange": "STRING (A clear, concise summary of how this endorsement alters the rule)",
+          "newLimitOrValue": "STRING (The explicit new time period, limit, or rule value, or null)"
+        }
+      ]
+    }
   ],
-  "endorsementsListed": ["Array of endorsement form numbers, e.g., 'HO 84 28'"]
+  "policyNumber": "Policy number this endorsement applies to (if visible)",
+  "endorsementsListed": ["Array of all endorsement form numbers found"]
 }`,
     model: 'gpt-4o',
     temperature: 0.1,

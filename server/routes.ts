@@ -3416,15 +3416,15 @@ export async function registerRoutes(
       const { pool } = await import('./db');
       const client = await pool.connect();
       try {
-        const { claimId, formNumber, documentTitle, description, keyChanges } = req.body;
+        const { claimId, formNumber, documentTitle, description, appliesToState, keyChanges } = req.body;
         if (!formNumber) {
           return res.status(400).json({ error: 'formNumber required' });
         }
         const result = await client.query(
-          `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, key_changes)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, applies_to_state, key_changes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING *`,
-          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyChanges || {})]
+          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, appliesToState || null, JSON.stringify(keyChanges || {})]
         );
         res.status(201).json(result.rows[0]);
       } finally {
@@ -3449,14 +3449,14 @@ export async function registerRoutes(
 
         const results = [];
         for (const endorsement of endorsements) {
-          const { formNumber, documentTitle, description, keyChanges } = endorsement;
+          const { formNumber, documentTitle, description, appliesToState, keyChanges } = endorsement;
           if (!formNumber) continue;
 
           const result = await client.query(
-            `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, key_changes)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, applies_to_state, key_changes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING *`,
-            [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyChanges || {})]
+            [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, appliesToState || null, JSON.stringify(keyChanges || {})]
           );
           results.push(result.rows[0]);
         }
@@ -3514,18 +3514,19 @@ export async function registerRoutes(
       const { pool } = await import('./db');
       const client = await pool.connect();
       try {
-        const { formNumber, documentTitle, description, keyChanges, claimId } = req.body;
+        const { formNumber, documentTitle, description, appliesToState, keyChanges, claimId } = req.body;
         const result = await client.query(
           `UPDATE endorsements SET
              form_number = COALESCE($1, form_number),
              document_title = COALESCE($2, document_title),
              description = COALESCE($3, description),
-             key_changes = COALESCE($4, key_changes),
-             claim_id = COALESCE($5, claim_id),
+             applies_to_state = COALESCE($4, applies_to_state),
+             key_changes = COALESCE($5, key_changes),
+             claim_id = COALESCE($6, claim_id),
              updated_at = NOW()
-           WHERE id = $6 AND organization_id = $7
+           WHERE id = $7 AND organization_id = $8
            RETURNING *`,
-          [formNumber, documentTitle, description, keyChanges ? JSON.stringify(keyChanges) : null, claimId, req.params.id, req.organizationId]
+          [formNumber, documentTitle, description, appliesToState, keyChanges ? JSON.stringify(keyChanges) : null, claimId, req.params.id, req.organizationId]
         );
         if (result.rows.length === 0) {
           return res.status(404).json({ error: 'Endorsement not found' });

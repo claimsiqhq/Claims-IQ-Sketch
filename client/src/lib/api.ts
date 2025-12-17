@@ -1100,6 +1100,17 @@ export function getDocumentDownloadUrl(documentId: string): string {
 // ENDORSEMENTS API
 // ============================================
 
+export interface KeyAmendment {
+  provisionAmended: string;
+  summaryOfChange: string;
+  newLimitOrValue: string | null;
+}
+
+export interface EndorsementKeyChanges {
+  keyAmendments?: KeyAmendment[];
+  [key: string]: any;
+}
+
 export interface Endorsement {
   id: string;
   organization_id: string;
@@ -1108,7 +1119,8 @@ export interface Endorsement {
   form_number: string;
   document_title?: string;
   description?: string;
-  key_changes?: Record<string, any>;
+  applies_to_state?: string;
+  key_changes?: EndorsementKeyChanges;
   created_at: string;
   updated_at: string;
   // Also support camelCase for compatibility
@@ -1117,7 +1129,8 @@ export interface Endorsement {
   formType?: string;
   formNumber?: string;
   documentTitle?: string;
-  keyChanges?: Record<string, any>;
+  appliesToState?: string;
+  keyChanges?: EndorsementKeyChanges;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1137,7 +1150,8 @@ export async function createEndorsement(data: {
   formNumber: string;
   documentTitle?: string;
   description?: string;
-  keyChanges?: Record<string, any>;
+  appliesToState?: string;
+  keyChanges?: EndorsementKeyChanges;
 }): Promise<Endorsement> {
   const response = await fetch(`${API_BASE}/endorsements`, {
     method: 'POST',
