@@ -162,6 +162,19 @@ export interface ExtractedClaimData {
     endorsementsListed?: string[];
   };
 
+  // HO Policy Form structure fields (new)
+  documentType?: string;
+  formNumber?: string;
+  documentTitle?: string;
+  baseStructure?: {
+    sectionHeadings?: string[];
+    definitionOfACV?: string;
+  };
+  defaultPolicyProvisionSummary?: {
+    windHailLossSettlement?: string;
+    unoccupiedExclusionPeriod?: string;
+  };
+
   // Raw text (for reference)
   rawText?: string;
 
@@ -386,19 +399,63 @@ export async function processDocument(
       // Update document with extracted data including full text
       await client.query(
         `UPDATE documents
-         SET extracted_data = $1, 
+         SET extracted_data = $1,
              full_text = $2,
              page_texts = $3,
-             processing_status = 'completed', 
+             processing_status = 'completed',
              updated_at = NOW()
          WHERE id = $4`,
         [
-          JSON.stringify(extractedData), 
+          JSON.stringify(extractedData),
           extractedData.fullText || null,
           JSON.stringify(extractedData.pageTexts || []),
           documentId
         ]
       );
+
+      // For policy documents, create/update a policy_forms record if form data was extracted
+      if (doc.type === 'policy' && (extractedData.formNumber || extractedData.documentTitle)) {
+        const keyProvisions = {
+          sectionHeadings: extractedData.baseStructure?.sectionHeadings || [],
+          definitionOfACV: extractedData.baseStructure?.definitionOfACV || null,
+          windHailLossSettlement: extractedData.defaultPolicyProvisionSummary?.windHailLossSettlement || null,
+          unoccupiedExclusionPeriod: extractedData.defaultPolicyProvisionSummary?.unoccupiedExclusionPeriod || null,
+        };
+
+        // Check if a policy_form already exists for this claim
+        const existingForm = await client.query(
+          `SELECT id FROM policy_forms
+           WHERE organization_id = $1 AND claim_id = $2 AND form_number = $3
+           LIMIT 1`,
+          [organizationId, doc.claim_id, extractedData.formNumber || 'UNKNOWN']
+        );
+
+        if (existingForm.rows.length > 0) {
+          // Update existing policy form
+          await client.query(
+            `UPDATE policy_forms
+             SET document_title = COALESCE($1, document_title),
+                 key_provisions = $2,
+                 updated_at = NOW()
+             WHERE id = $3`,
+            [extractedData.documentTitle, JSON.stringify(keyProvisions), existingForm.rows[0].id]
+          );
+        } else if (doc.claim_id) {
+          // Create new policy form record
+          await client.query(
+            `INSERT INTO policy_forms (organization_id, claim_id, form_type, form_number, document_title, key_provisions)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              organizationId,
+              doc.claim_id,
+              extractedData.documentType || 'Policy Form',
+              extractedData.formNumber || 'UNKNOWN',
+              extractedData.documentTitle || null,
+              JSON.stringify(keyProvisions)
+            ]
+          );
+        }
+      }
 
       return extractedData;
 

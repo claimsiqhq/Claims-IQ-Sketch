@@ -73,6 +73,18 @@ interface EndorsementDetailItem {
   additionalInfo?: string;
 }
 
+// HO Policy Form base structure interface
+interface BaseStructure {
+  sectionHeadings?: string[];
+  definitionOfACV?: string;
+}
+
+// Default policy provision summary interface
+interface DefaultPolicyProvisionSummary {
+  windHailLossSettlement?: string;
+  unoccupiedExclusionPeriod?: string;
+}
+
 // Extracted data from documents - comprehensive interface
 interface ExtractedData {
   claimId?: string;
@@ -133,6 +145,12 @@ interface ExtractedData {
     dwellingLimit?: string;
     endorsementsListed?: string[];
   };
+  // HO Policy Form structure fields (new)
+  documentType?: string;
+  formNumber?: string;
+  documentTitle?: string;
+  baseStructure?: BaseStructure;
+  defaultPolicyProvisionSummary?: DefaultPolicyProvisionSummary;
   // Full text extraction fields
   pageText?: string;
   pageTexts?: string[];
@@ -1463,10 +1481,28 @@ export default function NewClaim() {
     const endorsements = data?.endorsementsListed || data?.policyDetails?.endorsementsListed || [];
     const endorsementDetails = data?.endorsementDetails || [];
 
+    // HO Policy Form structure fields (new)
+    const formIdentificationFields = data ? [
+      { label: 'Document Type', value: data.documentType },
+      { label: 'Form Number', value: data.formNumber },
+      { label: 'Document Title', value: data.documentTitle },
+    ].filter(f => f.value) : [];
+
+    const baseStructure = data?.baseStructure;
+    const sectionHeadings = baseStructure?.sectionHeadings || [];
+    const definitionOfACV = baseStructure?.definitionOfACV;
+
+    const policyProvisionSummary = data?.defaultPolicyProvisionSummary;
+    const provisionFields = data ? [
+      { label: 'Wind/Hail Loss Settlement', value: policyProvisionSummary?.windHailLossSettlement },
+      { label: 'Unoccupied Exclusion Period', value: policyProvisionSummary?.unoccupiedExclusionPeriod },
+    ].filter(f => f.value) : [];
+
     const hasData = claimFields.length > 0 || policyholderFields.length > 0 || policyFields.length > 0 ||
       propertyFields.length > 0 || deductibleFields.length > 0 || coverageFields.length > 0 ||
       coverages.length > 0 || scheduledStructures.length > 0 || additionalCoverages.length > 0 ||
-      thirdPartyFields.length > 0 || endorsements.length > 0 || endorsementDetails.length > 0;
+      thirdPartyFields.length > 0 || endorsements.length > 0 || endorsementDetails.length > 0 ||
+      formIdentificationFields.length > 0 || sectionHeadings.length > 0 || definitionOfACV || provisionFields.length > 0;
 
     // If only document viewer with no extracted data
     if (!hasData && documentId) {
@@ -1511,6 +1547,44 @@ export default function NewClaim() {
         </h4>
 
         <div className="space-y-0">
+          {/* HO Policy Form Structure Section (new) */}
+          {formIdentificationFields.length > 0 && (
+            <CollapsibleSection title="Form Identification" defaultOpen={true}>
+              <FieldGrid fields={formIdentificationFields} />
+            </CollapsibleSection>
+          )}
+
+          {sectionHeadings.length > 0 && (
+            <CollapsibleSection title="Policy Structure" count={sectionHeadings.length} defaultOpen={true}>
+              <div className="space-y-1">
+                {sectionHeadings.map((heading, idx) => (
+                  <div key={idx} className="text-sm bg-white rounded px-2 py-1">
+                    <span className="text-slate-700">{heading}</span>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+          )}
+
+          {definitionOfACV && (
+            <CollapsibleSection title="Definition of ACV" defaultOpen={true}>
+              <p className="text-sm text-slate-700 bg-white rounded p-2">{definitionOfACV}</p>
+            </CollapsibleSection>
+          )}
+
+          {provisionFields.length > 0 && (
+            <CollapsibleSection title="Default Policy Provisions" defaultOpen={true}>
+              <div className="space-y-3">
+                {provisionFields.map((field, idx) => (
+                  <div key={idx} className="bg-white rounded p-2">
+                    <span className="text-slate-500 text-xs block mb-1">{field.label}</span>
+                    <p className="text-slate-700 text-sm">{field.value}</p>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+          )}
+
           {claimFields.length > 0 && (
             <CollapsibleSection title="Claim Information" defaultOpen={true}>
               <FieldGrid fields={claimFields} />
