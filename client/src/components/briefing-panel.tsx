@@ -254,30 +254,36 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               onToggle={() => toggleSection('strategy')}
             >
               <div className="space-y-4">
-                <div>
-                  <h5 className="text-sm font-medium mb-2 text-blue-600">Where to Start</h5>
-                  <ul className="list-disc list-inside space-y-1 text-sm">
-                    {content.inspection_strategy.where_to_start.map((item, i) => (
-                      <li key={i}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <h5 className="text-sm font-medium mb-2 text-green-600">What to Prioritize</h5>
-                  <ul className="list-disc list-inside space-y-1 text-sm">
-                    {content.inspection_strategy.what_to_prioritize.map((item, i) => (
-                      <li key={i}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <h5 className="text-sm font-medium mb-2 text-amber-600">Common Misses</h5>
-                  <ul className="list-disc list-inside space-y-1 text-sm">
-                    {content.inspection_strategy.common_misses.map((item, i) => (
-                      <li key={i}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
+                {content.inspection_strategy?.where_to_start?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-medium mb-2 text-blue-600">Where to Start</h5>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      {content.inspection_strategy.where_to_start.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {content.inspection_strategy?.what_to_prioritize?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-medium mb-2 text-green-600">What to Prioritize</h5>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      {content.inspection_strategy.what_to_prioritize.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {content.inspection_strategy?.common_misses?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-medium mb-2 text-amber-600">Common Misses</h5>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      {content.inspection_strategy.common_misses.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </CollapsibleSection>
 

@@ -513,6 +513,19 @@ export default function ClaimDetail() {
     });
   };
 
+  const handleAddStructure = () => {
+    addRoom(claimId, {
+      id: `s${Date.now()}`,
+      name: "Structure",
+      type: "Exterior",
+      width: 20,
+      height: 24,
+      x: 100,
+      y: 0,
+      ceilingHeight: 10
+    });
+  };
+
   const handleSaveOpening = (openingData: Omit<RoomOpening, "id">) => {
     if (!selectedRoom || !claim) return;
 
@@ -1407,26 +1420,29 @@ export default function ClaimDetail() {
             <TabsContent value="sketch" className="h-full m-0 flex flex-col">
               {/* Mobile View: Optimized for small screens */}
               <div className="md:hidden flex-1 flex flex-col overflow-hidden">
+                {/* Fixed Toolbar at Top - Always visible */}
+                <div className="flex-shrink-0 bg-white border-b border-border px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="outline" className="h-9" onClick={handleAddRoom} data-testid="button-add-room-mobile">
+                        <Plus className="h-4 w-4 mr-1" />
+                        Room
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-9" onClick={handleAddStructure} data-testid="button-add-structure-mobile">
+                        <Building2 className="h-4 w-4 mr-1" />
+                        Structure
+                      </Button>
+                    </div>
+                    <Link href={`/voice-sketch/${claim.id}`}>
+                      <Button size="sm" variant="default" className="h-9 bg-primary" data-testid="button-voice-sketch-mobile">
+                        <Mic className="h-4 w-4 mr-1" />
+                        Voice
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
                 {/* Canvas Area - Takes most of the space */}
                 <div className="flex-1 min-h-0 relative border-b border-border overflow-hidden">
-                   {/* Floating Toolbar - Compact */}
-                   <div className="absolute top-2 left-2 right-2 flex justify-center z-30 pointer-events-none">
-                     <div className="bg-white/95 backdrop-blur border shadow-sm rounded-full px-3 py-1.5 flex gap-1 pointer-events-auto">
-                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setSelectedRoomId(null)}>
-                          <Move className="h-4 w-4" />
-                        </Button>
-                        <Separator orientation="vertical" className="h-6 my-auto" />
-                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={handleAddRoom}>
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                        <Separator orientation="vertical" className="h-6 my-auto" />
-                        <Link href={`/voice-sketch/${claim.id}`}>
-                          <Button size="sm" variant="ghost" className="h-8 px-2 text-primary">
-                            <Mic className="h-4 w-4" />
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
                     <SketchCanvas
                       rooms={claim.rooms || []}
                       damageZones={claim.damageZones}
@@ -1520,16 +1536,19 @@ export default function ClaimDetail() {
                     <div className="h-full relative flex flex-col overflow-hidden">
                       <div className="absolute top-4 left-4 right-4 flex justify-center z-10 pointer-events-none">
                         <div className="bg-white/90 backdrop-blur border shadow-sm rounded-full px-4 py-2 flex gap-2 pointer-events-auto">
-                          <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)}>
+                          <Button size="sm" variant="ghost" onClick={() => setSelectedRoomId(null)} data-testid="button-select-desktop">
                             <Move className="h-4 w-4 mr-2" /> Select
                           </Button>
                           <Separator orientation="vertical" className="h-6" />
-                          <Button size="sm" variant="ghost" onClick={handleAddRoom}>
+                          <Button size="sm" variant="ghost" onClick={handleAddRoom} data-testid="button-add-room-desktop">
                             <Plus className="h-4 w-4 mr-2" /> Add Room
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={handleAddStructure} data-testid="button-add-structure-desktop">
+                            <Building2 className="h-4 w-4 mr-2" /> Add Structure
                           </Button>
                           <Separator orientation="vertical" className="h-6" />
                           <Link href={`/voice-sketch/${claim.id}`}>
-                            <Button size="sm" variant="ghost" className="text-primary">
+                            <Button size="sm" variant="default" className="bg-primary" data-testid="button-voice-sketch-desktop">
                               <Mic className="h-4 w-4 mr-2" /> Voice Sketch
                             </Button>
                           </Link>

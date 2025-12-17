@@ -2,9 +2,17 @@
 // Main container for voice-driven room sketching using RealtimeSession
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw } from 'lucide-react';
+import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 import { useVoiceSession } from '../hooks/useVoiceSession';
 import { useGeometryEngine } from '../services/geometry-engine';
 import { VoiceWaveform } from './VoiceWaveform';
@@ -29,7 +37,57 @@ export function VoiceSketchController({
     result: string;
   } | null>(null);
 
-  const { currentRoom, rooms, resetSession } = useGeometryEngine();
+  const { currentRoom, rooms, resetSession, createRoom, confirmRoom } = useGeometryEngine();
+
+  // Manual room/structure creation handlers
+  const handleAddRoom = useCallback((roomType: string) => {
+    // Default dimensions for different room types
+    const roomDefaults: Record<string, { width: number; length: number; name: string }> = {
+      bedroom: { width: 12, length: 14, name: 'Bedroom' },
+      bathroom: { width: 8, length: 10, name: 'Bathroom' },
+      kitchen: { width: 12, length: 14, name: 'Kitchen' },
+      living_room: { width: 16, length: 20, name: 'Living Room' },
+      dining_room: { width: 12, length: 14, name: 'Dining Room' },
+      office: { width: 10, length: 12, name: 'Office' },
+      laundry: { width: 6, length: 8, name: 'Laundry Room' },
+      hallway: { width: 4, length: 12, name: 'Hallway' },
+      closet: { width: 4, length: 6, name: 'Closet' },
+      custom: { width: 12, length: 12, name: 'Room' },
+    };
+    const defaults = roomDefaults[roomType] || roomDefaults.custom;
+    createRoom({
+      name: defaults.name,
+      shape: 'rectangle',
+      width_ft: defaults.width,
+      length_ft: defaults.length,
+      ceiling_height_ft: 8,
+    });
+  }, [createRoom]);
+
+  const handleAddStructure = useCallback((structureType: string) => {
+    // Default dimensions for exterior structures
+    const structureDefaults: Record<string, { width: number; length: number; name: string }> = {
+      garage: { width: 20, length: 24, name: 'Garage' },
+      detached_garage: { width: 22, length: 24, name: 'Detached Garage' },
+      shed: { width: 10, length: 12, name: 'Shed' },
+      deck: { width: 12, length: 16, name: 'Deck' },
+      patio: { width: 10, length: 12, name: 'Patio' },
+      porch: { width: 8, length: 20, name: 'Porch' },
+      carport: { width: 12, length: 20, name: 'Carport' },
+      pool_house: { width: 14, length: 16, name: 'Pool House' },
+      workshop: { width: 16, length: 20, name: 'Workshop' },
+      barn: { width: 30, length: 40, name: 'Barn' },
+      custom: { width: 12, length: 12, name: 'Structure' },
+    };
+    const defaults = structureDefaults[structureType] || structureDefaults.custom;
+    createRoom({
+      name: defaults.name,
+      shape: 'rectangle',
+      width_ft: defaults.width,
+      length_ft: defaults.length,
+      ceiling_height_ft: structureType === 'deck' || structureType === 'patio' ? 0 : 10,
+    });
+  }, [createRoom]);
 
   const handleToolCall = useCallback(
     (toolName: string, _args: unknown, result: string) => {
