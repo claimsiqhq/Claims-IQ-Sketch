@@ -520,15 +520,17 @@ export async function registerRoutes(
   app.put('/api/users/profile', requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const { name, firstName, lastName, email } = req.body;
+      const { name, displayName, firstName, lastName, email } = req.body;
 
-      // Support both 'name' (split into first/last) and explicit firstName/lastName
+      // Support 'displayName', 'name' (split into first/last), and explicit firstName/lastName
       let first = firstName;
       let last = lastName;
 
-      if (name && !firstName && !lastName) {
+      // Use displayName or name if explicit firstName/lastName not provided
+      const nameValue = displayName || name;
+      if (nameValue && !firstName && !lastName) {
         // Split name into first and last
-        const nameParts = name.trim().split(/\s+/);
+        const nameParts = nameValue.trim().split(/\s+/);
         first = nameParts[0] || '';
         last = nameParts.slice(1).join(' ') || '';
       }
