@@ -82,68 +82,90 @@ export async function analyzeMyDay(
   inspectionRoute: InspectionStop[],
   weatherData: WeatherData[]
 ): Promise<MyDayAnalysisResult> {
-  const insights: MyDayInsight[] = [];
-  
-  // Create weather lookup by stop
-  const weatherByStop = new Map<string, WeatherData>();
-  for (const w of weatherData) {
-    weatherByStop.set(w.stopId, w);
+  try {
+    const insights: MyDayInsight[] = [];
+    
+    // Create weather lookup by stop
+    const weatherByStop = new Map<string, WeatherData>();
+    for (const w of weatherData) {
+      weatherByStop.set(w.stopId, w);
+    }
+
+    // 1. Analyze SLA status
+    const slaStatus = analyzeSlaStatus(claims, inspectionRoute);
+    insights.push(...slaStatus.insights);
+
+    // 2. Analyze weather impacts
+    const weatherAnalysis = analyzeWeatherImpacts(inspectionRoute, weatherByStop);
+    insights.push(...weatherAnalysis.insights);
+
+    // 3. Analyze claim completeness and documentation
+    const completenessAnalysis = analyzeClaimCompleteness(claims);
+    insights.push(...completenessAnalysis.insights);
+
+    // 4. Analyze coverage and reserve issues
+    const coverageAnalysis = analyzeCoverageIssues(claims);
+    insights.push(...coverageAnalysis.insights);
+
+    // 5. Calculate optimal priority order
+    const priorityOrder = await calculateOptimalPriority(
+      claims,
+      inspectionRoute,
+      weatherByStop,
+      slaStatus,
+      weatherAnalysis
+    );
+
+    // 6. Calculate overall scores
+    const riskScore = calculateRiskScore(insights);
+    const efficiencyScore = calculateEfficiencyScore(inspectionRoute, weatherAnalysis);
+
+    // 7. Generate summary (has its own try-catch with fallback)
+    const summary = await generateAiSummary(
+      claims,
+      inspectionRoute,
+      insights,
+      weatherAnalysis,
+      slaStatus
+    );
+
+    return {
+      insights,
+      priorityOrder,
+      riskScore,
+      efficiencyScore,
+      summary,
+      weatherImpact: {
+        affectedStops: weatherAnalysis.affectedStops,
+        recommendation: weatherAnalysis.recommendation,
+      },
+      slaStatus: {
+        atRisk: slaStatus.atRisk,
+        breaching: slaStatus.breaching,
+        safe: slaStatus.safe,
+      },
+    };
+  } catch (error) {
+    console.error('My Day analysis error:', error);
+    
+    // Return a minimal fallback result
+    return {
+      insights: [],
+      priorityOrder: inspectionRoute.map(s => s.claimId),
+      riskScore: 0,
+      efficiencyScore: 100,
+      summary: `${inspectionRoute.length} inspections scheduled today. Analysis temporarily unavailable.`,
+      weatherImpact: {
+        affectedStops: 0,
+        recommendation: 'Weather data unavailable.',
+      },
+      slaStatus: {
+        atRisk: 0,
+        breaching: 0,
+        safe: claims.length,
+      },
+    };
   }
-
-  // 1. Analyze SLA status
-  const slaStatus = analyzeSlaStatus(claims, inspectionRoute);
-  insights.push(...slaStatus.insights);
-
-  // 2. Analyze weather impacts
-  const weatherAnalysis = analyzeWeatherImpacts(inspectionRoute, weatherByStop);
-  insights.push(...weatherAnalysis.insights);
-
-  // 3. Analyze claim completeness and documentation
-  const completenessAnalysis = analyzeClaimCompleteness(claims);
-  insights.push(...completenessAnalysis.insights);
-
-  // 4. Analyze coverage and reserve issues
-  const coverageAnalysis = analyzeCoverageIssues(claims);
-  insights.push(...coverageAnalysis.insights);
-
-  // 5. Calculate optimal priority order using AI
-  const priorityOrder = await calculateOptimalPriority(
-    claims,
-    inspectionRoute,
-    weatherByStop,
-    slaStatus,
-    weatherAnalysis
-  );
-
-  // 6. Calculate overall scores
-  const riskScore = calculateRiskScore(insights);
-  const efficiencyScore = calculateEfficiencyScore(inspectionRoute, weatherAnalysis);
-
-  // 7. Generate summary
-  const summary = await generateAiSummary(
-    claims,
-    inspectionRoute,
-    insights,
-    weatherAnalysis,
-    slaStatus
-  );
-
-  return {
-    insights,
-    priorityOrder,
-    riskScore,
-    efficiencyScore,
-    summary,
-    weatherImpact: {
-      affectedStops: weatherAnalysis.affectedStops,
-      recommendation: weatherAnalysis.recommendation,
-    },
-    slaStatus: {
-      atRisk: slaStatus.atRisk,
-      breaching: slaStatus.breaching,
-      safe: slaStatus.safe,
-    },
-  };
 }
 
 function analyzeSlaStatus(claims: ClaimData[], route: InspectionStop[]) {

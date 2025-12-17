@@ -1570,6 +1570,15 @@ export default function MyDay() {
             </div>
           )}
 
+          {/* AI Insights Panel - Top priority when claims exist */}
+          {(dayData.route.length > 0 || isAnalyzing) && (
+            <AiInsightsPanel
+              analysis={aiAnalysis}
+              isLoading={isAnalyzing}
+              isMobile={isMobileLayout}
+            />
+          )}
+
           {/* Weather alerts at top if present */}
           {dayData.weather.length > 0 && (
             <WeatherConditions weather={dayData.weather} isMobile={isMobileLayout} />
@@ -1588,6 +1597,7 @@ export default function MyDay() {
               isMobile={isMobileLayout}
               routeOptimization={routeOptimization}
               isOptimizing={isOptimizing}
+              stopWeatherData={aiAnalysis?.weatherData}
             />
           )}
 
