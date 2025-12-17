@@ -14,7 +14,7 @@ export interface IStorage {
   getClaimPhoto(id: string): Promise<ClaimPhoto | undefined>;
   listClaimPhotos(claimId: string, filters?: { structureId?: string; roomId?: string; damageZoneId?: string; damageDetected?: boolean }): Promise<ClaimPhoto[]>;
   listAllClaimPhotos(organizationId: string): Promise<ClaimPhoto[]>;
-  updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }): Promise<ClaimPhoto | undefined>;
+  updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null; latitude?: number | null; longitude?: number | null; geoAddress?: string | null }): Promise<ClaimPhoto | undefined>;
   deleteClaimPhoto(id: string): Promise<boolean>;
 }
 
@@ -95,13 +95,16 @@ export class MemStorage implements IStorage {
     return db.select().from(claimPhotos).where(eq(claimPhotos.organizationId, organizationId));
   }
 
-  async updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }): Promise<ClaimPhoto | undefined> {
+  async updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null; latitude?: number | null; longitude?: number | null; geoAddress?: string | null }): Promise<ClaimPhoto | undefined> {
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.label !== undefined) updateData.label = updates.label;
     if (updates.hierarchyPath !== undefined) updateData.hierarchyPath = updates.hierarchyPath;
     if (updates.structureId !== undefined) updateData.structureId = updates.structureId;
     if (updates.roomId !== undefined) updateData.roomId = updates.roomId;
     if (updates.damageZoneId !== undefined) updateData.damageZoneId = updates.damageZoneId;
+    if (updates.latitude !== undefined) updateData.latitude = updates.latitude;
+    if (updates.longitude !== undefined) updateData.longitude = updates.longitude;
+    if (updates.geoAddress !== undefined) updateData.geoAddress = updates.geoAddress;
 
     const [updated] = await db.update(claimPhotos).set(updateData).where(eq(claimPhotos.id, id)).returning();
     return updated;
