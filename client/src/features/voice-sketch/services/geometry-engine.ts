@@ -1126,10 +1126,192 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     }));
   },
 
+  // Object actions
+  addObject: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room selected. Please create or select a room first.';
+
+    const now = new Date().toISOString();
+    const newObject: SketchObject = {
+      id: generateId(),
+      name: params.name,
+      type: params.type,
+      description: params.description,
+      width_ft: params.width_ft,
+      depth_ft: params.depth_ft,
+      height_ft: params.height_ft,
+      position: params.wall ? { wall: params.wall } : undefined,
+      condition: params.condition,
+      damageNotes: params.damageNotes,
+      photos: [],
+      created_at: now,
+      updated_at: now,
+    };
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'add_object',
+      params,
+      timestamp: now,
+      result: `Added ${params.type}: ${params.name}`,
+    };
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        objects: [...state.currentRoom!.objects, newObject],
+        updated_at: now,
+      },
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return command.result;
+  },
+
+  editObject: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room selected.';
+
+    const objectIndex = currentRoom.objects.findIndex(
+      (o) => o.id === params.object_id || o.name.toLowerCase() === params.object_name?.toLowerCase()
+    );
+
+    if (objectIndex === -1) return 'Error: Object not found.';
+
+    const now = new Date().toISOString();
+    const updatedObject = {
+      ...currentRoom.objects[objectIndex],
+      ...(params.new_name && { name: params.new_name }),
+      ...(params.new_type && { type: params.new_type }),
+      ...(params.new_condition && { condition: params.new_condition }),
+      ...(params.new_damageNotes && { damageNotes: params.new_damageNotes }),
+      updated_at: now,
+    };
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        objects: state.currentRoom!.objects.map((o, i) => i === objectIndex ? updatedObject : o),
+        updated_at: now,
+      },
+    }));
+
+    return `Updated object: ${updatedObject.name}`;
+  },
+
+  deleteObject: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room selected.';
+
+    const objectIndex = currentRoom.objects.findIndex(
+      (o) => o.id === params.object_id || o.name.toLowerCase() === params.object_name?.toLowerCase()
+    );
+
+    if (objectIndex === -1) return 'Error: Object not found.';
+
+    const deletedObject = currentRoom.objects[objectIndex];
+    const now = new Date().toISOString();
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        objects: state.currentRoom!.objects.filter((_, i) => i !== objectIndex),
+        updated_at: now,
+      },
+    }));
+
+    return `Deleted object: ${deletedObject.name}`;
+  },
+
+  // Photo actions
+  capturePhoto: async (params, file) => {
+    const { currentStructure, currentRoom } = get();
+    const now = new Date().toISOString();
+
+    // Build hierarchy path
+    const pathParts: string[] = [];
+    if (currentStructure) pathParts.push(currentStructure.name);
+    if (currentRoom) pathParts.push(currentRoom.name);
+    const hierarchyPath = pathParts.length > 0 ? pathParts.join(' > ') : 'Exterior';
+
+    // Auto-label from context
+    const autoLabel = currentRoom?.name || currentStructure?.name || 'Exterior';
+
+    const newPhoto: SketchPhoto = {
+      id: generateId(),
+      label: params.label || autoLabel,
+      autoLabel,
+      hierarchyPath,
+      structureId: currentStructure?.id,
+      roomId: currentRoom?.id,
+      capturedAt: now,
+    };
+
+    // Add to photos array
+    set((state) => ({
+      photos: [...state.photos, newPhoto],
+    }));
+
+    // If in a room, add to room's photos
+    if (currentRoom) {
+      set((state) => ({
+        currentRoom: state.currentRoom ? {
+          ...state.currentRoom,
+          photos: [...state.currentRoom.photos, newPhoto],
+          updated_at: now,
+        } : null,
+      }));
+    }
+
+    return `Photo captured: ${newPhoto.label} (${hierarchyPath})`;
+  },
+
+  addPhoto: (photo) => {
+    set((state) => ({
+      photos: [...state.photos, photo],
+    }));
+  },
+
+  updatePhotoAnalysis: (photoId, analysis) => {
+    set((state) => ({
+      photos: state.photos.map((p) => 
+        p.id === photoId ? { ...p, aiAnalysis: analysis } : p
+      ),
+    }));
+  },
+
+  // Hierarchy helpers
+  getCurrentHierarchyPath: () => {
+    const { currentStructure, currentRoom } = get();
+    const pathParts: string[] = [];
+    if (currentStructure) pathParts.push(currentStructure.name);
+    if (currentRoom) {
+      if (currentRoom.parentRoomId) {
+        // Find parent room name
+        const parentRoom = get().rooms.find((r) => r.id === currentRoom.parentRoomId);
+        if (parentRoom) pathParts.push(parentRoom.name);
+      }
+      pathParts.push(currentRoom.name);
+    }
+    return pathParts.length > 0 ? pathParts.join(' > ') : 'Exterior';
+  },
+
+  getHierarchyContext: () => {
+    const { currentStructure, currentRoom } = get();
+    return {
+      structureId: currentStructure?.id,
+      roomId: currentRoom?.parentRoomId ? currentRoom.parentRoomId : currentRoom?.id,
+      subRoomId: currentRoom?.parentRoomId ? currentRoom.id : undefined,
+    };
+  },
+
   resetSession: () => {
     set({
+      structures: [],
+      currentStructure: null,
       currentRoom: null,
       rooms: [],
+      photos: [],
       commandHistory: [],
       undoStack: [],
       transcript: [],
@@ -1143,6 +1325,12 @@ export const geometryEngine = {
   get state() {
     return useGeometryEngine.getState();
   },
+  // Structure actions
+  createStructure: (params: CreateStructureParams) => useGeometryEngine.getState().createStructure(params),
+  editStructure: (params: EditStructureParams) => useGeometryEngine.getState().editStructure(params),
+  deleteStructure: (params: DeleteStructureParams) => useGeometryEngine.getState().deleteStructure(params),
+  selectStructure: (params: SelectStructureParams) => useGeometryEngine.getState().selectStructure(params),
+  // Room actions
   createRoom: (params: CreateRoomParams) => useGeometryEngine.getState().createRoom(params),
   addOpening: (params: AddOpeningParams) => useGeometryEngine.getState().addOpening(params),
   addFeature: (params: AddFeatureParams) => useGeometryEngine.getState().addFeature(params),
@@ -1156,6 +1344,13 @@ export const geometryEngine = {
   deleteOpening: (params: DeleteOpeningParams) => useGeometryEngine.getState().deleteOpening(params),
   deleteFeature: (params: DeleteFeatureParams) => useGeometryEngine.getState().deleteFeature(params),
   editDamageZone: (params: EditDamageZoneParams) => useGeometryEngine.getState().editDamageZone(params),
+  // Object actions
+  addObject: (params: AddObjectParams) => useGeometryEngine.getState().addObject(params),
+  editObject: (params: EditObjectParams) => useGeometryEngine.getState().editObject(params),
+  deleteObject: (params: DeleteObjectParams) => useGeometryEngine.getState().deleteObject(params),
+  // Photo actions
+  capturePhoto: (params: CapturePhotoParams, file?: File) => useGeometryEngine.getState().capturePhoto(params, file),
+  // Helpers
   getRoomByName: (name: string) => {
     const state = useGeometryEngine.getState();
     if (state.currentRoom?.name === name) {
@@ -1163,4 +1358,6 @@ export const geometryEngine = {
     }
     return state.rooms.find(r => r.name === name) ?? null;
   },
+  getCurrentHierarchyPath: () => useGeometryEngine.getState().getCurrentHierarchyPath(),
+  getHierarchyContext: () => useGeometryEngine.getState().getHierarchyContext(),
 };

@@ -1,8 +1,9 @@
 // Voice Sketch Controller Component
 // Main container for voice-driven room sketching using RealtimeSession
+// Hierarchy: Structure > Room > Sub-room > Object
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -20,6 +21,7 @@ import { RoomPreview } from './RoomPreview';
 import { CommandHistory } from './CommandHistory';
 import { FieldCameraButton } from './FieldCameraButton';
 import { cn } from '@/lib/utils';
+import type { StructureType } from '../types/geometry';
 
 interface VoiceSketchControllerProps {
   userName?: string;
@@ -42,11 +44,31 @@ export function VoiceSketchController({
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const { currentRoom, rooms, resetSession, createRoom, confirmRoom } = useGeometryEngine();
+  const { 
+    currentRoom, 
+    rooms, 
+    structures,
+    currentStructure,
+    photos,
+    resetSession, 
+    createRoom, 
+    confirmRoom,
+    createStructure,
+    selectStructure,
+    getCurrentHierarchyPath,
+    capturePhoto,
+  } = useGeometryEngine();
 
-  // Manual room/structure creation handlers
+  // Get current hierarchy path for display
+  const hierarchyPath = getCurrentHierarchyPath();
+
+  // Manual room creation handler
   const handleAddRoom = useCallback((roomType: string) => {
-    // Default dimensions for different room types
+    if (!currentStructure) {
+      console.warn('Please create a structure first before adding rooms');
+      return;
+    }
+    
     const roomDefaults: Record<string, { width: number; length: number; name: string }> = {
       bedroom: { width: 12, length: 14, name: 'Bedroom' },
       bathroom: { width: 8, length: 10, name: 'Bathroom' },
@@ -66,33 +88,42 @@ export function VoiceSketchController({
       width_ft: defaults.width,
       length_ft: defaults.length,
       ceiling_height_ft: 8,
+      structure_id: currentStructure.id,
     });
-  }, [createRoom]);
+  }, [createRoom, currentStructure]);
 
+  // Structure creation handler - uses proper Structure type
   const handleAddStructure = useCallback((structureType: string) => {
-    // Default dimensions for exterior structures
-    const structureDefaults: Record<string, { width: number; length: number; name: string }> = {
-      garage: { width: 20, length: 24, name: 'Garage' },
-      detached_garage: { width: 22, length: 24, name: 'Detached Garage' },
-      shed: { width: 10, length: 12, name: 'Shed' },
-      deck: { width: 12, length: 16, name: 'Deck' },
-      patio: { width: 10, length: 12, name: 'Patio' },
-      porch: { width: 8, length: 20, name: 'Porch' },
-      carport: { width: 12, length: 20, name: 'Carport' },
-      pool_house: { width: 14, length: 16, name: 'Pool House' },
-      workshop: { width: 16, length: 20, name: 'Workshop' },
-      barn: { width: 30, length: 40, name: 'Barn' },
-      custom: { width: 12, length: 12, name: 'Structure' },
+    const structureTypeMap: Record<string, StructureType> = {
+      main_dwelling: 'main_dwelling',
+      detached_garage: 'detached_garage',
+      attached_garage: 'attached_garage',
+      shed: 'shed',
+      pool_house: 'pool_house',
+      guest_house: 'guest_house',
+      barn: 'barn',
+      other: 'other',
     };
-    const defaults = structureDefaults[structureType] || structureDefaults.custom;
-    createRoom({
-      name: defaults.name,
-      shape: 'rectangle',
-      width_ft: defaults.width,
-      length_ft: defaults.length,
-      ceiling_height_ft: structureType === 'deck' || structureType === 'patio' ? 0 : 10,
+    
+    const structureNames: Record<string, string> = {
+      main_dwelling: 'Main House',
+      detached_garage: 'Detached Garage',
+      attached_garage: 'Attached Garage',
+      shed: 'Shed',
+      pool_house: 'Pool House',
+      guest_house: 'Guest House',
+      barn: 'Barn',
+      other: 'Structure',
+    };
+    
+    const type = structureTypeMap[structureType] || 'other';
+    const name = structureNames[structureType] || 'Structure';
+    
+    createStructure({
+      name,
+      type,
     });
-  }, [createRoom]);
+  }, [createStructure]);
 
   const handleToolCall = useCallback(
     (toolName: string, _args: unknown, result: string) => {
@@ -153,19 +184,135 @@ export function VoiceSketchController({
 
   const hasRooms = rooms.length > 0 || currentRoom;
 
-  const handlePhotoCaptured = useCallback((file: File) => {
-    // Log the captured photo for now - upload logic can be added later
+  const handlePhotoCaptured = useCallback(async (file: File) => {
     console.log('Photo captured in VoiceSketchController:', {
       name: file.name,
       size: file.size,
       type: file.type,
     });
-    // TODO: Implement photo upload to associate with current room/sketch
-  }, []);
+    // Capture photo with current hierarchy context
+    await capturePhoto({}, file);
+  }, [capturePhoto]);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Header with Controls */}
+      {/* Hierarchy Breadcrumb */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b text-sm">
+        <Building2 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        <div className="flex items-center gap-1 overflow-x-auto">
+          {structures.length === 0 ? (
+            <span className="text-muted-foreground italic">No structure selected</span>
+          ) : (
+            <>
+              {/* Structure selector dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 px-2 font-medium">
+                    {currentStructure?.name || 'Select Structure'}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuLabel>Structures</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {structures.map((s) => (
+                    <DropdownMenuItem 
+                      key={s.id} 
+                      onClick={() => selectStructure({ structure_id: s.id })}
+                      className={s.id === currentStructure?.id ? 'bg-accent' : ''}
+                    >
+                      <Home className="h-4 w-4 mr-2" />
+                      {s.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {currentRoom && (
+                <>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="font-medium truncate">{currentRoom.name}</span>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        
+        {/* Quick add buttons */}
+        <div className="flex items-center gap-1 ml-auto flex-shrink-0">
+          {/* Add Structure dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 px-2">
+                <Plus className="h-3 w-3 mr-1" />
+                <Building2 className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Add Structure</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleAddStructure('main_dwelling')}>
+                <Home className="h-4 w-4 mr-2" />
+                Main House
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddStructure('detached_garage')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Detached Garage
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddStructure('attached_garage')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Attached Garage
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddStructure('shed')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Shed
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddStructure('pool_house')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Pool House
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddStructure('guest_house')}>
+                <Home className="h-4 w-4 mr-2" />
+                Guest House
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddStructure('barn')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Barn
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          {/* Add Room dropdown - only enabled when a structure is selected */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-7 px-2"
+                disabled={!currentStructure}
+                title={!currentStructure ? 'Add a structure first' : 'Add room'}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                <Home className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Add Room to {currentStructure?.name || 'Structure'}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleAddRoom('bedroom')}>Bedroom</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('bathroom')}>Bathroom</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('kitchen')}>Kitchen</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('living_room')}>Living Room</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('dining_room')}>Dining Room</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('office')}>Office</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('laundry')}>Laundry Room</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('hallway')}>Hallway</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleAddRoom('closet')}>Closet (Sub-room)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Header with Voice Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 sm:p-3 border-b bg-background">
         <div className="flex items-center gap-3">
           <h2 className="text-base sm:text-lg font-semibold text-foreground">Voice Sketch</h2>
@@ -187,6 +334,13 @@ export function VoiceSketchController({
                 </span>
               )}
             </div>
+          )}
+          {/* Photo count badge */}
+          {photos.length > 0 && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+              <Camera className="h-3 w-3" />
+              {photos.length}
+            </span>
           )}
         </div>
 
@@ -282,13 +436,62 @@ export function VoiceSketchController({
           )}
         </div>
 
-        {/* Right Column: Command History */}
-        <div className="flex flex-col min-h-[200px] lg:min-h-0">
+        {/* Right Column: Command History & Hierarchy Summary */}
+        <div className="flex flex-col min-h-[200px] lg:min-h-0 gap-2">
           <CommandHistory className="flex-1" />
-          {rooms.length > 0 && (
-            <div className="bg-muted rounded-lg p-3 mt-2">
+          
+          {/* Structures & Rooms Summary */}
+          {structures.length > 0 && (
+            <div className="bg-muted rounded-lg p-3">
+              <h3 className="font-medium text-xs mb-2 flex items-center gap-1">
+                <Building2 className="h-3 w-3" />
+                Structures ({structures.length})
+              </h3>
+              <div className="space-y-2">
+                {structures.map((structure) => (
+                  <div key={structure.id} className="space-y-0.5">
+                    <div 
+                      className={cn(
+                        "text-xs font-medium flex items-center gap-1 cursor-pointer hover:text-primary",
+                        structure.id === currentStructure?.id && "text-primary"
+                      )}
+                      onClick={() => selectStructure({ structure_id: structure.id })}
+                    >
+                      <Home className="h-3 w-3" />
+                      {structure.name}
+                      <span className="text-muted-foreground font-normal">
+                        ({structure.rooms.length} rooms)
+                      </span>
+                    </div>
+                    {/* Show rooms in this structure */}
+                    {structure.rooms.length > 0 && structure.id === currentStructure?.id && (
+                      <div className="pl-4 space-y-0.5">
+                        {structure.rooms.map((room) => (
+                          <div
+                            key={room.id}
+                            className="text-xs text-muted-foreground flex justify-between"
+                          >
+                            <span className="capitalize truncate">
+                              {room.name.replace(/_/g, ' ')}
+                            </span>
+                            <span className="flex-shrink-0 ml-2">
+                              {room.width_ft}' × {room.length_ft}'
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Standalone rooms (legacy/backward compatibility) */}
+          {rooms.length > 0 && structures.length === 0 && (
+            <div className="bg-muted rounded-lg p-3">
               <h3 className="font-medium text-xs mb-1">
-                Confirmed ({rooms.length})
+                Rooms ({rooms.length})
               </h3>
               <div className="space-y-0.5">
                 {rooms.map((room) => (
