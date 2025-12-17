@@ -226,8 +226,25 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailD
               </p>
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground">
-              <span className="font-medium">Location:</span> {photo.hierarchyPath}
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium">Location:</span> {photo.hierarchyPath}
+              </div>
+              {(photo.latitude != null && photo.longitude != null) && (
+                <div className="text-sm text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  <span className="font-medium">GPS:</span>{' '}
+                  <a 
+                    href={`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                    data-testid="link-gps-coordinates"
+                  >
+                    {photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
