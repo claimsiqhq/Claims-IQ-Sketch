@@ -118,16 +118,27 @@ export interface SketchPhoto {
   aiAnalysis?: PhotoAIAnalysis;
 }
 
-// AI analysis of a photo
+// AI analysis of a photo (matches server PhotoAnalysis response)
 export interface PhotoAIAnalysis {
-  qualityScore: number; // 0-100
-  qualityIssues: string[]; // e.g., "blurry", "too dark", "partially obscured"
-  contentDetected: string[]; // e.g., "water damage", "mold", "ceiling stain"
-  suggestedCategory?: DamageType;
-  suggestedSeverity?: 'minor' | 'moderate' | 'severe';
-  improvements: string[]; // e.g., "Take closer photo", "Include reference object for scale"
-  description?: string; // AI-generated description of what's in the photo
-  analyzedAt: string;
+  quality: {
+    score: number; // 1-10
+    issues: string[];
+    suggestions: string[];
+  };
+  content: {
+    description: string;
+    damageDetected: boolean;
+    damageTypes: string[];
+    damageLocations: string[];
+    materials: string[];
+    recommendedLabel: string;
+  };
+  metadata: {
+    lighting: 'good' | 'fair' | 'poor';
+    focus: 'sharp' | 'acceptable' | 'blurry';
+    angle: 'optimal' | 'acceptable' | 'suboptimal';
+    coverage: 'complete' | 'partial' | 'insufficient';
+  };
 }
 
 // Structure - Top level of hierarchy (property/building)

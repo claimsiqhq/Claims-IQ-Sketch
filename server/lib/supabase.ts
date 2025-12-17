@@ -62,6 +62,7 @@ export function getSupabase(): SupabaseClient {
 // Storage bucket names
 export const DOCUMENTS_BUCKET = 'documents';
 export const PREVIEWS_BUCKET = 'document-previews';
+export const PHOTOS_BUCKET = 'claim-photos';
 
 // Export configuration for use in other modules
 export const supabaseConfig = {

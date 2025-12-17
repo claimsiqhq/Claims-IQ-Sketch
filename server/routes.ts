@@ -3580,6 +3580,74 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // PHOTO ROUTES (Voice Sketch)
+  // ============================================
+
+  // Upload photo with AI analysis
+  app.post('/api/photos/upload', requireAuth, requireOrganization, upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const { uploadAndAnalyzePhoto } = await import('./services/photos');
+      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath } = req.body;
+
+      const photo = await uploadAndAnalyzePhoto({
+        file: {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          buffer: req.file.buffer,
+        },
+        claimId,
+        structureId,
+        roomId,
+        subRoomId,
+        objectId,
+        label,
+        hierarchyPath,
+      });
+
+      res.status(201).json(photo);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[photos] Upload error:', error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get signed URL for a photo
+  app.get('/api/photos/:storagePath(*)/url', requireAuth, async (req, res) => {
+    try {
+      const { getPhotoSignedUrl } = await import('./services/photos');
+      const url = await getPhotoSignedUrl(req.params.storagePath);
+      if (!url) {
+        return res.status(404).json({ error: 'Photo not found or URL generation failed' });
+      }
+      res.json({ url });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete a photo
+  app.delete('/api/photos/:storagePath(*)', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { deletePhoto } = await import('./services/photos');
+      const success = await deletePhoto(req.params.storagePath);
+      if (!success) {
+        return res.status(500).json({ error: 'Failed to delete photo' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
   // DOCUMENT ROUTES
   // ============================================
 

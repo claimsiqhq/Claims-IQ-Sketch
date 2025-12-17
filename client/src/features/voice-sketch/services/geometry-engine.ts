@@ -612,7 +612,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   confirmRoom: (params) => {
-    const { currentRoom, rooms } = get();
+    const { currentRoom, rooms, structures, currentStructure } = get();
     if (!currentRoom) return 'Error: No room to confirm. Please create a room first.';
 
     const confirmedRoom = {
@@ -628,8 +628,32 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       result: `${formatRoomName(currentRoom.name)} confirmed and saved`,
     };
 
+    // If the room belongs to a structure, add it to the structure's rooms array
+    let updatedStructures = structures;
+    let updatedCurrentStructure = currentStructure;
+    
+    if (confirmedRoom.structureId) {
+      updatedStructures = structures.map((s) => {
+        if (s.id === confirmedRoom.structureId) {
+          const updatedStructure = {
+            ...s,
+            rooms: [...s.rooms, confirmedRoom],
+            updated_at: new Date().toISOString(),
+          };
+          // Update current structure reference if it matches
+          if (currentStructure?.id === s.id) {
+            updatedCurrentStructure = updatedStructure;
+          }
+          return updatedStructure;
+        }
+        return s;
+      });
+    }
+
     set((state) => ({
       rooms: [...state.rooms, confirmedRoom],
+      structures: updatedStructures,
+      currentStructure: updatedCurrentStructure,
       currentRoom: params.ready_for_next ? null : confirmedRoom,
       undoStack: [], // Clear undo stack when room is confirmed
       commandHistory: [...state.commandHistory, command],
@@ -1267,9 +1291,70 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   addPhoto: (photo) => {
-    set((state) => ({
-      photos: [...state.photos, photo],
-    }));
+    set((state) => {
+      const now = new Date().toISOString();
+      
+      let updatedStructures = state.structures;
+      let updatedCurrentStructure = state.currentStructure;
+      let updatedCurrentRoom = state.currentRoom;
+      let updatedRooms = state.rooms;
+      
+      if (photo.structureId) {
+        updatedStructures = state.structures.map((s) => {
+          if (s.id === photo.structureId) {
+            let updatedStructure: Structure;
+            
+            if (photo.roomId) {
+              updatedStructure = {
+                ...s,
+                rooms: s.rooms.map((r) => 
+                  r.id === photo.roomId 
+                    ? { ...r, photos: [...r.photos, photo], updated_at: now }
+                    : r
+                ),
+                updated_at: now,
+              };
+            } else {
+              updatedStructure = {
+                ...s,
+                photos: [...s.photos, photo],
+                updated_at: now,
+              };
+            }
+            
+            if (state.currentStructure?.id === s.id) {
+              updatedCurrentStructure = updatedStructure;
+            }
+            return updatedStructure;
+          }
+          return s;
+        });
+      }
+      
+      if (photo.roomId && state.currentRoom?.id === photo.roomId) {
+        updatedCurrentRoom = {
+          ...state.currentRoom,
+          photos: [...state.currentRoom.photos, photo],
+          updated_at: now,
+        };
+      }
+      
+      if (photo.roomId) {
+        updatedRooms = state.rooms.map((r) =>
+          r.id === photo.roomId
+            ? { ...r, photos: [...r.photos, photo], updated_at: now }
+            : r
+        );
+      }
+      
+      return {
+        photos: [...state.photos, photo],
+        structures: updatedStructures,
+        currentStructure: updatedCurrentStructure,
+        currentRoom: updatedCurrentRoom,
+        rooms: updatedRooms,
+      };
+    });
   },
 
   updatePhotoAnalysis: (photoId, analysis) => {

@@ -1492,3 +1492,102 @@ export async function getClaimCarrierGuidance(claimId: string): Promise<MergedIn
   }
   return response.json();
 }
+
+// ============================================
+// PHOTO API (Voice Sketch)
+// ============================================
+
+export interface PhotoAnalysis {
+  quality: {
+    score: number;
+    issues: string[];
+    suggestions: string[];
+  };
+  content: {
+    description: string;
+    damageDetected: boolean;
+    damageTypes: string[];
+    damageLocations: string[];
+    materials: string[];
+    recommendedLabel: string;
+  };
+  metadata: {
+    lighting: 'good' | 'fair' | 'poor';
+    focus: 'sharp' | 'acceptable' | 'blurry';
+    angle: 'optimal' | 'acceptable' | 'suboptimal';
+    coverage: 'complete' | 'partial' | 'insufficient';
+  };
+}
+
+export interface UploadedPhoto {
+  id: string;
+  url: string;
+  storagePath: string;
+  analysis: PhotoAnalysis | null;
+  label: string;
+  hierarchyPath: string;
+  claimId?: string;
+  structureId?: string;
+  roomId?: string;
+  subRoomId?: string;
+  objectId?: string;
+  capturedAt: string;
+  analyzedAt?: string;
+}
+
+export interface PhotoUploadParams {
+  file: File;
+  claimId?: string;
+  structureId?: string;
+  roomId?: string;
+  subRoomId?: string;
+  objectId?: string;
+  label?: string;
+  hierarchyPath?: string;
+}
+
+export async function uploadPhoto(params: PhotoUploadParams): Promise<UploadedPhoto> {
+  const formData = new FormData();
+  formData.append('file', params.file);
+  if (params.claimId) formData.append('claimId', params.claimId);
+  if (params.structureId) formData.append('structureId', params.structureId);
+  if (params.roomId) formData.append('roomId', params.roomId);
+  if (params.subRoomId) formData.append('subRoomId', params.subRoomId);
+  if (params.objectId) formData.append('objectId', params.objectId);
+  if (params.label) formData.append('label', params.label);
+  if (params.hierarchyPath) formData.append('hierarchyPath', params.hierarchyPath);
+
+  const response = await fetch(`${API_BASE}/photos/upload`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(error.error || 'Failed to upload photo');
+  }
+
+  return response.json();
+}
+
+export async function getPhotoSignedUrl(storagePath: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/photos/${encodeURIComponent(storagePath)}/url`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get photo URL');
+  }
+  const data = await response.json();
+  return data.url;
+}
+
+export async function deletePhoto(storagePath: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/photos/${encodeURIComponent(storagePath)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete photo');
+  }
+}

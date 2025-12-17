@@ -21,6 +21,8 @@ import { RoomPreview } from './RoomPreview';
 import { CommandHistory } from './CommandHistory';
 import { FieldCameraButton } from './FieldCameraButton';
 import { cn } from '@/lib/utils';
+import { uploadPhoto } from '@/lib/api';
+import { toast } from 'sonner';
 import type { StructureType } from '../types/geometry';
 
 interface VoiceSketchControllerProps {
@@ -56,7 +58,7 @@ export function VoiceSketchController({
     createStructure,
     selectStructure,
     getCurrentHierarchyPath,
-    capturePhoto,
+    addPhoto,
   } = useGeometryEngine();
 
   // Get current hierarchy path for display
@@ -184,15 +186,83 @@ export function VoiceSketchController({
 
   const hasRooms = rooms.length > 0 || currentRoom;
 
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  
   const handlePhotoCaptured = useCallback(async (file: File) => {
     console.log('Photo captured in VoiceSketchController:', {
       name: file.name,
       size: file.size,
       type: file.type,
     });
-    // Capture photo with current hierarchy context
-    await capturePhoto({}, file);
-  }, [capturePhoto]);
+    
+    setIsUploadingPhoto(true);
+    const loadingToast = toast.loading('Uploading photo and analyzing...');
+    
+    try {
+      const hierarchyContext = hierarchyPath || 'Exterior';
+      const uploadedPhoto = await uploadPhoto({
+        file,
+        claimId,
+        structureId: currentStructure?.id,
+        roomId: currentRoom?.id,
+        hierarchyPath: hierarchyContext,
+      });
+      
+      toast.dismiss(loadingToast);
+      
+      if (uploadedPhoto.analysis?.quality) {
+        const qualityScore = uploadedPhoto.analysis.quality.score;
+        const damageDetected = uploadedPhoto.analysis.content.damageDetected;
+        
+        if (qualityScore >= 7) {
+          toast.success(`Great photo! ${damageDetected ? 'Damage detected.' : ''} ${uploadedPhoto.analysis.content.description}`, {
+            duration: 4000,
+          });
+        } else if (qualityScore >= 5) {
+          toast.info(`Photo captured. ${uploadedPhoto.analysis.quality.suggestions[0] || ''}`, {
+            duration: 4000,
+          });
+        } else {
+          toast.warning(`Photo quality is low. ${uploadedPhoto.analysis.quality.suggestions.join(' ')}`, {
+            duration: 5000,
+          });
+        }
+      } else {
+        toast.success(`Photo captured: ${uploadedPhoto.label}`);
+      }
+      
+      addPhoto({
+        id: uploadedPhoto.id,
+        storageUrl: uploadedPhoto.url,
+        label: uploadedPhoto.label,
+        hierarchyPath: uploadedPhoto.hierarchyPath,
+        structureId: uploadedPhoto.structureId,
+        roomId: uploadedPhoto.roomId,
+        subRoomId: uploadedPhoto.subRoomId,
+        objectId: uploadedPhoto.objectId,
+        capturedAt: uploadedPhoto.capturedAt,
+        uploadedAt: uploadedPhoto.analyzedAt,
+        aiAnalysis: uploadedPhoto.analysis ?? undefined,
+      });
+      
+      console.log('Photo uploaded and analyzed:', uploadedPhoto);
+    } catch (error) {
+      toast.dismiss(loadingToast);
+      console.error('Photo upload error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload photo');
+      
+      addPhoto({
+        id: Date.now().toString(),
+        label: 'Photo (local)',
+        hierarchyPath: hierarchyPath || 'Exterior',
+        structureId: currentStructure?.id,
+        roomId: currentRoom?.id,
+        capturedAt: new Date().toISOString(),
+      });
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }, [addPhoto, claimId, currentStructure, currentRoom, hierarchyPath]);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -401,7 +471,7 @@ export function VoiceSketchController({
       <div className="fixed bottom-24 right-4 z-40 sm:hidden">
         <FieldCameraButton
           onPhotoCaptured={handlePhotoCaptured}
-          disabled={false}
+          disabled={isUploadingPhoto}
         />
       </div>
 
