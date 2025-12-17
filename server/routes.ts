@@ -520,14 +520,35 @@ export async function registerRoutes(
   app.put('/api/users/profile', requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const { name, email } = req.body;
-      
-      const updatedUser = await updateUserProfile(userId, { name, email });
+      const { name, firstName, lastName, email } = req.body;
+
+      // Support both 'name' (split into first/last) and explicit firstName/lastName
+      let first = firstName;
+      let last = lastName;
+
+      if (name && !firstName && !lastName) {
+        // Split name into first and last
+        const nameParts = name.trim().split(/\s+/);
+        first = nameParts[0] || '';
+        last = nameParts.slice(1).join(' ') || '';
+      }
+
+      const updatedUser = await updateUserProfile(userId, {
+        firstName: first,
+        lastName: last,
+        email
+      });
       if (!updatedUser) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
-      res.json({ user: updatedUser, message: 'Profile updated successfully' });
+
+      // Return user with combined name for client compatibility
+      const userWithName = {
+        ...updatedUser,
+        name: [updatedUser.firstName, updatedUser.lastName].filter(Boolean).join(' ') || updatedUser.username
+      };
+
+      res.json({ user: userWithName, message: 'Profile updated successfully' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
