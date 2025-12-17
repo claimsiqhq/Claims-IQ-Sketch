@@ -22,8 +22,15 @@ interface EstimateSettings {
   profitPct: number;
 }
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+}
+
 // Mock user for fallback when authUser is null
-const DEFAULT_USER = {
+const DEFAULT_USER: User = {
   id: 'default',
   name: 'Guest User',
   email: '',
@@ -37,8 +44,8 @@ interface StoreState {
   isAuthLoading: boolean;
   authError: string | null;
 
-  // Derived user object (for UI that expects a user object)
-  user: { id: string; name: string; email: string; avatar: string };
+  // User object for backward compatibility and UI components
+  user: User;
 
   claims: Claim[];
   activeClaim: Claim | null;
