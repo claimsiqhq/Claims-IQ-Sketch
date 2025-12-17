@@ -666,6 +666,7 @@ export const claimPhotos = pgTable("claim_photos", {
   // GPS coordinates (from device when photo was captured)
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
+  geoAddress: varchar("geo_address", { length: 500 }), // Reverse geocoded address
 
   // AI Analysis results (from OpenAI Vision)
   aiAnalysis: jsonb("ai_analysis").default(sql`'{}'::jsonb`),

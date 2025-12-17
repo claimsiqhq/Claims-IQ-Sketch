@@ -8,6 +8,69 @@ interface GeocodeResult {
 
 const GOOGLE_GEOCODING_API_KEY = process.env.GOOGLE_API_KEY || '';
 
+export interface ReverseGeocodeResult {
+  formattedAddress: string;
+  shortAddress: string; // Just street or locality
+}
+
+export async function reverseGeocode(
+  latitude: number,
+  longitude: number
+): Promise<ReverseGeocodeResult | null> {
+  if (!GOOGLE_GEOCODING_API_KEY) {
+    console.warn('Google Geocoding API key not configured, skipping reverse geocoding');
+    return null;
+  }
+
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_GEOCODING_API_KEY}`;
+
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.error(`Google Reverse Geocoding failed with status ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (data.status !== 'OK' || !data.results || data.results.length === 0) {
+      console.error(`Google Reverse Geocoding returned status: ${data.status}`);
+      return null;
+    }
+
+    const result = data.results[0];
+    
+    // Extract a short address (locality or neighborhood)
+    let shortAddress = '';
+    for (const component of result.address_components || []) {
+      if (component.types.includes('locality')) {
+        shortAddress = component.long_name;
+        break;
+      }
+      if (component.types.includes('neighborhood') && !shortAddress) {
+        shortAddress = component.long_name;
+      }
+      if (component.types.includes('sublocality') && !shortAddress) {
+        shortAddress = component.long_name;
+      }
+    }
+    
+    // Fallback to formatted address if no locality found
+    if (!shortAddress) {
+      shortAddress = result.formatted_address.split(',')[0];
+    }
+
+    return {
+      formattedAddress: result.formatted_address,
+      shortAddress
+    };
+  } catch (error) {
+    console.error('Reverse geocoding error:', error);
+    return null;
+  }
+}
+
 export async function geocodeAddress(
   address: string,
   city?: string,

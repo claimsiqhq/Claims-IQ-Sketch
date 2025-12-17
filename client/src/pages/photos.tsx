@@ -29,6 +29,7 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): SketchPhoto {
     storagePath: cp.storagePath,
     latitude: cp.latitude,
     longitude: cp.longitude,
+    geoAddress: cp.geoAddress,
     aiAnalysis: cp.aiAnalysis ? {
       quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
       content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },

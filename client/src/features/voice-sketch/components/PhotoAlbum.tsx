@@ -243,6 +243,11 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailD
                   >
                     {photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}
                   </a>
+                  {photo.geoAddress && (
+                    <span className="text-muted-foreground ml-1">
+                      (near {photo.geoAddress})
+                    </span>
+                  )}
                 </div>
               )}
             </div>

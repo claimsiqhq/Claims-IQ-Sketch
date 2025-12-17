@@ -1754,6 +1754,7 @@ export interface ClaimPhoto {
   description: string | null;
   latitude: number | null;
   longitude: number | null;
+  geoAddress: string | null;
   aiAnalysis: PhotoAnalysis | null;
   qualityScore: number | null;
   damageDetected: boolean | null;

@@ -119,6 +119,7 @@ export interface SketchPhoto {
   // GPS coordinates
   latitude?: number | null;
   longitude?: number | null;
+  geoAddress?: string | null; // Reverse geocoded address
   // AI analysis results
   aiAnalysis?: PhotoAIAnalysis | null;
 }

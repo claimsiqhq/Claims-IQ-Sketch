@@ -4,6 +4,7 @@ import { getSupabaseAdmin, PHOTOS_BUCKET, isSupabaseConfigured } from '../lib/su
 import OpenAI from 'openai';
 import { storage } from '../storage';
 import type { ClaimPhoto, InsertClaimPhoto } from '@shared/schema';
+import { reverseGeocode } from './geocoding';
 
 const openai = new OpenAI();
 
@@ -22,6 +23,8 @@ export interface PhotoUploadInput {
   objectId?: string;
   label?: string;
   hierarchyPath?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface PhotoAnalysis {
@@ -220,6 +223,20 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
   const label = input.label || analysis.content.recommendedLabel || 'Photo';
   const hierarchyPath = input.hierarchyPath || 'Exterior';
 
+  // Reverse geocode if coordinates are provided
+  let geoAddress: string | null = null;
+  if (input.latitude != null && input.longitude != null) {
+    try {
+      const geoResult = await reverseGeocode(input.latitude, input.longitude);
+      if (geoResult) {
+        geoAddress = geoResult.shortAddress;
+        console.log(`[photos] Reverse geocoded: ${geoAddress}`);
+      }
+    } catch (error) {
+      console.error('[photos] Reverse geocoding failed:', error);
+    }
+  }
+
   // Save to database if claimId is provided
   if (input.claimId && input.organizationId) {
     const photoRecord: InsertClaimPhoto = {
@@ -236,6 +253,9 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       label,
       hierarchyPath,
       description: analysis.content.description,
+      latitude: input.latitude ?? null,
+      longitude: input.longitude ?? null,
+      geoAddress,
       aiAnalysis: analysis,
       qualityScore: analysis.quality.score,
       damageDetected: analysis.content.damageDetected,
@@ -331,7 +351,27 @@ export async function listAllClaimPhotos(organizationId: string): Promise<ClaimP
 
 export async function updateClaimPhoto(
   id: string,
-  updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
+  updates: { 
+    label?: string; 
+    hierarchyPath?: string; 
+    structureId?: string | null; 
+    roomId?: string | null; 
+    damageZoneId?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    geoAddress?: string | null;
+  }
 ): Promise<ClaimPhoto | undefined> {
+  // If coordinates are provided but no geoAddress, reverse geocode
+  if (updates.latitude != null && updates.longitude != null && !updates.geoAddress) {
+    try {
+      const geoResult = await reverseGeocode(updates.latitude, updates.longitude);
+      if (geoResult) {
+        updates.geoAddress = geoResult.shortAddress;
+      }
+    } catch (error) {
+      console.error('[photos] Reverse geocoding failed during update:', error);
+    }
+  }
   return storage.updateClaimPhoto(id, updates);
 }
