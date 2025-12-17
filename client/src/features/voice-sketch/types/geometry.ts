@@ -1,14 +1,20 @@
 // Voice Sketch Geometry Types
 // These types define the structures for voice-driven room sketching
+// Hierarchy: Structure > Room > Sub-room > Object
 
 export type WallDirection = 'north' | 'south' | 'east' | 'west';
 export type RoomShape = 'rectangle' | 'l_shape' | 't_shape' | 'irregular';
 export type OpeningType = 'door' | 'window' | 'archway' | 'sliding_door' | 'french_door';
 export type FeatureType = 'closet' | 'alcove' | 'bump_out' | 'island' | 'peninsula' | 'fireplace' | 'built_in';
+export type ObjectType = 'appliance' | 'fixture' | 'cabinet' | 'counter' | 'furniture' | 'equipment' | 'other';
 export type DamageType = 'water' | 'fire' | 'smoke' | 'mold' | 'wind' | 'impact';
 export type WaterDamageCategory = '1' | '2' | '3'; // IICRC S500 categories
 export type PositionType = 'left' | 'center' | 'right' | number;
 export type PositionFromType = 'start' | 'end';
+export type StructureType = 'main_dwelling' | 'detached_garage' | 'attached_garage' | 'shed' | 'pool_house' | 'guest_house' | 'barn' | 'other';
+
+// Hierarchy level for organizing sketch elements
+export type HierarchyLevel = 'structure' | 'room' | 'subroom' | 'object';
 
 // Corner positions for L-shape notch placement
 export type CornerPosition = 'northeast' | 'northwest' | 'southeast' | 'southwest';
@@ -72,6 +78,81 @@ export interface VoiceDamageZone {
   is_freeform?: boolean;
 }
 
+// Object within a room (appliances, fixtures, furniture, etc.)
+export interface SketchObject {
+  id: string;
+  name: string;
+  type: ObjectType;
+  description?: string;
+  width_ft?: number;
+  depth_ft?: number;
+  height_ft?: number;
+  position?: {
+    wall?: WallDirection | 'freestanding';
+    x_offset_ft?: number;
+    y_offset_ft?: number;
+  };
+  condition?: 'good' | 'fair' | 'poor' | 'damaged';
+  damageNotes?: string;
+  photos: SketchPhoto[];
+  created_at: string;
+  updated_at: string;
+}
+
+// Photo captured during sketch session
+export interface SketchPhoto {
+  id: string;
+  storageUrl?: string; // Supabase storage URL
+  localUri?: string; // Local file URI before upload
+  label: string; // User-provided or auto-generated label
+  autoLabel?: string; // Auto-generated from hierarchy context
+  hierarchyPath: string; // e.g., "Main House > Master Bedroom > Walk-in Closet"
+  structureId?: string;
+  roomId?: string;
+  subRoomId?: string;
+  objectId?: string;
+  damageZoneId?: string;
+  capturedAt: string;
+  uploadedAt?: string;
+  // AI analysis results
+  aiAnalysis?: PhotoAIAnalysis;
+}
+
+// AI analysis of a photo
+export interface PhotoAIAnalysis {
+  qualityScore: number; // 0-100
+  qualityIssues: string[]; // e.g., "blurry", "too dark", "partially obscured"
+  contentDetected: string[]; // e.g., "water damage", "mold", "ceiling stain"
+  suggestedCategory?: DamageType;
+  suggestedSeverity?: 'minor' | 'moderate' | 'severe';
+  improvements: string[]; // e.g., "Take closer photo", "Include reference object for scale"
+  description?: string; // AI-generated description of what's in the photo
+  analyzedAt: string;
+}
+
+// Structure - Top level of hierarchy (property/building)
+export interface Structure {
+  id: string;
+  name: string;
+  type: StructureType;
+  description?: string;
+  address?: string;
+  // Overall dimensions (optional, calculated from rooms)
+  width_ft?: number;
+  length_ft?: number;
+  stories?: number;
+  yearBuilt?: number;
+  constructionType?: string;
+  roofType?: string;
+  // Rooms within this structure
+  rooms: RoomGeometry[];
+  // Exterior photos
+  photos: SketchPhoto[];
+  notes: RoomNote[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RoomGeometry {
   id: string;
   name: string;
@@ -92,6 +173,16 @@ export interface RoomGeometry {
   // Floor plan positioning (for multi-room layouts)
   origin_x_ft?: number; // X position in floor plan coordinate space
   origin_y_ft?: number; // Y position in floor plan coordinate space
+  // Hierarchy relationships
+  structureId?: string; // Parent structure
+  parentRoomId?: string; // For sub-rooms (closet in bedroom, bathroom off master)
+  hierarchyLevel: HierarchyLevel; // 'room' or 'subroom'
+  // Sub-rooms within this room
+  subRooms: RoomGeometry[];
+  // Objects within this room
+  objects: SketchObject[];
+  // Photos of this room
+  photos: SketchPhoto[];
 }
 
 export interface RoomNote {
@@ -103,9 +194,16 @@ export interface RoomNote {
 
 // Voice Command Types
 export type VoiceCommandType =
+  | 'create_structure'
+  | 'edit_structure'
+  | 'delete_structure'
+  | 'select_structure'
   | 'create_room'
   | 'add_opening'
   | 'add_feature'
+  | 'add_object'
+  | 'edit_object'
+  | 'delete_object'
   | 'mark_damage'
   | 'modify_dimension'
   | 'add_note'
@@ -115,7 +213,39 @@ export type VoiceCommandType =
   | 'edit_room'
   | 'delete_opening'
   | 'delete_feature'
-  | 'edit_damage_zone';
+  | 'edit_damage_zone'
+  | 'capture_photo';
+
+// Structure command params
+export interface CreateStructureParams {
+  name: string;
+  type: StructureType;
+  description?: string;
+  address?: string;
+  stories?: number;
+  yearBuilt?: number;
+  constructionType?: string;
+  roofType?: string;
+}
+
+export interface EditStructureParams {
+  structure_id?: string;
+  structure_name?: string;
+  new_name?: string;
+  new_type?: StructureType;
+  new_description?: string;
+  new_stories?: number;
+}
+
+export interface DeleteStructureParams {
+  structure_id?: string;
+  structure_name?: string;
+}
+
+export interface SelectStructureParams {
+  structure_id?: string;
+  structure_name?: string;
+}
 
 export interface CreateRoomParams {
   name: string;
@@ -127,6 +257,43 @@ export interface CreateRoomParams {
   l_shape_config?: LShapeConfig;
   // T-shape configuration
   t_shape_config?: TShapeConfig;
+  // Hierarchy: which structure/room this belongs to
+  structure_id?: string; // Parent structure (required for rooms)
+  parent_room_id?: string; // For sub-rooms (closet in bedroom)
+  is_subroom?: boolean; // Flag to indicate this is a sub-room
+}
+
+// Object command params
+export interface AddObjectParams {
+  name: string;
+  type: ObjectType;
+  description?: string;
+  width_ft?: number;
+  depth_ft?: number;
+  height_ft?: number;
+  wall?: WallDirection | 'freestanding';
+  condition?: 'good' | 'fair' | 'poor' | 'damaged';
+  damageNotes?: string;
+}
+
+export interface EditObjectParams {
+  object_id?: string;
+  object_name?: string;
+  new_name?: string;
+  new_type?: ObjectType;
+  new_condition?: 'good' | 'fair' | 'poor' | 'damaged';
+  new_damageNotes?: string;
+}
+
+export interface DeleteObjectParams {
+  object_id?: string;
+  object_name?: string;
+}
+
+// Photo capture params
+export interface CapturePhotoParams {
+  label?: string; // User-provided label
+  // Context is automatically determined from current hierarchy position
 }
 
 export interface AddOpeningParams {

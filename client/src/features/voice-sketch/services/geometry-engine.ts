@@ -23,6 +23,18 @@ import type {
   DeleteOpeningParams,
   DeleteFeatureParams,
   EditDamageZoneParams,
+  Structure,
+  SketchObject,
+  SketchPhoto,
+  CreateStructureParams,
+  EditStructureParams,
+  DeleteStructureParams,
+  SelectStructureParams,
+  AddObjectParams,
+  EditObjectParams,
+  DeleteObjectParams,
+  CapturePhotoParams,
+  HierarchyLevel,
 } from '../types/geometry';
 import {
   generateId,
@@ -35,11 +47,18 @@ import {
 } from '../utils/polygon-math';
 
 interface GeometryEngineState {
+  // Hierarchy: Structures contain rooms
+  structures: Structure[];
+  currentStructure: Structure | null;
+  
   // Current room being edited
   currentRoom: RoomGeometry | null;
 
-  // All confirmed rooms in the session
+  // All confirmed rooms in the session (flat list for backward compatibility)
   rooms: RoomGeometry[];
+  
+  // All photos in the session
+  photos: SketchPhoto[];
 
   // Command history for undo/redo
   commandHistory: GeometryCommand[];
@@ -51,7 +70,13 @@ interface GeometryEngineState {
   // Voice session state
   sessionState: VoiceSessionState;
 
-  // Actions called by voice agent tools
+  // Structure actions
+  createStructure: (params: CreateStructureParams) => string;
+  editStructure: (params: EditStructureParams) => string;
+  deleteStructure: (params: DeleteStructureParams) => string;
+  selectStructure: (params: SelectStructureParams) => string;
+
+  // Room actions
   createRoom: (params: CreateRoomParams) => string;
   addOpening: (params: AddOpeningParams) => string;
   addFeature: (params: AddFeatureParams) => string;
@@ -65,6 +90,16 @@ interface GeometryEngineState {
   deleteOpening: (params: DeleteOpeningParams) => string;
   deleteFeature: (params: DeleteFeatureParams) => string;
   editDamageZone: (params: EditDamageZoneParams) => string;
+  
+  // Object actions
+  addObject: (params: AddObjectParams) => string;
+  editObject: (params: EditObjectParams) => string;
+  deleteObject: (params: DeleteObjectParams) => string;
+  
+  // Photo actions
+  capturePhoto: (params: CapturePhotoParams, file?: File) => Promise<string>;
+  addPhoto: (photo: SketchPhoto) => void;
+  updatePhotoAnalysis: (photoId: string, analysis: SketchPhoto['aiAnalysis']) => void;
 
   // Transcript management
   addTranscriptEntry: (entry: Omit<TranscriptEntry, 'id' | 'timestamp'>) => void;
@@ -72,6 +107,10 @@ interface GeometryEngineState {
 
   // Session state management
   setSessionState: (state: Partial<VoiceSessionState>) => void;
+  
+  // Hierarchy helpers
+  getCurrentHierarchyPath: () => string;
+  getHierarchyContext: () => { structureId?: string; roomId?: string; subRoomId?: string };
 
   // Reset state
   resetSession: () => void;
@@ -85,12 +124,127 @@ const initialSessionState: VoiceSessionState = {
 };
 
 export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
+  structures: [],
+  currentStructure: null,
   currentRoom: null,
   rooms: [],
+  photos: [],
   commandHistory: [],
   undoStack: [],
   transcript: [],
   sessionState: initialSessionState,
+
+  // Structure actions
+  createStructure: (params) => {
+    const now = new Date().toISOString();
+    const newStructure: Structure = {
+      id: generateId(),
+      name: params.name,
+      type: params.type,
+      description: params.description,
+      address: params.address,
+      stories: params.stories,
+      yearBuilt: params.yearBuilt,
+      constructionType: params.constructionType,
+      roofType: params.roofType,
+      rooms: [],
+      photos: [],
+      notes: [],
+      created_at: now,
+      updated_at: now,
+    };
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'create_structure',
+      params,
+      timestamp: now,
+      result: `Created structure: ${params.name} (${params.type})`,
+    };
+
+    set((state) => ({
+      structures: [...state.structures, newStructure],
+      currentStructure: newStructure,
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return command.result;
+  },
+
+  editStructure: (params) => {
+    const { structures, currentStructure } = get();
+    const targetId = params.structure_id || currentStructure?.id;
+    const targetName = params.structure_name;
+
+    const structureIndex = structures.findIndex(
+      (s) => s.id === targetId || s.name.toLowerCase() === targetName?.toLowerCase()
+    );
+
+    if (structureIndex === -1) {
+      return 'Error: Structure not found';
+    }
+
+    const now = new Date().toISOString();
+    const updatedStructure = {
+      ...structures[structureIndex],
+      ...(params.new_name && { name: params.new_name }),
+      ...(params.new_type && { type: params.new_type }),
+      ...(params.new_description && { description: params.new_description }),
+      ...(params.new_stories && { stories: params.new_stories }),
+      updated_at: now,
+    };
+
+    const newStructures = [...structures];
+    newStructures[structureIndex] = updatedStructure;
+
+    set({
+      structures: newStructures,
+      currentStructure: currentStructure?.id === updatedStructure.id ? updatedStructure : currentStructure,
+    });
+
+    return `Updated structure: ${updatedStructure.name}`;
+  },
+
+  deleteStructure: (params) => {
+    const { structures, currentStructure } = get();
+    const targetId = params.structure_id || currentStructure?.id;
+    const targetName = params.structure_name;
+
+    const structureIndex = structures.findIndex(
+      (s) => s.id === targetId || s.name.toLowerCase() === targetName?.toLowerCase()
+    );
+
+    if (structureIndex === -1) {
+      return 'Error: Structure not found';
+    }
+
+    const deletedStructure = structures[structureIndex];
+    const newStructures = structures.filter((_, i) => i !== structureIndex);
+
+    set({
+      structures: newStructures,
+      currentStructure: currentStructure?.id === deletedStructure.id ? null : currentStructure,
+    });
+
+    return `Deleted structure: ${deletedStructure.name}`;
+  },
+
+  selectStructure: (params) => {
+    const { structures } = get();
+    const targetId = params.structure_id;
+    const targetName = params.structure_name;
+
+    const structure = structures.find(
+      (s) => s.id === targetId || s.name.toLowerCase() === targetName?.toLowerCase()
+    );
+
+    if (!structure) {
+      return 'Error: Structure not found';
+    }
+
+    set({ currentStructure: structure });
+    return `Selected structure: ${structure.name}`;
+  },
 
   createRoom: (params) => {
     const { currentRoom } = get();
@@ -112,6 +266,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     );
     const roomName = normalizeRoomName(params.name);
 
+    const { currentStructure } = get();
+    const hierarchyLevel: HierarchyLevel = params.is_subroom ? 'subroom' : 'room';
+    
     const newRoom: RoomGeometry = {
       id: generateId(),
       name: roomName,
@@ -128,6 +285,13 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       updated_at: now,
       l_shape_config: params.l_shape_config,
       t_shape_config: params.t_shape_config,
+      // Hierarchy fields
+      structureId: params.structure_id || currentStructure?.id,
+      parentRoomId: params.parent_room_id,
+      hierarchyLevel,
+      subRooms: [],
+      objects: [],
+      photos: [],
     };
 
     const command: GeometryCommand = {
