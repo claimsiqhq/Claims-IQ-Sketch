@@ -1393,6 +1393,16 @@ export default function MyDay() {
   const [aiAnalysis, setAiAnalysis] = useState<MyDayAnalysisResult | undefined>();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  const userDisplayName = useMemo(() => {
+    if (authUser?.firstName && authUser?.lastName) {
+      return `${authUser.firstName} ${authUser.lastName}`.trim();
+    }
+    if (authUser?.firstName) {
+      return authUser.firstName;
+    }
+    return authUser?.username || "Adjuster";
+  }, [authUser?.firstName, authUser?.lastName, authUser?.username]);
+
   const { data: claimsData, isLoading, error } = useQuery<{ claims: ClaimFromAPI[]; total: number }>({
     queryKey: ["/api/claims"],
     queryFn: async () => {
@@ -1408,12 +1418,12 @@ export default function MyDay() {
   });
 
   const dayData = useMemo(() => {
-    const adjusterName = authUser?.username || "Adjuster";
+    const adjusterName = userDisplayName;
     if (!claimsData?.claims) {
       return buildEmptyDayData(adjusterName);
     }
     return transformClaimsToMyDayData(claimsData.claims, adjusterName);
-  }, [claimsData, authUser]);
+  }, [claimsData, userDisplayName]);
 
   // Fetch AI analysis when route changes
   useEffect(() => {
@@ -1446,7 +1456,7 @@ export default function MyDay() {
           body: JSON.stringify({
             claims: claimsData.claims,
             inspectionRoute,
-            userName: authUser?.username || 'there',
+            userName: userDisplayName || 'there',
           }),
         });
 
@@ -1462,7 +1472,7 @@ export default function MyDay() {
     };
 
     fetchAiAnalysis();
-  }, [dayData.route, claimsData?.claims, authUser?.username]);
+  }, [dayData.route, claimsData?.claims, userDisplayName]);
 
   // Fetch route optimization when route changes
   useEffect(() => {
