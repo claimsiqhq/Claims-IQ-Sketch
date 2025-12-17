@@ -11,6 +11,10 @@ export interface AuthUser {
   username: string;
   name?: string;
   email?: string;
+  firstName?: string;
+  lastName?: string;
+  role?: string;
+  currentOrganizationId?: string;
 }
 
 export interface AuthResponse {

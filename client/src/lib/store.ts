@@ -56,6 +56,7 @@ interface StoreState {
   logout: () => Promise<void>;
   checkAuth: () => Promise<boolean>;
   clearAuthError: () => void;
+  updateAuthUser: (updates: Partial<AuthUser>) => void;
 
   // Actions
   setActiveClaim: (claimId: string | null) => void;
@@ -109,6 +110,7 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       const response = await apiLogin(username, password, rememberMe);
       if (response.user) {
+        const displayName = [response.user.firstName, response.user.lastName].filter(Boolean).join(' ') || response.user.username;
         set({
           authUser: response.user,
           isAuthenticated: true,
@@ -116,9 +118,9 @@ export const useStore = create<StoreState>((set, get) => ({
           authError: null,
           user: {
             id: response.user.id,
-            name: response.user.username,
+            name: displayName,
             email: response.user.email || '',
-            avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(response.user.username)}`,
+            avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`,
           },
         });
         return true;
@@ -151,15 +153,16 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ isAuthLoading: true });
     try {
       const response = await apiCheckAuth();
+      const displayName = response.user ? ([response.user.firstName, response.user.lastName].filter(Boolean).join(' ') || response.user.username) : 'Guest';
       set({
         authUser: response.user,
         isAuthenticated: response.authenticated,
         isAuthLoading: false,
         user: response.user ? {
           id: response.user.id,
-          name: response.user.username,
+          name: displayName,
           email: response.user.email || '',
-          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(response.user.username)}`,
+          avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`,
         } : DEFAULT_USER,
       });
       return response.authenticated;
@@ -175,6 +178,21 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   clearAuthError: () => set({ authError: null }),
+
+  updateAuthUser: (updates) => set((state) => {
+    if (!state.authUser) return state;
+    const updatedAuthUser = { ...state.authUser, ...updates };
+    const displayName = [updatedAuthUser.firstName, updatedAuthUser.lastName].filter(Boolean).join(' ') || updatedAuthUser.username;
+    return {
+      authUser: updatedAuthUser,
+      user: {
+        id: updatedAuthUser.id,
+        name: displayName,
+        email: updatedAuthUser.email || '',
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`,
+      },
+    };
+  }),
 
   setActiveClaim: (claimId) => set((state) => ({
     activeClaim: claimId ? state.claims.find((c) => c.id === claimId) || null : null,
