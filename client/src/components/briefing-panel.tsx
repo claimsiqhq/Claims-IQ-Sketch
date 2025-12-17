@@ -346,16 +346,23 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               onToggle={() => toggleSection('photos')}
             >
               <div className="space-y-3">
-                {content.photo_requirements.map((req, i) => (
-                  <div key={i}>
-                    <h5 className="text-sm font-medium mb-1">{req.category}</h5>
-                    <ul className="list-disc list-inside text-sm text-muted-foreground">
-                      {req.items.map((item, j) => (
-                        <li key={j}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+                {content.photo_requirements.map((req: any, i: number) => {
+                  if (typeof req === 'string') {
+                    return <li key={i} className="text-sm list-disc list-inside">{req}</li>;
+                  }
+                  return (
+                    <div key={i}>
+                      <h5 className="text-sm font-medium mb-1">{req.category}</h5>
+                      {Array.isArray(req.items) && (
+                        <ul className="list-disc list-inside text-sm text-muted-foreground">
+                          {req.items.map((item: string, j: number) => (
+                            <li key={j}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </CollapsibleSection>
 
