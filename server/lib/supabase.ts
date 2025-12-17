@@ -5,8 +5,25 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-// Flag to check if Supabase is configured
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+// Validate that SUPABASE_URL is a valid HTTPS URL (not a postgres:// connection string)
+function isValidSupabaseUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+// Flag to check if Supabase is configured with valid URLs
+export const isSupabaseConfigured = !!(isValidSupabaseUrl(supabaseUrl) && supabaseAnonKey);
+
+// Log warning if misconfigured
+if (supabaseUrl && !isValidSupabaseUrl(supabaseUrl)) {
+  console.warn('[supabase] SUPABASE_URL is not a valid HTTP/HTTPS URL. Supabase storage will be disabled.');
+  console.warn('[supabase] SUPABASE_URL should be like: https://xxxxx.supabase.co');
+}
 
 // Public client for client-side operations (respects RLS)
 // Will be null if Supabase is not configured
