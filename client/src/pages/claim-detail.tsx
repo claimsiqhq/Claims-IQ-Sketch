@@ -2781,7 +2781,12 @@ export default function ClaimDetail() {
 
       {/* Document Preview Modal */}
       {previewDocId && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+        <div 
+          className="fixed inset-0 z-50 bg-black/90 flex flex-col"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeDocumentPreview();
+          }}
+        >
           <div className="flex items-center justify-between p-4 text-white">
             <div className="flex items-center gap-4">
               <Button 
@@ -2828,14 +2833,15 @@ export default function ClaimDetail() {
                   <ZoomIn className="w-5 h-5" />
                 </Button>
               </div>
-              <span className="text-sm opacity-75 max-w-[200px] truncate">{previewDocName}</span>
+              <span className="text-sm opacity-75 max-w-[200px] truncate hidden sm:inline">{previewDocName}</span>
               <Button 
-                variant="ghost" 
+                variant="default" 
                 size="sm" 
                 onClick={closeDocumentPreview} 
-                className="text-white hover:bg-white/20"
+                className="bg-white text-black hover:bg-gray-200 font-medium"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 mr-1" />
+                Close
               </Button>
             </div>
           </div>
