@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date, index, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -662,6 +662,10 @@ export const claimPhotos = pgTable("claim_photos", {
   label: varchar("label", { length: 255 }),
   hierarchyPath: varchar("hierarchy_path", { length: 500 }),
   description: text("description"),
+
+  // GPS coordinates (from device when photo was captured)
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
 
   // AI Analysis results (from OpenAI Vision)
   aiAnalysis: jsonb("ai_analysis").default(sql`'{}'::jsonb`),

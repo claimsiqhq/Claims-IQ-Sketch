@@ -1752,6 +1752,8 @@ export interface ClaimPhoto {
   label: string | null;
   hierarchyPath: string | null;
   description: string | null;
+  latitude: number | null;
+  longitude: number | null;
   aiAnalysis: PhotoAnalysis | null;
   qualityScore: number | null;
   damageDetected: boolean | null;
