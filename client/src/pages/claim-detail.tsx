@@ -1167,28 +1167,67 @@ export default function ClaimDetail() {
                     <CardContent className="space-y-4">
                       {/* Detailed Endorsement Records (from endorsements table) */}
                       {endorsements.length > 0 ? (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           <h4 className="text-sm font-medium text-muted-foreground">Endorsement Documents</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {endorsements.map((endorsement) => (
-                              <div key={endorsement.id} className="bg-muted/50 rounded-lg p-4 border border-muted">
-                                <div className="flex items-start gap-3">
-                                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                                    <FileText className="w-4 h-4 text-primary" />
+                          <div className="space-y-4">
+                            {endorsements.map((endorsement) => {
+                              const keyChanges = endorsement.key_changes || endorsement.keyChanges;
+                              const keyAmendments = keyChanges?.keyAmendments || [];
+                              const appliesToState = endorsement.applies_to_state || endorsement.appliesToState;
+
+                              return (
+                                <div key={endorsement.id} className="bg-muted/50 rounded-lg p-4 border border-muted">
+                                  <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                      <FileText className="w-4 h-4 text-primary" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="font-mono font-semibold text-sm">{endorsement.form_number || endorsement.formNumber}</p>
+                                        {appliesToState && (
+                                          <Badge variant="outline" className="text-xs">
+                                            {appliesToState}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-muted-foreground">
+                                        {endorsement.document_title || endorsement.documentTitle || 'No title'}
+                                      </p>
+                                      {endorsement.description && (
+                                        <p className="text-xs text-muted-foreground mt-1">{endorsement.description}</p>
+                                      )}
+
+                                      {/* Key Amendments Section */}
+                                      {keyAmendments.length > 0 && (
+                                        <div className="mt-3 space-y-2">
+                                          <p className="text-xs font-medium text-muted-foreground uppercase">Key Amendments</p>
+                                          {keyAmendments.map((amendment: { provisionAmended: string; summaryOfChange: string; newLimitOrValue: string | null }, idx: number) => (
+                                            <div key={idx} className="bg-background rounded-md p-3 border border-border text-sm">
+                                              <div className="flex items-start gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                                  <span className="text-amber-700 text-xs font-bold">{idx + 1}</span>
+                                                </div>
+                                                <div className="flex-1">
+                                                  <p className="font-medium text-foreground">{amendment.provisionAmended}</p>
+                                                  <p className="text-muted-foreground mt-1">{amendment.summaryOfChange}</p>
+                                                  {amendment.newLimitOrValue && amendment.newLimitOrValue !== 'null' && (
+                                                    <p className="text-xs mt-2 flex items-center gap-1.5">
+                                                      <span className="text-muted-foreground">New Value:</span>
+                                                      <span className="font-mono font-medium text-primary">{amendment.newLimitOrValue}</span>
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                                   </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-mono font-semibold text-sm">{endorsement.form_number}</p>
-                                    <p className="text-sm text-muted-foreground truncate">
-                                      {endorsement.document_title || 'No title'}
-                                    </p>
-                                    {endorsement.description && (
-                                      <p className="text-xs text-muted-foreground mt-1">{endorsement.description}</p>
-                                    )}
-                                  </div>
-                                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ) : apiClaim?.endorsementsListed && apiClaim.endorsementsListed.length > 0 ? (

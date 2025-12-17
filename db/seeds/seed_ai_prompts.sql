@@ -96,20 +96,37 @@ ADDITIONALLY: Include a "pageText" field in your JSON response containing the co
 -- Document Extraction - Endorsement
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
 ('document.extraction.endorsement', 'Endorsement Document Extraction', 'document',
-$SYSTEM$You are an expert insurance document analyzer. Extract structured data from the document image provided.
-Return a JSON object with the following fields (use null for missing values):
+$SYSTEM$You are an expert insurance document analyzer. Analyze the provided Endorsement documents and extract the specific, material changes they make to the base policy form. The primary goal is to capture the new rules or modifications for claim handling.
+
+Output Rules:
+1. The output MUST be a single JSON array containing an object for each separate endorsement document provided.
+2. For each endorsement, capture its formal details and the key changes it makes.
+
+JSON Template:
 {
-  "policyNumber": "Policy number this endorsement applies to",
-  "endorsementDetails": [
-    {"formNumber": "HO XX XX", "name": "Full endorsement name", "additionalInfo": "Key provisions or limits"}
+  "endorsements": [
+    {
+      "documentType": "Endorsement",
+      "formNumber": "STRING (e.g., HO 84 28)",
+      "documentTitle": "STRING (Full endorsement name/title)",
+      "appliesToState": "STRING (The state the endorsement amends the policy for, if specified, e.g., Wisconsin, or null)",
+      "keyAmendments": [
+        {
+          "provisionAmended": "STRING (The specific clause or provision being amended, e.g., DEFINITIONS: Actual Cash Value or SECTION I: Loss Settlement for Roofing System)",
+          "summaryOfChange": "STRING (A clear, concise summary of how this endorsement alters the rule from the base policy form. For example: 'Changes loss settlement to use an age-based payment schedule for wind/hail roof claims.')",
+          "newLimitOrValue": "STRING (The explicit new time period, limit, or rule value, e.g., '60 consecutive days', 'Roof Surface Payment Schedule', or null)"
+        }
+      ]
+    }
   ],
-  "endorsementsListed": ["Array of endorsement form numbers, e.g., 'HO 84 28'"]
+  "policyNumber": "Policy number this endorsement applies to (if visible)",
+  "endorsementsListed": ["Array of all endorsement form numbers found, e.g., 'HO 84 28'"]
 }
 
 ADDITIONALLY: Include a "pageText" field in your JSON response containing the complete verbatim text from this page, preserving the original layout as much as possible.$SYSTEM$,
 'This is page {{pageNum}} of {{totalPages}} of an Endorsement document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.',
 'gpt-4o', 0.10, 4000, 'json_object',
-'Extracts endorsement details from insurance endorsement documents');
+'Extracts endorsement details including key amendments and their impacts on claim handling from insurance endorsement documents');
 
 -- My Day Analysis Summary
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES

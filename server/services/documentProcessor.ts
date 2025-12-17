@@ -67,11 +67,22 @@ export interface ScheduledStructure {
   valuationMethod?: string;
 }
 
-// Endorsement detail interface
+// Key amendment structure for endorsements
+export interface KeyAmendment {
+  provisionAmended: string;
+  summaryOfChange: string;
+  newLimitOrValue: string | null;
+}
+
+// Endorsement detail interface - updated to support detailed extraction
 export interface EndorsementDetail {
   formNumber: string;
-  name: string;
+  name?: string;
+  documentTitle?: string;
+  appliesToState?: string | null;
+  keyAmendments?: KeyAmendment[];
   additionalInfo?: string;
+  description?: string; // For backward compatibility
 }
 
 // Document type definitions - matches FNOL JSON format
@@ -138,6 +149,7 @@ export interface ExtractedClaimData {
   // Endorsements
   endorsementsListed?: string[]; // Simple list of endorsement codes
   endorsementDetails?: EndorsementDetail[]; // Detailed endorsement info
+  endorsements?: EndorsementDetail[]; // Raw endorsements array from new prompt (will be merged into endorsementDetails)
 
   // Third parties
   mortgagee?: string;
@@ -815,11 +827,23 @@ Return a JSON object with the following fields (use null for missing values):
       return `You are an expert insurance document analyzer. Extract structured data from the document image provided.
 Return a JSON object with the following fields (use null for missing values):
 {
-  "policyNumber": "Policy number this endorsement applies to",
-  "endorsementDetails": [
-    {"formNumber": "HO XX XX", "name": "Full endorsement name", "additionalInfo": "Key provisions or limits"}
+  "endorsements": [
+    {
+      "documentType": "Endorsement",
+      "formNumber": "STRING (e.g., HO 84 28)",
+      "documentTitle": "STRING (Full endorsement name/title)",
+      "appliesToState": "STRING (The state the endorsement amends the policy for, if specified, e.g., Wisconsin, or null)",
+      "keyAmendments": [
+        {
+          "provisionAmended": "STRING (The specific clause or provision being amended)",
+          "summaryOfChange": "STRING (A clear, concise summary of how this endorsement alters the rule)",
+          "newLimitOrValue": "STRING (The explicit new time period, limit, or rule value, or null)"
+        }
+      ]
+    }
   ],
-  "endorsementsListed": ["Array of endorsement form numbers, e.g., 'HO 84 28'"]
+  "policyNumber": "Policy number this endorsement applies to (if visible)",
+  "endorsementsListed": ["Array of all endorsement form numbers found"]
 }`;
 
     default:
@@ -891,7 +915,8 @@ export function mergeExtractedData(
           byName.set(cov.name, prev ? enrichObject(prev, cov) : cov);
         }
         merged.additionalCoverages = Array.from(byName.values());
-      } else if (key === 'endorsementDetails' && Array.isArray(value)) {
+      } else if ((key === 'endorsementDetails' || key === 'endorsements') && Array.isArray(value)) {
+        // Merge both endorsementDetails and endorsements arrays into endorsementDetails
         const existing = merged.endorsementDetails || [];
         const byForm = new Map(existing.map(e => [e.formNumber, e]));
         for (const end of value as EndorsementDetail[]) {
@@ -1037,6 +1062,61 @@ export async function createClaimFromDocuments(
       `UPDATE documents SET claim_id = $1, updated_at = NOW() WHERE id = ANY($2)`,
       [claimId, documentIds]
     );
+
+    // Save endorsement details to endorsements table
+    if (claimData.endorsementDetails && claimData.endorsementDetails.length > 0) {
+      for (const endorsement of claimData.endorsementDetails) {
+        // Build key_changes object with keyAmendments if present
+        const keyChanges: Record<string, any> = {};
+        if (endorsement.keyAmendments) {
+          keyChanges.keyAmendments = endorsement.keyAmendments;
+        }
+        if (endorsement.additionalInfo) {
+          keyChanges.additionalInfo = endorsement.additionalInfo;
+        }
+
+        // Check if endorsement already exists for this claim
+        const existingResult = await client.query(
+          `SELECT id FROM endorsements WHERE organization_id = $1 AND claim_id = $2 AND form_number = $3`,
+          [organizationId, claimId, endorsement.formNumber]
+        );
+
+        if (existingResult.rows.length > 0) {
+          // Update existing endorsement
+          await client.query(
+            `UPDATE endorsements SET
+               document_title = COALESCE($1, document_title),
+               description = COALESCE($2, description),
+               applies_to_state = COALESCE($3, applies_to_state),
+               key_changes = COALESCE($4, key_changes),
+               updated_at = NOW()
+             WHERE id = $5`,
+            [
+              endorsement.documentTitle || endorsement.name || null,
+              endorsement.description || null,
+              endorsement.appliesToState || null,
+              JSON.stringify(keyChanges),
+              existingResult.rows[0].id
+            ]
+          );
+        } else {
+          // Insert new endorsement
+          await client.query(
+            `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, applies_to_state, key_changes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              organizationId,
+              claimId,
+              endorsement.formNumber,
+              endorsement.documentTitle || endorsement.name || null,
+              endorsement.description || null,
+              endorsement.appliesToState || null,
+              JSON.stringify(keyChanges)
+            ]
+          );
+        }
+      }
+    }
 
     return claimId;
 
