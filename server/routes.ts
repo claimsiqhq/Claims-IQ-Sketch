@@ -3622,7 +3622,7 @@ export async function registerRoutes(
           buffer: req.file.buffer,
         },
         claimId,
-        organizationId: req.currentOrganization?.id,
+        organizationId: req.organizationId,
         structureId,
         roomId,
         subRoomId,
@@ -3753,7 +3753,7 @@ export async function registerRoutes(
   app.get('/api/photos', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { listAllClaimPhotos } = await import('./services/photos');
-      const organizationId = req.currentOrganization?.id;
+      const organizationId = req.organizationId;
       if (!organizationId) {
         return res.status(400).json({ error: 'Organization required' });
       }
