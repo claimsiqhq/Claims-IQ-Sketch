@@ -1741,6 +1741,8 @@ export async function deletePhotoByPath(storagePath: string): Promise<void> {
   }
 }
 
+export type AnalysisStatus = 'pending' | 'analyzing' | 'completed' | 'failed' | 'concerns';
+
 export interface ClaimPhoto {
   id: string;
   claimId: string;
@@ -1762,6 +1764,8 @@ export interface ClaimPhoto {
   aiAnalysis: PhotoAnalysis | null;
   qualityScore: number | null;
   damageDetected: boolean | null;
+  analysisStatus: AnalysisStatus | null;
+  analysisError: string | null;
   capturedAt: string | null;
   analyzedAt: string | null;
   uploadedBy: string | null;
@@ -1827,6 +1831,18 @@ export async function getAllPhotos(): Promise<ClaimPhoto[]> {
   const response = await fetch(`${API_BASE}/photos`, { credentials: 'include' });
   if (!response.ok) {
     throw new Error('Failed to fetch photos');
+  }
+  return response.json();
+}
+
+export async function reanalyzePhoto(id: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const response = await fetch(`${API_BASE}/photos/${id}/reanalyze`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Re-analysis failed' }));
+    throw new Error(error.error || 'Failed to re-analyze photo');
   }
   return response.json();
 }

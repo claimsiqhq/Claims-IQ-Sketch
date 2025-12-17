@@ -99,6 +99,8 @@ export interface SketchObject {
   updated_at: string;
 }
 
+export type AnalysisStatus = 'pending' | 'analyzing' | 'completed' | 'failed' | 'concerns';
+
 // Photo captured during sketch session
 export interface SketchPhoto {
   id: string;
@@ -122,6 +124,9 @@ export interface SketchPhoto {
   geoAddress?: string | null; // Reverse geocoded address
   // AI analysis results
   aiAnalysis?: PhotoAIAnalysis | null;
+  // Analysis status
+  analysisStatus?: AnalysisStatus | null;
+  analysisError?: string | null;
 }
 
 // AI analysis of a photo (matches server PhotoAnalysis response)

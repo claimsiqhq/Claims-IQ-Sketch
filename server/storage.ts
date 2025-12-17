@@ -14,7 +14,7 @@ export interface IStorage {
   getClaimPhoto(id: string): Promise<ClaimPhoto | undefined>;
   listClaimPhotos(claimId: string, filters?: { structureId?: string; roomId?: string; damageZoneId?: string; damageDetected?: boolean }): Promise<ClaimPhoto[]>;
   listAllClaimPhotos(organizationId: string): Promise<ClaimPhoto[]>;
-  updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null; latitude?: number | null; longitude?: number | null; geoAddress?: string | null }): Promise<ClaimPhoto | undefined>;
+  updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null; latitude?: number | null; longitude?: number | null; geoAddress?: string | null; aiAnalysis?: unknown; qualityScore?: number | null; damageDetected?: boolean; description?: string | null; analysisStatus?: string; analysisError?: string | null; analyzedAt?: Date | null }): Promise<ClaimPhoto | undefined>;
   deleteClaimPhoto(id: string): Promise<boolean>;
 }
 
@@ -95,7 +95,7 @@ export class MemStorage implements IStorage {
     return db.select().from(claimPhotos).where(eq(claimPhotos.organizationId, organizationId));
   }
 
-  async updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null; latitude?: number | null; longitude?: number | null; geoAddress?: string | null }): Promise<ClaimPhoto | undefined> {
+  async updateClaimPhoto(id: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null; latitude?: number | null; longitude?: number | null; geoAddress?: string | null; aiAnalysis?: unknown; qualityScore?: number | null; damageDetected?: boolean; description?: string | null; analysisStatus?: string; analysisError?: string | null; analyzedAt?: Date | null }): Promise<ClaimPhoto | undefined> {
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (updates.label !== undefined) updateData.label = updates.label;
     if (updates.hierarchyPath !== undefined) updateData.hierarchyPath = updates.hierarchyPath;
@@ -106,6 +106,14 @@ export class MemStorage implements IStorage {
     if (updates.latitude !== undefined) updateData.latitude = updates.latitude;
     if (updates.longitude !== undefined) updateData.longitude = updates.longitude;
     if (updates.geoAddress !== undefined) updateData.geoAddress = updates.geoAddress;
+    // Analysis-related fields
+    if (updates.aiAnalysis !== undefined) updateData.aiAnalysis = updates.aiAnalysis;
+    if (updates.qualityScore !== undefined) updateData.qualityScore = updates.qualityScore;
+    if (updates.damageDetected !== undefined) updateData.damageDetected = updates.damageDetected;
+    if (updates.description !== undefined) updateData.description = updates.description;
+    if (updates.analysisStatus !== undefined) updateData.analysisStatus = updates.analysisStatus;
+    if (updates.analysisError !== undefined) updateData.analysisError = updates.analysisError;
+    if (updates.analyzedAt !== undefined) updateData.analyzedAt = updates.analyzedAt;
 
     const [updated] = await db.update(claimPhotos).set(updateData).where(eq(claimPhotos.id, id)).returning();
     return updated;

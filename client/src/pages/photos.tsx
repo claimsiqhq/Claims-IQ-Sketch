@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Link, useSearch } from 'wouter';
 import { Camera, Filter, Building2, Home, Mic, ArrowRight, Loader2, RefreshCw, FolderOpen, Plus } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getClaims, getClaimPhotos, getAllPhotos, deletePhoto, updatePhoto, uploadPhoto, type ClaimPhoto } from '@/lib/api';
+import { getClaims, getClaimPhotos, getAllPhotos, deletePhoto, updatePhoto, uploadPhoto, reanalyzePhoto, type ClaimPhoto } from '@/lib/api';
 import type { SketchPhoto } from '@/features/voice-sketch/types/geometry';
 import { toast } from 'sonner';
 
@@ -35,7 +35,7 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
     longitude: cp.longitude,
     geoAddress: cp.geoAddress,
     claimId: cp.claimId, // Include claimId for reassignment
-    aiAnalysis: cp.aiAnalysis ? {
+    aiAnalysis: cp.aiAnalysis && Object.keys(cp.aiAnalysis).length > 0 ? {
       quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
       content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },
       metadata: cp.aiAnalysis.metadata || { lighting: 'fair', focus: 'acceptable', angle: 'acceptable', coverage: 'partial' },
@@ -45,6 +45,8 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
     structureId: cp.structureId || undefined,
     roomId: cp.roomId || undefined,
     subRoomId: cp.damageZoneId || undefined,
+    analysisStatus: cp.analysisStatus || null,
+    analysisError: cp.analysisError || null,
   };
 }
 
@@ -110,6 +112,18 @@ export default function PhotosPage() {
     },
   });
 
+  const reanalyzeMutation = useMutation({
+    mutationFn: reanalyzePhoto,
+    onSuccess: () => {
+      toast.success('Photo re-analysis started');
+      queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to re-analyze photo: ' + (error as Error).message);
+    },
+  });
+
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       // Get GPS coordinates if available
@@ -139,7 +153,7 @@ export default function PhotosPage() {
       });
     },
     onSuccess: () => {
-      toast.success('Photo uploaded and analyzed');
+      toast.success('Photo uploaded - analysis in progress');
       queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
       if (selectedClaimId !== 'all') {
         queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
@@ -208,6 +222,26 @@ export default function PhotosPage() {
     return { total: sketchPhotos.length, withDamage, avgQuality };
   }, [sketchPhotos]);
 
+  // Auto-poll for photos that are pending or analyzing
+  const hasProcessingPhotos = useMemo(() => {
+    return sketchPhotos.some(p => p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing');
+  }, [sketchPhotos]);
+
+  useEffect(() => {
+    if (!hasProcessingPhotos) return;
+
+    // Poll every 3 seconds when there are processing photos
+    const interval = setInterval(() => {
+      if (selectedClaimId === 'all') {
+        refetchAllPhotos();
+      } else {
+        refetchClaimPhotos();
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [hasProcessingPhotos, selectedClaimId, refetchAllPhotos, refetchClaimPhotos]);
+
   const handleDeletePhoto = (photoId: string) => {
     if (confirm('Are you sure you want to delete this photo?')) {
       deleteMutation.mutate(photoId);
@@ -218,12 +252,16 @@ export default function PhotosPage() {
     updateMutation.mutate({ id: photoId, updates });
   };
 
+  const handleReanalyzePhoto = (photoId: string) => {
+    reanalyzeMutation.mutate(photoId);
+  };
+
   const handlePhotoCapture = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setIsUploading(true);
-    const loadingToast = toast.loading('Uploading and analyzing photo...');
+    const loadingToast = toast.loading('Uploading photo...');
 
     try {
       await uploadMutation.mutateAsync(file);
@@ -439,6 +477,8 @@ export default function PhotosPage() {
                         photos={claimPhotos}
                         onDeletePhoto={handleDeletePhoto}
                         onUpdatePhoto={handleUpdatePhoto}
+                        onReanalyzePhoto={handleReanalyzePhoto}
+                        isReanalyzing={reanalyzeMutation.isPending}
                         claims={claims}
                       />
                     </CardContent>
@@ -467,6 +507,8 @@ export default function PhotosPage() {
                         photos={structurePhotos}
                         onDeletePhoto={handleDeletePhoto}
                         onUpdatePhoto={handleUpdatePhoto}
+                        onReanalyzePhoto={handleReanalyzePhoto}
+                        isReanalyzing={reanalyzeMutation.isPending}
                         claims={claims}
                       />
                     </CardContent>
@@ -480,6 +522,8 @@ export default function PhotosPage() {
                     photos={filteredPhotos}
                     onDeletePhoto={handleDeletePhoto}
                     onUpdatePhoto={handleUpdatePhoto}
+                    onReanalyzePhoto={handleReanalyzePhoto}
+                    isReanalyzing={reanalyzeMutation.isPending}
                     claims={claims}
                   />
                 </CardContent>

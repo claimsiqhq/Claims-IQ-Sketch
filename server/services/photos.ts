@@ -49,6 +49,8 @@ export interface PhotoAnalysis {
   };
 }
 
+export type AnalysisStatus = 'pending' | 'analyzing' | 'completed' | 'failed' | 'concerns';
+
 export interface UploadedPhoto {
   id: string;
   url: string;
@@ -63,6 +65,8 @@ export interface UploadedPhoto {
   objectId?: string;
   capturedAt: string;
   analyzedAt?: string;
+  analysisStatus: AnalysisStatus;
+  analysisError?: string;
 }
 
 async function initializePhotosBucket(): Promise<void> {
@@ -100,7 +104,13 @@ async function initializePhotosBucket(): Promise<void> {
 
 initializePhotosBucket().catch(console.error);
 
-async function analyzePhotoWithVision(base64Image: string, mimeType: string): Promise<PhotoAnalysis> {
+interface AnalysisResult {
+  analysis: PhotoAnalysis;
+  hasConcerns: boolean;
+  concernReasons: string[];
+}
+
+async function analyzePhotoWithVision(base64Image: string, mimeType: string): Promise<AnalysisResult> {
   const systemPrompt = `You are an expert insurance claims photo analyst. Analyze property damage photos for quality, content, and documentation completeness.
 
 Respond with a JSON object matching this exact structure:
@@ -116,7 +126,8 @@ Respond with a JSON object matching this exact structure:
     "damageTypes": [<array of damage types like "water damage", "hail damage", "fire damage", "structural">],
     "damageLocations": [<array of specific locations like "ceiling", "wall", "roof">],
     "materials": [<array of materials visible like "drywall", "shingles", "vinyl siding">],
-    "recommendedLabel": "<suggested label for this photo>"
+    "recommendedLabel": "<suggested label for this photo>",
+    "concerns": [<array of concerns about photo authenticity, staging, or documentation issues - empty array if none>]
   },
   "metadata": {
     "lighting": "<good|fair|poor>",
@@ -124,7 +135,14 @@ Respond with a JSON object matching this exact structure:
     "angle": "<optimal|acceptable|suboptimal>",
     "coverage": "<complete|partial|insufficient>"
   }
-}`;
+}
+
+Look for concerns such as:
+- Very low quality photos that may be unusable
+- Photos that don't appear to show property damage
+- Potentially staged damage
+- Photos that are clearly not of a property (selfies, random objects, etc.)
+- Blurry or out of focus images that make damage assessment difficult`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -157,30 +175,73 @@ Respond with a JSON object matching this exact structure:
       throw new Error('No response from OpenAI Vision');
     }
 
-    return JSON.parse(content) as PhotoAnalysis;
+    const analysis = JSON.parse(content) as PhotoAnalysis & { content: { concerns?: string[] } };
+
+    // Determine if there are concerns
+    const concerns: string[] = [];
+
+    // Check for explicit concerns from OpenAI
+    if (analysis.content.concerns && analysis.content.concerns.length > 0) {
+      concerns.push(...analysis.content.concerns);
+    }
+
+    // Check for quality-based concerns
+    if (analysis.quality.score <= 3) {
+      concerns.push('Very low quality photo - may be unusable for claims documentation');
+    }
+
+    // Check for metadata-based concerns
+    if (analysis.metadata.focus === 'blurry') {
+      concerns.push('Photo is blurry and may need to be retaken');
+    }
+    if (analysis.metadata.coverage === 'insufficient') {
+      concerns.push('Photo does not adequately capture the subject');
+    }
+
+    return {
+      analysis,
+      hasConcerns: concerns.length > 0,
+      concernReasons: concerns,
+    };
   } catch (error) {
     console.error('[photos] OpenAI Vision analysis error:', error);
-    return {
-      quality: {
-        score: 5,
-        issues: ['Analysis unavailable'],
-        suggestions: [],
-      },
-      content: {
-        description: 'Unable to analyze photo',
-        damageDetected: false,
-        damageTypes: [],
-        damageLocations: [],
-        materials: [],
-        recommendedLabel: 'Photo',
-      },
-      metadata: {
-        lighting: 'fair',
-        focus: 'acceptable',
-        angle: 'acceptable',
-        coverage: 'partial',
-      },
-    };
+    throw error; // Re-throw to handle in caller for proper status
+  }
+}
+
+// Background analysis function - runs after photo is saved
+async function runBackgroundAnalysis(photoId: string, base64Image: string, mimeType: string): Promise<void> {
+  console.log(`[photos] Starting background analysis for photo ${photoId}`);
+
+  try {
+    // Mark as analyzing
+    await storage.updateClaimPhoto(photoId, {
+      analysisStatus: 'analyzing',
+    });
+
+    const result = await analyzePhotoWithVision(base64Image, mimeType);
+    const { analysis, hasConcerns, concernReasons } = result;
+
+    // Update photo with analysis results
+    await storage.updateClaimPhoto(photoId, {
+      aiAnalysis: analysis,
+      qualityScore: analysis.quality.score,
+      damageDetected: analysis.content.damageDetected,
+      description: analysis.content.description,
+      analysisStatus: hasConcerns ? 'concerns' : 'completed',
+      analysisError: hasConcerns ? concernReasons.join('; ') : null,
+      analyzedAt: new Date(),
+    });
+
+    console.log(`[photos] Background analysis completed for photo ${photoId}, status: ${hasConcerns ? 'concerns' : 'completed'}`);
+  } catch (error) {
+    console.error(`[photos] Background analysis failed for photo ${photoId}:`, error);
+
+    // Mark as failed
+    await storage.updateClaimPhoto(photoId, {
+      analysisStatus: 'failed',
+      analysisError: error instanceof Error ? error.message : 'Unknown analysis error',
+    });
   }
 }
 
@@ -191,37 +252,35 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
   const storagePath = `${input.claimId || 'unassigned'}/${photoId}.${fileExt}`;
 
   let url = '';
-  
+
   if (isSupabaseConfigured) {
     const supabaseAdmin = getSupabaseAdmin();
-    
+
     const { error: uploadError } = await supabaseAdmin.storage
       .from(PHOTOS_BUCKET)
       .upload(storagePath, input.file.buffer, {
         contentType: input.file.mimetype,
         upsert: false,
       });
-    
+
     if (uploadError) {
       console.error('[photos] Upload error:', uploadError);
       throw new Error(`Failed to upload photo: ${uploadError.message}`);
     }
-    
+
     const { data: urlData } = supabaseAdmin.storage
       .from(PHOTOS_BUCKET)
       .getPublicUrl(storagePath);
-    
+
     url = urlData?.publicUrl || '';
   } else {
     url = `local://${storagePath}`;
     console.warn('[photos] Supabase not configured, using local storage path');
   }
 
-  const base64Image = input.file.buffer.toString('base64');
-  const analysis = await analyzePhotoWithVision(base64Image, input.file.mimetype);
-
-  const label = input.label || analysis.content.recommendedLabel || 'Photo';
-  const hierarchyPath = input.hierarchyPath || 'Exterior';
+  // Use provided label or default - will be updated after analysis
+  const label = input.label || 'Photo';
+  const hierarchyPath = input.hierarchyPath || (input.claimId ? 'Exterior' : 'Uncategorized');
 
   // Reverse geocode if coordinates are provided
   let geoAddress: string | null = null;
@@ -237,10 +296,11 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
     }
   }
 
-  // Save to database - organizationId is required, claimId is optional (allows uncategorized photos)
+  // Save to database IMMEDIATELY with pending status - don't wait for analysis
+  let savedPhotoId = photoId;
   if (input.organizationId) {
     const photoRecord: InsertClaimPhoto = {
-      claimId: input.claimId || null, // Nullable - uncategorized photos have no claim
+      claimId: input.claimId || null,
       organizationId: input.organizationId,
       structureId: input.structureId || null,
       roomId: input.roomId || null,
@@ -251,29 +311,39 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       mimeType: input.file.mimetype,
       fileSize: input.file.size,
       label,
-      hierarchyPath: input.claimId ? hierarchyPath : 'Uncategorized', // Default to Uncategorized if no claim
-      description: analysis.content.description,
+      hierarchyPath,
+      description: null, // Will be set by analysis
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
       geoAddress,
-      aiAnalysis: analysis,
-      qualityScore: analysis.quality.score,
-      damageDetected: analysis.content.damageDetected,
+      aiAnalysis: {}, // Empty until analysis completes
+      qualityScore: null,
+      damageDetected: false,
       capturedAt: new Date(now),
-      analyzedAt: new Date(now),
+      analyzedAt: null, // Not analyzed yet
+      analysisStatus: 'pending',
+      analysisError: null,
     };
 
     const saved = await storage.createClaimPhoto(photoRecord);
-    console.log('[photos] Saved photo to database:', saved.id, input.claimId ? `(claim: ${input.claimId})` : '(uncategorized)');
+    savedPhotoId = saved.id;
+    console.log('[photos] Saved photo to database (pending analysis):', saved.id, input.claimId ? `(claim: ${input.claimId})` : '(uncategorized)');
+
+    // Trigger background analysis - don't await, let it run in background
+    const base64Image = input.file.buffer.toString('base64');
+    runBackgroundAnalysis(saved.id, base64Image, input.file.mimetype).catch((err) => {
+      console.error(`[photos] Background analysis error for ${saved.id}:`, err);
+    });
   } else {
     console.warn('[photos] No organizationId provided, photo not saved to database');
   }
 
+  // Return immediately without waiting for analysis
   return {
-    id: photoId,
+    id: savedPhotoId,
     url,
     storagePath,
-    analysis,
+    analysis: null, // Analysis will be available later
     label,
     hierarchyPath,
     claimId: input.claimId,
@@ -282,8 +352,49 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
     subRoomId: input.subRoomId,
     objectId: input.objectId,
     capturedAt: now,
-    analyzedAt: now,
+    analysisStatus: 'pending',
   };
+}
+
+// Re-analyze a photo (for retrying failed analysis or manual re-analysis)
+export async function reanalyzePhoto(photoId: string): Promise<{ success: boolean; error?: string }> {
+  const photo = await storage.getClaimPhoto(photoId);
+  if (!photo) {
+    return { success: false, error: 'Photo not found' };
+  }
+
+  // Only allow re-analysis if not currently analyzing
+  if (photo.analysisStatus === 'analyzing') {
+    return { success: false, error: 'Photo is already being analyzed' };
+  }
+
+  // Fetch the image from storage
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Storage not configured' };
+  }
+
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    const { data, error } = await supabaseAdmin.storage
+      .from(PHOTOS_BUCKET)
+      .download(photo.storagePath);
+
+    if (error || !data) {
+      return { success: false, error: 'Failed to fetch photo from storage' };
+    }
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    const base64Image = buffer.toString('base64');
+
+    // Trigger background analysis
+    runBackgroundAnalysis(photoId, base64Image, photo.mimeType).catch((err) => {
+      console.error(`[photos] Re-analysis error for ${photoId}:`, err);
+    });
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 }
 
 export async function getPhotoSignedUrl(storagePath: string): Promise<string | null> {

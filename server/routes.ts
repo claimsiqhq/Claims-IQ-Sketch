@@ -3766,6 +3766,24 @@ export async function registerRoutes(
     }
   });
 
+  // Re-analyze photo (retry failed analysis or update analysis)
+  app.post('/api/photos/:id/reanalyze', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { reanalyzePhoto } = await import('./services/photos');
+      const result = await reanalyzePhoto(req.params.id);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, message: 'Analysis started in background' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[photos] Re-analyze error:', error);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // DOCUMENT ROUTES
   // ============================================
