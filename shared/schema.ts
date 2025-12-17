@@ -619,6 +619,12 @@ export const documents = pgTable("documents", {
   fullText: text("full_text"),
   pageTexts: jsonb("page_texts").default(sql`'[]'::jsonb`), // Array of text per page
 
+  // Preview generation - page images stored in Supabase
+  pageCount: integer("page_count"),
+  previewStatus: varchar("preview_status", { length: 30 }).default("pending"), // pending, processing, completed, failed
+  previewGeneratedAt: timestamp("preview_generated_at"),
+  previewError: text("preview_error"),
+
   // Metadata
   description: text("description"),
   tags: jsonb("tags").default(sql`'[]'::jsonb`),
