@@ -3,12 +3,13 @@ import pkg from 'pg';
 const { Pool } = pkg;
 
 // Database connection - uses Supabase PostgreSQL
-// SUPABASE_URL should be set to your Supabase database connection string
+// DATABASE_URL should be set to your Supabase database connection string:
+// postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 
-const databaseUrl = process.env.SUPABASE_URL;
+const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-  throw new Error('SUPABASE_URL must be set. Configure with your Supabase database connection string.');
+  throw new Error('DATABASE_URL must be set. Configure with your Supabase database connection string.');
 }
 
 export const pool = new Pool({
