@@ -45,9 +45,26 @@ Key backend services:
 - `server/services/pricing.ts`: Line item search, price calculation with regional adjustments
 - `server/services/xactPricing.ts`: Xactimate price list integration with formula parsing
 - `server/services/auth.ts`: User authentication and password hashing
+- `server/services/weatherService.ts`: Weather data via National Weather Service API (free, no API key)
+- `server/services/myDayAnalysis.ts`: AI-powered claim analysis for "My Day" optimization
 - `server/middleware/auth.ts`: Passport.js session configuration
 - `server/scraper/homeDepot.ts`: Material price scraping (demo only - not production-ready)
 - `server/routes.ts`: API endpoint registration
+
+### Weather Service
+
+The application fetches weather data for inspection locations using the free National Weather Service (NWS) API.
+
+**Key Features:**
+- No API key required - just requires User-Agent header
+- Two-step flow: `/points/{lat},{lon}` → get grid coordinates → fetch forecast
+- Grid point caching to minimize API calls
+- Provides: temperature, wind, precipitation probability, weather conditions, alerts
+- Calculates inspection impact score (good/caution/warning/severe)
+
+**API Endpoints:**
+- `POST /api/weather/locations` - Fetch weather for multiple locations
+- `POST /api/my-day/analyze` - AI analysis of claims with weather integration
 
 ### Xactimate Price List Integration
 
