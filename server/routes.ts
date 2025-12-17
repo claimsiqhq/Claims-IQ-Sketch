@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { xactCategories, xactLineItems, xactComponents } from "@shared/schema";
 import { sql, eq, and } from "drizzle-orm";
 import {
@@ -2863,6 +2863,21 @@ export async function registerRoutes(
       const claim = await updateClaim(req.params.id, req.organizationId!, req.body);
       if (!claim) {
         return res.status(404).json({ error: 'Claim not found' });
+      }
+      
+      // Associate any documents from metadata.documentIds with the claim
+      const documentIds = claim.metadata?.documentIds;
+      if (Array.isArray(documentIds) && documentIds.length > 0) {
+        const client = await pool.connect();
+        try {
+          await client.query(
+            `UPDATE documents SET claim_id = $1, updated_at = NOW()
+             WHERE id = ANY($2) AND organization_id = $3 AND claim_id IS NULL`,
+            [claim.id, documentIds, req.organizationId]
+          );
+        } finally {
+          client.release();
+        }
       }
       
       // Re-geocode if address fields were updated

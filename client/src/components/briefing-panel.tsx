@@ -234,12 +234,12 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Badge variant="default">{content.claim_summary.primary_peril}</Badge>
-                  {content.claim_summary.secondary_perils.map((p, i) => (
+                  {(content.claim_summary.secondary_perils || []).map((p, i) => (
                     <Badge key={i} variant="secondary">{p}</Badge>
                   ))}
                 </div>
                 <ul className="list-disc list-inside space-y-1 text-sm">
-                  {content.claim_summary.overview.map((item, i) => (
+                  {(content.claim_summary.overview || []).map((item, i) => (
                     <li key={i}>{item}</li>
                   ))}
                 </ul>

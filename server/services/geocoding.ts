@@ -180,20 +180,42 @@ export async function geocodePendingClaims(organizationId?: string, limit = 100)
   }
 }
 
-export async function getClaimsForMap(organizationId: string): Promise<any[]> {
+export async function getClaimsForMap(organizationId: string, filters?: {
+  assignedAdjusterId?: string;
+  status?: string;
+  lossType?: string;
+}): Promise<any[]> {
   const client = await pool.connect();
   
   try {
-    const result = await client.query(
-      `SELECT id, claim_number, insured_name, property_address, property_city, property_state,
-              property_latitude, property_longitude, status, loss_type, date_of_loss
+    let query = `SELECT id, claim_number, insured_name, property_address, property_city, property_state,
+              property_latitude, property_longitude, status, loss_type, date_of_loss, assigned_adjuster_id
        FROM claims 
        WHERE organization_id = $1 
          AND property_latitude IS NOT NULL 
-         AND property_longitude IS NOT NULL
-       ORDER BY created_at DESC`,
-      [organizationId]
-    );
+         AND property_longitude IS NOT NULL`;
+    const params: any[] = [organizationId];
+    let paramIndex = 2;
+    
+    if (filters?.assignedAdjusterId) {
+      query += ` AND assigned_adjuster_id = $${paramIndex}`;
+      params.push(filters.assignedAdjusterId);
+      paramIndex++;
+    }
+    if (filters?.status) {
+      query += ` AND status = $${paramIndex}`;
+      params.push(filters.status);
+      paramIndex++;
+    }
+    if (filters?.lossType) {
+      query += ` AND loss_type = $${paramIndex}`;
+      params.push(filters.lossType);
+      paramIndex++;
+    }
+    
+    query += ` ORDER BY created_at DESC`;
+    
+    const result = await client.query(query, params);
     
     return result.rows.map(row => ({
       id: row.id,
