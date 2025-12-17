@@ -65,7 +65,15 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
     setLocation("/auth");
   };
 
-  const displayName = authUser?.username || user.name;
+  const displayName = (() => {
+    if (authUser?.firstName && authUser?.lastName) {
+      return `${authUser.firstName} ${authUser.lastName}`.trim();
+    }
+    if (authUser?.firstName) {
+      return authUser.firstName;
+    }
+    return authUser?.username || user.name;
+  })();
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
   return (

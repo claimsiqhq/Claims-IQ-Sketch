@@ -357,8 +357,10 @@ JSON Template:
   },
 
   [PromptKey.MY_DAY_SUMMARY]: {
-    system: `You are an insurance claims assistant. Generate a brief, actionable summary for an adjuster's day.`,
-    user: `Context:
+    system: `You are an insurance claims assistant. Generate a brief, actionable summary for an adjuster's day. Address the adjuster by their actual name when greeting them.`,
+    user: `Adjuster Name: {{userName}}
+
+Context:
 - {{routeLength}} inspections scheduled
 - {{claimsCount}} active claims
 - {{criticalCount}} critical issues, {{warningCount}} warnings
@@ -370,9 +372,10 @@ Key issues:
 {{warningIssues}}
 
 Generate a 2-3 sentence summary that:
-1. Highlights the most important priority
-2. Mentions any weather or SLA concerns
-3. Gives one actionable recommendation
+1. Greets the adjuster using their actual name "{{userName}}" (never use placeholders like "[Adjuster's Name]")
+2. Highlights the most important priority
+3. Mentions any weather or SLA concerns
+4. Gives one actionable recommendation
 
 Be concise and professional.`,
     model: 'gpt-4o-mini',
