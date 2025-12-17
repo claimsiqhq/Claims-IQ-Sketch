@@ -206,9 +206,8 @@ export interface ExtractedClaimData {
   claims?: FNOLClaimExtraction[];
 }
 
-// New interface for FNOL claim extraction with nested structure
+// FNOL claim extraction structure - matches new prompt format exactly
 export interface FNOLClaimExtraction {
-  // New prompt structure
   claim?: {
     claimNumber?: string;
     endorsementAlert?: string;
@@ -263,50 +262,12 @@ export interface FNOLClaimExtraction {
     reportedBy?: string;
     enteredBy?: string;
   };
-  
-  // Legacy structure support (backward compatibility)
-  claimInformation?: {
-    claimNumber?: string;
-    dateOfLoss?: string;
-    claimStatus?: string;
-    operatingCompany?: string;
-    causeOfLoss?: string;
-    riskLocation?: string;
-    lossDescription?: string;
-    droneEligibleAtFNOL?: string;
-  };
-  insuredInformation?: {
-    policyholderName1?: string;
-    policyholderName2?: string;
-    contactMobilePhone?: string;
-    contactEmail?: string;
-  };
-  propertyDamageDetails?: {
-    yearBuilt?: string;
-    yearRoofInstall?: string;
-    roofDamageReported?: string;
-    numberOfStories?: string;
-  };
-  policyDetails?: {
-    policyNumber?: string;
-    inceptionDate?: string;
-    producer?: string;
-    thirdPartyInterest?: string;
-    deductibles?: {
-      policyDeductible?: string;
-      windHailDeductible?: string;
-    };
-  };
-  endorsementsListed?: string[];
 }
 
 /**
- * Transform the new nested FNOL extraction format to the flat ExtractedClaimData format
- * This ensures backward compatibility with existing code
- * Supports both new prompt structure (claim, loss, insured, etc.) and legacy structure (claimInformation, etc.)
+ * Transform FNOL extraction to flat ExtractedClaimData format
  */
 export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): ExtractedClaimData {
-  // New prompt structure
   const cl = extraction.claim || {};
   const loss = extraction.loss || {};
   const ins = extraction.insured || {};
@@ -314,77 +275,69 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
   const pol = extraction.policy || {};
   const ded = extraction.deductibles || {};
   const comments = extraction.comments || {};
-  
-  // Legacy structure (fallback)
-  const ci = extraction.claimInformation || {};
-  const ii = extraction.insuredInformation || {};
-  const pd = extraction.propertyDamageDetails || {};
-  const polLegacy = extraction.policyDetails || {};
-  const dedLegacy = polLegacy.deductibles || {};
 
   const result: ExtractedClaimData = {
-    // Claim Information - prefer new structure, fallback to legacy
-    claimId: cl.claimNumber || ci.claimNumber || undefined,
-    dateOfLoss: cl.dateOfLoss || ci.dateOfLoss || undefined,
-    claimStatus: cl.status || ci.claimStatus || undefined,
-    carrier: cl.operatingCompany || ci.operatingCompany || undefined,
-    causeOfLoss: loss.cause || ci.causeOfLoss || undefined,
-    riskLocation: loss.location || ci.riskLocation || undefined,
-    lossDescription: loss.description || ci.lossDescription || undefined,
-    droneEligibleAtFNOL: loss.droneEligible || ci.droneEligibleAtFNOL || undefined,
+    // Claim Information
+    claimId: cl.claimNumber || undefined,
+    dateOfLoss: cl.dateOfLoss || undefined,
+    claimStatus: cl.status || undefined,
+    carrier: cl.operatingCompany || undefined,
+    causeOfLoss: loss.cause || undefined,
+    riskLocation: loss.location || undefined,
+    lossDescription: loss.description || undefined,
+    droneEligibleAtFNOL: loss.droneEligible || undefined,
 
     // Insured Information
-    policyholder: ins.name1 || cl.policyholders || ii.policyholderName1 || undefined,
-    policyholderSecondary: ins.name2 || ii.policyholderName2 || undefined,
-    contactPhone: ins.mobilePhone || ii.contactMobilePhone || undefined,
-    contactEmail: ins.email || ii.contactEmail || undefined,
+    policyholder: ins.name1 || cl.policyholders || undefined,
+    policyholderSecondary: ins.name2 || undefined,
+    contactPhone: ins.mobilePhone || undefined,
+    contactEmail: ins.email || undefined,
     insuredAddress: ins.address || undefined,
 
     // Property Damage Details
-    yearBuilt: propDmg.yearBuilt || pd.yearBuilt || undefined,
-    yearRoofInstall: propDmg.roofInstallYear || pd.yearRoofInstall || undefined,
-    roofDamageReported: propDmg.roofDamage || pd.roofDamageReported || undefined,
-    numberOfStories: pd.numberOfStories || undefined,
+    yearBuilt: propDmg.yearBuilt || undefined,
+    yearRoofInstall: propDmg.roofInstallYear || undefined,
+    roofDamageReported: propDmg.roofDamage || undefined,
     isWoodRoof: propDmg.woodRoof ? (propDmg.woodRoof.toLowerCase() === 'yes' || propDmg.woodRoof.toLowerCase() === 'true') : undefined,
     dwellingDamageDescription: propDmg.dwellingDamages || propDmg.damages || undefined,
 
     // Policy Details
-    policyNumber: cl.policyNumber || polLegacy.policyNumber || undefined,
-    policyInceptionDate: pol.inceptionDate || polLegacy.inceptionDate || undefined,
-    producer: pol.producer?.name || polLegacy.producer || undefined,
+    policyNumber: cl.policyNumber || undefined,
+    policyInceptionDate: pol.inceptionDate || undefined,
+    producer: pol.producer?.name || undefined,
     producerPhone: pol.producer?.phone || undefined,
     producerEmail: pol.producer?.email || undefined,
-    thirdPartyInterest: pol.thirdPartyInterest || polLegacy.thirdPartyInterest || undefined,
-    mortgagee: pol.thirdPartyInterest || polLegacy.thirdPartyInterest || undefined,
+    thirdPartyInterest: pol.thirdPartyInterest || undefined,
+    mortgagee: pol.thirdPartyInterest || undefined,
     propertyAddress: pol.propertyAddress || undefined,
     lineOfBusiness: pol.type || undefined,
 
-    // Deductibles - handle both object formats
-    policyDeductible: ded.policyDeductible || ded.policy || dedLegacy.policyDeductible || undefined,
-    windHailDeductible: ded.windHailDeductible || ded.windHail || dedLegacy.windHailDeductible || undefined,
+    // Deductibles
+    policyDeductible: ded.policyDeductible || ded.policy || undefined,
+    windHailDeductible: ded.windHailDeductible || ded.windHail || undefined,
 
     // Comments
     reportedBy: comments.reportedBy || undefined,
 
-    // Coverages - transform from new format to existing CoverageDetail format
+    // Coverages
     coverages: extraction.coverages?.map((cov: any, index: number) => ({
-      code: cov.code || String.fromCharCode(65 + index), // A, B, C, etc.
+      code: cov.code || String.fromCharCode(65 + index),
       name: cov.name || cov.coverageName || `Coverage ${String.fromCharCode(65 + index)}`,
       limit: cov.limit || undefined,
       valuationMethod: cov.valuationMethod || undefined,
       percentage: cov.percentage || undefined,
     })) || undefined,
 
-    // Extract dwelling limit from coverages if available
+    // Extract dwelling limit from coverages
     dwellingLimit: extraction.coverages?.find((c: any) =>
       (c.name || c.coverageName || '').toLowerCase().includes('dwelling') ||
       (c.name || c.coverageName || '').toLowerCase().includes('coverage a')
     )?.limit || undefined,
 
-    // Endorsements - support both new and legacy field names
+    // Endorsements
     endorsementsListed: extraction.endorsements?.map((e: any) => 
       typeof e === 'string' ? e : (e.formNumber || e.name || JSON.stringify(e))
-    ) || extraction.endorsementsListed || undefined,
+    ) || undefined,
 
     // Weather data
     weatherData: loss.weatherData || undefined,
@@ -404,40 +357,15 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
 }
 
 /**
- * Transform OpenAI response that may contain various nested formats
- * Returns a flat ExtractedClaimData, merging all claims if multiple are present
- * Supports:
- * - New prompt structure with claim/loss/insured/etc at root level
- * - Legacy claims array structure
- * - Already flat format
+ * Transform OpenAI response to flat ExtractedClaimData
  */
 export function transformOpenAIResponse(response: any): ExtractedClaimData {
-  // If response has the new claims array structure (legacy)
-  if (response.claims && Array.isArray(response.claims) && response.claims.length > 0) {
-    // Transform each claim and merge them
-    const flatClaims = response.claims.map((claim: FNOLClaimExtraction) =>
-      transformFNOLExtractionToFlat(claim)
-    );
-
-    const merged = mergeExtractedData(...flatClaims);
-
-    // Preserve pageText if present at root level
-    if (response.pageText) {
-      merged.rawText = response.pageText;
-    }
-
-    // Also store the original claims array for reference
-    merged.claims = response.claims;
-
-    return merged;
-  }
-
-  // If response has the new single-object structure (claim/loss/insured/etc at root)
+  // New prompt structure: claim/loss/insured/etc at root level
   if (response.claim || response.loss || response.insured || response.propertyDamage || response.policy) {
     return transformFNOLExtractionToFlat(response as FNOLClaimExtraction);
   }
 
-  // Otherwise, return as-is (old format or already flat)
+  // Return as-is if already flat
   return response as ExtractedClaimData;
 }
 
