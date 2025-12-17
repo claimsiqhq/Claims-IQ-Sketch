@@ -25,15 +25,31 @@ PERSONALITY:
 - After simple actions: use 3-5 word confirmations ("Added 3-foot window")
 - After complex actions: echo back key parameters ("Created L-shaped room, 16 by 14, with 6 by 4 cutout in northeast corner")
 
+STRUCTURE MANAGEMENT:
+Before starting room sketching, ALWAYS establish which structure you're documenting:
+- If the adjuster mentions a building name ("main house", "detached garage", etc.), call create_structure first
+- If no structure exists yet and adjuster starts describing a room, ask: "Are we documenting the main house or a different structure?"
+- When switching between structures: "Moving to the garage now?" → call select_structure
+- Rooms created while a structure is selected are automatically associated with that structure
+
+Common structures:
+- Main House / Primary Residence → type: single_family
+- Detached Garage → type: detached_garage
+- Guest House / In-Law Suite → type: guest_house
+- Storage Shed / Workshop → type: shed
+- Pool House → type: pool_house
+- Barn → type: barn
+
 ROOM CREATION FLOW:
-1. Establish room name/type and basic shape
-2. Get overall dimensions (ask unit preference if unclear)
-3. For L-shaped, T-shaped, or U-shaped rooms, get the cutout/extension details
-4. Ask about flooring type (carpet, hardwood, tile, vinyl, laminate, concrete)
-5. Add openings (doors, windows) wall by wall
-6. Add features (closets, pantries, alcoves, bump-outs)
-7. Mark damage zones if applicable
-8. Confirm and finalize
+1. Ensure a structure is selected (create one if needed)
+2. Establish room name/type and basic shape
+3. Get overall dimensions (ask unit preference if unclear)
+4. For L-shaped, T-shaped, or U-shaped rooms, get the cutout/extension details
+5. Ask about flooring type (carpet, hardwood, tile, vinyl, laminate, concrete)
+6. Add openings (doors, windows) wall by wall
+7. Add features (closets, pantries, alcoves, bump-outs)
+8. Mark damage zones if applicable
+9. Confirm and finalize
 
 UNITS AND MEASUREMENTS:
 - Default to feet and inches for US adjusters
@@ -346,6 +362,50 @@ You: "Starting the bathroom. What are the dimensions?"
 User: "8 by 10"
 You: [call create_room with name='bathroom'] [call connect_rooms from master to bathroom]
 "Created 8 by 10 bathroom, connected to the master bedroom via the east wall door."`;
+
+// Tool: Create a new structure (building/detached structure)
+const createStructureTool = tool({
+  name: 'create_structure',
+  description: `Create a new structure to organize rooms. Use this when starting to document a building like "Main House", "Detached Garage", "Guest House", etc.
+
+Structures help organize rooms hierarchically - rooms added after creating a structure will automatically be associated with it.
+
+Common structure types:
+- single_family: Main house, primary residence
+- detached_garage: Standalone garage building
+- shed: Storage shed, workshop
+- guest_house: Separate living quarters
+- pool_house: Pool cabana or pool house
+- barn: Agricultural building
+- other: Any other detached structure`,
+  parameters: z.object({
+    name: z.string().describe('Name for the structure, e.g., "Main House", "Detached Garage", "Guest House"'),
+    type: z.enum(['single_family', 'detached_garage', 'shed', 'guest_house', 'pool_house', 'barn', 'other']).describe('Type of structure'),
+    description: z.string().optional().describe('Optional description of the structure'),
+    stories: z.number().optional().describe('Number of stories (floors)'),
+    yearBuilt: z.number().optional().describe('Year the structure was built'),
+    constructionType: z.string().optional().describe('Construction type, e.g., "wood frame", "masonry", "steel"'),
+    roofType: z.string().optional().describe('Roof type, e.g., "asphalt shingle", "tile", "metal"'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.createStructure(params);
+  },
+});
+
+// Tool: Select an existing structure
+const selectStructureTool = tool({
+  name: 'select_structure',
+  description: `Select an existing structure to add rooms to it. Use this when switching between structures, e.g., "Now let's do the garage".
+
+Rooms created after selecting a structure will be associated with that structure.`,
+  parameters: z.object({
+    structure_name: z.string().optional().describe('Name of the structure to select'),
+    structure_id: z.string().optional().describe('ID of the structure to select (if known)'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.selectStructure(params);
+  },
+});
 
 // Tool: Create a new room
 const createRoomTool = tool({
@@ -747,6 +807,8 @@ function getPersonalizedInstructions(userName?: string): string {
 
 // Tool list for agent creation
 const agentTools = [
+  createStructureTool,
+  selectStructureTool,
   createRoomTool,
   addOpeningTool,
   addFeatureTool,
@@ -785,6 +847,8 @@ export const roomSketchAgent = new RealtimeAgent({
 
 // Export individual tools for testing
 export const tools = {
+  createStructure: createStructureTool,
+  selectStructure: selectStructureTool,
   createRoom: createRoomTool,
   addOpening: addOpeningTool,
   addFeature: addFeatureTool,

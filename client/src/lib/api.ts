@@ -9,8 +9,12 @@ const API_BASE = '/api';
 export interface AuthUser {
   id: string;
   username: string;
+  firstName?: string;
+  lastName?: string;
   name?: string;
   email?: string;
+  role?: string;
+  currentOrganizationId?: string;
 }
 
 export interface AuthResponse {

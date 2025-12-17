@@ -2,7 +2,7 @@
 // Full page component for voice-driven room sketching
 // Works standalone or attached to a specific claim
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText } from 'lucide-react';
@@ -25,8 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { VoiceSketchController } from './components/VoiceSketchController';
-import { useGeometryEngine } from './services/geometry-engine';
-import { getClaim, getClaims, saveClaimHierarchy } from '@/lib/api';
+import { useGeometryEngine, geometryEngine } from './services/geometry-engine';
+import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms, getClaimPhotos } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
 import type { RoomGeometry, Structure } from './types/geometry';
@@ -61,6 +61,176 @@ export default function VoiceSketchPage() {
   });
 
   const availableClaims = claimsData?.claims || [];
+
+  // Track if we've already loaded this claim's rooms to prevent re-loading
+  const loadedClaimIdRef = useRef<string | null>(null);
+
+  // Load existing rooms from claim when claim data is available
+  useEffect(() => {
+    if (!claimId || !claim || loadedClaimIdRef.current === claimId) {
+      return;
+    }
+
+    const loadExistingRooms = async () => {
+      try {
+        const { rooms: claimRooms } = await getClaimRooms(claimId);
+
+        if (claimRooms && claimRooms.length > 0) {
+          // Group rooms by structure and convert to geometry engine format
+          const structureMap = new Map<string, Structure>();
+          const convertedRooms: RoomGeometry[] = [];
+
+          claimRooms.forEach((cr) => {
+            // Convert ClaimRoom to RoomGeometry
+            const room: RoomGeometry = {
+              id: cr.id,
+              name: cr.name,
+              shape: (cr.shape as RoomGeometry['shape']) || 'rectangle',
+              width_ft: cr.width,
+              length_ft: cr.length,
+              ceiling_height_ft: cr.ceilingHeight || 8,
+              area_sqft: cr.area || cr.width * cr.length,
+              openings: cr.openings?.map((o) => ({
+                id: o.id || `opening-${Date.now()}`,
+                type: (o.type as RoomGeometry['openings'][0]['type']) || 'door',
+                wall: (o.wall as 'north' | 'south' | 'east' | 'west') || 'north',
+                width_ft: o.width || 3,
+                height_ft: o.height || 6.67,
+                position_ft: o.position || 0,
+                sill_height_ft: o.sillHeight,
+              })) || [],
+              features: cr.features?.map((f) => ({
+                id: f.id || `feature-${Date.now()}`,
+                type: (f.type as RoomGeometry['features'][0]['type']) || 'closet',
+                wall: (f.wall as 'north' | 'south' | 'east' | 'west' | 'freestanding') || 'north',
+                width_ft: f.width || 2,
+                depth_ft: f.depth || 2,
+                position_ft: f.position,
+              })) || [],
+              damageZones: cr.damageZones?.map((dz) => ({
+                id: dz.id || `damage-${Date.now()}`,
+                type: (dz.type as RoomGeometry['damageZones'][0]['type']) || 'water',
+                category: dz.category as '1' | '2' | '3' | undefined,
+                affected_walls: (dz.affected_walls as ('north' | 'south' | 'east' | 'west')[]) || [],
+                floor_affected: dz.floor_affected ?? true,
+                ceiling_affected: dz.ceiling_affected ?? false,
+                extent_ft: dz.extent_ft || 2,
+                source: dz.source,
+                polygon: dz.polygon,
+              })) || [],
+              notes: cr.notes || [],
+              structureId: cr.structureId,
+              hierarchyLevel: (cr.hierarchyLevel as 'structure' | 'room' | 'subroom') || 'room',
+              created_at: cr.createdAt || new Date().toISOString(),
+              updated_at: cr.updatedAt || new Date().toISOString(),
+            };
+            convertedRooms.push(room);
+
+            // Create structure if room has one
+            if (cr.structureId && cr.structureName && !structureMap.has(cr.structureId)) {
+              structureMap.set(cr.structureId, {
+                id: cr.structureId,
+                name: cr.structureName,
+                type: 'single_family',
+                rooms: [],
+                photos: [],
+                notes: [],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+            }
+          });
+
+          // Add rooms to their structures
+          const structures = Array.from(structureMap.values());
+          structures.forEach((s) => {
+            s.rooms = convertedRooms.filter((r) => r.structureId === s.id);
+          });
+
+          // Load into geometry engine
+          geometryEngine.loadFromClaimData(structures, convertedRooms);
+          loadedClaimIdRef.current = claimId;
+
+          // Also load photos for this claim
+          try {
+            const claimPhotos = await getClaimPhotos(claimId);
+            if (claimPhotos && claimPhotos.length > 0) {
+              const { addPhoto } = useGeometryEngine.getState();
+              claimPhotos.forEach((photo) => {
+                addPhoto({
+                  id: photo.id,
+                  storageUrl: photo.storageUrl || undefined,
+                  localUri: photo.storageUrl || undefined,
+                  label: photo.label || 'Photo',
+                  hierarchyPath: photo.hierarchyPath || 'Exterior',
+                  structureId: photo.structureId || undefined,
+                  roomId: photo.roomId || undefined,
+                  subRoomId: photo.subRoomId || undefined,
+                  capturedAt: photo.capturedAt || new Date().toISOString(),
+                  uploadedAt: photo.uploadedAt || undefined,
+                  latitude: photo.latitude || undefined,
+                  longitude: photo.longitude || undefined,
+                  geoAddress: photo.geoAddress || undefined,
+                  aiAnalysis: photo.analysis as import('./types/geometry').PhotoAIAnalysis | undefined,
+                  analysisStatus: (photo.analysisStatus as 'pending' | 'analyzing' | 'completed' | 'failed' | 'concerns') || 'completed',
+                });
+              });
+              toast.success('Sketch loaded', {
+                description: `Loaded ${convertedRooms.length} room(s) and ${claimPhotos.length} photo(s) from this claim`,
+              });
+            } else {
+              toast.success('Sketch loaded', {
+                description: `Loaded ${convertedRooms.length} room(s) from this claim`,
+              });
+            }
+          } catch (photoErr) {
+            console.error('Failed to load photos:', photoErr);
+            toast.success('Sketch loaded', {
+              description: `Loaded ${convertedRooms.length} room(s) from this claim`,
+            });
+          }
+        } else {
+          // No rooms, but still try to load photos
+          try {
+            const claimPhotos = await getClaimPhotos(claimId);
+            if (claimPhotos && claimPhotos.length > 0) {
+              const { addPhoto } = useGeometryEngine.getState();
+              claimPhotos.forEach((photo) => {
+                addPhoto({
+                  id: photo.id,
+                  storageUrl: photo.storageUrl || undefined,
+                  localUri: photo.storageUrl || undefined,
+                  label: photo.label || 'Photo',
+                  hierarchyPath: photo.hierarchyPath || 'Exterior',
+                  structureId: photo.structureId || undefined,
+                  roomId: photo.roomId || undefined,
+                  subRoomId: photo.subRoomId || undefined,
+                  capturedAt: photo.capturedAt || new Date().toISOString(),
+                  uploadedAt: photo.uploadedAt || undefined,
+                  latitude: photo.latitude || undefined,
+                  longitude: photo.longitude || undefined,
+                  geoAddress: photo.geoAddress || undefined,
+                  aiAnalysis: photo.analysis as import('./types/geometry').PhotoAIAnalysis | undefined,
+                  analysisStatus: (photo.analysisStatus as 'pending' | 'analyzing' | 'completed' | 'failed' | 'concerns') || 'completed',
+                });
+              });
+              loadedClaimIdRef.current = claimId;
+              toast.success('Photos loaded', {
+                description: `Loaded ${claimPhotos.length} photo(s) from this claim`,
+              });
+            }
+          } catch (photoErr) {
+            console.error('Failed to load photos:', photoErr);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load existing rooms:', err);
+        // Don't show error toast - it's ok if there are no existing rooms
+      }
+    };
+
+    loadExistingRooms();
+  }, [claimId, claim]);
 
   const handleRoomConfirmed = useCallback(
     (roomData: unknown) => {
