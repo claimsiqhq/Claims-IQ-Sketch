@@ -1235,7 +1235,9 @@ export default function ClaimDetail() {
                         <div className="space-y-3">
                           <h4 className="text-sm font-medium text-muted-foreground">Listed Endorsements</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                            {apiClaim.endorsementsListed.map((endorsement, idx) => (
+                            {apiClaim.endorsementsListed
+                              .filter((endorsement): endorsement is string => typeof endorsement === 'string')
+                              .map((endorsement, idx) => (
                               <div key={idx} className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
                                 <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                                 <span className="text-sm">{endorsement}</span>
