@@ -324,3 +324,14 @@ export async function deleteClaimPhoto(id: string): Promise<boolean> {
 
   return storage.deleteClaimPhoto(id);
 }
+
+export async function listAllClaimPhotos(organizationId: string): Promise<ClaimPhoto[]> {
+  return storage.listAllClaimPhotos(organizationId);
+}
+
+export async function updateClaimPhoto(
+  id: string,
+  updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
+): Promise<ClaimPhoto | undefined> {
+  return storage.updateClaimPhoto(id, updates);
+}
