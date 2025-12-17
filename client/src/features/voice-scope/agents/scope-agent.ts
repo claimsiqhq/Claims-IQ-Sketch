@@ -1,5 +1,10 @@
 // Scope Voice Agent
 // RealtimeAgent for voice-driven estimate building with OpenAI Agents SDK
+//
+// NOTE: The system instructions for this agent are also stored in the database
+// under the key "voice.scope" for easy editing. Future enhancement:
+// dynamically load instructions from /api/prompts/voice.scope/config
+// at agent initialization time.
 
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 import { z } from 'zod';

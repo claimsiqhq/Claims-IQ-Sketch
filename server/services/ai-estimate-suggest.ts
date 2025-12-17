@@ -3,6 +3,8 @@
 
 import OpenAI from 'openai';
 import { pool } from '../db';
+import { PromptKey } from '../../shared/schema';
+import { getPromptWithFallback, substituteVariables } from './promptService';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -121,44 +123,16 @@ export async function generateEstimateSuggestions(
     `${li.code}: ${li.description} (${li.unit})`
   ).join('\n');
 
-  const systemPrompt = `You are an expert insurance claims estimator specializing in property damage restoration.
-Your task is to analyze damage zones and suggest appropriate line items for an estimate.
+  // Get prompt from database (falls back to hardcoded if not available)
+  const promptConfig = await getPromptWithFallback(PromptKey.ESTIMATE_SUGGESTIONS);
 
-IMPORTANT GUIDELINES:
-1. For water damage, ALWAYS include extraction, drying equipment, and antimicrobial treatment
-2. For Category 2/3 water, include additional sanitization and possible demolition
-3. Calculate quantities based on affected square footage
-4. Include demolition before reconstruction items
-5. Group items by room/damage zone
-6. Consider IICRC S500/S520 standards for water/mold
-7. Include equipment charges (dehumidifiers, air movers) by the day
-8. DO NOT estimate or invent unit prices. Focus ONLY on accurate quantities and identifying the correct line item codes. Pricing will be applied separately based on regional pricing databases.
-
-Return your response as a valid JSON object with this exact structure:
-{
-  "suggestions": [
-    {
-      "lineItemCode": "string (MUST be from the available line items list)",
-      "description": "string",
-      "category": "string",
-      "quantity": number,
-      "unit": "string",
-      "reasoning": "string explaining why this item is needed",
-      "damageZoneId": "string (matching input damage zone id)",
-      "roomName": "string",
-      "priority": "required" | "recommended" | "optional"
-    }
-  ],
-  "summary": "string - brief summary of the estimate scope",
-  "damageAnalysis": {
-    "primaryDamageType": "string",
-    "severity": "string",
-    "affectedArea": number,
-    "specialConsiderations": ["array of strings"]
-  }
-}`;
-
-  const userPrompt = `Analyze these damage zones and suggest line items:
+  // Build user prompt with variable substitution
+  const userPrompt = promptConfig.userPromptTemplate
+    ? substituteVariables(promptConfig.userPromptTemplate, {
+        damageDescription,
+        lineItemList,
+      })
+    : `Analyze these damage zones and suggest line items:
 
 DAMAGE ZONES:
 ${damageDescription}
@@ -170,13 +144,13 @@ Generate a comprehensive estimate with appropriate quantities. Be thorough but r
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: promptConfig.model,
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: promptConfig.systemPrompt },
         { role: 'user', content: userPrompt }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.3,
+      temperature: promptConfig.temperature,
     });
 
     const content = response.choices[0]?.message?.content;
@@ -258,25 +232,31 @@ export async function quickSuggestLineItems(
     `${li.code}: ${li.description} (${li.unit})`
   ).join('\n');
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `You are an insurance estimator. Match user descriptions to line item codes.
-Return JSON: {"matches": [{"code": "string", "description": "string", "quantity": number}]}
-Only use codes from the provided list. Suggest 1-3 most relevant items.`
-      },
-      {
-        role: 'user',
-        content: `User said: "${description}" for ${roomName} (${damageType} damage)${quantity ? `, quantity: ${quantity}` : ''}
+  // Get prompt from database (falls back to hardcoded if not available)
+  const promptConfig = await getPromptWithFallback(PromptKey.ESTIMATE_QUICK_SUGGEST);
+
+  // Build user prompt with variable substitution
+  const userPrompt = promptConfig.userPromptTemplate
+    ? substituteVariables(promptConfig.userPromptTemplate, {
+        description,
+        roomName,
+        damageType,
+        quantityInfo: quantity ? `, quantity: ${quantity}` : '',
+        lineItemList,
+      })
+    : `User said: "${description}" for ${roomName} (${damageType} damage)${quantity ? `, quantity: ${quantity}` : ''}
 
 Available items:
-${lineItemList}`
-      }
+${lineItemList}`;
+
+  const response = await openai.chat.completions.create({
+    model: promptConfig.model,
+    messages: [
+      { role: 'system', content: promptConfig.systemPrompt },
+      { role: 'user', content: userPrompt }
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.2,
+    temperature: promptConfig.temperature,
   });
 
   const content = response.choices[0]?.message?.content;

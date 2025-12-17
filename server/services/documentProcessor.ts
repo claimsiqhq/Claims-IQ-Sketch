@@ -6,8 +6,9 @@ import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { inferPeril, type PerilInferenceInput } from './perilNormalizer';
-import { Peril } from '../../shared/schema';
+import { Peril, PromptKey } from '../../shared/schema';
 import { getSupabaseAdmin } from '../lib/supabase';
+import { getPromptWithFallback, substituteVariables } from './promptService';
 
 const execAsync = promisify(exec);
 
@@ -313,6 +314,22 @@ function cleanupTempImages(imagePaths: string[]): void {
 }
 
 /**
+ * Get the prompt key for a document type
+ */
+function getPromptKeyForDocumentType(documentType: string): PromptKey {
+  switch (documentType) {
+    case 'fnol':
+      return PromptKey.DOCUMENT_EXTRACTION_FNOL;
+    case 'policy':
+      return PromptKey.DOCUMENT_EXTRACTION_POLICY;
+    case 'endorsement':
+      return PromptKey.DOCUMENT_EXTRACTION_ENDORSEMENT;
+    default:
+      return PromptKey.DOCUMENT_EXTRACTION_FNOL; // Default to FNOL for unknown types
+  }
+}
+
+/**
  * Extract data from a single image using Vision API
  * Also extracts the complete page text for full document storage
  */
@@ -325,14 +342,24 @@ async function extractFromSingleImage(
   const fileBuffer = fs.readFileSync(imagePath);
   const base64 = fileBuffer.toString('base64');
 
-  const systemPrompt = getExtractionPrompt(documentType);
+  // Get prompt from database (falls back to hardcoded if not available)
+  const promptKey = getPromptKeyForDocumentType(documentType);
+  const promptConfig = await getPromptWithFallback(promptKey);
+
+  // Build the user prompt with variable substitution
+  const userPromptText = promptConfig.userPromptTemplate
+    ? substituteVariables(promptConfig.userPromptTemplate, {
+        pageNum: String(pageNum),
+        totalPages: String(totalPages),
+      })
+    : `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.`;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: promptConfig.model,
     messages: [
       {
         role: 'system',
-        content: systemPrompt + `\n\nADDITIONALLY: Include a "pageText" field in your JSON response containing the complete verbatim text from this page, preserving the original layout as much as possible.`
+        content: promptConfig.systemPrompt
       },
       {
         role: 'user',
@@ -346,12 +373,12 @@ async function extractFromSingleImage(
           },
           {
             type: 'text',
-            text: `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.`
+            text: userPromptText
           }
         ]
       }
     ],
-    max_tokens: 4000,
+    max_tokens: promptConfig.maxTokens || 4000,
     response_format: { type: 'json_object' }
   });
 

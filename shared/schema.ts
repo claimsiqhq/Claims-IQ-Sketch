@@ -1952,3 +1952,92 @@ export const xactComponents = pgTable("xact_components", {
 }));
 
 export type XactComponent = typeof xactComponents.$inferSelect;
+
+// ============================================
+// AI PROMPTS TABLE
+// ============================================
+
+/**
+ * AI Prompts table for storing OpenAI prompts.
+ * Allows editing prompts from the database without code changes.
+ */
+export const aiPrompts = pgTable("ai_prompts", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+
+  // Identifier and categorization
+  promptKey: varchar("prompt_key", { length: 100 }).notNull().unique(),
+  promptName: varchar("prompt_name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 50 }).notNull(), // document, briefing, estimate, voice, analysis
+
+  // Prompt content
+  systemPrompt: text("system_prompt").notNull(),
+  userPromptTemplate: text("user_prompt_template"),
+
+  // Model configuration
+  model: varchar("model", { length: 100 }).notNull().default("gpt-4o"),
+  temperature: decimal("temperature", { precision: 3, scale: 2 }).default("0.3"),
+  maxTokens: integer("max_tokens"),
+  responseFormat: varchar("response_format", { length: 50 }).default("text"), // text, json_object
+
+  // Metadata
+  description: text("description"),
+  version: integer("version").default(1),
+  isActive: boolean("is_active").default(true),
+
+  // Usage tracking
+  usageCount: integer("usage_count").default(0),
+  lastUsedAt: timestamp("last_used_at"),
+  avgTokensUsed: integer("avg_tokens_used"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  keyIdx: index("ai_prompts_key_idx").on(table.promptKey),
+  categoryIdx: index("ai_prompts_category_idx").on(table.category),
+  activeIdx: index("ai_prompts_active_idx").on(table.isActive),
+}));
+
+export const insertAiPromptSchema = createInsertSchema(aiPrompts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAiPrompt = z.infer<typeof insertAiPromptSchema>;
+export type AiPrompt = typeof aiPrompts.$inferSelect;
+
+/**
+ * Prompt categories for organization
+ */
+export enum PromptCategory {
+  DOCUMENT = "document",
+  BRIEFING = "briefing",
+  ESTIMATE = "estimate",
+  VOICE = "voice",
+  ANALYSIS = "analysis",
+}
+
+/**
+ * Prompt keys for type-safe access
+ */
+export enum PromptKey {
+  // Document extraction prompts
+  DOCUMENT_EXTRACTION_FNOL = "document.extraction.fnol",
+  DOCUMENT_EXTRACTION_POLICY = "document.extraction.policy",
+  DOCUMENT_EXTRACTION_ENDORSEMENT = "document.extraction.endorsement",
+
+  // Analysis prompts
+  MY_DAY_SUMMARY = "analysis.my_day_summary",
+
+  // Estimate prompts
+  ESTIMATE_SUGGESTIONS = "estimate.suggestions",
+  ESTIMATE_QUICK_SUGGEST = "estimate.quick_suggest",
+
+  // Briefing prompts
+  CLAIM_BRIEFING = "briefing.claim",
+
+  // Voice agent prompts
+  VOICE_ROOM_SKETCH = "voice.room_sketch",
+  VOICE_SCOPE = "voice.scope",
+}

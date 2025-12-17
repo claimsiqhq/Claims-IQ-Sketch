@@ -3,6 +3,8 @@
 
 import OpenAI from 'openai';
 import type { WeatherData, InspectionImpact } from './weatherService';
+import { PromptKey } from '../../shared/schema';
+import { getPromptWithFallback, substituteVariables } from './promptService';
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -421,9 +423,27 @@ async function generateAiSummary(
   const criticalInsights = insights.filter(i => i.severity === 'critical');
   const warningInsights = insights.filter(i => i.severity === 'warning');
 
-  const prompt = `You are an insurance claims assistant. Generate a brief, actionable summary for an adjuster's day.
+  try {
+    // Get prompt from database (falls back to hardcoded if not available)
+    const promptConfig = await getPromptWithFallback(PromptKey.MY_DAY_SUMMARY);
 
-Context:
+    // Build the prompt with variable substitution
+    const variables = {
+      routeLength: String(route.length),
+      claimsCount: String(claims.length),
+      criticalCount: String(criticalInsights.length),
+      warningCount: String(warningInsights.length),
+      slaBreaching: String(slaStatus.breaching),
+      slaAtRisk: String(slaStatus.atRisk),
+      slaSafe: String(slaStatus.safe),
+      weatherRecommendation: weatherAnalysis.recommendation,
+      criticalIssues: criticalInsights.slice(0, 3).map(i => `- ${i.title}: ${i.description}`).join('\n'),
+      warningIssues: warningInsights.slice(0, 3).map(i => `- ${i.title}: ${i.description}`).join('\n'),
+    };
+
+    const userPrompt = promptConfig.userPromptTemplate
+      ? substituteVariables(promptConfig.userPromptTemplate, variables)
+      : `Context:
 - ${route.length} inspections scheduled
 - ${claims.length} active claims
 - ${criticalInsights.length} critical issues, ${warningInsights.length} warnings
@@ -441,22 +461,24 @@ Generate a 2-3 sentence summary that:
 
 Be concise and professional.`;
 
-  try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      max_completion_tokens: 150,
+      model: promptConfig.model,
+      messages: [
+        { role: 'system', content: promptConfig.systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      max_completion_tokens: promptConfig.maxTokens || 150,
     });
 
     return response.choices[0]?.message?.content || 'Unable to generate summary.';
   } catch (error) {
     console.error('AI summary generation failed:', error);
-    
+
     // Fallback summary
     if (criticalInsights.length > 0) {
       return `You have ${criticalInsights.length} critical issue(s) requiring immediate attention. ${slaStatus.breaching > 0 ? `${slaStatus.breaching} SLA(s) are breaching.` : ''} ${weatherAnalysis.recommendation}`;
     }
-    
+
     return `${route.length} inspections scheduled today. ${weatherAnalysis.recommendation}`;
   }
 }
