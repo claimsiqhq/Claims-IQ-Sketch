@@ -95,7 +95,9 @@ import {
   getClaimDocuments,
   associateDocumentWithClaim,
   getDocumentStats,
-  initializeStorageBucket
+  initializeStorageBucket,
+  generateDocumentPreviews,
+  getDocumentPreviewUrls
 } from "./services/documents";
 import {
   processDocument as processDocumentAI,
@@ -3680,6 +3682,36 @@ export async function registerRoutes(
       }
 
       res.status(400).json({ error: 'Unsupported document type' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get document preview URLs from Supabase (persistent cloud storage)
+  app.get('/api/documents/:id/previews', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const result = await getDocumentPreviewUrls(req.params.id, req.organizationId!);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Trigger preview generation for a document
+  app.post('/api/documents/:id/generate-previews', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const result = await generateDocumentPreviews(req.params.id, req.organizationId!);
+      if (result.success) {
+        res.json({ success: true, pageCount: result.pageCount });
+      } else {
+        res.status(500).json({ error: result.error || 'Failed to generate previews' });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
