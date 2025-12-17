@@ -801,6 +801,7 @@ export interface ClaimRoom {
   ceilingHeight: number;
   flooringType?: string;
   wallFinish?: string;
+  structureId?: string;
 }
 
 export interface ClaimDamageZone {
@@ -812,6 +813,21 @@ export interface ClaimDamageZone {
   affectedArea: number;
   notes?: string;
   photos: string[];
+}
+
+export interface ClaimStructure {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  address?: string;
+  stories?: number;
+  yearBuilt?: number;
+  constructionType?: string;
+  roofType?: string;
+  photos?: unknown[];
+  notes?: unknown[];
+  rooms?: ClaimRoom[];
 }
 
 export async function saveClaimRooms(
@@ -874,6 +890,135 @@ export async function saveClaimRooms(
     success: result.success,
     roomsSaved: result.roomsSaved || result.roomsAdded || 0,
     damageZonesSaved: result.damageZonesSaved || result.damageZonesAdded || 0,
+  };
+}
+
+export async function saveClaimHierarchy(
+  claimId: string,
+  structures: ClaimStructure[],
+  rooms: ClaimRoom[] = [],
+  damageZones: ClaimDamageZone[] = []
+): Promise<{ 
+  success: boolean; 
+  structuresSaved: number;
+  roomsSaved: number; 
+  damageZonesSaved: number 
+}> {
+  // Transform structures with nested rooms
+  const structuresPayload = structures.map((structure) => {
+    const structureRooms = rooms
+      .filter((r) => r.structureId === structure.id)
+      .map((room) => {
+        const roomDamageZones = damageZones
+          .filter((dz) => dz.roomId === room.id)
+          .map((dz) => ({
+            id: dz.id,
+            type: dz.type.toLowerCase(),
+            category: null,
+            severity: dz.severity?.toLowerCase(),
+            affected_walls: dz.affectedSurfaces
+              .filter((s) => s.startsWith('Wall '))
+              .map((s) => s.replace('Wall ', '').toLowerCase()),
+            floor_affected: dz.affectedSurfaces.includes('Floor'),
+            ceiling_affected: dz.affectedSurfaces.includes('Ceiling'),
+            extent_ft: dz.affectedArea || 0,
+            source: dz.notes,
+            notes: dz.notes,
+            polygon: [],
+            is_freeform: false,
+          }));
+
+        return {
+          id: room.id,
+          name: room.name,
+          room_type: room.type,
+          shape: 'rectangular',
+          width_ft: room.width,
+          length_ft: room.height,
+          ceiling_height_ft: room.ceilingHeight,
+          origin_x_ft: room.x,
+          origin_y_ft: room.y,
+          polygon: [],
+          openings: [],
+          features: [],
+          damageZones: roomDamageZones,
+          notes: [],
+        };
+      });
+
+    return {
+      id: structure.id,
+      name: structure.name,
+      type: structure.type,
+      description: structure.description,
+      address: structure.address,
+      stories: structure.stories,
+      year_built: structure.yearBuilt,
+      construction_type: structure.constructionType,
+      roof_type: structure.roofType,
+      photos: structure.photos || [],
+      notes: structure.notes || [],
+      rooms: structureRooms,
+    };
+  });
+
+  // Rooms not linked to structures
+  const orphanRooms = rooms
+    .filter((r) => !r.structureId)
+    .map((room) => {
+      const roomDamageZones = damageZones
+        .filter((dz) => dz.roomId === room.id)
+        .map((dz) => ({
+          id: dz.id,
+          type: dz.type.toLowerCase(),
+          category: null,
+          severity: dz.severity?.toLowerCase(),
+          affected_walls: dz.affectedSurfaces
+            .filter((s) => s.startsWith('Wall '))
+            .map((s) => s.replace('Wall ', '').toLowerCase()),
+          floor_affected: dz.affectedSurfaces.includes('Floor'),
+          ceiling_affected: dz.affectedSurfaces.includes('Ceiling'),
+          extent_ft: dz.affectedArea || 0,
+          source: dz.notes,
+          notes: dz.notes,
+          polygon: [],
+          is_freeform: false,
+        }));
+
+      return {
+        id: room.id,
+        name: room.name,
+        room_type: room.type,
+        shape: 'rectangular',
+        width_ft: room.width,
+        length_ft: room.height,
+        ceiling_height_ft: room.ceilingHeight,
+        origin_x_ft: room.x,
+        origin_y_ft: room.y,
+        polygon: [],
+        openings: [],
+        features: [],
+        damageZones: roomDamageZones,
+        notes: [],
+      };
+    });
+
+  const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structures: structuresPayload, rooms: orphanRooms }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to save hierarchy');
+  }
+  const result = await response.json();
+  return {
+    success: result.success,
+    structuresSaved: result.structuresSaved || 0,
+    roomsSaved: result.roomsSaved || 0,
+    damageZonesSaved: result.damageZonesSaved || 0,
   };
 }
 

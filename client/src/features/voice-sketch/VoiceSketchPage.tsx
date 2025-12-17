@@ -26,11 +26,11 @@ import {
 } from '@/components/ui/select';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine } from './services/geometry-engine';
-import { getClaim, getClaims, saveClaimRooms } from '@/lib/api';
+import { getClaim, getClaims, saveClaimHierarchy } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
-import type { RoomGeometry } from './types/geometry';
-import type { ClaimRoom, ClaimDamageZone, Claim } from '@/lib/api';
+import type { RoomGeometry, Structure } from './types/geometry';
+import type { ClaimRoom, ClaimDamageZone, ClaimStructure, Claim } from '@/lib/api';
 
 export default function VoiceSketchPage() {
   const params = useParams();
@@ -39,7 +39,7 @@ export default function VoiceSketchPage() {
   const claimId = params.claimId;
   const authUser = useStore((state) => state.authUser);
 
-  const { rooms, currentRoom, resetSession } = useGeometryEngine();
+  const { rooms, currentRoom, structures, resetSession } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
   const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState<string>('');
@@ -75,8 +75,9 @@ export default function VoiceSketchPage() {
   const saveRoomsToClaim = useCallback(async (targetClaimId: string) => {
     const confirmedRooms = useGeometryEngine.getState().rooms;
     const currentRoomState = useGeometryEngine.getState().currentRoom;
+    const allStructures = useGeometryEngine.getState().structures;
     
-    if (confirmedRooms.length === 0 && !currentRoomState) {
+    if (confirmedRooms.length === 0 && !currentRoomState && allStructures.length === 0) {
       toast.error('No rooms to save', {
         description: 'Create and confirm at least one room first.',
       });
@@ -86,6 +87,21 @@ export default function VoiceSketchPage() {
     const roomsToSave = currentRoomState
       ? [...confirmedRooms, currentRoomState]
       : confirmedRooms;
+
+    // Convert structures to API format
+    const claimStructures: ClaimStructure[] = allStructures.map((s) => ({
+      id: s.id,
+      name: s.name,
+      type: s.type,
+      description: s.description,
+      address: s.address,
+      stories: s.stories,
+      yearBuilt: s.yearBuilt,
+      constructionType: s.constructionType,
+      roofType: s.roofType,
+      photos: s.photos || [],
+      notes: s.notes || [],
+    }));
 
     const claimRooms: ClaimRoom[] = [];
     const claimDamageZones: ClaimDamageZone[] = [];
@@ -97,9 +113,10 @@ export default function VoiceSketchPage() {
         type: inferRoomType(voiceRoom.name),
         width: voiceRoom.width_ft,
         height: voiceRoom.length_ft,
-        x: 0,
-        y: 0,
+        x: voiceRoom.origin_x_ft || 0,
+        y: voiceRoom.origin_y_ft || 0,
         ceilingHeight: voiceRoom.ceiling_height_ft,
+        structureId: voiceRoom.structureId,
       };
       claimRooms.push(claimRoom);
 
@@ -124,10 +141,15 @@ export default function VoiceSketchPage() {
 
     try {
       setIsSaving(true);
-      const result = await saveClaimRooms(targetClaimId, claimRooms, claimDamageZones);
+      const result = await saveClaimHierarchy(targetClaimId, claimStructures, claimRooms, claimDamageZones);
       
-      toast.success('Rooms saved to claim!', {
-        description: `Saved ${result.roomsSaved} room(s) and ${result.damageZonesSaved} damage zone(s).`,
+      const parts = [];
+      if (result.structuresSaved > 0) parts.push(`${result.structuresSaved} structure(s)`);
+      if (result.roomsSaved > 0) parts.push(`${result.roomsSaved} room(s)`);
+      if (result.damageZonesSaved > 0) parts.push(`${result.damageZonesSaved} damage zone(s)`);
+      
+      toast.success('Sketch saved to claim!', {
+        description: `Saved ${parts.join(', ')}.`,
       });
 
       // Invalidate claim query to refresh data
@@ -137,8 +159,8 @@ export default function VoiceSketchPage() {
       resetSession();
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save rooms';
-      toast.error('Failed to save rooms', { description: message });
+      const message = error instanceof Error ? error.message : 'Failed to save sketch';
+      toast.error('Failed to save sketch', { description: message });
       return false;
     } finally {
       setIsSaving(false);
