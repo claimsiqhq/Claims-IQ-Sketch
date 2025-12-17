@@ -540,6 +540,21 @@ export default function SketchCanvas({
         <span className="text-[10px] text-slate-400 md:hidden">Pinch/drag</span>
       </div>
 
+      {/* Empty State - show when no rooms */}
+      {rooms.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="text-center p-6 bg-white/80 backdrop-blur rounded-lg border shadow-sm max-w-xs">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center">
+              <Plus className="h-6 w-6 text-primary" />
+            </div>
+            <h3 className="font-semibold text-slate-900 mb-1">No Rooms Yet</h3>
+            <p className="text-sm text-slate-500">
+              Tap the <strong>+</strong> button above to add your first room, or use Voice Sketch.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Canvas Content with Transform */}
       <div
         className="canvas-content absolute inset-0"
