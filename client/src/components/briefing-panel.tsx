@@ -320,11 +320,13 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
                         </Badge>
                       </div>
                       <p className="text-sm font-medium mb-1">{watchout.impact}</p>
-                      <ul className="list-disc list-inside text-sm text-muted-foreground">
-                        {watchout.inspection_implications.map((impl, j) => (
-                          <li key={j}>{impl}</li>
-                        ))}
-                      </ul>
+                      {watchout.inspection_implications && watchout.inspection_implications.length > 0 && (
+                        <ul className="list-disc list-inside text-sm text-muted-foreground">
+                          {watchout.inspection_implications.map((impl, j) => (
+                            <li key={j}>{impl}</li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   ))}
                 </div>
