@@ -52,32 +52,77 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
   const policyDocs = documents.filter(d => d.type === 'policy');
   const endorsementDocs = documents.filter(d => d.type === 'endorsement');
 
-  // Load document images when selected
+  // Load document preview URLs from Supabase (persistent cloud storage)
   useEffect(() => {
     if (!selectedDoc) {
       setImageData(null);
       return;
     }
 
-    const loadImages = async () => {
+    const loadPreviews = async () => {
       setLoading(true);
       setCurrentPage(1);
       try {
-        const response = await fetch(`/api/documents/${selectedDoc.id}/images`, {
+        // First try the new Supabase previews endpoint
+        const response = await fetch(`/api/documents/${selectedDoc.id}/previews`, {
           credentials: 'include'
         });
         if (response.ok) {
           const data = await response.json();
-          setImageData(data);
+          
+          // If previews aren't ready, trigger generation and poll
+          if (data.previewStatus === 'pending' || data.previewStatus === 'processing') {
+            // Trigger preview generation if pending
+            if (data.previewStatus === 'pending') {
+              await fetch(`/api/documents/${selectedDoc.id}/generate-previews`, {
+                method: 'POST',
+                credentials: 'include'
+              });
+            }
+            
+            // Poll for completion (max 30 seconds)
+            let attempts = 0;
+            const maxAttempts = 15;
+            while (attempts < maxAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const pollResponse = await fetch(`/api/documents/${selectedDoc.id}/previews`, {
+                credentials: 'include'
+              });
+              if (pollResponse.ok) {
+                const pollData = await pollResponse.json();
+                if (pollData.previewStatus === 'completed' && pollData.urls.length > 0) {
+                  setImageData({ pages: pollData.pageCount, images: pollData.urls });
+                  return;
+                }
+                if (pollData.previewStatus === 'failed') {
+                  break;
+                }
+              }
+              attempts++;
+            }
+          } else if (data.previewStatus === 'completed' && data.urls.length > 0) {
+            // Use the signed URLs directly from Supabase
+            setImageData({ pages: data.pageCount, images: data.urls });
+            return;
+          }
+        }
+        
+        // Fallback to legacy endpoint if Supabase previews not available
+        const legacyResponse = await fetch(`/api/documents/${selectedDoc.id}/images`, {
+          credentials: 'include'
+        });
+        if (legacyResponse.ok) {
+          const legacyData = await legacyResponse.json();
+          setImageData(legacyData);
         }
       } catch (error) {
-        console.error('Failed to load document images:', error);
+        console.error('Failed to load document previews:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    loadImages();
+    loadPreviews();
   }, [selectedDoc]);
 
   // Auto-select first document of active tab
