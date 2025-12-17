@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getClaims, getClaimPhotos, deletePhoto, type ClaimPhoto } from '@/lib/api';
+import { getClaims, getClaimPhotos, getAllPhotos, deletePhoto, updatePhoto, type ClaimPhoto } from '@/lib/api';
 import type { SketchPhoto } from '@/features/voice-sketch/types/geometry';
 import { toast } from 'sonner';
 
@@ -43,7 +43,7 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): SketchPhoto {
 export default function PhotosPage() {
   const searchString = useSearch();
   const urlParams = new URLSearchParams(searchString);
-  const initialClaimId = urlParams.get('claimId') || '';
+  const initialClaimId = urlParams.get('claimId') || 'all';
   
   const [selectedClaimId, setSelectedClaimId] = useState(initialClaimId);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
@@ -57,20 +57,49 @@ export default function PhotosPage() {
 
   const claims = claimsData?.claims || [];
 
-  const { data: photos = [], isLoading: photosLoading, refetch: refetchPhotos } = useQuery({
+  const { data: claimPhotos = [], isLoading: claimPhotosLoading, refetch: refetchClaimPhotos } = useQuery({
     queryKey: ['claimPhotos', selectedClaimId],
     queryFn: () => getClaimPhotos(selectedClaimId),
-    enabled: !!selectedClaimId,
+    enabled: selectedClaimId !== 'all' && !!selectedClaimId,
   });
+
+  const { data: allPhotos = [], isLoading: allPhotosLoading, refetch: refetchAllPhotos } = useQuery({
+    queryKey: ['allPhotos'],
+    queryFn: getAllPhotos,
+    enabled: selectedClaimId === 'all',
+  });
+
+  const photos = selectedClaimId === 'all' ? allPhotos : claimPhotos;
+  const photosLoading = selectedClaimId === 'all' ? allPhotosLoading : claimPhotosLoading;
 
   const deleteMutation = useMutation({
     mutationFn: deletePhoto,
     onSuccess: () => {
       toast.success('Photo deleted');
-      queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
+      if (selectedClaimId === 'all') {
+        queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
+      }
     },
     onError: (error) => {
       toast.error('Failed to delete photo: ' + (error as Error).message);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: { label?: string; hierarchyPath?: string } }) => 
+      updatePhoto(id, updates),
+    onSuccess: () => {
+      toast.success('Photo updated');
+      if (selectedClaimId === 'all') {
+        queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to update photo: ' + (error as Error).message);
     },
   });
 
@@ -98,6 +127,23 @@ export default function PhotosPage() {
     return groups;
   }, [filteredPhotos]);
 
+  const groupedByClaim = useMemo(() => {
+    if (selectedClaimId !== 'all') return {};
+    const groups: Record<string, SketchPhoto[]> = {};
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i];
+      const sketchPhoto = sketchPhotos[i];
+      const claimId = photo.claimId;
+      const claim = claims.find(c => c.id === claimId);
+      const claimLabel = claim ? (claim.claimNumber || claimId.slice(0, 8)) : 'Unassigned';
+      if (!groups[claimLabel]) {
+        groups[claimLabel] = [];
+      }
+      groups[claimLabel].push(sketchPhoto);
+    }
+    return groups;
+  }, [selectedClaimId, photos, sketchPhotos, claims]);
+
   const stats = useMemo(() => {
     const withDamage = sketchPhotos.filter((p) => p.aiAnalysis?.content?.damageDetected).length;
     const avgQuality = sketchPhotos.length > 0
@@ -112,7 +158,19 @@ export default function PhotosPage() {
     }
   };
 
-  const isLoading = claimsLoading || (selectedClaimId && photosLoading);
+  const handleUpdatePhoto = (photoId: string, updates: { label?: string; hierarchyPath?: string }) => {
+    updateMutation.mutate({ id: photoId, updates });
+  };
+
+  const handleRefresh = () => {
+    if (selectedClaimId === 'all') {
+      refetchAllPhotos();
+    } else {
+      refetchClaimPhotos();
+    }
+  };
+
+  const isLoading = claimsLoading || photosLoading;
 
   return (
     <Layout>
@@ -134,6 +192,7 @@ export default function PhotosPage() {
                 <SelectValue placeholder="Select a claim" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">All Claims</SelectItem>
                 {claims.map((claim) => (
                   <SelectItem key={claim.id} value={claim.id}>
                     {claim.claimNumber || claim.id.slice(0, 8)}
@@ -154,17 +213,15 @@ export default function PhotosPage() {
               </SelectContent>
             </Select>
             
-            {selectedClaimId && (
-              <Button 
-                variant="outline" 
-                size="icon" 
-                onClick={() => refetchPhotos()}
-                disabled={photosLoading}
-                data-testid="button-refresh-photos"
-              >
-                <RefreshCw className={`h-4 w-4 ${photosLoading ? 'animate-spin' : ''}`} />
-              </Button>
-            )}
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={handleRefresh}
+              disabled={photosLoading}
+              data-testid="button-refresh-photos"
+            >
+              <RefreshCw className={`h-4 w-4 ${photosLoading ? 'animate-spin' : ''}`} />
+            </Button>
             
             <Link href="/voice-sketch">
               <Button variant="outline" size="sm" data-testid="button-start-sketch">
@@ -175,19 +232,7 @@ export default function PhotosPage() {
           </div>
         </div>
 
-        {!selectedClaimId ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="flex flex-col items-center justify-center text-center">
-                <Camera className="h-16 w-16 text-muted-foreground mb-4" />
-                <h3 className="font-medium text-lg mb-2">Select a Claim</h3>
-                <p className="text-muted-foreground mb-4 max-w-md">
-                  Choose a claim from the dropdown above to view its photos.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : isLoading ? (
+        {isLoading ? (
           <Card>
             <CardContent className="py-12">
               <div className="flex flex-col items-center justify-center">
@@ -245,6 +290,29 @@ export default function PhotosPage() {
                   </div>
                 </CardContent>
               </Card>
+            ) : selectedClaimId === 'all' && Object.keys(groupedByClaim).length > 0 ? (
+              <div className="space-y-6">
+                {Object.entries(groupedByClaim).map(([claimLabel, claimPhotos]) => (
+                  <Card key={claimLabel}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Building2 className="h-4 w-4" />
+                        Claim: {claimLabel}
+                        <span className="text-sm font-normal text-muted-foreground ml-auto">
+                          {claimPhotos.length} photo(s)
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <PhotoAlbum 
+                        photos={claimPhotos} 
+                        onDeletePhoto={handleDeletePhoto}
+                        onUpdatePhoto={handleUpdatePhoto}
+                      />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             ) : filterMode === 'by-structure' ? (
               <div className="space-y-6">
                 {Object.entries(groupedByStructure).map(([structure, structurePhotos]) => (
@@ -266,6 +334,7 @@ export default function PhotosPage() {
                       <PhotoAlbum 
                         photos={structurePhotos} 
                         onDeletePhoto={handleDeletePhoto}
+                        onUpdatePhoto={handleUpdatePhoto}
                       />
                     </CardContent>
                   </Card>
@@ -277,6 +346,7 @@ export default function PhotosPage() {
                   <PhotoAlbum 
                     photos={filteredPhotos} 
                     onDeletePhoto={handleDeletePhoto}
+                    onUpdatePhoto={handleUpdatePhoto}
                   />
                 </CardContent>
               </Card>

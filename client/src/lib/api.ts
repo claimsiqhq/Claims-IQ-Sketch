@@ -1799,3 +1799,27 @@ export async function deletePhoto(id: string): Promise<void> {
     throw new Error('Failed to delete photo');
   }
 }
+
+export async function updatePhoto(
+  id: string,
+  updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
+): Promise<ClaimPhoto> {
+  const response = await fetch(`${API_BASE}/photos/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update photo');
+  }
+  return response.json();
+}
+
+export async function getAllPhotos(): Promise<ClaimPhoto[]> {
+  const response = await fetch(`${API_BASE}/photos`, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error('Failed to fetch photos');
+  }
+  return response.json();
+}

@@ -3722,6 +3722,49 @@ export async function registerRoutes(
     }
   });
 
+  // Update photo (label, hierarchy path, structure associations)
+  app.patch('/api/photos/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { updateClaimPhoto } = await import('./services/photos');
+      const { label, hierarchyPath, structureId, roomId, damageZoneId } = req.body;
+
+      const updated = await updateClaimPhoto(req.params.id, {
+        label,
+        hierarchyPath,
+        structureId,
+        roomId,
+        damageZoneId,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: 'Photo not found' });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[photos] Update error:', error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // List all photos for organization (across all claims)
+  app.get('/api/photos', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { listAllClaimPhotos } = await import('./services/photos');
+      const organizationId = req.currentOrganization?.id;
+      if (!organizationId) {
+        return res.status(400).json({ error: 'Organization required' });
+      }
+      const photos = await listAllClaimPhotos(organizationId);
+      res.json(photos);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[photos] List all error:', error);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // DOCUMENT ROUTES
   // ============================================

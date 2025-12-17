@@ -9,14 +9,20 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
+  Pencil,
+  Save,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Collapsible,
@@ -30,6 +36,7 @@ interface PhotoAlbumProps {
   photos: SketchPhoto[];
   className?: string;
   onDeletePhoto?: (photoId: string) => void;
+  onUpdatePhoto?: (photoId: string, updates: { label?: string; hierarchyPath?: string }) => void;
 }
 
 function getQualityColor(score: number): string {
@@ -126,15 +133,34 @@ interface PhotoDetailDialogProps {
   photo: SketchPhoto | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onUpdate?: (updates: { label?: string; hierarchyPath?: string }) => void;
 }
 
-function PhotoDetailDialog({ photo, open, onOpenChange }: PhotoDetailDialogProps) {
+function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailDialogProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editLabel, setEditLabel] = useState('');
+  const [editHierarchy, setEditHierarchy] = useState('');
+
+  React.useEffect(() => {
+    if (photo) {
+      setEditLabel(photo.label || '');
+      setEditHierarchy(photo.hierarchyPath || '');
+    }
+  }, [photo]);
+
   if (!photo) return null;
   
   const analysis = photo.aiAnalysis;
   const qualityScore = analysis?.quality?.score ?? 5;
   const photoUrl = photo.storageUrl || photo.localUri;
   const hasDamage = analysis?.content?.damageDetected;
+
+  const handleSave = () => {
+    if (onUpdate) {
+      onUpdate({ label: editLabel, hierarchyPath: editHierarchy });
+    }
+    setIsEditing(false);
+  };
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -142,7 +168,30 @@ function PhotoDetailDialog({ photo, open, onOpenChange }: PhotoDetailDialogProps
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
-            {photo.label}
+            {isEditing ? (
+              <Input
+                value={editLabel}
+                onChange={(e) => setEditLabel(e.target.value)}
+                className="h-8 text-lg font-semibold"
+                placeholder="Photo label"
+                data-testid="input-edit-label"
+              />
+            ) : (
+              <>
+                {photo.label}
+                {onUpdate && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 ml-2"
+                    onClick={() => setIsEditing(true)}
+                    data-testid="button-edit-photo"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                )}
+              </>
+            )}
           </DialogTitle>
         </DialogHeader>
         
@@ -161,9 +210,38 @@ function PhotoDetailDialog({ photo, open, onOpenChange }: PhotoDetailDialogProps
             )}
           </div>
           
-          <div className="text-sm text-muted-foreground">
-            <span className="font-medium">Location:</span> {photo.hierarchyPath}
-          </div>
+          {isEditing ? (
+            <div className="space-y-2">
+              <Label htmlFor="hierarchy-path">Location in Structure</Label>
+              <Input
+                id="hierarchy-path"
+                value={editHierarchy}
+                onChange={(e) => setEditHierarchy(e.target.value)}
+                placeholder="e.g., Main House > Living Room"
+                data-testid="input-edit-hierarchy"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use " &gt; " to separate levels (Structure &gt; Room &gt; Area)
+              </p>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              <span className="font-medium">Location:</span> {photo.hierarchyPath}
+            </div>
+          )}
+
+          {isEditing && (
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} data-testid="button-cancel-edit">
+                <X className="h-4 w-4 mr-1" />
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} data-testid="button-save-photo">
+                <Save className="h-4 w-4 mr-1" />
+                Save Changes
+              </Button>
+            </div>
+          )}
           
           {analysis && (
             <div className="space-y-4">
@@ -259,7 +337,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange }: PhotoDetailDialogProps
   );
 }
 
-export function PhotoAlbum({ photos, className, onDeletePhoto }: PhotoAlbumProps) {
+export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto }: PhotoAlbumProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<SketchPhoto | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   
@@ -359,6 +437,10 @@ export function PhotoAlbum({ photos, className, onDeletePhoto }: PhotoAlbumProps
         photo={selectedPhoto}
         open={!!selectedPhoto}
         onOpenChange={(open) => !open && setSelectedPhoto(null)}
+        onUpdate={onUpdatePhoto && selectedPhoto ? (updates) => {
+          onUpdatePhoto(selectedPhoto.id, updates);
+          setSelectedPhoto(null);
+        } : undefined}
       />
     </div>
   );
