@@ -1727,8 +1727,71 @@ export async function getPhotoSignedUrl(storagePath: string): Promise<string> {
   return data.url;
 }
 
-export async function deletePhoto(storagePath: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/photos/${encodeURIComponent(storagePath)}`, {
+export async function deletePhotoByPath(storagePath: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/photos/by-path/${encodeURIComponent(storagePath)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete photo');
+  }
+}
+
+export interface ClaimPhoto {
+  id: string;
+  claimId: string;
+  organizationId: string;
+  structureId: string | null;
+  roomId: string | null;
+  damageZoneId: string | null;
+  storagePath: string;
+  publicUrl: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number | null;
+  label: string | null;
+  hierarchyPath: string | null;
+  description: string | null;
+  aiAnalysis: PhotoAnalysis | null;
+  qualityScore: number | null;
+  damageDetected: boolean | null;
+  capturedAt: string | null;
+  analyzedAt: string | null;
+  uploadedBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function getClaimPhotos(
+  claimId: string,
+  filters?: { structureId?: string; roomId?: string; damageZoneId?: string; damageDetected?: boolean }
+): Promise<ClaimPhoto[]> {
+  const params = new URLSearchParams();
+  if (filters?.structureId) params.append('structureId', filters.structureId);
+  if (filters?.roomId) params.append('roomId', filters.roomId);
+  if (filters?.damageZoneId) params.append('damageZoneId', filters.damageZoneId);
+  if (filters?.damageDetected !== undefined) params.append('damageDetected', String(filters.damageDetected));
+
+  const url = `${API_BASE}/claims/${claimId}/photos${params.toString() ? `?${params}` : ''}`;
+  const response = await fetch(url, { credentials: 'include' });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch photos');
+  }
+  
+  return response.json();
+}
+
+export async function getPhoto(id: string): Promise<ClaimPhoto> {
+  const response = await fetch(`${API_BASE}/photos/${id}`, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error('Failed to fetch photo');
+  }
+  return response.json();
+}
+
+export async function deletePhoto(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/photos/${id}`, {
     method: 'DELETE',
     credentials: 'include',
   });
