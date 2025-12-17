@@ -103,6 +103,7 @@ export interface SketchObject {
 export interface SketchPhoto {
   id: string;
   storageUrl?: string; // Supabase storage URL
+  storagePath?: string; // Supabase storage path
   localUri?: string; // Local file URI before upload
   label: string; // User-provided or auto-generated label
   autoLabel?: string; // Auto-generated from hierarchy context
@@ -114,8 +115,12 @@ export interface SketchPhoto {
   damageZoneId?: string;
   capturedAt: string;
   uploadedAt?: string;
+  analyzedAt?: string;
+  // GPS coordinates
+  latitude?: number | null;
+  longitude?: number | null;
   // AI analysis results
-  aiAnalysis?: PhotoAIAnalysis;
+  aiAnalysis?: PhotoAIAnalysis | null;
 }
 
 // AI analysis of a photo (matches server PhotoAnalysis response)
