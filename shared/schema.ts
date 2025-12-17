@@ -638,6 +638,61 @@ export type InsertClaimDamageZone = z.infer<typeof insertClaimDamageZoneSchema>;
 export type ClaimDamageZone = typeof claimDamageZones.$inferSelect;
 
 // ============================================
+// CLAIM PHOTOS TABLE
+// ============================================
+
+export const claimPhotos = pgTable("claim_photos", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull(),
+  organizationId: uuid("organization_id").notNull(),
+
+  // Optional hierarchy links (photos can be at any level)
+  structureId: uuid("structure_id"),
+  roomId: uuid("room_id"),
+  damageZoneId: uuid("damage_zone_id"),
+
+  // Storage info
+  storagePath: varchar("storage_path", { length: 500 }).notNull(),
+  publicUrl: varchar("public_url", { length: 1000 }).notNull(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size"),
+
+  // Photo metadata
+  label: varchar("label", { length: 255 }),
+  hierarchyPath: varchar("hierarchy_path", { length: 500 }),
+  description: text("description"),
+
+  // AI Analysis results (from OpenAI Vision)
+  aiAnalysis: jsonb("ai_analysis").default(sql`'{}'::jsonb`),
+  qualityScore: integer("quality_score"),
+  damageDetected: boolean("damage_detected").default(false),
+
+  // Timestamps
+  capturedAt: timestamp("captured_at").default(sql`NOW()`),
+  analyzedAt: timestamp("analyzed_at"),
+  uploadedBy: varchar("uploaded_by"),
+
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  claimIdx: index("claim_photos_claim_idx").on(table.claimId),
+  orgIdx: index("claim_photos_org_idx").on(table.organizationId),
+  structureIdx: index("claim_photos_structure_idx").on(table.structureId),
+  roomIdx: index("claim_photos_room_idx").on(table.roomId),
+  damageIdx: index("claim_photos_damage_idx").on(table.damageZoneId),
+}));
+
+export const insertClaimPhotoSchema = createInsertSchema(claimPhotos).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimPhoto = z.infer<typeof insertClaimPhotoSchema>;
+export type ClaimPhoto = typeof claimPhotos.$inferSelect;
+
+// ============================================
 // DOCUMENTS TABLE
 // ============================================
 
