@@ -826,6 +826,83 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // ROUTE OPTIMIZATION
+  // ============================================
+
+  app.post('/api/route/optimize', requireAuth, async (req, res) => {
+    try {
+      const { optimizeRoute } = await import('./services/routeOptimization');
+      const { origin, stops } = req.body;
+
+      if (!stops || !Array.isArray(stops)) {
+        return res.status(400).json({ error: 'stops array is required' });
+      }
+
+      // Filter stops with valid coordinates
+      const validStops = stops.filter((s: any) => 
+        s.id && typeof s.lat === 'number' && typeof s.lng === 'number' &&
+        s.lat !== 0 && s.lng !== 0
+      );
+
+      if (validStops.length === 0) {
+        return res.json({
+          orderedStops: stops.map((s: any) => s.id),
+          legs: [],
+          totalDuration: 0,
+          totalDistance: 0,
+          optimized: false,
+          reason: 'No stops with valid coordinates'
+        });
+      }
+
+      // Default origin to first stop if not provided
+      const routeOrigin = origin || { lat: validStops[0].lat, lng: validStops[0].lng };
+
+      const result = await optimizeRoute(routeOrigin, validStops);
+      res.json({ ...result, optimized: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Route optimization error:', message);
+      
+      if (message.includes('not configured')) {
+        res.status(500).json({ error: 'Route optimization service not configured' });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  app.post('/api/route/drive-times', requireAuth, async (req, res) => {
+    try {
+      const { calculateDriveTimes } = await import('./services/routeOptimization');
+      const { stops } = req.body;
+
+      if (!stops || !Array.isArray(stops)) {
+        return res.status(400).json({ error: 'stops array is required' });
+      }
+
+      const validStops = stops.filter((s: any) => 
+        s.id && typeof s.lat === 'number' && typeof s.lng === 'number' &&
+        s.lat !== 0 && s.lng !== 0
+      );
+
+      const driveTimes = await calculateDriveTimes(validStops);
+      
+      // Convert Map to object for JSON
+      const result: Record<string, { duration: number; durationText: string }> = {};
+      driveTimes.forEach((value, key) => {
+        result[key] = value;
+      });
+
+      res.json({ driveTimes: result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Drive times calculation error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Voice Session Routes
   app.post('/api/voice/session', async (req, res) => {
     try {

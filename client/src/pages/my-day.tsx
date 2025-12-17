@@ -1,11 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import Layout from "@/components/layout";
 import { useDeviceMode } from "@/contexts/DeviceModeContext";
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, Route } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -50,6 +50,25 @@ import {
   type WeatherConditionType,
 } from "@/lib/types";
 import { format } from "date-fns";
+
+// ==========================================
+// ROUTE OPTIMIZATION TYPES
+// ==========================================
+
+interface RouteOptimizationResult {
+  orderedStops: string[];
+  legs: {
+    fromStopId: string;
+    toStopId: string;
+    duration: number;
+    distance: number;
+    durationText: string;
+    distanceText: string;
+  }[];
+  totalDuration: number;
+  totalDistance: number;
+  optimized: boolean;
+}
 
 // ==========================================
 // DATA TRANSFORMATION UTILITIES
@@ -657,13 +676,32 @@ function TodaysRoute({
   route,
   weather,
   isMobile,
+  routeOptimization,
+  isOptimizing,
 }: {
   route: InspectionStop[];
   weather: WeatherCondition[];
   isMobile: boolean;
+  routeOptimization?: RouteOptimizationResult;
+  isOptimizing?: boolean;
 }) {
   const getWeatherAlertForStop = (stop: InspectionStop) => {
     return weather.find((w) => w.affectedClaimIds.includes(stop.claimId));
+  };
+
+  // Get drive time for a stop from optimization data
+  const getDriveTime = (stopId: string): { duration: number; durationText: string } | undefined => {
+    if (!routeOptimization?.legs) return undefined;
+    const leg = routeOptimization.legs.find(l => l.toStopId === stopId);
+    return leg ? { duration: leg.duration, durationText: leg.durationText } : undefined;
+  };
+
+  // Calculate total drive time in a human-readable format
+  const formatTotalTime = (minutes: number): string => {
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   };
 
   return (
@@ -673,10 +711,21 @@ function TodaysRoute({
           <h2 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
             <Navigation className="h-5 w-5 text-primary" />
             Today's Route
+            {isOptimizing && (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            )}
           </h2>
-          <span className="text-sm text-muted-foreground">
-            {route.length} stop{route.length !== 1 ? "s" : ""}
-          </span>
+          <div className="flex items-center gap-3">
+            {routeOptimization?.optimized && routeOptimization.totalDuration > 0 && (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 flex items-center gap-1">
+                <Car className="h-3 w-3" />
+                {formatTotalTime(routeOptimization.totalDuration)} drive
+              </Badge>
+            )}
+            <span className="text-sm text-muted-foreground">
+              {route.length} stop{route.length !== 1 ? "s" : ""}
+            </span>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -1009,6 +1058,8 @@ export default function MyDay() {
   const { layoutMode } = useDeviceMode();
   const isMobileLayout = layoutMode === "mobile";
   const authUser = useStore((state) => state.authUser);
+  const [routeOptimization, setRouteOptimization] = useState<RouteOptimizationResult | undefined>();
+  const [isOptimizing, setIsOptimizing] = useState(false);
 
   const { data: claimsData, isLoading, error } = useQuery<{ claims: ClaimFromAPI[]; total: number }>({
     queryKey: ["/api/claims"],
@@ -1031,6 +1082,84 @@ export default function MyDay() {
     }
     return transformClaimsToMyDayData(claimsData.claims, adjusterName);
   }, [claimsData, authUser]);
+
+  // Fetch route optimization when route changes
+  useEffect(() => {
+    if (dayData.route.length < 2) {
+      setRouteOptimization(undefined);
+      return;
+    }
+
+    const fetchRouteOptimization = async () => {
+      setIsOptimizing(true);
+      try {
+        const stops = dayData.route
+          .filter(stop => stop.lat && stop.lng && stop.lat !== 0 && stop.lng !== 0)
+          .map(stop => ({
+            id: stop.claimId,
+            lat: stop.lat!,
+            lng: stop.lng!,
+            address: `${stop.address}, ${stop.city}, ${stop.state}`,
+          }));
+
+        if (stops.length < 2) {
+          setIsOptimizing(false);
+          return;
+        }
+
+        const response = await fetch('/api/route/optimize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ stops }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setRouteOptimization(result);
+        }
+      } catch (err) {
+        console.error('Route optimization failed:', err);
+      } finally {
+        setIsOptimizing(false);
+      }
+    };
+
+    fetchRouteOptimization();
+  }, [dayData.route]);
+
+  // Apply optimized ordering to route
+  const optimizedRoute = useMemo(() => {
+    if (!routeOptimization?.orderedStops || routeOptimization.orderedStops.length === 0) {
+      return dayData.route;
+    }
+
+    // Create a map for quick lookup
+    const routeMap = new Map(dayData.route.map(stop => [stop.claimId, stop]));
+    
+    // Reorder based on orderedStops
+    const reordered: InspectionStop[] = [];
+    for (const claimId of routeOptimization.orderedStops) {
+      const stop = routeMap.get(claimId);
+      if (stop) {
+        // Find travel time from legs
+        const leg = routeOptimization.legs.find(l => l.toStopId === claimId);
+        reordered.push({
+          ...stop,
+          travelTimeFromPrevious: leg?.duration,
+        });
+      }
+    }
+
+    // Add any stops not in the optimized list (no coordinates)
+    for (const stop of dayData.route) {
+      if (!reordered.find(s => s.claimId === stop.claimId)) {
+        reordered.push(stop);
+      }
+    }
+
+    return reordered;
+  }, [dayData.route, routeOptimization]);
 
   if (isLoading) {
     return (
@@ -1097,11 +1226,13 @@ export default function MyDay() {
           )}
 
           {/* Today's Route - Primary section */}
-          {dayData.route.length > 0 && (
+          {optimizedRoute.length > 0 && (
             <TodaysRoute
-              route={dayData.route}
+              route={optimizedRoute}
               weather={dayData.weather}
               isMobile={isMobileLayout}
+              routeOptimization={routeOptimization}
+              isOptimizing={isOptimizing}
             />
           )}
 
