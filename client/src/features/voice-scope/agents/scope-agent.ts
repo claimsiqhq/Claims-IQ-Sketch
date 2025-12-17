@@ -156,7 +156,8 @@ const searchLineItemsTool = tool({
   }),
   execute: async (params) => {
     try {
-      const url = `/api/line-items/search?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ''}`;
+      // Use the correct endpoint: /api/line-items (not /api/line-items/search)
+      const url = `/api/line-items?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ''}`;
       const response = await fetch(url, { credentials: 'include' });
 
       if (!response.ok) {
