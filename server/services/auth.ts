@@ -50,18 +50,19 @@ export async function findUserById(id: string): Promise<User | null> {
 
 export async function updateUserProfile(
   userId: string,
-  updates: { name?: string; email?: string }
+  updates: { firstName?: string; lastName?: string; email?: string }
 ): Promise<AuthUser | null> {
   const client = await pool.connect();
   try {
     const result = await client.query(
-      `UPDATE users 
-       SET name = COALESCE($2, name), 
-           email = COALESCE($3, email),
+      `UPDATE users
+       SET first_name = COALESCE($2, first_name),
+           last_name = COALESCE($3, last_name),
+           email = COALESCE($4, email),
            updated_at = NOW()
        WHERE id = $1
-       RETURNING id, username, email, name, role, current_organization_id as "currentOrganizationId"`,
-      [userId, updates.name || null, updates.email || null]
+       RETURNING id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId"`,
+      [userId, updates.firstName || null, updates.lastName || null, updates.email || null]
     );
     return result.rows[0] || null;
   } finally {
