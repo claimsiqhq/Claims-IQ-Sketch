@@ -12,10 +12,14 @@ import { geometryEngine } from '../services/geometry-engine';
 import { useFloorPlanEngine } from '../services/floor-plan-engine';
 
 // System instructions for the voice agent
-const ROOM_SKETCH_INSTRUCTIONS = `You are a field sketching assistant for property insurance claims adjusters. Your job is to help them create room sketches by voice.
+// Use {userName} placeholder for personalization
+const ROOM_SKETCH_INSTRUCTIONS_TEMPLATE = `You are a field sketching assistant for property insurance claims adjusters. Your job is to help them create room sketches by voice.
+
+IMPORTANT: The adjuster's name is {userName}. Address them by name occasionally (especially when greeting or confirming completion of major actions), but don't overuse it.
 
 PERSONALITY:
 - Be concise and professional—adjusters are working in the field
+- Greet the adjuster by name when they start: "Hi {userName}, ready to sketch. What room are we working on?"
 - Confirm each element briefly before moving on
 - Ask ONE clarifying question when information is ambiguous
 - After simple actions: use 3-5 word confirmations ("Added 3-foot window")
@@ -735,30 +739,48 @@ const saveFloorPlanTool = tool({
   },
 });
 
-// Create the RealtimeAgent with all tools
+// Helper to get personalized instructions
+function getPersonalizedInstructions(userName?: string): string {
+  const displayName = userName || 'there';
+  return ROOM_SKETCH_INSTRUCTIONS_TEMPLATE.replace(/\{userName\}/g, displayName);
+}
+
+// Tool list for agent creation
+const agentTools = [
+  createRoomTool,
+  addOpeningTool,
+  addFeatureTool,
+  markDamageTool,
+  modifyDimensionTool,
+  addNoteTool,
+  undoTool,
+  confirmRoomTool,
+  deleteRoomTool,
+  editRoomTool,
+  deleteOpeningTool,
+  deleteFeatureTool,
+  editDamageZoneTool,
+  createFloorPlanTool,
+  addRoomToPlanTool,
+  connectRoomsTool,
+  moveRoomTool,
+  saveFloorPlanTool,
+];
+
+// Create personalized agent for a specific user
+export function createRoomSketchAgent(userName?: string) {
+  return new RealtimeAgent({
+    name: 'RoomSketchAgent',
+    instructions: getPersonalizedInstructions(userName),
+    tools: agentTools,
+  });
+}
+
+// Default agent (backwards compatible) - uses generic greeting
 export const roomSketchAgent = new RealtimeAgent({
   name: 'RoomSketchAgent',
-  instructions: ROOM_SKETCH_INSTRUCTIONS,
-  tools: [
-    createRoomTool,
-    addOpeningTool,
-    addFeatureTool,
-    markDamageTool,
-    modifyDimensionTool,
-    addNoteTool,
-    undoTool,
-    confirmRoomTool,
-    deleteRoomTool,
-    editRoomTool,
-    deleteOpeningTool,
-    deleteFeatureTool,
-    editDamageZoneTool,
-    createFloorPlanTool,
-    addRoomToPlanTool,
-    connectRoomsTool,
-    moveRoomTool,
-    saveFloorPlanTool,
-  ],
+  instructions: getPersonalizedInstructions(),
+  tools: agentTools,
 });
 
 // Export individual tools for testing

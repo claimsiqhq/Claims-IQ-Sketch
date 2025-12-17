@@ -4,10 +4,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { RealtimeSession } from '@openai/agents/realtime';
 import type { RealtimeItem } from '@openai/agents/realtime';
-import { roomSketchAgent } from '../agents/room-sketch-agent';
+import { createRoomSketchAgent } from '../agents/room-sketch-agent';
 import { useGeometryEngine } from '../services/geometry-engine';
 
 interface UseVoiceSessionOptions {
+  userName?: string;
   onTranscript?: (text: string, role: 'user' | 'assistant') => void;
   onToolCall?: (toolName: string, args: unknown, result: string) => void;
   onError?: (error: Error) => void;
@@ -54,8 +55,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
       }
       const { ephemeral_key } = await response.json();
 
-      // 2. Create RealtimeSession with the agent
-      const session = new RealtimeSession(roomSketchAgent, {
+      // 2. Create RealtimeSession with personalized agent
+      const personalizedAgent = createRoomSketchAgent(options.userName);
+      const session = new RealtimeSession(personalizedAgent, {
         transport: 'webrtc',
         config: {
           inputAudioTranscription: { model: 'gpt-4o-mini-transcribe' },

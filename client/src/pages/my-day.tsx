@@ -567,8 +567,12 @@ function StopWeatherBadge({ weather }: { weather?: StopWeatherData }) {
 // ==========================================
 
 // Mobile Day Context Bar
-function MobileDayContextBar({ context }: { context: MyDayData["context"] }) {
+function MobileDayContextBar({ context, weather }: { context: MyDayData["context"]; weather?: StopWeatherData }) {
   const today = format(new Date(), "EEE, MMM d");
+
+  // Get weather icon based on conditions
+  const mainCondition = weather?.current.conditions[0]?.main || '';
+  const WeatherIcon = mainCondition ? getWeatherConditionIcon(mainCondition) : Sun;
 
   return (
     <div className="bg-white border-b border-border px-4 py-3">
@@ -589,11 +593,19 @@ function MobileDayContextBar({ context }: { context: MyDayData["context"] }) {
             )}
           </p>
         </div>
-        {context.catEvent && (
-          <Badge className="bg-accent/20 text-accent-foreground border-accent/30 text-xs">
-            {context.catEvent}
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          {weather?.current?.temp != null && (
+            <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5">
+              <WeatherIcon className="h-4 w-4 text-sky-600" />
+              <span className="text-sm font-medium text-sky-700">{weather.current.temp}°F</span>
+            </div>
+          )}
+          {context.catEvent && (
+            <Badge className="bg-accent/20 text-accent-foreground border-accent/30 text-xs">
+              {context.catEvent}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {/* Stats Row - Horizontal Scroll */}
@@ -654,17 +666,30 @@ function MobileDayContextBar({ context }: { context: MyDayData["context"] }) {
 }
 
 // Desktop Day Context Bar
-function DesktopDayContextBar({ context }: { context: MyDayData["context"] }) {
+function DesktopDayContextBar({ context, weather }: { context: MyDayData["context"]; weather?: StopWeatherData }) {
   const today = format(new Date(), "EEEE, MMMM d, yyyy");
+
+  // Get weather icon based on conditions
+  const mainCondition = weather?.current.conditions[0]?.main || '';
+  const WeatherIcon = mainCondition ? getWeatherConditionIcon(mainCondition) : Sun;
 
   return (
     <div className="bg-white border-b border-border px-6 py-4">
       <div className="max-w-5xl mx-auto flex items-center justify-between">
         {/* Left: Title and Info */}
         <div>
-          <h1 className="text-2xl font-display font-bold text-foreground">
-            My Day
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-display font-bold text-foreground">
+              My Day
+            </h1>
+            {weather?.current?.temp != null && mainCondition && (
+              <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-lg px-3 py-1.5">
+                <WeatherIcon className="h-5 w-5 text-sky-600" />
+                <span className="text-base font-medium text-sky-700">{weather.current.temp}°F</span>
+                <span className="text-sm text-sky-600">{mainCondition}</span>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
             <Calendar className="h-4 w-4" />
             {today}
@@ -1421,6 +1446,7 @@ export default function MyDay() {
           body: JSON.stringify({
             claims: claimsData.claims,
             inspectionRoute,
+            userName: authUser?.username || 'there',
           }),
         });
 
@@ -1436,7 +1462,7 @@ export default function MyDay() {
     };
 
     fetchAiAnalysis();
-  }, [dayData.route, claimsData?.claims]);
+  }, [dayData.route, claimsData?.claims, authUser?.username]);
 
   // Fetch route optimization when route changes
   useEffect(() => {
@@ -1547,9 +1573,9 @@ export default function MyDay() {
       <div className="min-h-full bg-background">
         {/* Day Context Bar */}
         {isMobileLayout ? (
-          <MobileDayContextBar context={dayData.context} />
+          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0]} />
         ) : (
-          <DesktopDayContextBar context={dayData.context} />
+          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0]} />
         )}
 
         {/* Main Content */}

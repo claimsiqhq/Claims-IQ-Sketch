@@ -14,11 +14,13 @@ import { FieldCameraButton } from './FieldCameraButton';
 import { cn } from '@/lib/utils';
 
 interface VoiceSketchControllerProps {
+  userName?: string;
   onRoomConfirmed?: (roomData: unknown) => void;
   className?: string;
 }
 
 export function VoiceSketchController({
+  userName,
   onRoomConfirmed,
   className,
 }: VoiceSketchControllerProps) {
@@ -58,6 +60,7 @@ export function VoiceSketchController({
     stopSession,
     interruptAgent,
   } = useVoiceSession({
+    userName,
     onToolCall: handleToolCall,
     onError: handleError,
   });
@@ -114,10 +117,17 @@ export function VoiceSketchController({
 
         <div className="flex items-center gap-2 flex-wrap">
           {!isConnected ? (
-            <Button onClick={handleStartSession} variant="default" size="sm" className="flex-1 sm:flex-none">
+            <Button 
+              onClick={handleStartSession} 
+              variant="default" 
+              size="sm" 
+              className="flex-1 sm:flex-none"
+              disabled={!userName}
+              title={!userName ? "Loading user..." : undefined}
+            >
               <Mic className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Start Voice Sketching</span>
-              <span className="sm:hidden">Start</span>
+              <span className="hidden sm:inline">{userName ? 'Start Voice Sketching' : 'Loading...'}</span>
+              <span className="sm:hidden">{userName ? 'Start' : '...'}</span>
             </Button>
           ) : (
             <>

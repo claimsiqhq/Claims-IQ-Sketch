@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine } from './services/geometry-engine';
 import { getClaim, saveClaimRooms } from '@/lib/api';
+import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
 import type { RoomGeometry } from './types/geometry';
 import type { ClaimRoom, ClaimDamageZone, Claim } from '@/lib/api';
@@ -21,6 +22,7 @@ export default function VoiceSketchPage() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const claimId = params.claimId;
+  const authUser = useStore((state) => state.authUser);
 
   const { rooms, currentRoom, resetSession } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
@@ -233,6 +235,7 @@ export default function VoiceSketchPage() {
 
         <div className="flex-1 overflow-auto">
           <VoiceSketchController
+            userName={authUser?.username}
             onRoomConfirmed={handleRoomConfirmed}
             className="min-h-full"
           />

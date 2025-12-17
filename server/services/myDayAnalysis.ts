@@ -82,7 +82,8 @@ interface MyDayAnalysisResult {
 export async function analyzeMyDay(
   claims: ClaimData[],
   inspectionRoute: InspectionStop[],
-  weatherData: WeatherData[]
+  weatherData: WeatherData[],
+  userName?: string
 ): Promise<MyDayAnalysisResult> {
   try {
     const insights: MyDayInsight[] = [];
@@ -128,7 +129,8 @@ export async function analyzeMyDay(
       inspectionRoute,
       insights,
       weatherAnalysis,
-      slaStatus
+      slaStatus,
+      userName
     );
 
     return {
@@ -418,10 +420,12 @@ async function generateAiSummary(
   route: InspectionStop[],
   insights: MyDayInsight[],
   weatherAnalysis: { affectedStops: number; recommendation: string },
-  slaStatus: { atRisk: number; breaching: number; safe: number }
+  slaStatus: { atRisk: number; breaching: number; safe: number },
+  userName?: string
 ): Promise<string> {
   const criticalInsights = insights.filter(i => i.severity === 'critical');
   const warningInsights = insights.filter(i => i.severity === 'warning');
+  const userDisplayName = userName || 'there';
 
   try {
     // Get prompt from database (falls back to hardcoded if not available)
@@ -429,6 +433,7 @@ async function generateAiSummary(
 
     // Build the prompt with variable substitution
     const variables = {
+      userName: userDisplayName,
       routeLength: String(route.length),
       claimsCount: String(claims.length),
       criticalCount: String(criticalInsights.length),
@@ -443,7 +448,9 @@ async function generateAiSummary(
 
     const userPrompt = promptConfig.userPromptTemplate
       ? substituteVariables(promptConfig.userPromptTemplate, variables)
-      : `Context:
+      : `You are helping ${userDisplayName} plan their day.
+
+Context:
 - ${route.length} inspections scheduled
 - ${claims.length} active claims
 - ${criticalInsights.length} critical issues, ${warningInsights.length} warnings
@@ -454,10 +461,11 @@ Key issues:
 ${criticalInsights.slice(0, 3).map(i => `- ${i.title}: ${i.description}`).join('\n')}
 ${warningInsights.slice(0, 3).map(i => `- ${i.title}: ${i.description}`).join('\n')}
 
-Generate a 2-3 sentence summary that:
-1. Highlights the most important priority
-2. Mentions any weather or SLA concerns
-3. Gives one actionable recommendation
+Generate a 2-3 sentence personalized summary that:
+1. Address ${userDisplayName} by name at the start
+2. Highlights the most important priority
+3. Mentions any weather or SLA concerns
+4. Gives one actionable recommendation
 
 Be concise and professional.`;
 

@@ -954,7 +954,7 @@ export async function registerRoutes(
     try {
       const { analyzeMyDay } = await import('./services/myDayAnalysis');
       const { getWeatherForLocations } = await import('./services/weatherService');
-      const { claims, inspectionRoute } = req.body;
+      const { claims, inspectionRoute, userName } = req.body;
 
       if (!claims || !Array.isArray(claims)) {
         return res.status(400).json({ error: 'claims array is required' });
@@ -977,8 +977,8 @@ export async function registerRoutes(
         ? await getWeatherForLocations(locations) 
         : [];
 
-      // Run AI analysis
-      const analysis = await analyzeMyDay(claims, inspectionRoute, weatherData);
+      // Run AI analysis with user's name for personalization
+      const analysis = await analyzeMyDay(claims, inspectionRoute, weatherData, userName);
       
       res.json({
         ...analysis,
