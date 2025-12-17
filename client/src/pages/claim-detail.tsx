@@ -962,6 +962,27 @@ export default function ClaimDetail() {
           </div>
         </div>
 
+        {/* Draft Claim Banner */}
+        {apiClaim?.status === 'draft' && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-800">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm font-medium">
+                This claim is incomplete. Continue the setup wizard to finish uploading documents and process them.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-600 text-amber-700 hover:bg-amber-100"
+              onClick={() => setLocation(`/new-claim?resume=${params?.id}`)}
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Continue Setup
+            </Button>
+          </div>
+        )}
+
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden pb-nav-safe md:pb-0">
           {/* Desktop Tabs */}
