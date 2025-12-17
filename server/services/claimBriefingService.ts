@@ -19,7 +19,7 @@
 import OpenAI from 'openai';
 import crypto from 'crypto';
 import { pool } from '../db';
-import { ClaimBriefingContent } from '../../shared/schema';
+import { ClaimBriefingContent, PromptKey } from '../../shared/schema';
 import {
   buildPerilAwareClaimContext,
   buildPerilAwareClaimContextWithInspection,
@@ -29,6 +29,7 @@ import {
   getInspectionRulesForPeril,
   getMergedInspectionGuidance,
 } from '../config/perilInspectionRules';
+import { getPromptWithFallback, substituteVariables } from './promptService';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -181,6 +182,52 @@ Generate a JSON briefing with this EXACT structure:
 Respond ONLY with valid JSON. No explanation, no markdown.`;
 }
 
+/**
+ * Build the briefing prompt using a template or fall back to the hardcoded version
+ */
+function buildBriefingPromptWithTemplate(
+  context: PerilAwareClaimContext,
+  userPromptTemplate: string | null
+): string {
+  // If we have a template, use variable substitution
+  if (userPromptTemplate) {
+    const inspectionRules = getInspectionRulesForPeril(context.primaryPeril);
+    const mergedGuidance = getMergedInspectionGuidance(context.primaryPeril, context.secondaryPerils);
+
+    const variables = {
+      claimNumber: context.claimNumber,
+      primaryPeril: context.primaryPeril,
+      secondaryPerils: context.secondaryPerils.join(', ') || 'None',
+      dateOfLoss: context.dateOfLoss || 'Unknown',
+      lossDescription: context.lossDescription || 'No description provided',
+      propertyLocation: [context.propertyAddress, context.propertyCity, context.propertyState, context.propertyZip].filter(Boolean).join(', ') || 'Unknown',
+      policyNumber: context.policyContext.policyNumber || 'Unknown',
+      state: context.policyContext.state || 'Unknown',
+      dwellingLimit: context.policyContext.dwellingLimit || 'Unknown',
+      deductible: context.policyContext.deductible || 'Unknown',
+      windHailDeductible: context.policyContext.windHailDeductible || 'Unknown',
+      yearRoofInstall: context.policyContext.yearRoofInstall || 'Unknown',
+      endorsementsListed: context.policyContext.endorsementsListed.join(', ') || 'None',
+      endorsementsDetail: context.endorsements.length > 0
+        ? context.endorsements.map(e => `- ${e.formNumber}: ${e.documentTitle || 'No title'} - ${e.description || 'No description'}\n  Key Changes: ${JSON.stringify(e.keyChanges)}`).join('\n')
+        : 'No endorsements loaded',
+      damageZones: context.damageZones.length > 0
+        ? context.damageZones.map(z => `- ${z.name}: ${z.damageType || 'Unknown damage'} (${z.damageSeverity || 'unknown severity'})\n  Peril: ${z.associatedPeril || 'Unknown'}, Water Category: ${z.waterCategory || 'N/A'}`).join('\n')
+        : 'No damage zones defined',
+      coverageAdvisories: context.coverageAdvisories.length > 0
+        ? context.coverageAdvisories.map(a => `- [${a.type.toUpperCase()}] ${a.message}`).join('\n')
+        : 'No advisories',
+      priorityAreas: mergedGuidance.priorityAreas.slice(0, 5).map(a => a.area).join(', '),
+      commonMisses: mergedGuidance.commonMisses.slice(0, 3).map(m => m.issue).join(', '),
+    };
+
+    return substituteVariables(userPromptTemplate, variables);
+  }
+
+  // Fall back to the existing buildBriefingPrompt function
+  return buildBriefingPrompt(context);
+}
+
 // ============================================
 // MAIN SERVICE FUNCTIONS
 // ============================================
@@ -265,22 +312,27 @@ export async function generateClaimBriefing(
     const briefingId = insertResult.rows[0].id;
 
     try {
+      // Get prompt configuration from database (falls back to hardcoded if not available)
+      const promptConfig = await getPromptWithFallback(PromptKey.CLAIM_BRIEFING);
+
+      // Build the user prompt using template variables or fallback to buildBriefingPrompt
+      const userPrompt = buildBriefingPromptWithTemplate(context, promptConfig.userPromptTemplate);
+
       // Call OpenAI
-      const prompt = buildBriefingPrompt(context);
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: promptConfig.model,
         messages: [
           {
             role: 'system',
-            content: 'You are an expert insurance claim inspection advisor. Output ONLY valid JSON.',
+            content: promptConfig.systemPrompt,
           },
           {
             role: 'user',
-            content: prompt,
+            content: userPrompt,
           },
         ],
-        temperature: 0.3, // Lower temperature for consistency
-        max_tokens: 2000,
+        temperature: promptConfig.temperature,
+        max_tokens: promptConfig.maxTokens || 2000,
         response_format: { type: 'json_object' },
       });
 

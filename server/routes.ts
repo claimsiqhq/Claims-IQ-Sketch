@@ -53,6 +53,13 @@ import {
   getEstimateIdFromStructure,
   getEstimateIdFromArea,
 } from "./services/estimateSubmission";
+import {
+  getAllPrompts,
+  getPrompt,
+  updatePrompt,
+  getPromptWithFallback,
+  refreshCache,
+} from "./services/promptService";
 import { passport, requireAuth } from "./middleware/auth";
 import { updateUserProfile, changeUserPassword } from "./services/auth";
 import {
@@ -4393,6 +4400,99 @@ export async function registerRoutes(
         lineItem: insertResult.rows[0],
         pricing: xactItem,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // AI PROMPTS MANAGEMENT API
+  // ============================================
+
+  /**
+   * GET /api/prompts
+   * List all AI prompts (for admin UI)
+   */
+  app.get('/api/prompts', requireAuth, async (req, res) => {
+    try {
+      const prompts = await getAllPrompts();
+      res.json({ prompts });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/prompts/:key
+   * Get a specific prompt by key
+   */
+  app.get('/api/prompts/:key', requireAuth, async (req, res) => {
+    try {
+      const prompt = await getPrompt(req.params.key);
+      if (!prompt) {
+        return res.status(404).json({ error: 'Prompt not found' });
+      }
+      res.json({ prompt });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/prompts/:key/config
+   * Get full prompt configuration for API calls (includes fallback)
+   */
+  app.get('/api/prompts/:key/config', requireAuth, async (req, res) => {
+    try {
+      const config = await getPromptWithFallback(req.params.key);
+      res.json({ config });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * PUT /api/prompts/:key
+   * Update an AI prompt (admin only)
+   */
+  app.put('/api/prompts/:key', requireAuth, async (req, res) => {
+    try {
+      const { systemPrompt, userPromptTemplate, model, temperature, maxTokens, responseFormat, description, isActive } = req.body;
+
+      const updated = await updatePrompt(req.params.key, {
+        systemPrompt,
+        userPromptTemplate,
+        model,
+        temperature,
+        maxTokens,
+        responseFormat,
+        description,
+        isActive,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: 'Prompt not found' });
+      }
+
+      res.json({ prompt: updated, message: 'Prompt updated successfully' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/prompts/refresh-cache
+   * Force refresh the prompts cache
+   */
+  app.post('/api/prompts/refresh-cache', requireAuth, async (req, res) => {
+    try {
+      await refreshCache();
+      res.json({ message: 'Cache refreshed successfully' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
