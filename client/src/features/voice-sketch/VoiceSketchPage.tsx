@@ -153,7 +153,8 @@ export default function VoiceSketchPage() {
         setLocation(`/claim/${claimId}`);
       }
     } else {
-      // Open claim selector dialog
+      // Reset selection and open claim selector dialog
+      setSelectedClaimId('');
       setIsClaimSelectorOpen(true);
     }
   }, [claimId, saveRoomsToClaim, setLocation]);
@@ -167,9 +168,15 @@ export default function VoiceSketchPage() {
     const success = await saveRoomsToClaim(selectedClaimId);
     if (success) {
       setIsClaimSelectorOpen(false);
+      setSelectedClaimId('');
       setLocation(`/claim/${selectedClaimId}`);
     }
   }, [selectedClaimId, saveRoomsToClaim, setLocation]);
+
+  const handleCloseDialog = useCallback(() => {
+    setIsClaimSelectorOpen(false);
+    setSelectedClaimId('');
+  }, []);
 
   const hasRooms = rooms.length > 0 || currentRoom;
   const roomCount = rooms.length + (currentRoom ? 1 : 0);
@@ -284,7 +291,7 @@ export default function VoiceSketchPage() {
       </div>
 
       {/* Claim Selector Dialog */}
-      <Dialog open={isClaimSelectorOpen} onOpenChange={setIsClaimSelectorOpen}>
+      <Dialog open={isClaimSelectorOpen} onOpenChange={(open) => !open && handleCloseDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Save Sketch to Claim</DialogTitle>
@@ -322,7 +329,7 @@ export default function VoiceSketchPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsClaimSelectorOpen(false)}>
+            <Button variant="outline" onClick={handleCloseDialog}>
               Cancel
             </Button>
             <Button 
