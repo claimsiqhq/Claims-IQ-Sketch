@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Link, useSearch } from 'wouter';
-import { Camera, Filter, Building2, Home, Mic, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { Camera, Filter, Building2, Home, Mic, ArrowRight, Loader2, RefreshCw, FolderOpen, Plus } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '@/components/layout';
 import { PhotoAlbum } from '@/features/voice-sketch/components/PhotoAlbum';
@@ -13,23 +13,28 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getClaims, getClaimPhotos, getAllPhotos, deletePhoto, updatePhoto, type ClaimPhoto } from '@/lib/api';
+import { getClaims, getClaimPhotos, getAllPhotos, deletePhoto, updatePhoto, uploadPhoto, type ClaimPhoto } from '@/lib/api';
 import type { SketchPhoto } from '@/features/voice-sketch/types/geometry';
 import { toast } from 'sonner';
 
-type FilterMode = 'all' | 'by-structure' | 'damage-only';
+type FilterMode = 'all' | 'by-structure' | 'damage-only' | 'uncategorized';
 
-function claimPhotoToSketchPhoto(cp: ClaimPhoto): SketchPhoto {
+interface ExtendedSketchPhoto extends SketchPhoto {
+  claimId?: string | null;
+}
+
+function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
   return {
     id: cp.id,
     label: cp.label || 'Photo',
-    hierarchyPath: cp.hierarchyPath || 'Unassigned',
+    hierarchyPath: cp.hierarchyPath || (cp.claimId ? 'Unassigned' : 'Uncategorized'),
     storageUrl: cp.publicUrl,
     localUri: cp.publicUrl,
     storagePath: cp.storagePath,
     latitude: cp.latitude,
     longitude: cp.longitude,
     geoAddress: cp.geoAddress,
+    claimId: cp.claimId, // Include claimId for reassignment
     aiAnalysis: cp.aiAnalysis ? {
       quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
       content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },
@@ -47,10 +52,12 @@ export default function PhotosPage() {
   const searchString = useSearch();
   const urlParams = new URLSearchParams(searchString);
   const initialClaimId = urlParams.get('claimId') || 'all';
-  
+
   const [selectedClaimId, setSelectedClaimId] = useState(initialClaimId);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
-  
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const queryClient = useQueryClient();
 
   const { data: claimsData, isLoading: claimsLoading } = useQuery({
@@ -91,31 +98,77 @@ export default function PhotosPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: { label?: string; hierarchyPath?: string } }) => 
+    mutationFn: ({ id, updates }: { id: string; updates: { label?: string; hierarchyPath?: string; claimId?: string | null } }) =>
       updatePhoto(id, updates),
     onSuccess: () => {
       toast.success('Photo updated');
-      if (selectedClaimId === 'all') {
-        queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
-      } else {
-        queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
-      }
+      queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos'] });
     },
     onError: (error) => {
       toast.error('Failed to update photo: ' + (error as Error).message);
     },
   });
 
-  const sketchPhotos: SketchPhoto[] = useMemo(() => {
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      // Get GPS coordinates if available
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+          });
+        });
+        latitude = position.coords.latitude;
+        longitude = position.coords.longitude;
+      } catch (e) {
+        console.log('GPS not available:', e);
+      }
+
+      return uploadPhoto({
+        file,
+        claimId: selectedClaimId !== 'all' ? selectedClaimId : undefined,
+        label: 'Photo',
+        hierarchyPath: selectedClaimId !== 'all' ? 'Exterior' : 'Uncategorized',
+        latitude,
+        longitude,
+      });
+    },
+    onSuccess: () => {
+      toast.success('Photo uploaded and analyzed');
+      queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
+      if (selectedClaimId !== 'all') {
+        queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to upload photo: ' + (error as Error).message);
+    },
+  });
+
+  const sketchPhotos: ExtendedSketchPhoto[] = useMemo(() => {
     return photos.map(claimPhotoToSketchPhoto);
   }, [photos]);
 
   const filteredPhotos = useMemo(() => {
+    let result = sketchPhotos;
+
     if (filterMode === 'damage-only') {
-      return sketchPhotos.filter((p) => p.aiAnalysis?.content?.damageDetected);
+      result = result.filter((p) => p.aiAnalysis?.content?.damageDetected);
+    } else if (filterMode === 'uncategorized') {
+      result = result.filter((p) => !p.claimId);
     }
-    return sketchPhotos;
+
+    return result;
   }, [sketchPhotos, filterMode]);
+
+  const uncategorizedCount = useMemo(() => {
+    return sketchPhotos.filter((p) => !p.claimId).length;
+  }, [sketchPhotos]);
 
   const groupedByStructure = useMemo(() => {
     const groups: Record<string, SketchPhoto[]> = {};
@@ -138,7 +191,7 @@ export default function PhotosPage() {
       const sketchPhoto = sketchPhotos[i];
       const claimId = photo.claimId;
       const claim = claims.find(c => c.id === claimId);
-      const claimLabel = claim ? (claim.claimNumber || claimId.slice(0, 8)) : 'Unassigned';
+      const claimLabel = claimId ? (claim ? (claim.claimNumber || claimId.slice(0, 8)) : claimId.slice(0, 8)) : 'Uncategorized';
       if (!groups[claimLabel]) {
         groups[claimLabel] = [];
       }
@@ -161,8 +214,29 @@ export default function PhotosPage() {
     }
   };
 
-  const handleUpdatePhoto = (photoId: string, updates: { label?: string; hierarchyPath?: string }) => {
+  const handleUpdatePhoto = (photoId: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null }) => {
     updateMutation.mutate({ id: photoId, updates });
+  };
+
+  const handlePhotoCapture = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const loadingToast = toast.loading('Uploading and analyzing photo...');
+
+    try {
+      await uploadMutation.mutateAsync(file);
+      toast.dismiss(loadingToast);
+    } catch (error) {
+      toast.dismiss(loadingToast);
+    } finally {
+      setIsUploading(false);
+      // Reset input so the same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const handleRefresh = () => {
@@ -205,7 +279,7 @@ export default function PhotosPage() {
             </Select>
 
             <Select value={filterMode} onValueChange={(v) => setFilterMode(v as FilterMode)}>
-              <SelectTrigger className="w-[160px]" data-testid="select-filter-mode">
+              <SelectTrigger className="w-[180px]" data-testid="select-filter-mode">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
@@ -213,19 +287,52 @@ export default function PhotosPage() {
                 <SelectItem value="all">All Photos</SelectItem>
                 <SelectItem value="by-structure">By Structure</SelectItem>
                 <SelectItem value="damage-only">Damage Only</SelectItem>
+                <SelectItem value="uncategorized">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="h-4 w-4" />
+                    Uncategorized {uncategorizedCount > 0 && `(${uncategorizedCount})`}
+                  </div>
+                </SelectItem>
               </SelectContent>
             </Select>
-            
-            <Button 
-              variant="outline" 
-              size="icon" 
+
+            <Button
+              variant="outline"
+              size="icon"
               onClick={handleRefresh}
               disabled={photosLoading}
               data-testid="button-refresh-photos"
             >
               <RefreshCw className={`h-4 w-4 ${photosLoading ? 'animate-spin' : ''}`} />
             </Button>
-            
+
+            {/* Hidden file input for photo capture */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handlePhotoCapture}
+              className="hidden"
+              aria-hidden="true"
+            />
+
+            {/* Camera button for direct photo capture */}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              data-testid="button-capture-photo"
+            >
+              {isUploading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4 mr-2" />
+              )}
+              {selectedClaimId === 'all' ? 'Take Photo' : 'Add Photo'}
+            </Button>
+
             <Link href="/voice-sketch">
               <Button variant="outline" size="sm" data-testid="button-start-sketch">
                 <Mic className="h-4 w-4 mr-2" />
@@ -246,7 +353,7 @@ export default function PhotosPage() {
           </Card>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Photos</CardTitle>
@@ -261,6 +368,14 @@ export default function PhotosPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-destructive" data-testid="text-damage-photos">{stats.withDamage}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Uncategorized</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-orange-500" data-testid="text-uncategorized-photos">{uncategorizedCount}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -280,16 +395,25 @@ export default function PhotosPage() {
                     <Camera className="h-16 w-16 text-muted-foreground mb-4" />
                     <h3 className="font-medium text-lg mb-2">No Photos Yet</h3>
                     <p className="text-muted-foreground mb-4 max-w-md">
-                      Start a voice sketch session to capture photos during your inspection.
-                      Photos are automatically analyzed by AI for damage detection and quality.
+                      Take photos directly using the camera button above, or start a voice sketch session
+                      for guided inspection. Photos are automatically analyzed by AI for damage detection and quality.
                     </p>
-                    <Link href="/voice-sketch">
-                      <Button data-testid="button-start-voice-sketch">
-                        <Mic className="h-4 w-4 mr-2" />
-                        Start Voice Sketch
-                        <ArrowRight className="h-4 w-4 ml-2" />
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        data-testid="button-take-photo-empty"
+                      >
+                        <Camera className="h-4 w-4 mr-2" />
+                        Take Photo
                       </Button>
-                    </Link>
+                      <Link href="/voice-sketch">
+                        <Button variant="outline" data-testid="button-start-voice-sketch">
+                          <Mic className="h-4 w-4 mr-2" />
+                          Start Voice Sketch
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -299,18 +423,23 @@ export default function PhotosPage() {
                   <Card key={claimLabel}>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base flex items-center gap-2">
-                        <Building2 className="h-4 w-4" />
-                        Claim: {claimLabel}
+                        {claimLabel === 'Uncategorized' ? (
+                          <FolderOpen className="h-4 w-4 text-orange-500" />
+                        ) : (
+                          <Building2 className="h-4 w-4" />
+                        )}
+                        {claimLabel === 'Uncategorized' ? 'Uncategorized Photos' : `Claim: ${claimLabel}`}
                         <span className="text-sm font-normal text-muted-foreground ml-auto">
                           {claimPhotos.length} photo(s)
                         </span>
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <PhotoAlbum 
-                        photos={claimPhotos} 
+                      <PhotoAlbum
+                        photos={claimPhotos}
                         onDeletePhoto={handleDeletePhoto}
                         onUpdatePhoto={handleUpdatePhoto}
+                        claims={claims}
                       />
                     </CardContent>
                   </Card>
@@ -334,10 +463,11 @@ export default function PhotosPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <PhotoAlbum 
-                        photos={structurePhotos} 
+                      <PhotoAlbum
+                        photos={structurePhotos}
                         onDeletePhoto={handleDeletePhoto}
                         onUpdatePhoto={handleUpdatePhoto}
+                        claims={claims}
                       />
                     </CardContent>
                   </Card>
@@ -346,10 +476,11 @@ export default function PhotosPage() {
             ) : (
               <Card>
                 <CardContent className="pt-6">
-                  <PhotoAlbum 
-                    photos={filteredPhotos} 
+                  <PhotoAlbum
+                    photos={filteredPhotos}
                     onDeletePhoto={handleDeletePhoto}
                     onUpdatePhoto={handleUpdatePhoto}
+                    claims={claims}
                   />
                 </CardContent>
               </Card>

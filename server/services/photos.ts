@@ -237,10 +237,10 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
     }
   }
 
-  // Save to database if claimId is provided
-  if (input.claimId && input.organizationId) {
+  // Save to database - organizationId is required, claimId is optional (allows uncategorized photos)
+  if (input.organizationId) {
     const photoRecord: InsertClaimPhoto = {
-      claimId: input.claimId,
+      claimId: input.claimId || null, // Nullable - uncategorized photos have no claim
       organizationId: input.organizationId,
       structureId: input.structureId || null,
       roomId: input.roomId || null,
@@ -251,7 +251,7 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       mimeType: input.file.mimetype,
       fileSize: input.file.size,
       label,
-      hierarchyPath,
+      hierarchyPath: input.claimId ? hierarchyPath : 'Uncategorized', // Default to Uncategorized if no claim
       description: analysis.content.description,
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
@@ -264,7 +264,9 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
     };
 
     const saved = await storage.createClaimPhoto(photoRecord);
-    console.log('[photos] Saved photo to database:', saved.id);
+    console.log('[photos] Saved photo to database:', saved.id, input.claimId ? `(claim: ${input.claimId})` : '(uncategorized)');
+  } else {
+    console.warn('[photos] No organizationId provided, photo not saved to database');
   }
 
   return {
@@ -351,11 +353,12 @@ export async function listAllClaimPhotos(organizationId: string): Promise<ClaimP
 
 export async function updateClaimPhoto(
   id: string,
-  updates: { 
-    label?: string; 
-    hierarchyPath?: string; 
-    structureId?: string | null; 
-    roomId?: string | null; 
+  updates: {
+    label?: string;
+    hierarchyPath?: string;
+    claimId?: string | null; // Allow reassigning photo to different claim or unassigning
+    structureId?: string | null;
+    roomId?: string | null;
     damageZoneId?: string | null;
     latitude?: number | null;
     longitude?: number | null;
@@ -373,5 +376,14 @@ export async function updateClaimPhoto(
       console.error('[photos] Reverse geocoding failed during update:', error);
     }
   }
+
+  // If claimId is being set to null (unassigning), also clear hierarchy links
+  if (updates.claimId === null) {
+    updates.structureId = null;
+    updates.roomId = null;
+    updates.damageZoneId = null;
+    updates.hierarchyPath = 'Uncategorized';
+  }
+
   return storage.updateClaimPhoto(id, updates);
 }

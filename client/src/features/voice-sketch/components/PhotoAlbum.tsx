@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { 
-  Camera, 
-  CheckCircle2, 
-  AlertTriangle, 
+import {
+  Camera,
+  CheckCircle2,
+  AlertTriangle,
   XCircle,
   Building2,
   Home,
@@ -13,6 +13,9 @@ import {
   Save,
   X,
   MapPin,
+  FolderOpen,
+  Link2,
+  Unlink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,14 +33,31 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { SketchPhoto, PhotoAIAnalysis } from '../types/geometry';
 
+interface Claim {
+  id: string;
+  claimNumber?: string | null;
+}
+
+interface ExtendedSketchPhoto extends SketchPhoto {
+  claimId?: string | null;
+}
+
 interface PhotoAlbumProps {
-  photos: SketchPhoto[];
+  photos: ExtendedSketchPhoto[];
   className?: string;
   onDeletePhoto?: (photoId: string) => void;
-  onUpdatePhoto?: (photoId: string, updates: { label?: string; hierarchyPath?: string }) => void;
+  onUpdatePhoto?: (photoId: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null }) => void;
+  claims?: Claim[];
 }
 
 function getQualityColor(score: number): string {
@@ -131,36 +151,54 @@ function PhotoCard({ photo, onClick, onDelete }: PhotoCardProps) {
 }
 
 interface PhotoDetailDialogProps {
-  photo: SketchPhoto | null;
+  photo: ExtendedSketchPhoto | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onUpdate?: (updates: { label?: string; hierarchyPath?: string }) => void;
+  onUpdate?: (updates: { label?: string; hierarchyPath?: string; claimId?: string | null }) => void;
+  claims?: Claim[];
 }
 
-function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailDialogProps) {
+function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, claims = [] }: PhotoDetailDialogProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editLabel, setEditLabel] = useState('');
   const [editHierarchy, setEditHierarchy] = useState('');
+  const [editClaimId, setEditClaimId] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (photo) {
       setEditLabel(photo.label || '');
       setEditHierarchy(photo.hierarchyPath || '');
+      setEditClaimId(photo.claimId || null);
     }
   }, [photo]);
 
   if (!photo) return null;
-  
+
   const analysis = photo.aiAnalysis;
   const qualityScore = analysis?.quality?.score ?? 5;
   const photoUrl = photo.storageUrl || photo.localUri;
   const hasDamage = analysis?.content?.damageDetected;
+  const currentClaim = claims.find(c => c.id === photo.claimId);
 
   const handleSave = () => {
     if (onUpdate) {
-      onUpdate({ label: editLabel, hierarchyPath: editHierarchy });
+      const updates: { label?: string; hierarchyPath?: string; claimId?: string | null } = {
+        label: editLabel,
+        hierarchyPath: editHierarchy,
+      };
+      // Only include claimId if it changed
+      if (editClaimId !== photo.claimId) {
+        updates.claimId = editClaimId;
+      }
+      onUpdate(updates);
     }
     setIsEditing(false);
+  };
+
+  const handleAssignToClaim = (claimId: string | null) => {
+    if (onUpdate) {
+      onUpdate({ claimId });
+    }
   };
   
   return (
@@ -226,7 +264,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailD
               </p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-2">
               <div className="text-sm text-muted-foreground">
                 <span className="font-medium">Location:</span> {photo.hierarchyPath}
               </div>
@@ -234,7 +272,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailD
                 <div className="text-sm text-muted-foreground flex items-center gap-1">
                   <MapPin className="h-3 w-3" />
                   <span className="font-medium">GPS:</span>{' '}
-                  <a 
+                  <a
                     href={`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -247,6 +285,50 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailD
                     <span className="text-muted-foreground ml-1">
                       (near {photo.geoAddress})
                     </span>
+                  )}
+                </div>
+              )}
+
+              {/* Claim Assignment Section */}
+              {claims.length > 0 && onUpdate && (
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <span className="text-sm text-muted-foreground font-medium">Claim:</span>
+                  {currentClaim ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="flex items-center gap-1">
+                        <Link2 className="h-3 w-3" />
+                        {currentClaim.claimNumber || currentClaim.id.slice(0, 8)}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        onClick={() => handleAssignToClaim(null)}
+                        data-testid="button-unassign-claim"
+                      >
+                        <Unlink className="h-3 w-3 mr-1" />
+                        Unassign
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="flex items-center gap-1 text-orange-500 border-orange-500">
+                        <FolderOpen className="h-3 w-3" />
+                        Uncategorized
+                      </Badge>
+                      <Select onValueChange={(value) => handleAssignToClaim(value)}>
+                        <SelectTrigger className="h-7 w-[180px] text-xs" data-testid="select-assign-claim">
+                          <SelectValue placeholder="Assign to claim..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {claims.map((claim) => (
+                            <SelectItem key={claim.id} value={claim.id}>
+                              {claim.claimNumber || claim.id.slice(0, 8)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
                 </div>
               )}
@@ -360,12 +442,12 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate }: PhotoDetailD
   );
 }
 
-export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto }: PhotoAlbumProps) {
-  const [selectedPhoto, setSelectedPhoto] = useState<SketchPhoto | null>(null);
+export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, claims = [] }: PhotoAlbumProps) {
+  const [selectedPhoto, setSelectedPhoto] = useState<ExtendedSketchPhoto | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
-  
+
   const groupedPhotos = React.useMemo(() => {
-    const groups: Record<string, SketchPhoto[]> = {};
+    const groups: Record<string, ExtendedSketchPhoto[]> = {};
     
     for (const photo of photos) {
       const key = photo.hierarchyPath || 'Exterior';
@@ -464,6 +546,7 @@ export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto }: 
           onUpdatePhoto(selectedPhoto.id, updates);
           setSelectedPhoto(null);
         } : undefined}
+        claims={claims}
       />
     </div>
   );

@@ -1689,6 +1689,8 @@ export interface PhotoUploadParams {
   objectId?: string;
   label?: string;
   hierarchyPath?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export async function uploadPhoto(params: PhotoUploadParams): Promise<UploadedPhoto> {
@@ -1701,6 +1703,8 @@ export async function uploadPhoto(params: PhotoUploadParams): Promise<UploadedPh
   if (params.objectId) formData.append('objectId', params.objectId);
   if (params.label) formData.append('label', params.label);
   if (params.hierarchyPath) formData.append('hierarchyPath', params.hierarchyPath);
+  if (params.latitude != null) formData.append('latitude', params.latitude.toString());
+  if (params.longitude != null) formData.append('longitude', params.longitude.toString());
 
   const response = await fetch(`${API_BASE}/photos/upload`, {
     method: 'POST',
@@ -1805,7 +1809,7 @@ export async function deletePhoto(id: string): Promise<void> {
 
 export async function updatePhoto(
   id: string,
-  updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
+  updates: { label?: string; hierarchyPath?: string; claimId?: string | null; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
 ): Promise<ClaimPhoto> {
   const response = await fetch(`${API_BASE}/photos/${id}`, {
     method: 'PATCH',
