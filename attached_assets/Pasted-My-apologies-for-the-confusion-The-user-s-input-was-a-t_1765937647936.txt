@@ -1,0 +1,120 @@
+My apologies for the confusion. The user's input was a template for the desired output structure, but they are asking for the input prompts they can use with a system like OpenAI to achieve those structured JSON outputs from the document analysis task.
+Here are the optimized, detailed prompts ready for use in a Generative AI environment (like an OpenAI GPT-4 API call) for each document type:
+1. OpenAI Prompt for FNOL Extraction (Completed # 3 Phase 2 (FNOL).pdf & Combind # 19 (FNOL).pdf)
+This prompt instructs the model to process a Claim Information Report and strictly adhere to a complex JSON schema, focusing on accuracy and field extraction.
+You are an expert insurance document analyzer with a specialty in First Notice of Loss (FNOL) reports. Your task is to analyze the provided text/document content and extract all relevant information into a structured JSON object.
+
+**Required Output Format:**
+- The output MUST be a single JSON array containing an object for each separate claim document provided.
+- Strictly adhere to the field names, hierarchy, and data types specified below.
+- Use the most accurate and complete information directly from the source.
+- For missing data, set the value to `null`.
+- **Date/Time Format**: Must be "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
+- **Limit/Currency Format**: Must include the currency symbol and maintain the format found in the source (e.g., "$7,932 1%" or "$357,000").
+
+**JSON Schema:**
+
+[
+  {
+    "claimInformation": {
+      "claimNumber": "STRING (e.g., 01-002-161543)",
+      "dateOfLoss": "STRING (MM/DD/YYYY@HH:MM AM/PM)",
+      "claimStatus": "STRING",
+      "operatingCompany": "STRING",
+      "causeOfLoss": "STRING",
+      "riskLocation": "STRING (Full property address)",
+      "lossDescription": "STRING (Detailed description of the loss/damage)",
+      "droneEligibleAtFNOL": "STRING (Yes/No)"
+    },
+    "insuredInformation": {
+      "policyholderName1": "STRING (Primary name)",
+      "policyholderName2": "STRING (Secondary name or null)",
+      "contactMobilePhone": "STRING (or null)",
+      "contactEmail": "STRING (or null)"
+    },
+    "propertyDamageDetails": {
+      "yearBuilt": "STRING (YYYY)",
+      "yearRoofInstall": "STRING (YYYY)",
+      "roofDamageReported": "STRING (e.g., Yes (Exterior Only))",
+      "numberOfStories": "STRING (or null)"
+    },
+    "policyDetails": {
+      "policyNumber": "STRING",
+      "inceptionDate": "STRING (MM/DD/YYYY)",
+      "producer": "STRING (Agent Name)",
+      "thirdPartyInterest": "STRING (Mortgagee/Lienholder)",
+      "deductibles": {
+        "policyDeductible": "STRING",
+        "windHailDeductible": "STRING"
+      }
+    },
+    "coverages": [
+      {
+        "coverageName": "STRING (e.g., Coverage A - Dwelling)",
+        "limit": "STRING",
+        "valuationMethod": "STRING (e.g., Replacement Cost Value)"
+      }
+      // Include all primary coverages (A, B, C, D, E, F) and major additional coverages (e.g., Equipment Breakdown, Ordinance Or Law) listed with a specific limit.
+    ],
+    "endorsementsListed": ["ARRAY of STRING (Endorsement form numbers listed on the FNOL)"]
+  }
+]
+
+**Source Text/Document Content:** [Insert the combined text content of the FNOL files here]
+
+2. OpenAI Prompt for Policy Extraction (HO 80 03 01 14 - Homeowners Form)
+This prompt targets the generic policy form, focusing on its structure and default rules.
+You are an expert insurance document analyzer. Your task is to analyze the provided base Homeowners Policy Form (HO 80 03 01 14) and extract its structural metadata and default provisions. This is a generic form, so do not include policyholder-specific data.
+
+**Required Output Format:**
+- The output MUST be a single JSON object.
+- Strictly adhere to the field names, hierarchy, and data types specified below.
+
+**JSON Schema:**
+
+{
+  "documentType": "STRING (Policy Form)",
+  "formNumber": "STRING (HO 80 03 01 14)",
+  "documentTitle": "STRING (e.g., HOMEOWNERS FORM)",
+  "baseStructure": {
+    "sectionHeadings": ["ARRAY of STRING (Major Section Headings, e.g., SECTION I-PROPERTY COVERAGE)"],
+    "definitionOfACV": "STRING (Extract the full definition of Actual Cash Value (ACV) from the text, including the four components and the deduction for depreciation, age, condition, and obsolescence.)"
+  },
+  "defaultPolicyProvisionSummary": {
+    "windHailLossSettlement": "STRING (The default loss settlement method for a roofing system under Coverage A/B for Windstorm Or Hail, before any endorsements.)",
+    "unoccupiedExclusionPeriod": "STRING (The default number of consecutive days a dwelling can be 'uninhabited' before exclusions like Theft and Vandalism apply, e.g., 30 days.)",
+    "metalSidingLossSettlement": "STRING (The default condition under which hail damage to metal siding is covered, before any endorsements.)"
+  }
+}
+
+**Source Text/Document Content:** [Insert the text content of HO 80 03 01 14 here]
+
+3. OpenAI Prompt for Endorsements Extraction (HO 81 53 & HO 88 02)
+This prompt is crucial for comparing coverages, as it demands the specific content of the changes made by the endorsements.
+You are an expert insurance document analyzer. Your task is to analyze the provided Endorsement documents and extract the specific, material changes they make to the base Homeowners Policy Form.
+
+**Required Output Format:**
+- The output MUST be a single JSON array containing an object for each separate endorsement document provided.
+- Focus the "keyAmendments" on actual rule changes, new definitions, or superseded clauses.
+
+**JSON Schema:**
+
+[
+  {
+    "documentType": "STRING (Endorsement)",
+    "formNumber": "STRING (e.g., HO 81 53 12 22)",
+    "documentTitle": "STRING (Title of the endorsement)",
+    "appliesToState": "STRING (e.g., Wisconsin, if specified)",
+    "keyAmendments": [
+      {
+        "provisionAmended": "STRING (e.g., DEFINITIONS: Actual Cash Value)",
+        "summaryOfChange": "STRING (A clear, concise explanation of how this endorsement alters the rule from the base policy form.)",
+        "newLimitOrValue": "STRING (The explicit new number, limit, or term introduced by the change, e.g., 60 days, Roof Payment Schedule, or null.)"
+      }
+      // Include all significant changes found in the endorsement text (e.g., ACV definition change, unoccupied days change, metal siding coverage rule, roof loss settlement rule).
+    ]
+  }
+]
+
+**Source Text/Document Content:** [Insert the combined text content of the HO 81 53 and HO 88 02 files here]
+
