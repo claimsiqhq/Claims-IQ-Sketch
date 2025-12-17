@@ -489,10 +489,11 @@ const DocumentPageViewer = ({
 };
 
 export default function NewClaim() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState<WizardStep>('fnol');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(false);
 
   // Document state for each step
   const [fnolDoc, setFnolDoc] = useState<UploadedDocument | null>(null);
@@ -514,6 +515,100 @@ export default function NewClaim() {
 
   // Current organization ID for claim creation
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
+
+  // Check for resume parameter to load an existing draft claim
+  const resumeClaimId = new URLSearchParams(window.location.search).get('resume');
+
+  // Load existing draft claim if resuming
+  useEffect(() => {
+    if (!resumeClaimId) return;
+    
+    const loadDraftClaim = async () => {
+      setIsLoadingDraft(true);
+      try {
+        // Load the claim and its documents
+        const [claim, documents] = await Promise.all([
+          getClaim(resumeClaimId),
+          getClaimDocuments(resumeClaimId),
+        ]);
+        
+        if (claim.status !== 'draft') {
+          // Not a draft claim, redirect to claim detail
+          setLocation(`/claim/${resumeClaimId}`);
+          return;
+        }
+        
+        // Set the draft claim
+        setDraftClaim(claim);
+        
+        // Populate claim data from the loaded claim
+        const metadata = (claim as any).metadata || {};
+        setClaimData({
+          claimId: claim.claimNumber || '',
+          policyholder: claim.insuredName || '',
+          policyholderSecondary: metadata.policyholderSecondary,
+          contactPhone: metadata.contactPhone,
+          contactEmail: metadata.contactEmail,
+          dateOfLoss: claim.dateOfLoss || '',
+          riskLocation: claim.propertyAddress || '',
+          causeOfLoss: claim.lossType || 'Hail',
+          lossDescription: claim.lossDescription || '',
+          policyNumber: claim.policyNumber || '',
+          state: claim.propertyState || '',
+          yearRoofInstall: claim.yearRoofInstall || metadata.yearRoofInstall,
+          windHailDeductible: claim.windHailDeductible || '',
+          dwellingLimit: claim.dwellingLimit || '',
+          endorsementsListed: claim.endorsementsListed || [],
+          dwellingDamageDescription: metadata.dwellingDamageDescription,
+          otherStructureDamageDescription: metadata.otherStructureDamageDescription,
+          damageLocation: metadata.damageLocation,
+          carrier: metadata.carrier,
+          coverages: metadata.coverages,
+        });
+        
+        // Populate document state from loaded documents
+        documents.forEach(doc => {
+          const docType = doc.type as 'fnol' | 'policy' | 'endorsement';
+          const uploadedDoc: UploadedDocument = {
+            file: new File([], doc.name || doc.fileName || 'document'),
+            type: docType,
+            status: doc.processingStatus === 'completed' ? 'completed' : 
+                   doc.processingStatus === 'failed' ? 'error' : 'pending',
+            document: doc,
+            extractedData: doc.extractedData as ExtractedData | undefined,
+          };
+          
+          if (docType === 'fnol') {
+            setFnolDoc(uploadedDoc);
+          } else if (docType === 'policy') {
+            setPolicyDoc(uploadedDoc);
+          } else if (docType === 'endorsement') {
+            setEndorsementDocs(prev => [...prev, uploadedDoc]);
+          }
+        });
+        
+        // Determine which step to start on based on what's already uploaded
+        const hasFnol = documents.some(d => d.type === 'fnol');
+        const hasPolicy = documents.some(d => d.type === 'policy');
+        
+        if (hasFnol && hasPolicy) {
+          setCurrentStep('endorsements');
+        } else if (hasFnol) {
+          setCurrentStep('policy');
+        } else {
+          setCurrentStep('fnol');
+        }
+        
+      } catch (err) {
+        console.error('Failed to load draft claim:', err);
+        setError('Failed to load the draft claim. Please try again.');
+      } finally {
+        setIsLoadingDraft(false);
+      }
+    };
+    
+    loadDraftClaim();
+  }, [resumeClaimId, setLocation]);
 
   // Fetch current organization on mount
   useEffect(() => {

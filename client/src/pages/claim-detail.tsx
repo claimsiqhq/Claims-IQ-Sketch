@@ -844,8 +844,22 @@ export default function ClaimDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Continue Setup Button for draft claims */}
+            {apiClaim?.status === 'draft' && (
+              <Button
+                variant="default"
+                size="sm"
+                className="hidden md:flex"
+                onClick={() => setLocation(`/new-claim?resume=${params?.id}`)}
+                data-testid="button-continue-setup"
+              >
+                <Play className="h-4 w-4 mr-2" />
+                Continue Setup
+              </Button>
+            )}
+            
             {/* Close Claim Button */}
-            {apiClaim?.status !== 'closed' && (
+            {apiClaim?.status !== 'closed' && apiClaim?.status !== 'draft' && (
               <AlertDialog open={isCloseDialogOpen} onOpenChange={setIsCloseDialogOpen}>
                 <AlertDialogTrigger asChild>
                   <Button
