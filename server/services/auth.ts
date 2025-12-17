@@ -54,15 +54,41 @@ export async function updateUserProfile(
 ): Promise<AuthUser | null> {
   const client = await pool.connect();
   try {
+    // Build dynamic SET clauses - only update fields that are explicitly provided
+    const setClauses: string[] = [];
+    const params: (string | null)[] = [userId];
+    let paramIndex = 2;
+
+    if (updates.firstName !== undefined) {
+      setClauses.push(`first_name = $${paramIndex++}`);
+      params.push(updates.firstName || null);
+    }
+    if (updates.lastName !== undefined) {
+      setClauses.push(`last_name = $${paramIndex++}`);
+      params.push(updates.lastName || null);
+    }
+    if (updates.email !== undefined) {
+      setClauses.push(`email = $${paramIndex++}`);
+      params.push(updates.email || null);
+    }
+
+    if (setClauses.length === 0) {
+      // Nothing to update, just return current user
+      const result = await client.query(
+        `SELECT id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId" FROM users WHERE id = $1`,
+        [userId]
+      );
+      return result.rows[0] || null;
+    }
+
+    setClauses.push('updated_at = NOW()');
+
     const result = await client.query(
       `UPDATE users
-       SET first_name = COALESCE($2, first_name),
-           last_name = COALESCE($3, last_name),
-           email = COALESCE($4, email),
-           updated_at = NOW()
+       SET ${setClauses.join(', ')}
        WHERE id = $1
        RETURNING id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId"`,
-      [userId, updates.firstName || null, updates.lastName || null, updates.email || null]
+      params
     );
     return result.rows[0] || null;
   } finally {
