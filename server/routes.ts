@@ -3722,15 +3722,16 @@ export async function registerRoutes(
     }
   });
 
-  // Update photo (label, hierarchy path, structure associations)
+  // Update photo (label, hierarchy path, claim assignment, structure associations)
   app.patch('/api/photos/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { updateClaimPhoto } = await import('./services/photos');
-      const { label, hierarchyPath, structureId, roomId, damageZoneId } = req.body;
+      const { label, hierarchyPath, claimId, structureId, roomId, damageZoneId } = req.body;
 
       const updated = await updateClaimPhoto(req.params.id, {
         label,
         hierarchyPath,
+        claimId, // Allows reassigning photo to different claim or setting to null to unassign
         structureId,
         roomId,
         damageZoneId,

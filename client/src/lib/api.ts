@@ -1805,7 +1805,7 @@ export async function deletePhoto(id: string): Promise<void> {
 
 export async function updatePhoto(
   id: string,
-  updates: { label?: string; hierarchyPath?: string; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
+  updates: { label?: string; hierarchyPath?: string; claimId?: string | null; structureId?: string | null; roomId?: string | null; damageZoneId?: string | null }
 ): Promise<ClaimPhoto> {
   const response = await fetch(`${API_BASE}/photos/${id}`, {
     method: 'PATCH',

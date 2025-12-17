@@ -643,7 +643,7 @@ export type ClaimDamageZone = typeof claimDamageZones.$inferSelect;
 
 export const claimPhotos = pgTable("claim_photos", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  claimId: uuid("claim_id").notNull(),
+  claimId: uuid("claim_id"), // Nullable - allows uncategorized photos not yet assigned to a claim
   organizationId: uuid("organization_id").notNull(),
 
   // Optional hierarchy links (photos can be at any level)
