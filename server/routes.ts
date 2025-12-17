@@ -2906,11 +2906,11 @@ export async function registerRoutes(
     }
   });
 
-  // Save rooms to claim (uses claim_rooms and claim_damage_zones tables)
+  // Save rooms to claim with full hierarchy (structures → rooms → damage zones)
   app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { rooms } = req.body;
-      const { saveClaimRoomsAndZones } = await import('./services/rooms');
+      const { rooms, structures } = req.body;
+      const { saveClaimHierarchy, saveClaimRoomsAndZones } = await import('./services/rooms');
       
       // Verify claim exists and belongs to organization
       const { pool } = await import('./db');
@@ -2922,29 +2922,50 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Claim not found' });
       }
       
-      const result = await saveClaimRoomsAndZones(
-        req.params.id,
-        req.organizationId!,
-        rooms || []
-      );
-      
-      res.json({ 
-        success: true, 
-        roomsSaved: result.rooms.length, 
-        damageZonesSaved: result.damageZones.length,
-        rooms: result.rooms,
-        damageZones: result.damageZones
-      });
+      // Use new hierarchy save if structures provided
+      if (structures && structures.length > 0) {
+        const result = await saveClaimHierarchy(
+          req.params.id,
+          req.organizationId!,
+          structures,
+          rooms || []
+        );
+        
+        res.json({ 
+          success: true, 
+          structuresSaved: result.structures.length,
+          roomsSaved: result.rooms.length, 
+          damageZonesSaved: result.damageZones.length,
+          structures: result.structures,
+          rooms: result.rooms,
+          damageZones: result.damageZones
+        });
+      } else {
+        // Legacy: rooms only
+        const result = await saveClaimRoomsAndZones(
+          req.params.id,
+          req.organizationId!,
+          rooms || []
+        );
+        
+        res.json({ 
+          success: true, 
+          roomsSaved: result.rooms.length, 
+          damageZonesSaved: result.damageZones.length,
+          rooms: result.rooms,
+          damageZones: result.damageZones
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
     }
   });
 
-  // Get claim rooms (from claim_rooms and claim_damage_zones tables)
+  // Get claim rooms with hierarchy (structures → rooms → damage zones)
   app.get('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { getClaimRoomsAndZones } = await import('./services/rooms');
+      const { getClaimHierarchy } = await import('./services/rooms');
       
       // Verify claim exists and belongs to organization
       const { pool } = await import('./db');
@@ -2956,7 +2977,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Claim not found' });
       }
       
-      const result = await getClaimRoomsAndZones(req.params.id);
+      const result = await getClaimHierarchy(req.params.id);
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
