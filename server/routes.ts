@@ -3622,6 +3622,7 @@ export async function registerRoutes(
           buffer: req.file.buffer,
         },
         claimId,
+        organizationId: req.currentOrganization?.id,
         structureId,
         roomId,
         subRoomId,
@@ -3653,8 +3654,8 @@ export async function registerRoutes(
     }
   });
 
-  // Delete a photo
-  app.delete('/api/photos/:storagePath(*)', requireAuth, requireOrganization, async (req, res) => {
+  // Delete a photo by storage path (legacy)
+  app.delete('/api/photos/by-path/:storagePath(*)', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { deletePhoto } = await import('./services/photos');
       const success = await deletePhoto(req.params.storagePath);
@@ -3664,6 +3665,59 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // List photos for a claim (with filters)
+  app.get('/api/claims/:claimId/photos', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { listClaimPhotos } = await import('./services/photos');
+      const { claimId } = req.params;
+      const { structureId, roomId, damageZoneId, damageDetected } = req.query;
+
+      const filters: Record<string, string | boolean> = {};
+      if (structureId) filters.structureId = structureId as string;
+      if (roomId) filters.roomId = roomId as string;
+      if (damageZoneId) filters.damageZoneId = damageZoneId as string;
+      if (damageDetected !== undefined) filters.damageDetected = damageDetected === 'true';
+
+      const photos = await listClaimPhotos(claimId, filters);
+      res.json(photos);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[photos] List error:', error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get single photo by ID
+  app.get('/api/photos/:id', requireAuth, async (req, res) => {
+    try {
+      const { getClaimPhoto } = await import('./services/photos');
+      const photo = await getClaimPhoto(req.params.id);
+      if (!photo) {
+        return res.status(404).json({ error: 'Photo not found' });
+      }
+      res.json(photo);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete photo by ID (deletes from both database and Supabase storage)
+  app.delete('/api/photos/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { deleteClaimPhoto } = await import('./services/photos');
+      const success = await deleteClaimPhoto(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: 'Photo not found or deletion failed' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[photos] Delete error:', error);
       res.status(500).json({ error: message });
     }
   });

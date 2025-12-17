@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 const uuidv4 = randomUUID;
 import { getSupabaseAdmin, PHOTOS_BUCKET, isSupabaseConfigured } from '../lib/supabase';
 import OpenAI from 'openai';
+import { storage } from '../storage';
+import type { ClaimPhoto, InsertClaimPhoto } from '@shared/schema';
 
 const openai = new OpenAI();
 
@@ -13,6 +15,7 @@ export interface PhotoUploadInput {
     buffer: Buffer;
   };
   claimId?: string;
+  organizationId?: string;
   structureId?: string;
   roomId?: string;
   subRoomId?: string;
@@ -217,6 +220,33 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
   const label = input.label || analysis.content.recommendedLabel || 'Photo';
   const hierarchyPath = input.hierarchyPath || 'Exterior';
 
+  // Save to database if claimId is provided
+  if (input.claimId && input.organizationId) {
+    const photoRecord: InsertClaimPhoto = {
+      claimId: input.claimId,
+      organizationId: input.organizationId,
+      structureId: input.structureId || null,
+      roomId: input.roomId || null,
+      damageZoneId: input.subRoomId || null,
+      storagePath,
+      publicUrl: url,
+      fileName: input.file.originalname,
+      mimeType: input.file.mimetype,
+      fileSize: input.file.size,
+      label,
+      hierarchyPath,
+      description: analysis.content.description,
+      aiAnalysis: analysis,
+      qualityScore: analysis.quality.score,
+      damageDetected: analysis.content.damageDetected,
+      capturedAt: new Date(now),
+      analyzedAt: new Date(now),
+    };
+
+    const saved = await storage.createClaimPhoto(photoRecord);
+    console.log('[photos] Saved photo to database:', saved.id);
+  }
+
   return {
     id: photoId,
     url,
@@ -268,4 +298,29 @@ export async function deletePhoto(storagePath: string): Promise<boolean> {
   }
   
   return true;
+}
+
+export async function listClaimPhotos(
+  claimId: string,
+  filters?: { structureId?: string; roomId?: string; damageZoneId?: string; damageDetected?: boolean }
+): Promise<ClaimPhoto[]> {
+  return storage.listClaimPhotos(claimId, filters);
+}
+
+export async function getClaimPhoto(id: string): Promise<ClaimPhoto | undefined> {
+  return storage.getClaimPhoto(id);
+}
+
+export async function deleteClaimPhoto(id: string): Promise<boolean> {
+  const photo = await storage.getClaimPhoto(id);
+  if (!photo) {
+    return false;
+  }
+
+  const storageDeleted = await deletePhoto(photo.storagePath);
+  if (!storageDeleted) {
+    console.warn('[photos] Failed to delete from Supabase storage, continuing with database deletion');
+  }
+
+  return storage.deleteClaimPhoto(id);
 }
