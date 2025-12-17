@@ -6,29 +6,7 @@ interface GeocodeResult {
   displayName: string;
 }
 
-const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
-const USER_AGENT = 'ClaimsIQ/1.0 (claims-iq@example.com)';
-const RATE_LIMIT_MS = 1100;
-
-let lastRequestTime = 0;
-
-async function rateLimitedFetch(url: string): Promise<Response> {
-  const now = Date.now();
-  const timeSinceLastRequest = now - lastRequestTime;
-  
-  if (timeSinceLastRequest < RATE_LIMIT_MS) {
-    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_MS - timeSinceLastRequest));
-  }
-  
-  lastRequestTime = Date.now();
-  
-  return fetch(url, {
-    headers: {
-      'User-Agent': USER_AGENT,
-      'Accept': 'application/json'
-    }
-  });
-}
+const GOOGLE_GEOCODING_API_KEY = process.env.GOOGLE_API_KEY || '';
 
 export async function geocodeAddress(
   address: string,
@@ -39,28 +17,34 @@ export async function geocodeAddress(
   const parts = [address, city, state, zip].filter(Boolean);
   if (parts.length === 0) return null;
   
-  const query = encodeURIComponent(parts.join(', '));
-  const url = `${NOMINATIM_BASE_URL}/search?q=${query}&format=json&limit=1&countrycodes=us`;
+  if (!GOOGLE_GEOCODING_API_KEY) {
+    console.warn('Google Geocoding API key not configured, skipping geocoding');
+    return null;
+  }
+  
+  const addressString = parts.join(', ');
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressString)}&key=${GOOGLE_GEOCODING_API_KEY}`;
   
   try {
-    const response = await rateLimitedFetch(url);
+    const response = await fetch(url);
     
     if (!response.ok) {
-      console.error(`Geocoding failed with status ${response.status}`);
+      console.error(`Google Geocoding failed with status ${response.status}`);
       return null;
     }
     
     const data = await response.json();
     
-    if (data.length === 0) {
+    if (data.status !== 'OK' || !data.results || data.results.length === 0) {
+      console.error(`Google Geocoding returned status: ${data.status}`);
       return null;
     }
     
-    const result = data[0];
+    const result = data.results[0];
     return {
-      latitude: parseFloat(result.lat),
-      longitude: parseFloat(result.lon),
-      displayName: result.display_name
+      latitude: result.geometry.location.lat,
+      longitude: result.geometry.location.lng,
+      displayName: result.formatted_address
     };
   } catch (error) {
     console.error('Geocoding error:', error);
@@ -113,6 +97,7 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
          WHERE id = $3`,
         [result.latitude, result.longitude, claimId]
       );
+      console.log(`Geocoded claim ${claimId}: ${result.latitude}, ${result.longitude}`);
       return true;
     } else {
       await client.query(
@@ -195,83 +180,33 @@ export async function geocodePendingClaims(organizationId?: string, limit = 100)
   }
 }
 
-export interface ClaimMapData {
-  id: string;
-  claimNumber: string;
-  status: string;
-  lossType?: string;
-  propertyAddress?: string;
-  propertyCity?: string;
-  propertyState?: string;
-  latitude: number;
-  longitude: number;
-  assignedAdjusterId?: string;
-  insuredName?: string;
-  dateOfLoss?: Date;
-  createdAt: Date;
-}
-
-export async function getClaimsForMap(
-  organizationId: string,
-  options?: {
-    assignedAdjusterId?: string;
-    status?: string;
-    lossType?: string;
-  }
-): Promise<ClaimMapData[]> {
+export async function getClaimsForMap(organizationId: string): Promise<any[]> {
   const client = await pool.connect();
   
   try {
-    const conditions: string[] = [
-      'organization_id = $1',
-      'property_latitude IS NOT NULL',
-      'property_longitude IS NOT NULL'
-    ];
-    const params: any[] = [organizationId];
-    let paramIndex = 2;
-    
-    if (options?.assignedAdjusterId) {
-      conditions.push(`assigned_adjuster_id = $${paramIndex}`);
-      params.push(options.assignedAdjusterId);
-      paramIndex++;
-    }
-    
-    if (options?.status) {
-      conditions.push(`status = $${paramIndex}`);
-      params.push(options.status);
-      paramIndex++;
-    }
-    
-    if (options?.lossType) {
-      conditions.push(`loss_type = $${paramIndex}`);
-      params.push(options.lossType);
-      paramIndex++;
-    }
-    
     const result = await client.query(
-      `SELECT id, claim_number, status, loss_type, property_address, property_city, 
-              property_state, property_latitude, property_longitude, assigned_adjuster_id,
-              insured_name, date_of_loss, created_at
-       FROM claims
-       WHERE ${conditions.join(' AND ')}
+      `SELECT id, claim_number, insured_name, property_address, property_city, property_state,
+              property_latitude, property_longitude, status, loss_type, date_of_loss
+       FROM claims 
+       WHERE organization_id = $1 
+         AND property_latitude IS NOT NULL 
+         AND property_longitude IS NOT NULL
        ORDER BY created_at DESC`,
-      params
+      [organizationId]
     );
     
     return result.rows.map(row => ({
       id: row.id,
       claimNumber: row.claim_number,
+      insuredName: row.insured_name,
+      address: row.property_address,
+      city: row.property_city,
+      state: row.property_state,
+      lat: parseFloat(row.property_latitude),
+      lng: parseFloat(row.property_longitude),
       status: row.status,
       lossType: row.loss_type,
-      propertyAddress: row.property_address,
-      propertyCity: row.property_city,
-      propertyState: row.property_state,
-      latitude: parseFloat(row.property_latitude),
-      longitude: parseFloat(row.property_longitude),
-      assignedAdjusterId: row.assigned_adjuster_id,
-      insuredName: row.insured_name,
-      dateOfLoss: row.date_of_loss,
-      createdAt: row.created_at
+      dateOfLoss: row.date_of_loss
     }));
   } finally {
     client.release();
@@ -289,20 +224,21 @@ export async function getMapStats(organizationId: string): Promise<{
   try {
     const result = await client.query(
       `SELECT 
-         COUNT(*) as total,
-         COUNT(*) FILTER (WHERE geocode_status = 'success') as geocoded,
-         COUNT(*) FILTER (WHERE geocode_status = 'pending' OR geocode_status IS NULL) as pending,
-         COUNT(*) FILTER (WHERE geocode_status = 'failed') as failed
-       FROM claims
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE geocode_status = 'success') as geocoded,
+        COUNT(*) FILTER (WHERE geocode_status IS NULL OR geocode_status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE geocode_status = 'failed') as failed
+       FROM claims 
        WHERE organization_id = $1`,
       [organizationId]
     );
     
+    const row = result.rows[0];
     return {
-      total: parseInt(result.rows[0].total),
-      geocoded: parseInt(result.rows[0].geocoded),
-      pending: parseInt(result.rows[0].pending),
-      failed: parseInt(result.rows[0].failed)
+      total: parseInt(row.total),
+      geocoded: parseInt(row.geocoded),
+      pending: parseInt(row.pending),
+      failed: parseInt(row.failed)
     };
   } finally {
     client.release();

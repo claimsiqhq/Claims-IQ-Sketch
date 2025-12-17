@@ -106,7 +106,8 @@ import {
 import {
   getClaimsForMap,
   getMapStats,
-  geocodePendingClaims
+  geocodePendingClaims,
+  queueGeocoding
 } from "./services/geocoding";
 import {
   generateFloorplanData,
@@ -2748,6 +2749,9 @@ export async function registerRoutes(
         }
       }
 
+      // Queue geocoding for the new claim address
+      queueGeocoding(claim.id);
+
       res.status(201).json(claim);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -2853,6 +2857,12 @@ export async function registerRoutes(
       if (!claim) {
         return res.status(404).json({ error: 'Claim not found' });
       }
+      
+      // Re-geocode if address fields were updated
+      if (req.body.propertyAddress || req.body.propertyCity || req.body.propertyState || req.body.propertyZip) {
+        queueGeocoding(claim.id);
+      }
+      
       res.json(claim);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -3953,6 +3963,9 @@ export async function registerRoutes(
         documentIds,
         overrides
       );
+
+      // Queue geocoding for the new claim address
+      queueGeocoding(claimId);
 
       // Get the created claim
       const claim = await getClaim(claimId, req.organizationId!);
