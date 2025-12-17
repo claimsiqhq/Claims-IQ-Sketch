@@ -202,32 +202,88 @@ const DocumentPageViewer = ({
   const [pageLoading, setPageLoading] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
 
-  // Fetch page count on mount
+  // Fetch preview URLs from Supabase on mount
   useEffect(() => {
-    const loadPageInfo = async () => {
+    const loadPreviews = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/documents/${documentId}/images`, {
+        // Try the new Supabase previews endpoint first
+        const response = await fetch(`/api/documents/${documentId}/previews`, {
           credentials: 'include'
         });
         if (response.ok) {
           const data = await response.json();
-          setPageCount(data.pages);
+          
+          // If previews aren't ready, trigger generation and poll
+          if (data.previewStatus === 'pending' || data.previewStatus === 'processing') {
+            // Trigger preview generation if pending
+            if (data.previewStatus === 'pending') {
+              await fetch(`/api/documents/${documentId}/generate-previews`, {
+                method: 'POST',
+                credentials: 'include'
+              });
+            }
+            
+            // Poll for completion (max 30 seconds)
+            let attempts = 0;
+            const maxAttempts = 15;
+            while (attempts < maxAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const pollResponse = await fetch(`/api/documents/${documentId}/previews`, {
+                credentials: 'include'
+              });
+              if (pollResponse.ok) {
+                const pollData = await pollResponse.json();
+                if (pollData.previewStatus === 'completed' && pollData.urls.length > 0) {
+                  setPageCount(pollData.pageCount);
+                  // Store Supabase signed URLs directly
+                  const urlMap = new Map<number, string>();
+                  pollData.urls.forEach((url: string, idx: number) => {
+                    urlMap.set(idx + 1, url);
+                  });
+                  setPageBlobUrls(urlMap);
+                  return;
+                }
+                if (pollData.previewStatus === 'failed') {
+                  break;
+                }
+              }
+              attempts++;
+            }
+          } else if (data.previewStatus === 'completed' && data.urls.length > 0) {
+            setPageCount(data.pageCount);
+            // Store Supabase signed URLs directly
+            const urlMap = new Map<number, string>();
+            data.urls.forEach((url: string, idx: number) => {
+              urlMap.set(idx + 1, url);
+            });
+            setPageBlobUrls(urlMap);
+            return;
+          }
+        }
+        
+        // Fallback to legacy endpoint
+        const legacyResponse = await fetch(`/api/documents/${documentId}/images`, {
+          credentials: 'include'
+        });
+        if (legacyResponse.ok) {
+          const legacyData = await legacyResponse.json();
+          setPageCount(legacyData.pages);
         }
       } catch (error) {
-        console.error('Failed to load document info:', error);
+        console.error('Failed to load document previews:', error);
       } finally {
         setLoading(false);
       }
     };
-    loadPageInfo();
+    loadPreviews();
   }, [documentId]);
 
-  // Fetch current page image as blob when page changes
+  // Fetch page image if not already loaded (for legacy fallback only)
   useEffect(() => {
     if (pageCount === 0) return;
     
-    // Check if we already have this page
+    // Check if we already have this page (from Supabase or previous load)
     if (pageBlobUrls.has(currentPage)) return;
 
     const loadPageImage = async () => {
@@ -250,10 +306,14 @@ const DocumentPageViewer = ({
     loadPageImage();
   }, [documentId, currentPage, pageCount, pageBlobUrls]);
 
-  // Cleanup blob URLs on unmount
+  // Cleanup blob URLs on unmount (only for local blob: URLs, not Supabase signed URLs)
   useEffect(() => {
     return () => {
-      pageBlobUrls.forEach(url => URL.revokeObjectURL(url));
+      pageBlobUrls.forEach(url => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
     };
   }, []);
 
