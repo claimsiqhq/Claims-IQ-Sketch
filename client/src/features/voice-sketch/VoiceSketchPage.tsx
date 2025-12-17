@@ -1,17 +1,32 @@
 // Voice Sketch Page
 // Full page component for voice-driven room sketching
-// REQUIRES a claim ID by default - must be tied to a real database claim
+// Works standalone or attached to a specific claim
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save, Mic, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText } from 'lucide-react';
 import Layout from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine } from './services/geometry-engine';
-import { getClaim, saveClaimRooms } from '@/lib/api';
+import { getClaim, getClaims, saveClaimRooms } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
 import type { RoomGeometry } from './types/geometry';
@@ -26,6 +41,8 @@ export default function VoiceSketchPage() {
 
   const { rooms, currentRoom, resetSession } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
+  const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
+  const [selectedClaimId, setSelectedClaimId] = useState<string>('');
 
   // Fetch the real claim from the database (only if claimId provided)
   const { data: claim, isLoading, error } = useQuery({
@@ -34,6 +51,16 @@ export default function VoiceSketchPage() {
     enabled: !!claimId,
     staleTime: 30000,
   });
+
+  // Fetch available claims for the claim selector (when no claim is attached)
+  const { data: claimsData } = useQuery({
+    queryKey: ['claims-for-sketch'],
+    queryFn: () => getClaims({ limit: 100 }),
+    enabled: !claimId,
+    staleTime: 60000,
+  });
+
+  const availableClaims = claimsData?.claims || [];
 
   const handleRoomConfirmed = useCallback(
     (roomData: unknown) => {
@@ -119,16 +146,30 @@ export default function VoiceSketchPage() {
   }, [resetSession, queryClient]);
 
   const handleSaveToClaimClick = useCallback(async () => {
-    if (!claimId) {
-      toast.error('No claim selected');
-      return;
-    }
-
-    const success = await saveRoomsToClaim(claimId);
-    if (success) {
-      setLocation(`/claims/${claimId}`);
+    if (claimId) {
+      // If we're already in a claim context, save directly
+      const success = await saveRoomsToClaim(claimId);
+      if (success) {
+        setLocation(`/claim/${claimId}`);
+      }
+    } else {
+      // Open claim selector dialog
+      setIsClaimSelectorOpen(true);
     }
   }, [claimId, saveRoomsToClaim, setLocation]);
+
+  const handleSaveToSelectedClaim = useCallback(async () => {
+    if (!selectedClaimId) {
+      toast.error('Please select a claim');
+      return;
+    }
+    
+    const success = await saveRoomsToClaim(selectedClaimId);
+    if (success) {
+      setIsClaimSelectorOpen(false);
+      setLocation(`/claim/${selectedClaimId}`);
+    }
+  }, [selectedClaimId, saveRoomsToClaim, setLocation]);
 
   const hasRooms = rooms.length > 0 || currentRoom;
   const roomCount = rooms.length + (currentRoom ? 1 : 0);
@@ -189,7 +230,7 @@ export default function VoiceSketchPage() {
               <Link href="/claims">
                 <Button variant="ghost" size="sm" data-testid="button-back-to-claims">
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back
+                  Back to Claims
                 </Button>
               </Link>
             )}
@@ -209,14 +250,14 @@ export default function VoiceSketchPage() {
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Practice mode - sketch rooms without a claim
+                  Create your sketch, then save it to a claim when ready
                 </p>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {hasRooms && claim && (
+            {hasRooms && (
               <Button 
                 onClick={handleSaveToClaimClick} 
                 disabled={isSaving}
@@ -227,7 +268,7 @@ export default function VoiceSketchPage() {
                 ) : (
                   <Save className="h-4 w-4 mr-2" />
                 )}
-                {isSaving ? 'Saving...' : `Save to Claim (${roomCount} room${roomCount !== 1 ? 's' : ''})`}
+                {isSaving ? 'Saving...' : claim ? `Save to Claim (${roomCount})` : `Save Sketch (${roomCount})`}
               </Button>
             )}
           </div>
@@ -241,6 +282,64 @@ export default function VoiceSketchPage() {
           />
         </div>
       </div>
+
+      {/* Claim Selector Dialog */}
+      <Dialog open={isClaimSelectorOpen} onOpenChange={setIsClaimSelectorOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Sketch to Claim</DialogTitle>
+            <DialogDescription>
+              Select the claim you want to attach this sketch to.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <Select value={selectedClaimId} onValueChange={setSelectedClaimId}>
+              <SelectTrigger data-testid="select-claim-for-sketch">
+                <SelectValue placeholder="Select a claim..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableClaims.length === 0 ? (
+                  <div className="p-4 text-center text-muted-foreground text-sm">
+                    No claims available. Create a claim first.
+                  </div>
+                ) : (
+                  availableClaims.map((c: Claim) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span>{c.policyholder || 'Unknown'}</span>
+                        <span className="text-muted-foreground">-</span>
+                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {c.riskLocation || c.claimId}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsClaimSelectorOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveToSelectedClaim} 
+              disabled={!selectedClaimId || isSaving}
+              data-testid="button-confirm-save-to-claim"
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save to Claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
