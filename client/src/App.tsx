@@ -14,6 +14,7 @@ import Settings from "@/pages/settings";
 import Profile from "@/pages/profile";
 import ClaimsMap from "@/pages/claims-map";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
+import Photos from "@/pages/photos";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
 function Router() {
@@ -53,6 +54,11 @@ function Router() {
       <Route path="/map">
         <ProtectedRoute>
           <ClaimsMap />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/photos">
+        <ProtectedRoute>
+          <Photos />
         </ProtectedRoute>
       </Route>
       <Route path="/voice-sketch">
