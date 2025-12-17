@@ -1,6 +1,13 @@
 import { pool } from '../db';
-import { getSupabaseAdmin, DOCUMENTS_BUCKET } from '../lib/supabase';
+import { getSupabaseAdmin, DOCUMENTS_BUCKET, PREVIEWS_BUCKET } from '../lib/supabase';
 import { InsertDocument } from '../../shared/schema';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+const execAsync = promisify(exec);
 
 export interface DocumentInfo {
   id: string;
@@ -45,12 +52,12 @@ function mapRowToDocument(row: any): DocumentInfo {
 }
 
 /**
- * Initialize Supabase Storage bucket (call this on app startup)
+ * Initialize Supabase Storage buckets (call this on app startup)
  */
 export async function initializeStorageBucket(): Promise<void> {
   const supabaseAdmin = getSupabaseAdmin();
 
-  // Check if bucket exists
+  // Check if buckets exist
   const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
 
   if (listError) {
@@ -58,12 +65,13 @@ export async function initializeStorageBucket(): Promise<void> {
     throw listError;
   }
 
-  const bucketExists = buckets?.some(b => b.name === DOCUMENTS_BUCKET);
+  const documentsBucketExists = buckets?.some(b => b.name === DOCUMENTS_BUCKET);
+  const previewsBucketExists = buckets?.some(b => b.name === PREVIEWS_BUCKET);
 
-  if (!bucketExists) {
-    // Create the documents bucket
+  // Create documents bucket if needed
+  if (!documentsBucketExists) {
     const { error: createError } = await supabaseAdmin.storage.createBucket(DOCUMENTS_BUCKET, {
-      public: false, // Documents are private by default
+      public: false,
       fileSizeLimit: 52428800, // 50MB max file size
       allowedMimeTypes: [
         'image/*',
@@ -78,13 +86,29 @@ export async function initializeStorageBucket(): Promise<void> {
     });
 
     if (createError) {
-      console.error('Error creating storage bucket:', createError);
+      console.error('Error creating documents bucket:', createError);
       throw createError;
     }
-
     console.log(`Created Supabase storage bucket: ${DOCUMENTS_BUCKET}`);
   } else {
     console.log(`Supabase storage bucket "${DOCUMENTS_BUCKET}" already exists`);
+  }
+
+  // Create previews bucket if needed
+  if (!previewsBucketExists) {
+    const { error: createError } = await supabaseAdmin.storage.createBucket(PREVIEWS_BUCKET, {
+      public: false,
+      fileSizeLimit: 10485760, // 10MB max per preview image
+      allowedMimeTypes: ['image/png', 'image/jpeg'],
+    });
+
+    if (createError) {
+      console.error('Error creating previews bucket:', createError);
+      throw createError;
+    }
+    console.log(`Created Supabase storage bucket: ${PREVIEWS_BUCKET}`);
+  } else {
+    console.log(`Supabase storage bucket "${PREVIEWS_BUCKET}" already exists`);
   }
 }
 
@@ -530,4 +554,226 @@ export async function getDocumentPublicUrl(
   if (!doc) return null;
 
   return getDocumentDownloadUrl(doc.storagePath, expiresIn);
+}
+
+/**
+ * Generate preview images for a PDF document and upload to Supabase
+ * Converts each page to PNG and stores in document-previews bucket
+ */
+export async function generateDocumentPreviews(
+  documentId: string,
+  organizationId: string
+): Promise<{ success: boolean; pageCount: number; error?: string }> {
+  const client = await pool.connect();
+  const supabaseAdmin = getSupabaseAdmin();
+  const tempDir = path.join(os.tmpdir(), 'claimsiq-previews', documentId);
+
+  try {
+    // Update status to processing
+    await client.query(
+      `UPDATE documents SET preview_status = 'processing', updated_at = NOW() WHERE id = $1`,
+      [documentId]
+    );
+
+    // Get document info
+    const docResult = await client.query(
+      `SELECT storage_path, mime_type FROM documents WHERE id = $1 AND organization_id = $2`,
+      [documentId, organizationId]
+    );
+
+    if (docResult.rows.length === 0) {
+      throw new Error('Document not found');
+    }
+
+    const { storage_path, mime_type } = docResult.rows[0];
+
+    // Only process PDFs
+    if (mime_type !== 'application/pdf') {
+      // For images, page count is 1, no conversion needed
+      await client.query(
+        `UPDATE documents SET page_count = 1, preview_status = 'completed', preview_generated_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [documentId]
+      );
+      return { success: true, pageCount: 1 };
+    }
+
+    // Create temp directory
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Download PDF from Supabase
+    const { data: pdfData, error: downloadError } = await supabaseAdmin.storage
+      .from(DOCUMENTS_BUCKET)
+      .download(storage_path);
+
+    if (downloadError || !pdfData) {
+      throw new Error(`Failed to download PDF: ${downloadError?.message || 'No data'}`);
+    }
+
+    const pdfBuffer = Buffer.from(await pdfData.arrayBuffer());
+    const pdfPath = path.join(tempDir, 'source.pdf');
+    fs.writeFileSync(pdfPath, pdfBuffer);
+
+    // Get page count using pdfinfo
+    let pageCount = 1;
+    try {
+      const { stdout } = await execAsync(`pdfinfo "${pdfPath}"`);
+      const pageMatch = stdout.match(/Pages:\s*(\d+)/);
+      if (pageMatch) {
+        pageCount = parseInt(pageMatch[1]);
+      }
+    } catch (e) {
+      console.warn('Could not get PDF page count, defaulting to 1');
+    }
+
+    // Convert all pages to PNG using pdftoppm
+    const outputPrefix = path.join(tempDir, 'page');
+    await execAsync(`pdftoppm -png -r 150 "${pdfPath}" "${outputPrefix}"`);
+
+    // Upload each page to Supabase
+    const previewBasePath = `${organizationId}/${documentId}`;
+
+    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+      // pdftoppm creates files with zero-padded page numbers
+      const possibleFiles = [
+        `${outputPrefix}-${pageNum}.png`,
+        `${outputPrefix}-${String(pageNum).padStart(2, '0')}.png`,
+        `${outputPrefix}-${String(pageNum).padStart(3, '0')}.png`,
+      ];
+
+      let pageImagePath: string | null = null;
+      for (const filePath of possibleFiles) {
+        if (fs.existsSync(filePath)) {
+          pageImagePath = filePath;
+          break;
+        }
+      }
+
+      if (!pageImagePath) {
+        console.warn(`Could not find generated image for page ${pageNum}`);
+        continue;
+      }
+
+      // Read the image file
+      const imageBuffer = fs.readFileSync(pageImagePath);
+      const supabasePath = `${previewBasePath}/page-${pageNum}.png`;
+
+      // Upload to Supabase previews bucket
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(PREVIEWS_BUCKET)
+        .upload(supabasePath, imageBuffer, {
+          contentType: 'image/png',
+          cacheControl: '31536000', // Cache for 1 year
+          upsert: true, // Overwrite if exists
+        });
+
+      if (uploadError) {
+        console.error(`Failed to upload page ${pageNum}:`, uploadError);
+      }
+    }
+
+    // Update document with page count and status
+    await client.query(
+      `UPDATE documents SET 
+        page_count = $1, 
+        preview_status = 'completed', 
+        preview_generated_at = NOW(),
+        preview_error = NULL,
+        updated_at = NOW() 
+       WHERE id = $2`,
+      [pageCount, documentId]
+    );
+
+    return { success: true, pageCount };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Preview generation failed:', errorMessage);
+
+    // Update status to failed
+    await client.query(
+      `UPDATE documents SET preview_status = 'failed', preview_error = $1, updated_at = NOW() WHERE id = $2`,
+      [errorMessage, documentId]
+    ).catch(() => {}); // Ignore errors updating status
+
+    return { success: false, pageCount: 0, error: errorMessage };
+
+  } finally {
+    client.release();
+
+    // Cleanup temp files
+    try {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    } catch (e) {
+      console.warn('Failed to cleanup temp dir:', e);
+    }
+  }
+}
+
+/**
+ * Get signed URLs for document preview pages from Supabase
+ */
+export async function getDocumentPreviewUrls(
+  documentId: string,
+  organizationId: string,
+  expiresIn: number = 3600
+): Promise<{ pageCount: number; previewStatus: string; urls: string[] }> {
+  const client = await pool.connect();
+  const supabaseAdmin = getSupabaseAdmin();
+
+  try {
+    // Get document preview info
+    const result = await client.query(
+      `SELECT page_count, preview_status, mime_type, storage_path FROM documents 
+       WHERE id = $1 AND organization_id = $2`,
+      [documentId, organizationId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error('Document not found');
+    }
+
+    const { page_count, preview_status, mime_type, storage_path } = result.rows[0];
+
+    // If previews aren't ready, return status info
+    if (preview_status !== 'completed') {
+      return { pageCount: page_count || 0, previewStatus: preview_status || 'pending', urls: [] };
+    }
+
+    // For images, return a signed URL to the original
+    if (mime_type && mime_type.startsWith('image/')) {
+      const { data } = await supabaseAdmin.storage
+        .from(DOCUMENTS_BUCKET)
+        .createSignedUrl(storage_path, expiresIn);
+      
+      return {
+        pageCount: 1,
+        previewStatus: 'completed',
+        urls: data?.signedUrl ? [data.signedUrl] : []
+      };
+    }
+
+    // For PDFs, get signed URLs for each page
+    const urls: string[] = [];
+    const previewBasePath = `${organizationId}/${documentId}`;
+
+    for (let pageNum = 1; pageNum <= (page_count || 0); pageNum++) {
+      const pagePath = `${previewBasePath}/page-${pageNum}.png`;
+      const { data } = await supabaseAdmin.storage
+        .from(PREVIEWS_BUCKET)
+        .createSignedUrl(pagePath, expiresIn);
+      
+      if (data?.signedUrl) {
+        urls.push(data.signedUrl);
+      }
+    }
+
+    return { pageCount: page_count || 0, previewStatus: 'completed', urls };
+
+  } finally {
+    client.release();
+  }
 }
