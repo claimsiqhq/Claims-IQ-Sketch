@@ -98,6 +98,8 @@ export interface ExtractedClaimData {
   yearBuilt?: string;
   yearRoofInstall?: string; // Format: "MM-DD-YYYY" or year
   isWoodRoof?: boolean;
+  roofDamageReported?: string; // New field for roof damage status
+  numberOfStories?: string; // New field for number of stories
 
   // Policy info
   policyNumber?: string;
@@ -106,6 +108,7 @@ export interface ExtractedClaimData {
   lineOfBusiness?: string;
   policyStatus?: string;
   policyInceptionDate?: string;
+  claimStatus?: string; // New field for claim status
 
   // Deductibles
   policyDeductible?: string;
@@ -138,6 +141,7 @@ export interface ExtractedClaimData {
 
   // Third parties
   mortgagee?: string;
+  thirdPartyInterest?: string; // New field for third party interest
   producer?: string;
   producerPhone?: string;
   producerEmail?: string;
@@ -146,6 +150,7 @@ export interface ExtractedClaimData {
   reportedBy?: string;
   reportedDate?: string;
   droneEligible?: boolean;
+  droneEligibleAtFNOL?: string; // New field for drone eligibility at FNOL
 
   // Legacy policyDetails for backward compatibility
   policyDetails?: {
@@ -159,10 +164,155 @@ export interface ExtractedClaimData {
 
   // Raw text (for reference)
   rawText?: string;
-  
+
   // Full text extraction fields
   pageTexts?: string[];
   fullText?: string;
+
+  // New nested structure fields (from OpenAI response)
+  claims?: FNOLClaimExtraction[];
+}
+
+// New interface for FNOL claim extraction with nested structure
+export interface FNOLClaimExtraction {
+  claimInformation?: {
+    claimNumber?: string;
+    dateOfLoss?: string;
+    claimStatus?: string;
+    operatingCompany?: string;
+    causeOfLoss?: string;
+    riskLocation?: string;
+    lossDescription?: string;
+    droneEligibleAtFNOL?: string;
+  };
+  insuredInformation?: {
+    policyholderName1?: string;
+    policyholderName2?: string;
+    contactMobilePhone?: string;
+    contactEmail?: string;
+  };
+  propertyDamageDetails?: {
+    yearBuilt?: string;
+    yearRoofInstall?: string;
+    roofDamageReported?: string;
+    numberOfStories?: string;
+  };
+  policyDetails?: {
+    policyNumber?: string;
+    inceptionDate?: string;
+    producer?: string;
+    thirdPartyInterest?: string;
+    deductibles?: {
+      policyDeductible?: string;
+      windHailDeductible?: string;
+    };
+  };
+  coverages?: {
+    coverageName?: string;
+    limit?: string;
+    valuationMethod?: string;
+  }[];
+  endorsementsListed?: string[];
+}
+
+/**
+ * Transform the new nested FNOL extraction format to the flat ExtractedClaimData format
+ * This ensures backward compatibility with existing code
+ */
+export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): ExtractedClaimData {
+  const ci = extraction.claimInformation || {};
+  const ii = extraction.insuredInformation || {};
+  const pd = extraction.propertyDamageDetails || {};
+  const pol = extraction.policyDetails || {};
+  const ded = pol.deductibles || {};
+
+  const result: ExtractedClaimData = {
+    // Claim Information
+    claimId: ci.claimNumber || undefined,
+    dateOfLoss: ci.dateOfLoss || undefined,
+    claimStatus: ci.claimStatus || undefined,
+    carrier: ci.operatingCompany || undefined,
+    causeOfLoss: ci.causeOfLoss || undefined,
+    riskLocation: ci.riskLocation || undefined,
+    lossDescription: ci.lossDescription || undefined,
+    droneEligibleAtFNOL: ci.droneEligibleAtFNOL || undefined,
+
+    // Insured Information
+    policyholder: ii.policyholderName1 || undefined,
+    policyholderSecondary: ii.policyholderName2 || undefined,
+    contactPhone: ii.contactMobilePhone || undefined,
+    contactEmail: ii.contactEmail || undefined,
+
+    // Property Damage Details
+    yearBuilt: pd.yearBuilt || undefined,
+    yearRoofInstall: pd.yearRoofInstall || undefined,
+    roofDamageReported: pd.roofDamageReported || undefined,
+    numberOfStories: pd.numberOfStories || undefined,
+
+    // Policy Details
+    policyNumber: pol.policyNumber || undefined,
+    policyInceptionDate: pol.inceptionDate || undefined,
+    producer: pol.producer || undefined,
+    thirdPartyInterest: pol.thirdPartyInterest || undefined,
+    mortgagee: pol.thirdPartyInterest || undefined, // Map thirdPartyInterest to mortgagee for backward compatibility
+    policyDeductible: ded.policyDeductible || undefined,
+    windHailDeductible: ded.windHailDeductible || undefined,
+
+    // Coverages - transform from new format to existing CoverageDetail format
+    coverages: extraction.coverages?.map((cov, index) => ({
+      code: String.fromCharCode(65 + index), // A, B, C, etc.
+      name: cov.coverageName || `Coverage ${String.fromCharCode(65 + index)}`,
+      limit: cov.limit || undefined,
+      valuationMethod: cov.valuationMethod || undefined,
+    })) || undefined,
+
+    // Extract dwelling limit from coverages if available
+    dwellingLimit: extraction.coverages?.find(c =>
+      c.coverageName?.toLowerCase().includes('dwelling') ||
+      c.coverageName?.toLowerCase().includes('coverage a')
+    )?.limit || undefined,
+
+    // Endorsements
+    endorsementsListed: extraction.endorsementsListed || undefined,
+  };
+
+  // Remove undefined values
+  Object.keys(result).forEach(key => {
+    if ((result as any)[key] === undefined) {
+      delete (result as any)[key];
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Transform OpenAI response that may contain the new nested claims array format
+ * Returns a flat ExtractedClaimData, merging all claims if multiple are present
+ */
+export function transformOpenAIResponse(response: any): ExtractedClaimData {
+  // If response has the new claims array structure
+  if (response.claims && Array.isArray(response.claims) && response.claims.length > 0) {
+    // Transform each claim and merge them
+    const flatClaims = response.claims.map((claim: FNOLClaimExtraction) =>
+      transformFNOLExtractionToFlat(claim)
+    );
+
+    const merged = mergeExtractedData(...flatClaims);
+
+    // Preserve pageText if present at root level
+    if (response.pageText) {
+      merged.rawText = response.pageText;
+    }
+
+    // Also store the original claims array for reference
+    merged.claims = response.claims;
+
+    return merged;
+  }
+
+  // Otherwise, return as-is (old format or already flat)
+  return response as ExtractedClaimData;
 }
 
 // Extended result from single page extraction
@@ -387,7 +537,9 @@ async function extractFromSingleImage(
     return {};
   }
 
-  return JSON.parse(content) as PageExtractionResult;
+  const parsed = JSON.parse(content);
+  // Transform the response to handle new nested claims array format
+  return transformOpenAIResponse(parsed) as PageExtractionResult;
 }
 
 /**
@@ -498,14 +650,16 @@ async function extractFromImage(
       return { rawText: 'No content extracted' };
     }
 
-    const result = JSON.parse(content) as PageExtractionResult;
-    
+    const parsed = JSON.parse(content);
+    // Transform the response to handle new nested claims array format
+    const result = transformOpenAIResponse(parsed) as PageExtractionResult;
+
     // Set full text fields for single image documents
     if (result.pageText) {
       result.pageTexts = [result.pageText];
       result.fullText = result.pageText;
     }
-    
+
     return result;
 
   } catch (error) {
@@ -518,66 +672,65 @@ async function extractFromImage(
  * Get the appropriate extraction prompt based on document type
  */
 function getExtractionPrompt(documentType: string): string {
-  const basePrompt = `You are an expert insurance document analyzer. Extract structured data from the document image provided.
-Return a JSON object with the following fields (use null for missing values):`;
-
   switch (documentType) {
     case 'fnol':
-      return `${basePrompt}
+      return `You are an expert insurance document analyzer with a specialty in First Notice of Loss (FNOL) reports. Your task is to analyze the provided text/document content, which may contain one or more FNOL reports, and extract all relevant information for each claim into a structured JSON array.
+
+Output Rules:
+1. The output MUST be a single JSON array containing one object for each distinct claim found in the source text.
+2. Strictly adhere to the field names, hierarchy, and data types specified in the template below.
+3. Use the most accurate and complete information directly from the source.
+4. For missing data, set the value to null.
+5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
+6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+
+JSON Template:
 {
-  "claimId": "Claim ID/number (format: XX-XXX-XXXXXX)",
-  "policyholder": "Primary policyholder full name",
-  "policyholderSecondary": "Second named insured if any",
-  "contactPhone": "Mobile or primary phone number",
-  "contactEmail": "Email address",
-  "dateOfLoss": "Date and time of loss (format: MM/DD/YYYY@HH:MM AM/PM)",
-  "riskLocation": "Full property address including street, city, state, and ZIP",
-  "causeOfLoss": "Cause of loss (e.g., Hail, Fire, Water, Wind)",
-  "lossDescription": "Detailed description of the loss/damage",
-  "dwellingDamageDescription": "Description of dwelling damage",
-  "otherStructureDamageDescription": "Description of other structure damage",
-  "damageLocation": "Interior, Exterior, or Both",
-  "yearBuilt": "Year property was built",
-  "yearRoofInstall": "Year or date roof was installed",
-  "isWoodRoof": "Whether roof is wood (true/false)",
-  "policyNumber": "Policy number",
-  "state": "State code (2-letter)",
-  "carrier": "Insurance carrier/company name",
-  "lineOfBusiness": "Line of business (Homeowners, etc.)",
-  "policyInceptionDate": "Policy inception/in-force date",
-  "policyDeductible": "Policy deductible amount ($X,XXX)",
-  "windHailDeductible": "Wind/hail deductible amount ($X,XXX)",
-  "windHailDeductiblePercent": "Wind/hail deductible percentage (X%)",
-  "coverages": [
-    {"code": "A", "name": "Coverage A - Dwelling", "limit": "$XXX,XXX", "percentage": "XX%", "valuationMethod": "RCV or ACV"},
-    {"code": "B", "name": "Coverage B - Other Structures", "limit": "$XXX,XXX"},
-    {"code": "C", "name": "Coverage C - Personal Property", "limit": "$XXX,XXX", "percentage": "XX%"},
-    {"code": "D", "name": "Coverage D - Loss of Use", "limit": "$XXX,XXX", "percentage": "XX%"},
-    {"code": "E", "name": "Coverage E - Personal Liability", "limit": "$XXX,XXX"},
-    {"code": "F", "name": "Coverage F - Medical Expense", "limit": "$X,XXX"}
-  ],
-  "dwellingLimit": "Coverage A limit",
-  "scheduledStructures": [
-    {"description": "Structure description (shed, garage, etc.)", "value": "$XX,XXX", "articleNumber": "Article number if any", "valuationMethod": "RCV or ACV"}
-  ],
-  "unscheduledStructuresLimit": "Coverage B unscheduled limit",
-  "additionalCoverages": [
-    {"name": "Coverage name (Ordinance/Law, Fungi, etc.)", "limit": "$XX,XXX", "deductible": "$X,XXX if any"}
-  ],
-  "endorsementDetails": [
-    {"formNumber": "HO XX XX", "name": "Endorsement name", "additionalInfo": "Any notes"}
-  ],
-  "endorsementsListed": ["Array of endorsement form numbers"],
-  "mortgagee": "Mortgagee/lender name and info",
-  "producer": "Agent/producer name",
-  "producerPhone": "Agent phone",
-  "producerEmail": "Agent email",
-  "reportedBy": "Who reported the claim",
-  "reportedDate": "Date claim was reported"
+  "claims": [
+    {
+      "claimInformation": {
+        "claimNumber": "STRING",
+        "dateOfLoss": "STRING",
+        "claimStatus": "STRING",
+        "operatingCompany": "STRING",
+        "causeOfLoss": "STRING",
+        "riskLocation": "STRING",
+        "lossDescription": "STRING",
+        "droneEligibleAtFNOL": "STRING"
+      },
+      "insuredInformation": {
+        "policyholderName1": "STRING",
+        "policyholderName2": "STRING",
+        "contactMobilePhone": "STRING",
+        "contactEmail": "STRING"
+      },
+      "propertyDamageDetails": {
+        "yearBuilt": "STRING (YYYY)",
+        "yearRoofInstall": "STRING (YYYY)",
+        "roofDamageReported": "STRING",
+        "numberOfStories": "STRING"
+      },
+      "policyDetails": {
+        "policyNumber": "STRING",
+        "inceptionDate": "STRING (MM/DD/YYYY)",
+        "producer": "STRING",
+        "thirdPartyInterest": "STRING",
+        "deductibles": {
+          "policyDeductible": "STRING",
+          "windHailDeductible": "STRING"
+        }
+      },
+      "coverages": [
+        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
+      ],
+      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
+    }
+  ]
 }`;
 
     case 'policy':
-      return `${basePrompt}
+      return `You are an expert insurance document analyzer. Extract structured data from the document image provided.
+Return a JSON object with the following fields (use null for missing values):
 {
   "policyholder": "Named insured on the policy",
   "policyholderSecondary": "Second named insured",
@@ -602,7 +755,8 @@ Return a JSON object with the following fields (use null for missing values):`;
 }`;
 
     case 'endorsement':
-      return `${basePrompt}
+      return `You are an expert insurance document analyzer. Extract structured data from the document image provided.
+Return a JSON object with the following fields (use null for missing values):
 {
   "policyNumber": "Policy number this endorsement applies to",
   "endorsementDetails": [
@@ -612,7 +766,8 @@ Return a JSON object with the following fields (use null for missing values):`;
 }`;
 
     default:
-      return `${basePrompt}
+      return `You are an expert insurance document analyzer. Extract structured data from the document image provided.
+Return a JSON object with the following fields (use null for missing values):
 Extract any insurance-related information you can find including:
 - Policyholder name(s) and contact info
 - Risk location/property address

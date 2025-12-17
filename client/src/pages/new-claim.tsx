@@ -90,11 +90,16 @@ interface ExtractedData {
   yearBuilt?: string;
   yearRoofInstall?: string;
   isWoodRoof?: boolean;
+  // New property damage fields
+  roofDamageReported?: string;
+  numberOfStories?: string;
   policyNumber?: string;
   state?: string;
   carrier?: string;
   lineOfBusiness?: string;
   policyInceptionDate?: string;
+  // New claim status field
+  claimStatus?: string;
   policyDeductible?: string;
   windHailDeductible?: string;
   windHailDeductiblePercent?: string;
@@ -111,11 +116,15 @@ interface ExtractedData {
   endorsementsListed?: string[];
   endorsementDetails?: EndorsementDetailItem[];
   mortgagee?: string;
+  // New third party interest field
+  thirdPartyInterest?: string;
   producer?: string;
   producerPhone?: string;
   producerEmail?: string;
   reportedBy?: string;
   reportedDate?: string;
+  // New drone eligibility field
+  droneEligibleAtFNOL?: string;
   policyDetails?: {
     policyNumber?: string;
     state?: string;
@@ -128,6 +137,8 @@ interface ExtractedData {
   pageText?: string;
   pageTexts?: string[];
   fullText?: string;
+  // Raw claims array from OpenAI response (for reference)
+  claims?: any[];
 }
 
 // Endorsement record for database
@@ -704,6 +715,12 @@ export default function NewClaim() {
       if ((extracted.yearRoofInstall || pd.yearRoofInstall) && !merged.yearRoofInstall)
         merged.yearRoofInstall = extracted.yearRoofInstall || pd.yearRoofInstall;
       if (extracted.isWoodRoof !== undefined && merged.isWoodRoof === undefined) merged.isWoodRoof = extracted.isWoodRoof;
+      if (extracted.roofDamageReported && !merged.roofDamageReported) merged.roofDamageReported = extracted.roofDamageReported;
+      if (extracted.numberOfStories && !merged.numberOfStories) merged.numberOfStories = extracted.numberOfStories;
+
+      // Claim status
+      if (extracted.claimStatus && !merged.claimStatus) merged.claimStatus = extracted.claimStatus;
+      if (extracted.droneEligibleAtFNOL && !merged.droneEligibleAtFNOL) merged.droneEligibleAtFNOL = extracted.droneEligibleAtFNOL;
 
       // Policy details
       if ((extracted.policyNumber || pd.policyNumber) && !merged.policyNumber)
@@ -788,6 +805,7 @@ export default function NewClaim() {
       }
 
       // Third parties
+      if (extracted.thirdPartyInterest && !merged.thirdPartyInterest) merged.thirdPartyInterest = extracted.thirdPartyInterest;
       if (extracted.mortgagee && !merged.mortgagee) merged.mortgagee = extracted.mortgagee;
       if (extracted.producer && !merged.producer) merged.producer = extracted.producer;
       if (extracted.producerPhone && !merged.producerPhone) merged.producerPhone = extracted.producerPhone;
@@ -830,12 +848,18 @@ export default function NewClaim() {
         contactEmail: currentClaimData.contactEmail,
         yearBuilt: currentClaimData.yearBuilt,
         isWoodRoof: currentClaimData.isWoodRoof,
+        // New property damage fields
+        roofDamageReported: currentClaimData.roofDamageReported,
+        numberOfStories: currentClaimData.numberOfStories,
         dwellingDamageDescription: currentClaimData.dwellingDamageDescription,
         otherStructureDamageDescription: currentClaimData.otherStructureDamageDescription,
         damageLocation: currentClaimData.damageLocation,
         carrier: currentClaimData.carrier,
         lineOfBusiness: currentClaimData.lineOfBusiness,
         policyInceptionDate: currentClaimData.policyInceptionDate,
+        // New claim status fields
+        claimStatus: currentClaimData.claimStatus,
+        droneEligibleAtFNOL: currentClaimData.droneEligibleAtFNOL,
         policyDeductible: currentClaimData.policyDeductible,
         windHailDeductiblePercent: currentClaimData.windHailDeductiblePercent,
         otherStructuresLimit: currentClaimData.otherStructuresLimit,
@@ -848,6 +872,8 @@ export default function NewClaim() {
         scheduledStructures: currentClaimData.scheduledStructures,
         additionalCoverages: currentClaimData.additionalCoverages,
         endorsementDetails: currentClaimData.endorsementDetails,
+        // Third party fields
+        thirdPartyInterest: currentClaimData.thirdPartyInterest,
         mortgagee: currentClaimData.mortgagee,
         producer: currentClaimData.producer,
         producerPhone: currentClaimData.producerPhone,
@@ -1129,12 +1155,18 @@ export default function NewClaim() {
             contactEmail: claimData.contactEmail,
             yearBuilt: claimData.yearBuilt,
             isWoodRoof: claimData.isWoodRoof,
+            // New property damage fields
+            roofDamageReported: claimData.roofDamageReported,
+            numberOfStories: claimData.numberOfStories,
             dwellingDamageDescription: claimData.dwellingDamageDescription,
             otherStructureDamageDescription: claimData.otherStructureDamageDescription,
             damageLocation: claimData.damageLocation,
             carrier: claimData.carrier,
             lineOfBusiness: claimData.lineOfBusiness,
             policyInceptionDate: claimData.policyInceptionDate,
+            // New claim status fields
+            claimStatus: claimData.claimStatus,
+            droneEligibleAtFNOL: claimData.droneEligibleAtFNOL,
             policyDeductible: claimData.policyDeductible,
             windHailDeductiblePercent: claimData.windHailDeductiblePercent,
             otherStructuresLimit: claimData.otherStructuresLimit,
@@ -1147,6 +1179,8 @@ export default function NewClaim() {
             scheduledStructures: claimData.scheduledStructures,
             additionalCoverages: claimData.additionalCoverages,
             endorsementDetails: claimData.endorsementDetails,
+            // Third party fields
+            thirdPartyInterest: claimData.thirdPartyInterest,
             mortgagee: claimData.mortgagee,
             producer: claimData.producer,
             producerPhone: claimData.producerPhone,
@@ -1183,12 +1217,18 @@ export default function NewClaim() {
             contactEmail: claimData.contactEmail,
             yearBuilt: claimData.yearBuilt,
             isWoodRoof: claimData.isWoodRoof,
+            // New property damage fields
+            roofDamageReported: claimData.roofDamageReported,
+            numberOfStories: claimData.numberOfStories,
             dwellingDamageDescription: claimData.dwellingDamageDescription,
             otherStructureDamageDescription: claimData.otherStructureDamageDescription,
             damageLocation: claimData.damageLocation,
             carrier: claimData.carrier,
             lineOfBusiness: claimData.lineOfBusiness,
             policyInceptionDate: claimData.policyInceptionDate,
+            // New claim status fields
+            claimStatus: claimData.claimStatus,
+            droneEligibleAtFNOL: claimData.droneEligibleAtFNOL,
             policyDeductible: claimData.policyDeductible,
             windHailDeductiblePercent: claimData.windHailDeductiblePercent,
             otherStructuresLimit: claimData.otherStructuresLimit,
@@ -1201,6 +1241,8 @@ export default function NewClaim() {
             scheduledStructures: claimData.scheduledStructures,
             additionalCoverages: claimData.additionalCoverages,
             endorsementDetails: claimData.endorsementDetails,
+            // Third party fields
+            thirdPartyInterest: claimData.thirdPartyInterest,
             mortgagee: claimData.mortgagee,
             producer: claimData.producer,
             producerPhone: claimData.producerPhone,
@@ -1351,8 +1393,10 @@ export default function NewClaim() {
     const claimFields = data ? [
       { label: 'Claim ID', value: data.claimId },
       { label: 'Date of Loss', value: data.dateOfLoss },
+      { label: 'Claim Status', value: data.claimStatus },
       { label: 'Cause of Loss', value: data.causeOfLoss },
       { label: 'Damage Location', value: data.damageLocation },
+      { label: 'Drone Eligible at FNOL', value: data.droneEligibleAtFNOL },
     ].filter(f => f.value) : [];
 
     // Policyholder info
@@ -1377,6 +1421,8 @@ export default function NewClaim() {
     const propertyFields = data ? [
       { label: 'Year Built', value: data.yearBuilt },
       { label: 'Roof Installed', value: data.yearRoofInstall || data.policyDetails?.yearRoofInstall },
+      { label: 'Roof Damage Reported', value: data.roofDamageReported },
+      { label: 'Number of Stories', value: data.numberOfStories },
       { label: 'Wood Roof', value: data.isWoodRoof !== undefined ? (data.isWoodRoof ? 'Yes' : 'No') : undefined },
     ].filter(f => f.value) : [];
 
@@ -1406,6 +1452,7 @@ export default function NewClaim() {
 
     // Third parties
     const thirdPartyFields = data ? [
+      { label: 'Third Party Interest', value: data.thirdPartyInterest },
       { label: 'Mortgagee', value: data.mortgagee },
       { label: 'Producer/Agent', value: data.producer },
       { label: 'Producer Phone', value: data.producerPhone },

@@ -237,48 +237,61 @@ export async function updatePrompt(
  */
 export const FALLBACK_PROMPTS: Record<string, { system: string; user?: string; model: string; temperature: number; maxTokens?: number; responseFormat: string }> = {
   [PromptKey.DOCUMENT_EXTRACTION_FNOL]: {
-    system: `You are an expert insurance document analyzer. Extract structured data from the document image provided.
-Return a JSON object with the following fields (use null for missing values):
+    system: `You are an expert insurance document analyzer with a specialty in First Notice of Loss (FNOL) reports. Your task is to analyze the provided text/document content, which may contain one or more FNOL reports, and extract all relevant information for each claim into a structured JSON array.
+
+Output Rules:
+1. The output MUST be a single JSON array containing one object for each distinct claim found in the source text.
+2. Strictly adhere to the field names, hierarchy, and data types specified in the template below.
+3. Use the most accurate and complete information directly from the source.
+4. For missing data, set the value to null.
+5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
+6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+
+JSON Template:
 {
-  "claimId": "Claim ID/number (format: XX-XXX-XXXXXX)",
-  "policyholder": "Primary policyholder full name",
-  "policyholderSecondary": "Second named insured if any",
-  "contactPhone": "Mobile or primary phone number",
-  "contactEmail": "Email address",
-  "dateOfLoss": "Date and time of loss (format: MM/DD/YYYY@HH:MM AM/PM)",
-  "riskLocation": "Full property address including street, city, state, and ZIP",
-  "causeOfLoss": "Cause of loss (e.g., Hail, Fire, Water, Wind)",
-  "lossDescription": "Detailed description of the loss/damage",
-  "dwellingDamageDescription": "Description of dwelling damage",
-  "otherStructureDamageDescription": "Description of other structure damage",
-  "damageLocation": "Interior, Exterior, or Both",
-  "yearBuilt": "Year property was built",
-  "yearRoofInstall": "Year or date roof was installed",
-  "isWoodRoof": "Whether roof is wood (true/false)",
-  "policyNumber": "Policy number",
-  "state": "State code (2-letter)",
-  "carrier": "Insurance carrier/company name",
-  "lineOfBusiness": "Line of business (Homeowners, etc.)",
-  "policyInceptionDate": "Policy inception/in-force date",
-  "policyDeductible": "Policy deductible amount ($X,XXX)",
-  "windHailDeductible": "Wind/hail deductible amount ($X,XXX)",
-  "windHailDeductiblePercent": "Wind/hail deductible percentage (X%)",
-  "coverages": [
-    {"code": "A", "name": "Coverage A - Dwelling", "limit": "$XXX,XXX", "percentage": "XX%", "valuationMethod": "RCV or ACV"}
-  ],
-  "dwellingLimit": "Coverage A limit",
-  "scheduledStructures": [],
-  "unscheduledStructuresLimit": "Coverage B unscheduled limit",
-  "additionalCoverages": [],
-  "endorsementDetails": [],
-  "endorsementsListed": ["Array of endorsement form numbers"],
-  "mortgagee": "Mortgagee/lender name and info",
-  "producer": "Agent/producer name",
-  "producerPhone": "Agent phone",
-  "producerEmail": "Agent email",
-  "reportedBy": "Who reported the claim",
-  "reportedDate": "Date claim was reported"
-}`,
+  "claims": [
+    {
+      "claimInformation": {
+        "claimNumber": "STRING",
+        "dateOfLoss": "STRING",
+        "claimStatus": "STRING",
+        "operatingCompany": "STRING",
+        "causeOfLoss": "STRING",
+        "riskLocation": "STRING",
+        "lossDescription": "STRING",
+        "droneEligibleAtFNOL": "STRING"
+      },
+      "insuredInformation": {
+        "policyholderName1": "STRING",
+        "policyholderName2": "STRING",
+        "contactMobilePhone": "STRING",
+        "contactEmail": "STRING"
+      },
+      "propertyDamageDetails": {
+        "yearBuilt": "STRING (YYYY)",
+        "yearRoofInstall": "STRING (YYYY)",
+        "roofDamageReported": "STRING",
+        "numberOfStories": "STRING"
+      },
+      "policyDetails": {
+        "policyNumber": "STRING",
+        "inceptionDate": "STRING (MM/DD/YYYY)",
+        "producer": "STRING",
+        "thirdPartyInterest": "STRING",
+        "deductibles": {
+          "policyDeductible": "STRING",
+          "windHailDeductible": "STRING"
+        }
+      },
+      "coverages": [
+        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
+      ],
+      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
+    }
+  ]
+}
+
+ADDITIONALLY: Include a "pageText" field at the root level containing the complete verbatim text from this page, preserving the original layout as much as possible.`,
     model: 'gpt-4o',
     temperature: 0.1,
     maxTokens: 4000,
