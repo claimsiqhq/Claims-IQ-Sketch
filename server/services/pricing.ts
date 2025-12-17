@@ -274,72 +274,65 @@ export async function searchLineItems(options: {
   limit?: number;
   offset?: number;
 }): Promise<{ items: any[]; total: number }> {
-  const { q, category, damageType, limit = 50, offset = 0 } = options;
+  const { q, category, limit = 50, offset = 0 } = options;
   
   const client = await pool.connect();
   try {
-    const conditions: string[] = ['li.is_active = true'];
+    const conditions: string[] = [];
     const params: any[] = [];
     let paramIdx = 1;
     
     if (q) {
-      conditions.push(`(li.code ILIKE $${paramIdx} OR li.description ILIKE $${paramIdx})`);
+      conditions.push(`(li.full_code ILIKE $${paramIdx} OR li.description ILIKE $${paramIdx} OR li.selector_code ILIKE $${paramIdx})`);
       params.push(`%${q}%`);
       paramIdx++;
     }
     
     if (category) {
-      conditions.push(`(li.category_id = $${paramIdx} OR li.category_id LIKE $${paramIdx + 1})`);
-      params.push(category, `${category}.%`);
+      conditions.push(`(li.category_code = $${paramIdx} OR li.category_code ILIKE $${paramIdx + 1})`);
+      params.push(category.toUpperCase(), `${category}%`);
       paramIdx += 2;
     }
     
-    if (damageType) {
-      conditions.push(`
-        EXISTS (
-          SELECT 1 FROM jsonb_array_elements(li.scope_triggers) AS trigger
-          WHERE trigger->>'damage_type' = $${paramIdx}
-        )
-      `);
-      params.push(damageType);
-      paramIdx++;
-    }
-    
-    const whereClause = conditions.join(' AND ');
+    const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
     
     const countResult = await client.query(
-      `SELECT COUNT(*) FROM line_items li WHERE ${whereClause}`,
+      `SELECT COUNT(*) FROM xact_line_items li WHERE ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0].count);
     
     const query = `
       SELECT 
-        li.id, li.code, li.category_id, li.description, li.unit,
-        lic.name as category_name
-      FROM line_items li
-      LEFT JOIN line_item_categories lic ON li.category_id = lic.id
+        li.id, 
+        li.full_code as code, 
+        li.category_code, 
+        li.selector_code,
+        li.description, 
+        li.unit,
+        li.op_eligible,
+        li.labor_efficiency
+      FROM xact_line_items li
       WHERE ${whereClause}
-      ORDER BY li.category_id, li.code
+      ORDER BY li.category_code, li.selector_code
       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
     `;
     params.push(limit, offset);
     
     const rows = await client.query(query, params);
     
-    const items = [];
-    for (const row of rows.rows) {
-      const basePrice = await calculateBasePrice(row.code, 'US-NATIONAL');
-      items.push({
-        id: row.id,
-        code: row.code,
-        categoryId: row.category_id,
-        categoryName: row.category_name,
-        description: row.description,
-        unit: row.unit,
-        basePrice
-      });
-    }
+    const items = rows.rows.map(row => ({
+      id: row.id,
+      code: row.code,
+      categoryId: row.category_code,
+      categoryName: row.category_code,
+      selectorCode: row.selector_code,
+      description: row.description,
+      unit: row.unit,
+      opEligible: row.op_eligible,
+      laborEfficiency: row.labor_efficiency,
+      basePrice: null
+    }));
     
     return { items, total };
   } finally {
@@ -351,11 +344,18 @@ export async function getCategories(): Promise<any[]> {
   const client = await pool.connect();
   try {
     const result = await client.query(`
-      SELECT id, parent_id, name, description, sort_order
-      FROM line_item_categories
-      ORDER BY sort_order, id
+      SELECT id, code, description, coverage_type, op_eligible
+      FROM xact_categories
+      ORDER BY code
     `);
-    return result.rows;
+    return result.rows.map(row => ({
+      id: row.code,
+      code: row.code,
+      name: row.description,
+      description: row.description,
+      coverageType: row.coverage_type,
+      opEligible: row.op_eligible
+    }));
   } finally {
     client.release();
   }
