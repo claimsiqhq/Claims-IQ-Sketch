@@ -34,7 +34,7 @@ import {
   Image as ImageIcon
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { uploadDocument, processDocument, createClaim, updateClaim, getMyOrganizations, type Document, type Claim } from "@/lib/api";
+import { uploadDocument, processDocument, createClaim, updateClaim, getMyOrganizations, getClaim, getClaimDocuments, type Document, type Claim } from "@/lib/api";
 
 // Step types for the wizard
 type WizardStep = 'fnol' | 'policy' | 'endorsements' | 'review';

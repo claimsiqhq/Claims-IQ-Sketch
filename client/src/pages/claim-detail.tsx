@@ -79,6 +79,7 @@ import {
   getClaimDocuments,
   getClaimEndorsements,
   uploadDocument,
+  processDocument,
   getDocumentDownloadUrl,
   deleteClaim,
   updateClaim,
@@ -416,17 +417,42 @@ export default function ClaimDetail() {
     setUploadingDocument(true);
     try {
       for (const file of Array.from(files)) {
-        await uploadDocument(file, {
+        // Determine document type based on file extension or default to 'photo'
+        const fileName = file.name.toLowerCase();
+        let docType: 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence' = 'photo';
+        if (fileName.includes('fnol') || fileName.includes('first notice')) {
+          docType = 'fnol';
+        } else if (fileName.includes('policy') || fileName.includes('dec')) {
+          docType = 'policy';
+        } else if (fileName.includes('endorsement') || fileName.includes('endo')) {
+          docType = 'endorsement';
+        } else if (file.type === 'application/pdf' || fileName.endsWith('.pdf')) {
+          // PDFs without specific naming default to 'fnol' for processing
+          docType = 'fnol';
+        }
+        
+        // Upload the document
+        const uploadedDoc = await uploadDocument(file, {
           claimId: params.id,
-          type: 'photo',
+          type: docType,
           name: file.name
         });
+        
+        // Process the document to extract data (AI extraction)
+        try {
+          await processDocument(uploadedDoc.id);
+          toast.success(`${file.name} uploaded and processed`);
+        } catch (processErr) {
+          console.error('Document processing failed:', processErr);
+          toast.warning(`${file.name} uploaded but processing failed`);
+        }
       }
-      // Reload documents
+      // Reload documents to get updated processing status
       const docsData = await getClaimDocuments(params.id);
       setDocuments(docsData);
     } catch (err) {
       console.error('Failed to upload document:', err);
+      toast.error('Failed to upload document');
     } finally {
       setUploadingDocument(false);
     }
