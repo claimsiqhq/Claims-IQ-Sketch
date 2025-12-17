@@ -342,19 +342,24 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
         style={{ touchAction: isPinching ? 'none' : 'pan-x pan-y' }}
       >
         <div
-          className="p-2 sm:p-4 flex items-center justify-center w-full h-full"
+          className="p-2 sm:p-4"
+          style={{
+            display: 'inline-flex',
+            minWidth: '100%',
+            minHeight: '100%',
+            justifyContent: zoom > 1 ? 'flex-start' : 'center',
+            alignItems: zoom > 1 ? 'flex-start' : 'center',
+          }}
         >
           <canvas
             ref={canvasRef}
             width={canvasWidth}
             height={canvasHeight}
-            className="max-w-full"
             style={{
               imageRendering: 'crisp-edges',
               width: `${canvasWidth * zoom}px`,
               height: `${canvasHeight * zoom}px`,
-              maxWidth: zoom <= 1 ? '100%' : 'none',
-              objectFit: 'contain'
+              flexShrink: 0,
             }}
           />
         </div>
@@ -395,14 +400,27 @@ export function RoomPreview({ room, className }: RoomPreviewProps) {
                 <Home className="h-5 w-5" />
                 {room ? formatRoomName(room.name) : 'Room Preview'}
               </DialogTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCloseExpanded}
-                className="h-8 w-8"
-              >
-                <Minimize2 className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCloseExpanded}
+                  className="h-8 w-8"
+                  title="Minimize"
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCloseExpanded}
+                  className="h-8 w-8"
+                  data-testid="button-close-expanded"
+                  title="Close"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </DialogHeader>
           <div className="overflow-auto p-4 bg-white flex items-center justify-center" style={{ maxHeight: 'calc(95vh - 120px)' }}>
