@@ -1045,8 +1045,10 @@ export default function NewClaim() {
       const endorsementsList = extracted?.endorsementsListed || extracted?.policyDetails?.endorsementsListed || [];
 
       if (endorsementsList.length > 0) {
-        // Parse endorsement strings into records
-        endorsementsList.forEach(endorsementStr => {
+        // Parse endorsement strings into records (filter out non-strings)
+        endorsementsList
+          .filter((item): item is string => typeof item === 'string')
+          .forEach(endorsementStr => {
           const parts = endorsementStr.split(' - ');
           const formNumber = parts[0]?.trim() || endorsementStr;
           const documentTitle = parts.slice(1).join(' - ').trim() || 'Endorsement';
