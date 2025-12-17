@@ -16,6 +16,9 @@ import {
   FolderOpen,
   Link2,
   Unlink,
+  Loader2,
+  RefreshCw,
+  AlertOctagon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +44,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import type { SketchPhoto, PhotoAIAnalysis } from '../types/geometry';
+import type { SketchPhoto, PhotoAIAnalysis, AnalysisStatus } from '../types/geometry';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface Claim {
   id: string;
@@ -57,6 +66,8 @@ interface PhotoAlbumProps {
   className?: string;
   onDeletePhoto?: (photoId: string) => void;
   onUpdatePhoto?: (photoId: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null }) => void;
+  onReanalyzePhoto?: (photoId: string) => void;
+  isReanalyzing?: boolean;
   claims?: Claim[];
 }
 
@@ -78,6 +89,52 @@ function getQualityLabel(score: number): string {
   return 'Poor';
 }
 
+function getAnalysisStatusInfo(status: AnalysisStatus | null | undefined): {
+  icon: React.ReactNode;
+  label: string;
+  className: string;
+  isProcessing: boolean;
+} {
+  switch (status) {
+    case 'pending':
+    case 'analyzing':
+      return {
+        icon: <Loader2 className="h-4 w-4 animate-spin" />,
+        label: status === 'pending' ? 'Waiting for analysis' : 'Analyzing photo...',
+        className: 'bg-blue-500/90 text-white',
+        isProcessing: true,
+      };
+    case 'failed':
+      return {
+        icon: <XCircle className="h-4 w-4" />,
+        label: 'Analysis failed',
+        className: 'bg-red-500/90 text-white',
+        isProcessing: false,
+      };
+    case 'concerns':
+      return {
+        icon: <AlertOctagon className="h-4 w-4" />,
+        label: 'Analysis flagged concerns',
+        className: 'bg-orange-500/90 text-white',
+        isProcessing: false,
+      };
+    case 'completed':
+      return {
+        icon: <CheckCircle2 className="h-4 w-4" />,
+        label: 'Analysis complete',
+        className: 'bg-green-500/90 text-white',
+        isProcessing: false,
+      };
+    default:
+      return {
+        icon: null,
+        label: '',
+        className: '',
+        isProcessing: false,
+      };
+  }
+}
+
 interface PhotoCardProps {
   photo: SketchPhoto;
   onClick?: () => void;
@@ -89,64 +146,113 @@ function PhotoCard({ photo, onClick, onDelete }: PhotoCardProps) {
   const qualityScore = analysis?.quality?.score ?? 5;
   const photoUrl = photo.storageUrl || photo.localUri;
   const hasDamage = analysis?.content?.damageDetected;
-  
+  const statusInfo = getAnalysisStatusInfo(photo.analysisStatus);
+  const showStatusBadge = photo.analysisStatus && photo.analysisStatus !== 'completed';
+
   return (
-    <div 
-      className="relative group bg-muted rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-      onClick={onClick}
-      data-testid={`photo-card-${photo.id}`}
-    >
-      {photoUrl ? (
-        <div className="aspect-square bg-muted-foreground/10 flex items-center justify-center">
-          <img 
-            src={photoUrl} 
-            alt={photo.label} 
-            className="w-full h-full object-cover"
-          />
-        </div>
-      ) : (
-        <div className="aspect-square bg-muted-foreground/10 flex items-center justify-center">
-          <Camera className="h-8 w-8 text-muted-foreground" />
-        </div>
-      )}
-      
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      
-      <div className="absolute bottom-0 left-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <p className="text-white text-xs font-medium truncate">{photo.label}</p>
-        {analysis && (
-          <div className="flex items-center gap-1 mt-1">
-            {getQualityIcon(qualityScore)}
-            <span className={cn('text-xs', getQualityColor(qualityScore))}>
-              {qualityScore}/10
-            </span>
+    <TooltipProvider>
+      <div
+        className="relative group bg-muted rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+        onClick={onClick}
+        data-testid={`photo-card-${photo.id}`}
+      >
+        {photoUrl ? (
+          <div className="aspect-square bg-muted-foreground/10 flex items-center justify-center">
+            <img
+              src={photoUrl}
+              alt={photo.label}
+              className={cn(
+                "w-full h-full object-cover",
+                statusInfo.isProcessing && "opacity-70"
+              )}
+            />
+          </div>
+        ) : (
+          <div className="aspect-square bg-muted-foreground/10 flex items-center justify-center">
+            <Camera className="h-8 w-8 text-muted-foreground" />
           </div>
         )}
+
+        {/* Processing overlay */}
+        {statusInfo.isProcessing && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+            <div className="bg-white/90 dark:bg-gray-900/90 rounded-full p-3 shadow-lg">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+            </div>
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+        <div className="absolute bottom-0 left-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <p className="text-white text-xs font-medium truncate">{photo.label}</p>
+          {analysis && photo.analysisStatus === 'completed' && (
+            <div className="flex items-center gap-1 mt-1">
+              {getQualityIcon(qualityScore)}
+              <span className={cn('text-xs', getQualityColor(qualityScore))}>
+                {qualityScore}/10
+              </span>
+            </div>
+          )}
+          {statusInfo.isProcessing && (
+            <p className="text-white/80 text-[10px] mt-1">Analyzing...</p>
+          )}
+        </div>
+
+        {/* Analysis status badge (top-right) */}
+        {showStatusBadge && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  'absolute top-2 right-2 flex items-center gap-1 rounded-full px-2 py-1',
+                  statusInfo.className
+                )}
+              >
+                {statusInfo.icon}
+                <span className="text-[10px] font-medium">
+                  {photo.analysisStatus === 'pending' || photo.analysisStatus === 'analyzing'
+                    ? 'Analyzing'
+                    : photo.analysisStatus === 'concerns'
+                    ? 'Review'
+                    : 'Failed'}
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{statusInfo.label}</p>
+              {photo.analysisError && (
+                <p className="text-xs text-muted-foreground mt-1">{photo.analysisError}</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Damage badge - only show if completed and has damage */}
+        {hasDamage && photo.analysisStatus === 'completed' && !showStatusBadge && (
+          <Badge
+            variant="destructive"
+            className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5"
+          >
+            Damage
+          </Badge>
+        )}
+
+        {onDelete && (
+          <Button
+            variant="destructive"
+            size="icon"
+            className="absolute top-2 left-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
       </div>
-      
-      {hasDamage && (
-        <Badge 
-          variant="destructive" 
-          className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5"
-        >
-          Damage
-        </Badge>
-      )}
-      
-      {onDelete && (
-        <Button
-          variant="destructive"
-          size="icon"
-          className="absolute top-2 left-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-        >
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      )}
-    </div>
+    </TooltipProvider>
   );
 }
 
@@ -155,10 +261,12 @@ interface PhotoDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdate?: (updates: { label?: string; hierarchyPath?: string; claimId?: string | null }) => void;
+  onReanalyze?: (photoId: string) => void;
+  isReanalyzing?: boolean;
   claims?: Claim[];
 }
 
-function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, claims = [] }: PhotoDetailDialogProps) {
+function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, isReanalyzing, claims = [] }: PhotoDetailDialogProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editLabel, setEditLabel] = useState('');
   const [editHierarchy, setEditHierarchy] = useState('');
@@ -179,6 +287,8 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, claims = [] }:
   const photoUrl = photo.storageUrl || photo.localUri;
   const hasDamage = analysis?.content?.damageDetected;
   const currentClaim = claims.find(c => c.id === photo.claimId);
+  const statusInfo = getAnalysisStatusInfo(photo.analysisStatus);
+  const canReanalyze = photo.analysisStatus === 'failed' || photo.analysisStatus === 'concerns' || photo.analysisStatus === 'completed';
 
   const handleSave = () => {
     if (onUpdate) {
@@ -332,6 +442,60 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, claims = [] }:
                   )}
                 </div>
               )}
+
+              {/* Analysis Status Section */}
+              {photo.analysisStatus && (
+                <div className="flex items-center justify-between gap-2 pt-2 border-t">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground font-medium">Analysis:</span>
+                    <div className={cn(
+                      'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
+                      statusInfo.className
+                    )}>
+                      {statusInfo.icon}
+                      {statusInfo.label}
+                    </div>
+                  </div>
+                  {canReanalyze && onReanalyze && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onReanalyze(photo.id)}
+                      disabled={isReanalyzing}
+                      data-testid="button-reanalyze-photo"
+                    >
+                      {isReanalyzing ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                      )}
+                      Re-analyze
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Analysis Error/Concerns */}
+              {photo.analysisError && (photo.analysisStatus === 'failed' || photo.analysisStatus === 'concerns') && (
+                <div className={cn(
+                  'p-3 rounded-lg text-sm',
+                  photo.analysisStatus === 'failed' ? 'bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800' : 'bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800'
+                )}>
+                  <div className="flex items-start gap-2">
+                    {photo.analysisStatus === 'failed' ? (
+                      <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertOctagon className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                    )}
+                    <div>
+                      <p className={cn('font-medium', photo.analysisStatus === 'failed' ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300')}>
+                        {photo.analysisStatus === 'failed' ? 'Analysis Failed' : 'Concerns Identified'}
+                      </p>
+                      <p className="text-muted-foreground mt-1">{photo.analysisError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -442,7 +606,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, claims = [] }:
   );
 }
 
-export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, claims = [] }: PhotoAlbumProps) {
+export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, onReanalyzePhoto, isReanalyzing, claims = [] }: PhotoAlbumProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<ExtendedSketchPhoto | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
@@ -546,6 +710,8 @@ export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, cl
           onUpdatePhoto(selectedPhoto.id, updates);
           setSelectedPhoto(null);
         } : undefined}
+        onReanalyze={onReanalyzePhoto}
+        isReanalyzing={isReanalyzing}
         claims={claims}
       />
     </div>

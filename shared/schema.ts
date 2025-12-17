@@ -673,6 +673,10 @@ export const claimPhotos = pgTable("claim_photos", {
   qualityScore: integer("quality_score"),
   damageDetected: boolean("damage_detected").default(false),
 
+  // Analysis status for async processing
+  analysisStatus: varchar("analysis_status", { length: 30 }).default("pending"), // pending, analyzing, completed, failed, concerns
+  analysisError: text("analysis_error"), // Error message if analysis failed
+
   // Timestamps
   capturedAt: timestamp("captured_at").default(sql`NOW()`),
   analyzedAt: timestamp("analyzed_at"),
