@@ -357,8 +357,8 @@ JSON Template:
   },
 
   [PromptKey.MY_DAY_SUMMARY]: {
-    system: `You are an insurance claims assistant. Generate a brief, actionable summary for an adjuster's day. Address the adjuster by their actual name when greeting them.`,
-    user: `Adjuster Name: {{userName}}
+    system: `You are an insurance claims assistant generating personalized daily summaries. CRITICAL RULE: You MUST use the exact adjuster name provided - never use placeholders like "[Adjuster's Name]" or generic greetings.`,
+    user: `The adjuster's name is: {{userName}}
 
 Context:
 - {{routeLength}} inspections scheduled
@@ -371,13 +371,9 @@ Key issues:
 {{criticalIssues}}
 {{warningIssues}}
 
-Generate a 2-3 sentence summary that:
-1. Greets the adjuster using their actual name "{{userName}}" (never use placeholders like "[Adjuster's Name]")
-2. Highlights the most important priority
-3. Mentions any weather or SLA concerns
-4. Gives one actionable recommendation
+Generate a 2-3 sentence personalized summary. Start with "Good morning, {{userName}}." (use the exact name provided above). Then highlight the most important priority and give one actionable recommendation.
 
-Be concise and professional.`,
+IMPORTANT: Do NOT use placeholders. The greeting MUST be "Good morning, {{userName}}." with the actual name.`,
     model: 'gpt-4o-mini',
     temperature: 0.5,
     maxTokens: 150,
