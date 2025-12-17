@@ -35,6 +35,14 @@ import {
   Zap,
   CircleDot,
   Car,
+  CloudSun,
+  Cloud,
+  Sparkles,
+  TrendingUp,
+  CheckCircle2,
+  XCircle,
+  Info,
+  Lightbulb,
 } from "lucide-react";
 import {
   Peril,
@@ -68,6 +76,59 @@ interface RouteOptimizationResult {
   totalDuration: number;
   totalDistance: number;
   optimized: boolean;
+}
+
+// ==========================================
+// WEATHER & AI ANALYSIS TYPES
+// ==========================================
+
+interface StopWeatherData {
+  stopId: string;
+  location: { lat: number; lng: number };
+  current: {
+    temp: number;
+    feelsLike: number;
+    humidity: number;
+    windSpeed: number;
+    windGust?: number;
+    conditions: { id: string; main: string; description: string; icon: string }[];
+    visibility: number;
+    uvIndex?: number;
+  };
+  alerts: { event: string; severity: string; headline: string }[];
+  inspectionImpact: {
+    score: 'good' | 'caution' | 'warning' | 'severe';
+    reasons: string[];
+    recommendations: string[];
+  };
+}
+
+interface MyDayInsight {
+  type: 'priority' | 'efficiency' | 'risk' | 'opportunity' | 'weather' | 'sla';
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  description: string;
+  affectedClaims?: string[];
+  actionable: boolean;
+  suggestedAction?: string;
+}
+
+interface MyDayAnalysisResult {
+  insights: MyDayInsight[];
+  priorityOrder: string[];
+  riskScore: number;
+  efficiencyScore: number;
+  summary: string;
+  weatherImpact: {
+    affectedStops: number;
+    recommendation: string;
+  };
+  slaStatus: {
+    atRisk: number;
+    breaching: number;
+    safe: number;
+  };
+  weatherData?: StopWeatherData[];
 }
 
 // ==========================================
@@ -280,6 +341,227 @@ function formatTimeWindow(start: string, end: string): string {
   return `${formatTime(start)} – ${formatTime(end)}`;
 }
 
+function getWeatherConditionIcon(main: string) {
+  const m = main.toLowerCase();
+  if (m.includes('thunder')) return CloudLightning;
+  if (m.includes('rain') || m.includes('drizzle')) return CloudRain;
+  if (m.includes('snow') || m.includes('sleet') || m.includes('ice')) return Snowflake;
+  if (m.includes('cloud')) return Cloud;
+  if (m.includes('clear') || m.includes('sun')) return Sun;
+  if (m.includes('wind')) return Wind;
+  return CloudSun;
+}
+
+function getImpactScoreStyles(score: StopWeatherData['inspectionImpact']['score']) {
+  switch (score) {
+    case 'good':
+      return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', icon: CheckCircle2 };
+    case 'caution':
+      return { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', icon: AlertCircle };
+    case 'warning':
+      return { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', icon: AlertTriangle };
+    case 'severe':
+      return { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', icon: XCircle };
+    default:
+      return { bg: 'bg-muted', border: 'border-border', text: 'text-muted-foreground', icon: Info };
+  }
+}
+
+// ==========================================
+// AI INSIGHTS PANEL
+// ==========================================
+
+function AiInsightsPanel({
+  analysis,
+  isLoading,
+  isMobile,
+}: {
+  analysis?: MyDayAnalysisResult;
+  isLoading: boolean;
+  isMobile: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(true);
+
+  if (isLoading) {
+    return (
+      <section className={cn("border-b border-border bg-gradient-to-r from-primary/5 to-accent/5", isMobile ? "px-4 py-4" : "px-6 py-6")}>
+        <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 text-primary animate-spin" />
+            </div>
+            <div>
+              <h2 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Analyzing Your Day...
+              </h2>
+              <p className="text-sm text-muted-foreground">Checking weather, SLA deadlines, and optimizing priorities</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (!analysis) return null;
+
+  const criticalInsights = analysis.insights.filter(i => i.severity === 'critical');
+  const warningInsights = analysis.insights.filter(i => i.severity === 'warning');
+  const infoInsights = analysis.insights.filter(i => i.severity === 'info');
+
+  return (
+    <section className={cn("border-b border-border bg-gradient-to-r from-primary/5 to-accent/5", isMobile ? "px-4 py-4" : "px-6 py-6")}>
+      <div className={cn(!isMobile && "max-w-5xl mx-auto")}>
+        <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+          <CollapsibleTrigger asChild>
+            <button className="w-full" data-testid="button-toggle-ai-insights">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="text-left">
+                    <h2 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
+                      AI Day Insights
+                      {criticalInsights.length > 0 && (
+                        <Badge variant="destructive" className="text-xs">{criticalInsights.length} Critical</Badge>
+                      )}
+                      {warningInsights.length > 0 && (
+                        <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">{warningInsights.length} Warning</Badge>
+                      )}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">{analysis.summary}</p>
+                  </div>
+                </div>
+                <ChevronDown className={cn("h-5 w-5 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
+              </div>
+            </button>
+          </CollapsibleTrigger>
+
+          <CollapsibleContent className="mt-4">
+            <div className="grid gap-4 md:grid-cols-3 mb-4">
+              <div className="bg-white rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">Risk Score</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={cn("text-2xl font-bold", 
+                    analysis.riskScore > 60 ? "text-red-600" : 
+                    analysis.riskScore > 30 ? "text-orange-600" : "text-green-600"
+                  )}>{analysis.riskScore}</span>
+                  <span className="text-sm text-muted-foreground">/100</span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <CloudSun className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">Weather Impact</span>
+                </div>
+                <div className="text-sm text-foreground">
+                  {analysis.weatherImpact.affectedStops > 0 ? (
+                    <span className="text-orange-600 font-medium">{analysis.weatherImpact.affectedStops} stop(s) affected</span>
+                  ) : (
+                    <span className="text-green-600 font-medium">All clear</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">SLA Status</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  {analysis.slaStatus.breaching > 0 && (
+                    <span className="text-red-600 font-medium">{analysis.slaStatus.breaching} breaching</span>
+                  )}
+                  {analysis.slaStatus.atRisk > 0 && (
+                    <span className="text-orange-600 font-medium">{analysis.slaStatus.atRisk} at risk</span>
+                  )}
+                  {analysis.slaStatus.safe > 0 && (
+                    <span className="text-green-600 font-medium">{analysis.slaStatus.safe} safe</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {analysis.insights.length > 0 && (
+              <div className="space-y-2">
+                {criticalInsights.map((insight, idx) => (
+                  <InsightCard key={`critical-${idx}`} insight={insight} />
+                ))}
+                {warningInsights.map((insight, idx) => (
+                  <InsightCard key={`warning-${idx}`} insight={insight} />
+                ))}
+                {infoInsights.slice(0, 3).map((insight, idx) => (
+                  <InsightCard key={`info-${idx}`} insight={insight} />
+                ))}
+              </div>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    </section>
+  );
+}
+
+function InsightCard({ insight }: { insight: MyDayInsight }) {
+  const severityStyles = {
+    critical: { bg: 'bg-red-50', border: 'border-red-200', icon: XCircle, iconColor: 'text-red-600' },
+    warning: { bg: 'bg-orange-50', border: 'border-orange-200', icon: AlertTriangle, iconColor: 'text-orange-600' },
+    info: { bg: 'bg-blue-50', border: 'border-blue-200', icon: Info, iconColor: 'text-blue-600' },
+  };
+
+  const styles = severityStyles[insight.severity];
+  const Icon = styles.icon;
+
+  return (
+    <div className={cn("rounded-lg border p-3", styles.bg, styles.border)} data-testid={`insight-${insight.type}`}>
+      <div className="flex items-start gap-3">
+        <Icon className={cn("h-5 w-5 mt-0.5 shrink-0", styles.iconColor)} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-foreground">{insight.title}</span>
+            <Badge variant="outline" className="text-xs capitalize">{insight.type}</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground mt-0.5">{insight.description}</p>
+          {insight.suggestedAction && (
+            <div className="flex items-center gap-1.5 mt-2 text-sm text-primary">
+              <Lightbulb className="h-3.5 w-3.5" />
+              <span>{insight.suggestedAction}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// STOP WEATHER BADGE
+// ==========================================
+
+function StopWeatherBadge({ weather }: { weather?: StopWeatherData }) {
+  if (!weather) return null;
+
+  const { current, inspectionImpact } = weather;
+  const mainCondition = current.conditions[0]?.main || 'Clear';
+  const WeatherIcon = getWeatherConditionIcon(mainCondition);
+  const impactStyles = getImpactScoreStyles(inspectionImpact.score);
+
+  return (
+    <div className={cn("flex items-center gap-2 rounded-md px-2 py-1 text-xs", impactStyles.bg, impactStyles.border, "border")} data-testid="weather-badge">
+      <WeatherIcon className={cn("h-3.5 w-3.5", impactStyles.text)} />
+      <span className={impactStyles.text}>{current.temp}°F</span>
+      {inspectionImpact.score !== 'good' && (
+        <span className={cn("font-medium", impactStyles.text)}>{inspectionImpact.score}</span>
+      )}
+    </div>
+  );
+}
+
 // ==========================================
 // MOBILE COMPONENTS
 // ==========================================
@@ -466,25 +748,31 @@ function MobileRouteStopCard({
   stop,
   index,
   weatherAlert,
+  stopWeather,
 }: {
   stop: InspectionStop;
   index: number;
   weatherAlert?: WeatherCondition;
+  stopWeather?: StopWeatherData;
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
   const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
+  const hasWeatherConcern = stopWeather?.inspectionImpact.score !== 'good' && stopWeather?.inspectionImpact.score !== undefined;
 
   return (
     <Link href={`/claim/${stop.claimId}`}>
       <div className={cn(
         "bg-white border rounded-xl active:bg-muted transition-colors min-tap-target",
+        hasWeatherConcern ? "border-amber-300 bg-amber-50/50" : 
         weatherAlert ? "border-amber-300 bg-amber-50/50" : "border-border"
       )}>
         {/* Weather Alert Banner */}
-        {weatherAlert && (
+        {(weatherAlert || hasWeatherConcern) && (
           <div className="flex items-center gap-2 text-amber-700 text-xs px-3 py-2 border-b border-amber-200 bg-amber-50">
             <CloudRain className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{weatherAlert.description}</span>
+            <span className="truncate">
+              {weatherAlert?.description || stopWeather?.inspectionImpact.reasons[0] || 'Weather concern'}
+            </span>
           </div>
         )}
 
@@ -500,8 +788,8 @@ function MobileRouteStopCard({
 
             {/* Content */}
             <div className="flex-1 min-w-0">
-              {/* Time */}
-              <div className="flex items-center gap-2 mb-1">
+              {/* Time + Weather */}
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="font-mono text-sm font-semibold text-foreground">
                   {formatTimeWindow(stop.timeWindow.start, stop.timeWindow.end)}
                 </span>
@@ -511,6 +799,7 @@ function MobileRouteStopCard({
                     {stop.travelTimeFromPrevious}m
                   </span>
                 )}
+                <StopWeatherBadge weather={stopWeather} />
               </div>
 
               {/* Name and Claim */}
@@ -568,14 +857,17 @@ function DesktopRouteStopCard({
   index,
   isLast,
   weatherAlert,
+  stopWeather,
 }: {
   stop: InspectionStop;
   index: number;
   isLast: boolean;
   weatherAlert?: WeatherCondition;
+  stopWeather?: StopWeatherData;
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
   const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
+  const hasWeatherConcern = stopWeather?.inspectionImpact.score !== 'good' && stopWeather?.inspectionImpact.score !== undefined;
 
   return (
     <div className="relative">
@@ -587,13 +879,17 @@ function DesktopRouteStopCard({
       <Link href={`/claim/${stop.claimId}`}>
         <div className={cn(
           "relative bg-white border rounded-xl transition-all hover:shadow-md hover:border-primary/30 cursor-pointer p-4",
+          hasWeatherConcern ? "border-amber-300 bg-amber-50/30" :
           weatherAlert && "border-amber-300 bg-amber-50/30"
         )}>
           {/* Weather warning banner */}
-          {weatherAlert && (
+          {(weatherAlert || hasWeatherConcern) && (
             <div className="flex items-center gap-2 text-amber-700 text-sm mb-3 pb-3 border-b border-amber-200">
               <CloudRain className="h-4 w-4" />
-              <span>{weatherAlert.description} — {weatherAlert.impact}</span>
+              <span>
+                {weatherAlert?.description || stopWeather?.inspectionImpact.reasons[0] || 'Weather concern'}
+                {weatherAlert?.impact && ` — ${weatherAlert.impact}`}
+              </span>
             </div>
           )}
 
@@ -613,7 +909,7 @@ function DesktopRouteStopCard({
               {/* Time and claim info */}
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-sm font-semibold text-foreground">
                       {formatTimeWindow(stop.timeWindow.start, stop.timeWindow.end)}
                     </span>
@@ -623,6 +919,7 @@ function DesktopRouteStopCard({
                         {stop.travelTimeFromPrevious} min drive
                       </span>
                     )}
+                    <StopWeatherBadge weather={stopWeather} />
                   </div>
                   <p className="font-medium text-foreground">{stop.insuredName}</p>
                   <p className="text-sm text-muted-foreground">{stop.claimNumber}</p>
@@ -678,15 +975,21 @@ function TodaysRoute({
   isMobile,
   routeOptimization,
   isOptimizing,
+  stopWeatherData,
 }: {
   route: InspectionStop[];
   weather: WeatherCondition[];
   isMobile: boolean;
   routeOptimization?: RouteOptimizationResult;
   isOptimizing?: boolean;
+  stopWeatherData?: StopWeatherData[];
 }) {
   const getWeatherAlertForStop = (stop: InspectionStop) => {
     return weather.find((w) => w.affectedClaimIds.includes(stop.claimId));
+  };
+
+  const getStopWeather = (claimId: string): StopWeatherData | undefined => {
+    return stopWeatherData?.find(w => w.stopId === claimId);
   };
 
   // Get drive time for a stop from optimization data
@@ -736,6 +1039,7 @@ function TodaysRoute({
                 stop={stop}
                 index={index}
                 weatherAlert={getWeatherAlertForStop(stop)}
+                stopWeather={getStopWeather(stop.claimId)}
               />
             ) : (
               <DesktopRouteStopCard
@@ -744,6 +1048,7 @@ function TodaysRoute({
                 index={index}
                 isLast={index === route.length - 1}
                 weatherAlert={getWeatherAlertForStop(stop)}
+                stopWeather={getStopWeather(stop.claimId)}
               />
             )
           )}
@@ -1060,6 +1365,8 @@ export default function MyDay() {
   const authUser = useStore((state) => state.authUser);
   const [routeOptimization, setRouteOptimization] = useState<RouteOptimizationResult | undefined>();
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<MyDayAnalysisResult | undefined>();
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const { data: claimsData, isLoading, error } = useQuery<{ claims: ClaimFromAPI[]; total: number }>({
     queryKey: ["/api/claims"],
@@ -1082,6 +1389,54 @@ export default function MyDay() {
     }
     return transformClaimsToMyDayData(claimsData.claims, adjusterName);
   }, [claimsData, authUser]);
+
+  // Fetch AI analysis when route changes
+  useEffect(() => {
+    if (dayData.route.length === 0 || !claimsData?.claims) {
+      setAiAnalysis(undefined);
+      return;
+    }
+
+    const fetchAiAnalysis = async () => {
+      setIsAnalyzing(true);
+      try {
+        const inspectionRoute = dayData.route.map(stop => ({
+          id: stop.id,
+          claimId: stop.claimId,
+          claimNumber: stop.claimNumber,
+          insuredName: stop.insuredName,
+          address: stop.address,
+          city: stop.city,
+          state: stop.state,
+          lat: stop.lat,
+          lng: stop.lng,
+          estimatedDuration: stop.estimatedDuration,
+          travelTimeFromPrevious: stop.travelTimeFromPrevious,
+        }));
+
+        const response = await fetch('/api/my-day/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            claims: claimsData.claims,
+            inspectionRoute,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setAiAnalysis(result);
+        }
+      } catch (err) {
+        console.error('AI analysis failed:', err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    };
+
+    fetchAiAnalysis();
+  }, [dayData.route, claimsData?.claims]);
 
   // Fetch route optimization when route changes
   useEffect(() => {

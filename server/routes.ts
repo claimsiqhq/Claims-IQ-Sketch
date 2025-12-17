@@ -903,6 +903,86 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // WEATHER API ROUTES
+  // ============================================
+  
+  app.post('/api/weather/locations', requireAuth, async (req, res) => {
+    try {
+      const { getWeatherForLocations } = await import('./services/weatherService');
+      const { locations } = req.body;
+
+      if (!locations || !Array.isArray(locations)) {
+        return res.status(400).json({ error: 'locations array is required' });
+      }
+
+      const validLocations = locations.filter((loc: any) =>
+        typeof loc.lat === 'number' && typeof loc.lng === 'number' &&
+        loc.lat !== 0 && loc.lng !== 0
+      ).map((loc: any) => ({
+        lat: loc.lat,
+        lng: loc.lng,
+        stopId: loc.stopId || loc.id,
+      }));
+
+      if (validLocations.length === 0) {
+        return res.json({ weather: [] });
+      }
+
+      const weather = await getWeatherForLocations(validLocations);
+      res.json({ weather });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Weather fetch error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // MY DAY AI ANALYSIS ROUTES
+  // ============================================
+  
+  app.post('/api/my-day/analyze', requireAuth, async (req, res) => {
+    try {
+      const { analyzeMyDay } = await import('./services/myDayAnalysis');
+      const { getWeatherForLocations } = await import('./services/weatherService');
+      const { claims, inspectionRoute } = req.body;
+
+      if (!claims || !Array.isArray(claims)) {
+        return res.status(400).json({ error: 'claims array is required' });
+      }
+
+      if (!inspectionRoute || !Array.isArray(inspectionRoute)) {
+        return res.status(400).json({ error: 'inspectionRoute array is required' });
+      }
+
+      // Fetch weather for all stops with valid coordinates
+      const locations = inspectionRoute
+        .filter((stop: any) => stop.lat && stop.lng && stop.lat !== 0 && stop.lng !== 0)
+        .map((stop: any) => ({
+          lat: stop.lat,
+          lng: stop.lng,
+          stopId: stop.claimId,
+        }));
+
+      const weatherData = locations.length > 0 
+        ? await getWeatherForLocations(locations) 
+        : [];
+
+      // Run AI analysis
+      const analysis = await analyzeMyDay(claims, inspectionRoute, weatherData);
+      
+      res.json({
+        ...analysis,
+        weatherData,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('My Day analysis error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Voice Session Routes
   app.post('/api/voice/session', async (req, res) => {
     try {
