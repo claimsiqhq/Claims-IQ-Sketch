@@ -58,13 +58,19 @@ passport.deserializeUser(async (id: string, done) => {
 export function setupAuth(app: Express): void {
   const PgSession = connectPgSimple(session);
 
-  // Determine if we're in production (HTTPS)
+  // Determine if we're in production (HTTPS) or Replit environment
   const isProduction = process.env.NODE_ENV === 'production';
+  const isReplit = !!process.env.REPL_ID || !!process.env.REPLIT_DEV_DOMAIN;
 
   // Require SESSION_SECRET in production for security
   const sessionSecret = process.env.SESSION_SECRET;
   if (isProduction && !sessionSecret) {
     throw new Error('SESSION_SECRET environment variable is required in production');
+  }
+
+  // Trust proxy for Replit's reverse proxy setup
+  if (isReplit) {
+    app.set('trust proxy', 1);
   }
 
   app.use(session({
@@ -77,10 +83,10 @@ export function setupAuth(app: Express): void {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: isProduction, // Only require HTTPS in production
+      secure: isProduction || isReplit, // Replit uses HTTPS even in dev
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // Default 24 hours, can be extended for "remember me"
-      sameSite: isProduction ? 'none' : 'lax', // Use 'lax' in development
+      sameSite: (isProduction || isReplit) ? 'none' : 'lax', // 'none' for cross-origin iframe in Replit
     },
   }));
 
