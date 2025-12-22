@@ -1394,10 +1394,11 @@ export default function MyDay() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [localWeather, setLocalWeather] = useState<StopWeatherData | undefined>();
 
-  // Fetch current location weather as fallback
+  // Fetch current location weather - fetch immediately with defaults, update with geolocation
   useEffect(() => {
     async function fetchLocalWeather(lat: number, lng: number) {
       try {
+        console.log('[MyDay] Fetching weather for:', lat, lng);
         const response = await fetch('/api/weather/locations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1408,27 +1409,28 @@ export default function MyDay() {
         });
         if (response.ok) {
           const data = await response.json();
+          console.log('[MyDay] Weather response:', data);
           if (data.weather && data.weather.length > 0) {
             setLocalWeather(data.weather[0]);
           }
         }
       } catch (err) {
-        console.error('Failed to fetch local weather:', err);
+        console.error('[MyDay] Failed to fetch local weather:', err);
       }
     }
 
-    // Default to Austin, TX if geolocation unavailable
+    // Fetch immediately with Austin, TX as default
     const defaultLat = 30.2672;
     const defaultLng = -97.7431;
+    fetchLocalWeather(defaultLat, defaultLng);
 
+    // Then try to get actual location and update
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => fetchLocalWeather(position.coords.latitude, position.coords.longitude),
-        () => fetchLocalWeather(defaultLat, defaultLng),
+        () => {}, // Already fetched with defaults
         { timeout: 5000, maximumAge: 300000 }
       );
-    } else {
-      fetchLocalWeather(defaultLat, defaultLng);
     }
   }, []);
 
