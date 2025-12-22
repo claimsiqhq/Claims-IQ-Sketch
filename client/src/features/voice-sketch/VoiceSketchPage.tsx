@@ -67,27 +67,31 @@ export default function VoiceSketchPage() {
     if (existingRoomsData?.rooms && existingRoomsData.rooms.length > 0 && !hasLoadedRooms.current) {
       hasLoadedRooms.current = true;
       
-      // Convert ClaimRoom to RoomGeometry
-      const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((room) => {
-        const width = parseFloat(room.widthFt || '10');
-        const length = parseFloat(room.lengthFt || '10');
-        const ceilingHeight = parseFloat(room.ceilingHeightFt || '8');
+      // Convert ClaimRoom to RoomGeometry (API response uses camelCase from database)
+      const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((roomData) => {
+        const room = roomData as any; // API response matches database schema
+        const width = parseFloat(room.widthFt || room.width || '10');
+        const length = parseFloat(room.lengthFt || room.height || '10');
+        const ceilingHeight = parseFloat(room.ceilingHeightFt || room.ceilingHeight || '8');
         
         // Find damage zones for this room
         const roomDamageZones = (existingRoomsData.damageZones || [])
           .filter((dz) => dz.roomId === room.id)
-          .map((dz): VoiceDamageZone => ({
-            id: dz.id,
-            type: dz.damageType || 'water',
-            category: dz.severity || 'moderate',
-            affected_walls: Array.isArray(dz.affectedWalls) ? dz.affectedWalls.map((w: string) => w.toLowerCase()) : [],
-            floor_affected: dz.floorAffected || false,
-            ceiling_affected: dz.ceilingAffected || false,
-            extent_ft: parseFloat(dz.extentFt || '0'),
-            polygon: [],
-            is_freeform: dz.isFreeform || false,
-            source: dz.source || '',
-          }));
+          .map((dzData): VoiceDamageZone => {
+            const dz = dzData as any;
+            return {
+              id: dz.id,
+              type: dz.damageType || dz.type || 'water',
+              category: dz.severity || 'moderate',
+              affected_walls: Array.isArray(dz.affectedWalls) ? dz.affectedWalls.map((w: string) => w.toLowerCase()) : [],
+              floor_affected: dz.floorAffected || false,
+              ceiling_affected: dz.ceilingAffected || false,
+              extent_ft: parseFloat(dz.extentFt || '0'),
+              polygon: [],
+              is_freeform: dz.isFreeform || false,
+              source: dz.source || '',
+            };
+          });
         
         return {
           id: room.id,
@@ -174,12 +178,13 @@ export default function VoiceSketchPage() {
       const claimRoom: ClaimRoom = {
         id: voiceRoom.id,
         name: voiceRoom.name.replace(/_/g, ' '),
-        type: inferRoomType(voiceRoom.name),
-        width: voiceRoom.width_ft,
-        height: voiceRoom.length_ft,
-        x: voiceRoom.origin_x_ft || 0,
-        y: voiceRoom.origin_y_ft || 0,
-        ceilingHeight: voiceRoom.ceiling_height_ft,
+        roomType: inferRoomType(voiceRoom.name),
+        widthFt: String(voiceRoom.width_ft),
+        lengthFt: String(voiceRoom.length_ft),
+        ceilingHeightFt: String(voiceRoom.ceiling_height_ft),
+        originXFt: String(voiceRoom.origin_x_ft || 0),
+        originYFt: String(voiceRoom.origin_y_ft || 0),
+        shape: 'rectangular',
         structureId: voiceRoom.structureId,
       };
       claimRooms.push(claimRoom);
@@ -188,16 +193,15 @@ export default function VoiceSketchPage() {
         const claimDamage: ClaimDamageZone = {
           id: vDamage.id,
           roomId: voiceRoom.id,
-          type: mapDamageType(vDamage.type),
-          severity: mapDamageSeverity(vDamage.category),
-          affectedSurfaces: [
-            ...vDamage.affected_walls.map((w) => `Wall ${w.charAt(0).toUpperCase() + w.slice(1)}`),
-            ...(vDamage.floor_affected ? ['Floor'] : []),
-            ...(vDamage.ceiling_affected ? ['Ceiling'] : []),
-          ],
-          affectedArea: calculateDamageArea(vDamage, voiceRoom),
-          notes: vDamage.source || '',
-          photos: [],
+          damageType: vDamage.type,
+          severity: vDamage.category || 'medium',
+          affectedWalls: vDamage.affected_walls,
+          floorAffected: vDamage.floor_affected,
+          ceilingAffected: vDamage.ceiling_affected,
+          extentFt: String(vDamage.extent_ft),
+          source: vDamage.source || '',
+          notes: vDamage.notes || '',
+          isFreeform: vDamage.is_freeform || false,
         };
         claimDamageZones.push(claimDamage);
       });

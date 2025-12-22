@@ -797,26 +797,31 @@ export async function deleteClaim(id: string): Promise<void> {
 export interface ClaimRoom {
   id: string;
   name: string;
-  type: string;
-  width: number;
-  height: number;
-  x: number;
-  y: number;
-  ceilingHeight: number;
-  flooringType?: string;
-  wallFinish?: string;
+  roomType?: string;
+  widthFt: string | number;
+  lengthFt: string | number;
+  ceilingHeightFt?: string | number;
+  originXFt?: string | number;
+  originYFt?: string | number;
   structureId?: string;
+  shape?: string;
+  openings?: unknown[];
+  features?: unknown[];
+  notes?: unknown[];
 }
 
 export interface ClaimDamageZone {
   id: string;
   roomId: string;
-  type: 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other';
-  severity: 'Low' | 'Medium' | 'High' | 'Total';
-  affectedSurfaces: string[];
-  affectedArea: number;
+  damageType: string;
+  severity?: string;
+  affectedWalls?: string[];
+  floorAffected?: boolean;
+  ceilingAffected?: boolean;
+  extentFt?: string | number;
+  source?: string;
   notes?: string;
-  photos: string[];
+  isFreeform?: boolean;
 }
 
 export interface ClaimStructure {
@@ -834,47 +839,51 @@ export interface ClaimStructure {
   rooms?: ClaimRoom[];
 }
 
+const safeParseFloat = (val: string | number | undefined, defaultVal: number = 0): number => {
+  if (val === undefined || val === null || val === '') return defaultVal;
+  const num = typeof val === 'number' ? val : parseFloat(val);
+  return isNaN(num) ? defaultVal : num;
+};
+
 export async function saveClaimRooms(
   claimId: string,
   rooms: ClaimRoom[],
   damageZones: ClaimDamageZone[]
 ): Promise<{ success: boolean; roomsSaved: number; damageZonesSaved: number }> {
-  // Transform to new backend format: rooms with nested damageZones
+  // Transform to backend format: rooms with nested damageZones
   const roomsWithZones = rooms.map((room) => {
     const roomDamageZones = damageZones
       .filter((dz) => dz.roomId === room.id)
       .map((dz) => ({
         id: dz.id,
-        type: dz.type.toLowerCase(),
+        type: dz.damageType.toLowerCase(),
         category: null,
         severity: dz.severity?.toLowerCase(),
-        affected_walls: dz.affectedSurfaces
-          .filter((s) => s.startsWith('Wall '))
-          .map((s) => s.replace('Wall ', '').toLowerCase()),
-        floor_affected: dz.affectedSurfaces.includes('Floor'),
-        ceiling_affected: dz.affectedSurfaces.includes('Ceiling'),
-        extent_ft: dz.affectedArea || 0,
-        source: dz.notes,
+        affected_walls: dz.affectedWalls || [],
+        floor_affected: dz.floorAffected || false,
+        ceiling_affected: dz.ceilingAffected || false,
+        extent_ft: safeParseFloat(dz.extentFt, 0),
+        source: dz.source || dz.notes,
         notes: dz.notes,
         polygon: [],
-        is_freeform: false,
+        is_freeform: dz.isFreeform || false,
       }));
 
     return {
       id: room.id,
       name: room.name,
-      room_type: room.type,
-      shape: 'rectangular',
-      width_ft: room.width,
-      length_ft: room.height,
-      ceiling_height_ft: room.ceilingHeight,
-      origin_x_ft: room.x,
-      origin_y_ft: room.y,
+      room_type: room.roomType,
+      shape: room.shape || 'rectangular',
+      width_ft: safeParseFloat(room.widthFt, 10),
+      length_ft: safeParseFloat(room.lengthFt, 10),
+      ceiling_height_ft: safeParseFloat(room.ceilingHeightFt, 8),
+      origin_x_ft: safeParseFloat(room.originXFt, 0),
+      origin_y_ft: safeParseFloat(room.originYFt, 0),
       polygon: [],
-      openings: [],
-      features: [],
+      openings: room.openings || [],
+      features: room.features || [],
       damageZones: roomDamageZones,
-      notes: [],
+      notes: room.notes || [],
     };
   });
 
@@ -908,47 +917,45 @@ export async function saveClaimHierarchy(
   roomsSaved: number; 
   damageZonesSaved: number 
 }> {
+  // Helper to transform damage zone to backend format
+  const transformDamageZone = (dz: ClaimDamageZone) => ({
+    id: dz.id,
+    type: dz.damageType.toLowerCase(),
+    category: null,
+    severity: dz.severity?.toLowerCase(),
+    affected_walls: dz.affectedWalls || [],
+    floor_affected: dz.floorAffected || false,
+    ceiling_affected: dz.ceilingAffected || false,
+    extent_ft: safeParseFloat(dz.extentFt, 0),
+    source: dz.source || dz.notes,
+    notes: dz.notes,
+    polygon: [],
+    is_freeform: dz.isFreeform || false,
+  });
+  
+  // Helper to transform room to backend format
+  const transformRoom = (room: ClaimRoom, zones: ClaimDamageZone[]) => ({
+    id: room.id,
+    name: room.name,
+    room_type: room.roomType,
+    shape: room.shape || 'rectangular',
+    width_ft: safeParseFloat(room.widthFt, 10),
+    length_ft: safeParseFloat(room.lengthFt, 10),
+    ceiling_height_ft: safeParseFloat(room.ceilingHeightFt, 8),
+    origin_x_ft: safeParseFloat(room.originXFt, 0),
+    origin_y_ft: safeParseFloat(room.originYFt, 0),
+    polygon: [],
+    openings: room.openings || [],
+    features: room.features || [],
+    damageZones: zones.filter((dz) => dz.roomId === room.id).map(transformDamageZone),
+    notes: room.notes || [],
+  });
+
   // Transform structures with nested rooms
   const structuresPayload = structures.map((structure) => {
     const structureRooms = rooms
       .filter((r) => r.structureId === structure.id)
-      .map((room) => {
-        const roomDamageZones = damageZones
-          .filter((dz) => dz.roomId === room.id)
-          .map((dz) => ({
-            id: dz.id,
-            type: dz.type.toLowerCase(),
-            category: null,
-            severity: dz.severity?.toLowerCase(),
-            affected_walls: dz.affectedSurfaces
-              .filter((s) => s.startsWith('Wall '))
-              .map((s) => s.replace('Wall ', '').toLowerCase()),
-            floor_affected: dz.affectedSurfaces.includes('Floor'),
-            ceiling_affected: dz.affectedSurfaces.includes('Ceiling'),
-            extent_ft: dz.affectedArea || 0,
-            source: dz.notes,
-            notes: dz.notes,
-            polygon: [],
-            is_freeform: false,
-          }));
-
-        return {
-          id: room.id,
-          name: room.name,
-          room_type: room.type,
-          shape: 'rectangular',
-          width_ft: room.width,
-          length_ft: room.height,
-          ceiling_height_ft: room.ceilingHeight,
-          origin_x_ft: room.x,
-          origin_y_ft: room.y,
-          polygon: [],
-          openings: [],
-          features: [],
-          damageZones: roomDamageZones,
-          notes: [],
-        };
-      });
+      .map((room) => transformRoom(room, damageZones));
 
     return {
       id: structure.id,
@@ -969,43 +976,7 @@ export async function saveClaimHierarchy(
   // Rooms not linked to structures
   const orphanRooms = rooms
     .filter((r) => !r.structureId)
-    .map((room) => {
-      const roomDamageZones = damageZones
-        .filter((dz) => dz.roomId === room.id)
-        .map((dz) => ({
-          id: dz.id,
-          type: dz.type.toLowerCase(),
-          category: null,
-          severity: dz.severity?.toLowerCase(),
-          affected_walls: dz.affectedSurfaces
-            .filter((s) => s.startsWith('Wall '))
-            .map((s) => s.replace('Wall ', '').toLowerCase()),
-          floor_affected: dz.affectedSurfaces.includes('Floor'),
-          ceiling_affected: dz.affectedSurfaces.includes('Ceiling'),
-          extent_ft: dz.affectedArea || 0,
-          source: dz.notes,
-          notes: dz.notes,
-          polygon: [],
-          is_freeform: false,
-        }));
-
-      return {
-        id: room.id,
-        name: room.name,
-        room_type: room.type,
-        shape: 'rectangular',
-        width_ft: room.width,
-        length_ft: room.height,
-        ceiling_height_ft: room.ceilingHeight,
-        origin_x_ft: room.x,
-        origin_y_ft: room.y,
-        polygon: [],
-        openings: [],
-        features: [],
-        damageZones: roomDamageZones,
-        notes: [],
-      };
-    });
+    .map((room) => transformRoom(room, damageZones));
 
   const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
     method: 'POST',

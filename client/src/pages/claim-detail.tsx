@@ -602,43 +602,29 @@ export default function ClaimDetail() {
       const claimRoom: ClaimRoom = {
         id: voiceRoom.id,
         name: voiceRoom.name.replace(/_/g, ' '),
-        type: inferRoomType(voiceRoom.name),
-        width: voiceRoom.width_ft,
-        height: voiceRoom.length_ft,
-        x: 0,
-        y: 0,
-        ceilingHeight: voiceRoom.ceiling_height_ft,
+        roomType: inferRoomType(voiceRoom.name),
+        widthFt: String(voiceRoom.width_ft),
+        lengthFt: String(voiceRoom.length_ft),
+        ceilingHeightFt: String(voiceRoom.ceiling_height_ft),
+        originXFt: '0',
+        originYFt: '0',
+        shape: 'rectangular',
       };
       claimRooms.push(claimRoom);
 
       voiceRoom.damageZones.forEach((vDamage) => {
-        const mapDamageType = (type: string): 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other' => {
-          const typeMap: Record<string, 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other'> = {
-            water: 'Water', fire: 'Fire', smoke: 'Smoke', mold: 'Mold', wind: 'Wind', impact: 'Impact',
-          };
-          return typeMap[type.toLowerCase()] || 'Other';
-        };
-        const mapSeverity = (cat?: string): 'Low' | 'Medium' | 'High' | 'Total' => {
-          if (!cat) return 'Medium';
-          switch (cat) { case '1': return 'Low'; case '2': return 'Medium'; case '3': return 'High'; default: return 'Medium'; }
-        };
-        const perimeter = 2 * (voiceRoom.width_ft + voiceRoom.length_ft);
-        const wallLength = perimeter / 4;
-        const affectedWallCount = vDamage.affected_walls.length;
-        
         const claimDamage: ClaimDamageZone = {
           id: vDamage.id,
           roomId: voiceRoom.id,
-          type: mapDamageType(vDamage.type),
-          severity: mapSeverity(vDamage.category),
-          affectedSurfaces: [
-            ...vDamage.affected_walls.map((w) => `Wall ${w.charAt(0).toUpperCase() + w.slice(1)}`),
-            ...(vDamage.floor_affected ? ['Floor'] : []),
-            ...(vDamage.ceiling_affected ? ['Ceiling'] : []),
-          ],
-          affectedArea: vDamage.extent_ft * wallLength * affectedWallCount,
-          notes: vDamage.source || '',
-          photos: [],
+          damageType: vDamage.type,
+          severity: vDamage.category || 'medium',
+          affectedWalls: vDamage.affected_walls,
+          floorAffected: vDamage.floor_affected,
+          ceilingAffected: vDamage.ceiling_affected,
+          extentFt: String(vDamage.extent_ft),
+          source: vDamage.source || '',
+          notes: vDamage.notes || '',
+          isFreeform: vDamage.is_freeform || false,
         };
         claimDamageZones.push(claimDamage);
       });
@@ -1771,18 +1757,14 @@ export default function ClaimDetail() {
                                 </Link>
                               </div>
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                {savedRooms.map((room) => {
-                                  const width = (room as any).widthFt || (room as any).width || 0;
-                                  const length = (room as any).lengthFt || (room as any).height || 0;
-                                  return (
-                                    <div key={room.id} className="bg-white border border-blue-100 rounded p-2 text-sm" data-testid={`room-card-${room.id}`}>
-                                      <p className="font-medium truncate">{room.name}</p>
-                                      <p className="text-xs text-muted-foreground">
-                                        {parseFloat(width).toFixed(0)}' × {parseFloat(length).toFixed(0)}'
-                                      </p>
-                                    </div>
-                                  );
-                                })}
+                                {savedRooms.map((room) => (
+                                  <div key={room.id} className="bg-white border border-blue-100 rounded p-2 text-sm" data-testid={`room-card-${room.id}`}>
+                                    <p className="font-medium truncate">{room.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {parseFloat(room.widthFt).toFixed(0)}' × {parseFloat(room.lengthFt).toFixed(0)}'
+                                    </p>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           )}
