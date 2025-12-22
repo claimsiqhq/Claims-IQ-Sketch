@@ -1492,13 +1492,19 @@ export default function MyDay() {
     staleTime: 30000,
   });
 
+  // Construct proper display name from firstName/lastName, falling back to username
+  const displayName = useMemo(() => {
+    if (!authUser) return "Adjuster";
+    const fullName = [authUser.firstName, authUser.lastName].filter(Boolean).join(' ');
+    return fullName || authUser.username || "Adjuster";
+  }, [authUser]);
+
   const dayData = useMemo(() => {
-    const adjusterName = userDisplayName;
     if (!claimsData?.claims) {
-      return buildEmptyDayData(adjusterName);
+      return buildEmptyDayData(displayName);
     }
-    return transformClaimsToMyDayData(claimsData.claims, adjusterName);
-  }, [claimsData, userDisplayName]);
+    return transformClaimsToMyDayData(claimsData.claims, displayName);
+  }, [claimsData, displayName]);
 
   // Fetch AI analysis when route changes
   useEffect(() => {
@@ -1531,7 +1537,7 @@ export default function MyDay() {
           body: JSON.stringify({
             claims: claimsData.claims,
             inspectionRoute,
-            userName: userDisplayName || 'there',
+            userName: displayName,
           }),
         });
 
@@ -1547,7 +1553,7 @@ export default function MyDay() {
     };
 
     fetchAiAnalysis();
-  }, [dayData.route, claimsData?.claims, userDisplayName]);
+  }, [dayData.route, claimsData?.claims, displayName]);
 
   // Fetch route optimization when route changes
   useEffect(() => {
