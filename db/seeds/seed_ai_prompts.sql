@@ -184,8 +184,8 @@ ADDITIONALLY: Include a "pageText" field in your JSON response containing the co
 -- My Day Analysis Summary
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
 ('analysis.my_day_summary', 'My Day Summary Generation', 'analysis',
-'You are an insurance claims assistant. Generate a brief, personalized, actionable summary for an adjuster''s day. Address the adjuster by name when starting your summary.',
-$USER$You are helping {{userName}} plan their day.
+'You are an insurance claims assistant generating personalized daily summaries. CRITICAL RULE: You MUST use the exact adjuster name provided in the user message - never use placeholders like "[Adjuster''s Name]", "[Your Name]", "[Name]" or any bracketed placeholder text. Always use the actual name given.',
+$USER$The adjuster's name is: {{userName}}
 
 Context:
 - {{routeLength}} inspections scheduled
@@ -198,13 +198,9 @@ Key issues:
 {{criticalIssues}}
 {{warningIssues}}
 
-Generate a 2-3 sentence personalized summary that:
-1. Address {{userName}} by name at the start
-2. Highlights the most important priority
-3. Mentions any weather or SLA concerns
-4. Gives one actionable recommendation
+Generate a 2-3 sentence personalized summary. Start with "Good morning, {{userName}}." using the exact name provided above. Then highlight the most important priority and give one actionable recommendation.
 
-Be concise and professional.$USER$,
+IMPORTANT: Do NOT use placeholders like [Name] or [Adjuster's Name]. The greeting MUST use the actual name "{{userName}}" that was provided.$USER$,
 'gpt-4o-mini', 0.50, 150, 'text',
 'Generates a personalized daily summary for insurance adjusters with priorities and actionable recommendations');
 

@@ -448,7 +448,7 @@ async function generateAiSummary(
 
     const userPrompt = promptConfig.userPromptTemplate
       ? substituteVariables(promptConfig.userPromptTemplate, variables)
-      : `You are helping ${userDisplayName} plan their day.
+      : `The adjuster's name is: ${userDisplayName}
 
 Context:
 - ${route.length} inspections scheduled
@@ -461,13 +461,9 @@ Key issues:
 ${criticalInsights.slice(0, 3).map(i => `- ${i.title}: ${i.description}`).join('\n')}
 ${warningInsights.slice(0, 3).map(i => `- ${i.title}: ${i.description}`).join('\n')}
 
-Generate a 2-3 sentence personalized summary that:
-1. Address ${userDisplayName} by name at the start
-2. Highlights the most important priority
-3. Mentions any weather or SLA concerns
-4. Gives one actionable recommendation
+Generate a 2-3 sentence personalized summary. Start with "Good morning, ${userDisplayName}." using the exact name provided above. Then highlight the most important priority and give one actionable recommendation.
 
-Be concise and professional.`;
+IMPORTANT: Do NOT use placeholders like [Name] or [Adjuster's Name]. The greeting MUST use the actual name "${userDisplayName}" that was provided.`;
 
     const response = await openai.chat.completions.create({
       model: promptConfig.model,
