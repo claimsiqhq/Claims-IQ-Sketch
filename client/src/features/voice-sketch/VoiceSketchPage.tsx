@@ -74,6 +74,19 @@ export default function VoiceSketchPage() {
         const length = parseFloat(room.lengthFt || room.height || '10');
         const ceilingHeight = parseFloat(room.ceilingHeightFt || room.ceilingHeight || '8');
         
+        // Map database shape values to RoomShape type
+        const shapeMap: Record<string, 'rectangle' | 'l_shape' | 't_shape' | 'irregular'> = {
+          'rectangular': 'rectangle',
+          'rectangle': 'rectangle',
+          'l_shaped': 'l_shape',
+          'l_shape': 'l_shape',
+          't_shaped': 't_shape',
+          't_shape': 't_shape',
+          'polygon': 'irregular',
+          'irregular': 'irregular',
+        };
+        const roomShape = shapeMap[room.shape] || 'rectangle';
+        
         // Find damage zones for this room
         const roomDamageZones = (existingRoomsData.damageZones || [])
           .filter((dz) => dz.roomId === room.id)
@@ -96,11 +109,11 @@ export default function VoiceSketchPage() {
         return {
           id: room.id,
           name: room.name.replace(/ /g, '_'),
-          shape: (room.shape as 'rectangular' | 'l_shaped' | 't_shaped' | 'polygon') || 'rectangular',
+          shape: roomShape,
           width_ft: width,
           length_ft: length,
           ceiling_height_ft: ceilingHeight,
-          polygon: generatePolygon(width, length),
+          polygon: generatePolygon(roomShape, width, length),
           openings: Array.isArray(room.openings) ? room.openings : [],
           features: Array.isArray(room.features) ? room.features : [],
           damageZones: roomDamageZones,
@@ -110,6 +123,10 @@ export default function VoiceSketchPage() {
           structureId: room.structureId || undefined,
           created_at: room.createdAt?.toString() || new Date().toISOString(),
           updated_at: room.updatedAt?.toString() || new Date().toISOString(),
+          hierarchyLevel: room.hierarchyLevel ?? 1,
+          subRooms: room.subRooms || [],
+          objects: room.objects || [],
+          photos: room.photos || [],
         };
       });
       
@@ -339,7 +356,7 @@ export default function VoiceSketchPage() {
               {claim ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Claim: {claim.policyholder || 'Unknown'} - {claim.riskLocation || 'No address'}
+                    Claim: {claim.policyholder || 'Unknown'} - {claim.propertyAddress || claim.riskLocation || 'No address'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}

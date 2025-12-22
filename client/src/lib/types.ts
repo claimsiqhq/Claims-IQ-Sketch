@@ -114,7 +114,12 @@ export interface Claim {
   claimId: string; // Format: XX-XXX-XXXXXX
   policyholder?: string;
   dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
-  riskLocation?: string; // Full address string
+  riskLocation?: string; // Full address string (legacy)
+  propertyAddress?: string; // Formatted property address
+  propertyStreetAddress?: string; // Street address only
+  propertyCity?: string; // City only
+  propertyState?: string; // State abbreviation
+  propertyZipCode?: string; // ZIP code only
   causeOfLoss?: string; // Hail, Fire, Water, Wind, etc. - LEGACY field
   lossDescription?: string;
   policyNumber?: string;

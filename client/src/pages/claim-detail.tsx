@@ -1172,8 +1172,8 @@ export default function ClaimDetail() {
                       </div>
                       <Separator />
                       <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground uppercase">Risk Location</Label>
-                        <p className="font-medium">{apiClaim?.riskLocation || '-'}</p>
+                        <Label className="text-xs text-muted-foreground uppercase">Property Address</Label>
+                        <p className="font-medium">{apiClaim?.propertyAddress || apiClaim?.riskLocation || '-'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
@@ -1761,7 +1761,7 @@ export default function ClaimDetail() {
                                   <div key={room.id} className="bg-white border border-blue-100 rounded p-2 text-sm" data-testid={`room-card-${room.id}`}>
                                     <p className="font-medium truncate">{room.name}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {parseFloat(room.widthFt).toFixed(0)}' × {parseFloat(room.lengthFt).toFixed(0)}'
+                                      {parseFloat(String(room.widthFt)).toFixed(0)}' × {parseFloat(String(room.lengthFt)).toFixed(0)}'
                                     </p>
                                   </div>
                                 ))}

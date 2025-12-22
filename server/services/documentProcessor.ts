@@ -96,13 +96,18 @@ export interface ExtractedClaimData {
   contactPhone?: string;
   contactEmail?: string;
   insuredAddress?: string; // Full insured address
+  policyholderAddress?: string; // Primary policyholder mailing address
 
-  // Property address (separate from insured address)
+  // Property address (separate from insured address) - expanded for better parsing
   propertyAddress?: string;
+  propertyStreetAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZipCode?: string;
 
   // Loss details
   dateOfLoss?: string; // Format: "MM/DD/YYYY@HH:MM AM/PM"
-  riskLocation?: string; // Full property address string
+  riskLocation?: string; // Full property address string (legacy)
   causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
   lossDescription?: string;
   dwellingDamageDescription?: string;
@@ -206,8 +211,88 @@ export interface ExtractedClaimData {
   claims?: FNOLClaimExtraction[];
 }
 
-// FNOL claim extraction structure - matches new prompt format exactly
+// Address component structure
+export interface AddressComponents {
+  streetAddress?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  fullAddress?: string;
+}
+
+// FNOL claim extraction structure - matches updated prompt format
 export interface FNOLClaimExtraction {
+  // New expanded structure from updated prompt
+  claimInformation?: {
+    claimNumber?: string;
+    dateOfLoss?: string;
+    claimStatus?: string;
+    operatingCompany?: string;
+    causeOfLoss?: string;
+    lossDescription?: string;
+    droneEligibleAtFNOL?: string;
+  };
+  propertyAddress?: AddressComponents;
+  insuredInformation?: {
+    policyholderName1?: string;
+    policyholderAddress1?: AddressComponents;
+    policyholderName2?: string;
+    policyholderAddress2?: AddressComponents;
+    contactPhone?: string;
+    contactMobilePhone?: string;
+    contactEmail?: string;
+    reportedBy?: string;
+    reportedByPhone?: string;
+    reportedDate?: string;
+  };
+  propertyDamageDetails?: {
+    dwellingDamageDescription?: string;
+    roofDamageReported?: string;
+    damagesLocation?: string;
+    numberOfStories?: string;
+    woodRoof?: string;
+    yearBuilt?: string;
+    yearRoofInstall?: string;
+  };
+  policyDetails?: {
+    policyNumber?: string;
+    policyStatus?: string;
+    policyType?: string;
+    inceptionDate?: string;
+    producer?: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      email?: string;
+    };
+    legalDescription?: string;
+    thirdPartyInterest?: string;
+    lineOfBusiness?: string;
+    deductibles?: {
+      policyDeductible?: string;
+      windHailDeductible?: string;
+    };
+  };
+  coverages?: Array<{
+    coverageName?: string;
+    coverageCode?: string;
+    limit?: string;
+    limitPercentage?: string;
+    valuationMethod?: string;
+    terms?: string;
+  }>;
+  endorsementsListed?: Array<{
+    formNumber?: string;
+    title?: string;
+    notes?: string;
+  } | string>;
+  assignment?: {
+    enteredBy?: string;
+    enteredDate?: string;
+  };
+  comments?: string;
+
+  // Legacy structure support (for backward compatibility with old extractions)
   claim?: {
     claimNumber?: string;
     endorsementAlert?: string;
@@ -256,25 +341,127 @@ export interface FNOLClaimExtraction {
   };
   deductibles?: Record<string, string>;
   endorsements?: any[];
-  coverages?: any[];
-  comments?: {
-    assignment?: string;
-    reportedBy?: string;
-    enteredBy?: string;
-  };
 }
 
 /**
  * Transform FNOL extraction to flat ExtractedClaimData format
+ * Supports both the new expanded structure and legacy structure
  */
 export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): ExtractedClaimData {
+  // Check if this is the new expanded format or legacy format
+  const isNewFormat = !!(extraction.claimInformation || extraction.insuredInformation || extraction.propertyDamageDetails || extraction.policyDetails);
+  
+  if (isNewFormat) {
+    // New expanded format
+    const claimInfo = extraction.claimInformation || {};
+    const propAddr = extraction.propertyAddress || {};
+    const insuredInfo = extraction.insuredInformation || {};
+    const propDmg = extraction.propertyDamageDetails || {};
+    const polDetails = extraction.policyDetails || {};
+    const ded = polDetails.deductibles || {};
+    const assign = extraction.assignment || {};
+
+    const result: ExtractedClaimData = {
+      // Claim Information
+      claimId: claimInfo.claimNumber || undefined,
+      dateOfLoss: claimInfo.dateOfLoss || undefined,
+      claimStatus: claimInfo.claimStatus || undefined,
+      carrier: claimInfo.operatingCompany || undefined,
+      causeOfLoss: claimInfo.causeOfLoss || undefined,
+      lossDescription: claimInfo.lossDescription || undefined,
+      droneEligibleAtFNOL: claimInfo.droneEligibleAtFNOL || undefined,
+
+      // Property Address (expanded)
+      propertyAddress: propAddr.fullAddress || undefined,
+      propertyStreetAddress: propAddr.streetAddress || undefined,
+      propertyCity: propAddr.city || undefined,
+      propertyState: propAddr.state || undefined,
+      propertyZipCode: propAddr.zipCode || undefined,
+      state: propAddr.state || undefined, // Also set top-level state
+
+      // Insured Information
+      policyholder: insuredInfo.policyholderName1 || undefined,
+      policyholderSecondary: insuredInfo.policyholderName2 || undefined,
+      contactPhone: insuredInfo.contactPhone || insuredInfo.contactMobilePhone || undefined,
+      contactEmail: insuredInfo.contactEmail || undefined,
+      insuredAddress: insuredInfo.policyholderAddress1?.fullAddress || 
+        (insuredInfo.policyholderAddress1 ? 
+          `${insuredInfo.policyholderAddress1.streetAddress || ''}, ${insuredInfo.policyholderAddress1.city || ''}, ${insuredInfo.policyholderAddress1.state || ''} ${insuredInfo.policyholderAddress1.zipCode || ''}`.trim() : 
+          undefined),
+      reportedBy: insuredInfo.reportedBy || undefined,
+
+      // Property Damage Details
+      yearBuilt: propDmg.yearBuilt || undefined,
+      yearRoofInstall: propDmg.yearRoofInstall || undefined,
+      roofDamageReported: propDmg.roofDamageReported || undefined,
+      numberOfStories: propDmg.numberOfStories || undefined,
+      isWoodRoof: propDmg.woodRoof ? (propDmg.woodRoof.toLowerCase() === 'yes' || propDmg.woodRoof.toLowerCase() === 'true') : undefined,
+      dwellingDamageDescription: propDmg.dwellingDamageDescription || undefined,
+      damageLocation: propDmg.damagesLocation || undefined,
+
+      // Policy Details
+      policyNumber: polDetails.policyNumber || undefined,
+      policyStatus: polDetails.policyStatus || undefined,
+      policyInceptionDate: polDetails.inceptionDate || undefined,
+      lineOfBusiness: polDetails.lineOfBusiness || polDetails.policyType || undefined,
+      producer: polDetails.producer?.name || undefined,
+      producerPhone: polDetails.producer?.phone || undefined,
+      producerEmail: polDetails.producer?.email || undefined,
+      thirdPartyInterest: polDetails.thirdPartyInterest || undefined,
+      mortgagee: polDetails.thirdPartyInterest || undefined,
+
+      // Deductibles
+      policyDeductible: ded.policyDeductible || undefined,
+      windHailDeductible: ded.windHailDeductible || undefined,
+
+      // Coverages
+      coverages: extraction.coverages?.map((cov, index) => ({
+        code: cov.coverageCode || String.fromCharCode(65 + index),
+        name: cov.coverageName || `Coverage ${String.fromCharCode(65 + index)}`,
+        limit: cov.limit || undefined,
+        valuationMethod: cov.valuationMethod || undefined,
+        percentage: cov.limitPercentage || undefined,
+      })) || undefined,
+
+      // Extract dwelling limit from coverages
+      dwellingLimit: extraction.coverages?.find(c =>
+        (c.coverageName || '').toLowerCase().includes('dwelling') ||
+        (c.coverageName || '').toLowerCase().includes('coverage a')
+      )?.limit || undefined,
+
+      // Endorsements (handle both object and string formats)
+      endorsementsListed: extraction.endorsementsListed?.map(e => 
+        typeof e === 'string' ? e : (e.formNumber || e.title || '')
+      ).filter(Boolean) || undefined,
+      
+      endorsementDetails: extraction.endorsementsListed?.filter(e => typeof e !== 'string').map(e => {
+        if (typeof e === 'string') return { formNumber: e };
+        return {
+          formNumber: e.formNumber || '',
+          name: e.title,
+          additionalInfo: e.notes,
+        };
+      }) || undefined,
+    };
+
+    // Remove undefined values
+    Object.keys(result).forEach(key => {
+      if ((result as any)[key] === undefined) {
+        delete (result as any)[key];
+      }
+    });
+
+    return result;
+  }
+
+  // Legacy format handling
   const cl = extraction.claim || {};
   const loss = extraction.loss || {};
   const ins = extraction.insured || {};
   const propDmg = extraction.propertyDamage || {};
   const pol = extraction.policy || {};
   const ded = extraction.deductibles || {};
-  const comments = extraction.comments || {};
+  const comments = typeof extraction.comments === 'string' ? {} : (extraction.comments || {});
 
   const result: ExtractedClaimData = {
     // Claim Information
@@ -315,9 +502,6 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
     // Deductibles
     policyDeductible: ded.policyDeductible || ded.policy || undefined,
     windHailDeductible: ded.windHailDeductible || ded.windHail || undefined,
-
-    // Comments
-    reportedBy: comments.reportedBy || undefined,
 
     // Coverages
     coverages: extraction.coverages?.map((cov: any, index: number) => ({
@@ -360,7 +544,12 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
  * Transform OpenAI response to flat ExtractedClaimData
  */
 export function transformOpenAIResponse(response: any): ExtractedClaimData {
-  // New prompt structure: claim/loss/insured/etc at root level
+  // New expanded prompt structure: claimInformation/propertyAddress/insuredInformation/etc
+  if (response.claimInformation || response.insuredInformation || response.propertyDamageDetails || response.policyDetails) {
+    return transformFNOLExtractionToFlat(response as FNOLClaimExtraction);
+  }
+  
+  // Legacy prompt structure: claim/loss/insured/etc at root level
   if (response.claim || response.loss || response.insured || response.propertyDamage || response.policy) {
     return transformFNOLExtractionToFlat(response as FNOLClaimExtraction);
   }
@@ -781,47 +970,68 @@ Output Rules:
 4. For missing data, set the value to null.
 5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
 6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+7. Address Parsing: Extract property address into separate components (street, city, state, zip).
 
 JSON Template:
 {
   "claims": [
     {
       "claimInformation": {
-        "claimNumber": "STRING",
+        "claimNumber": "STRING - Full claim number including any CAT/PCS designations",
         "dateOfLoss": "STRING",
         "claimStatus": "STRING",
         "operatingCompany": "STRING",
         "causeOfLoss": "STRING",
-        "riskLocation": "STRING",
         "lossDescription": "STRING",
         "droneEligibleAtFNOL": "STRING"
       },
+      "propertyAddress": {
+        "streetAddress": "STRING - Street number and name",
+        "city": "STRING - City name",
+        "state": "STRING - State abbreviation",
+        "zipCode": "STRING - ZIP code",
+        "fullAddress": "STRING - Complete formatted address"
+      },
       "insuredInformation": {
         "policyholderName1": "STRING",
+        "policyholderAddress1": { "streetAddress": "STRING", "city": "STRING", "state": "STRING", "zipCode": "STRING" },
         "policyholderName2": "STRING",
+        "policyholderAddress2": { "streetAddress": "STRING", "city": "STRING", "state": "STRING", "zipCode": "STRING" },
+        "contactPhone": "STRING",
         "contactMobilePhone": "STRING",
-        "contactEmail": "STRING"
+        "contactEmail": "STRING",
+        "reportedBy": "STRING",
+        "reportedByPhone": "STRING",
+        "reportedDate": "STRING"
       },
       "propertyDamageDetails": {
-        "yearBuilt": "STRING (YYYY)",
-        "yearRoofInstall": "STRING (YYYY)",
+        "dwellingDamageDescription": "STRING",
         "roofDamageReported": "STRING",
-        "numberOfStories": "STRING"
+        "damagesLocation": "STRING",
+        "numberOfStories": "STRING",
+        "woodRoof": "STRING",
+        "yearBuilt": "STRING",
+        "yearRoofInstall": "STRING"
       },
       "policyDetails": {
         "policyNumber": "STRING",
-        "inceptionDate": "STRING (MM/DD/YYYY)",
-        "producer": "STRING",
+        "policyStatus": "STRING",
+        "policyType": "STRING",
+        "inceptionDate": "STRING",
+        "producer": { "name": "STRING", "address": "STRING", "phone": "STRING", "email": "STRING" },
+        "legalDescription": "STRING",
         "thirdPartyInterest": "STRING",
-        "deductibles": {
-          "policyDeductible": "STRING",
-          "windHailDeductible": "STRING"
-        }
+        "lineOfBusiness": "STRING",
+        "deductibles": { "policyDeductible": "STRING", "windHailDeductible": "STRING" }
       },
       "coverages": [
-        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
+        { "coverageName": "STRING", "coverageCode": "STRING", "limit": "STRING", "limitPercentage": "STRING", "valuationMethod": "STRING", "terms": "STRING" }
       ],
-      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
+      "endorsementsListed": [
+        { "formNumber": "STRING", "title": "STRING", "notes": "STRING" }
+      ],
+      "assignment": { "enteredBy": "STRING", "enteredDate": "STRING" },
+      "comments": "STRING"
     }
   ]
 }`;

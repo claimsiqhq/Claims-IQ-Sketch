@@ -16,54 +16,107 @@ Output Rules:
 4. For missing data, set the value to null.
 5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
 6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+7. Address Parsing: Extract property address into separate components (street, city, state, zip).
 
 JSON Template:
 {
   "claims": [
     {
       "claimInformation": {
-        "claimNumber": "STRING",
-        "dateOfLoss": "STRING",
-        "claimStatus": "STRING",
-        "operatingCompany": "STRING",
-        "causeOfLoss": "STRING",
-        "riskLocation": "STRING",
-        "lossDescription": "STRING",
-        "droneEligibleAtFNOL": "STRING"
+        "claimNumber": "STRING - Full claim number including any CAT/PCS designations",
+        "dateOfLoss": "STRING - Date and time of loss in MM/DD/YYYY@HH:MM AM/PM format",
+        "claimStatus": "STRING - Open, Closed, etc.",
+        "operatingCompany": "STRING - Insurance company name (e.g., American Family Insurance)",
+        "causeOfLoss": "STRING - Primary cause (Hail, Wind, Fire, Water, etc.)",
+        "lossDescription": "STRING - Full description of loss/damage",
+        "droneEligibleAtFNOL": "STRING - Yes/No"
+      },
+      "propertyAddress": {
+        "streetAddress": "STRING - Street number and name (e.g., 897 E DIABERLVILLE St)",
+        "city": "STRING - City name (e.g., Dodgeville)",
+        "state": "STRING - State abbreviation (e.g., WI)",
+        "zipCode": "STRING - ZIP code with extension if available (e.g., 53533-1427)",
+        "fullAddress": "STRING - Complete formatted address"
       },
       "insuredInformation": {
-        "policyholderName1": "STRING",
-        "policyholderName2": "STRING",
-        "contactMobilePhone": "STRING",
-        "contactEmail": "STRING"
+        "policyholderName1": "STRING - Primary policyholder full name",
+        "policyholderAddress1": {
+          "streetAddress": "STRING",
+          "city": "STRING",
+          "state": "STRING",
+          "zipCode": "STRING"
+        },
+        "policyholderName2": "STRING - Secondary policyholder full name if any",
+        "policyholderAddress2": {
+          "streetAddress": "STRING",
+          "city": "STRING",
+          "state": "STRING",
+          "zipCode": "STRING"
+        },
+        "contactPhone": "STRING - Contact phone number",
+        "contactMobilePhone": "STRING - Mobile phone if specified",
+        "contactEmail": "STRING - Email address",
+        "reportedBy": "STRING - Name of person who reported the claim",
+        "reportedByPhone": "STRING - Phone of person who reported",
+        "reportedDate": "STRING - Date claim was reported in MM/DD/YYYY format"
       },
       "propertyDamageDetails": {
-        "yearBuilt": "STRING (YYYY)",
-        "yearRoofInstall": "STRING (YYYY)",
-        "roofDamageReported": "STRING",
-        "numberOfStories": "STRING"
+        "dwellingDamageDescription": "STRING - Description of dwelling damage",
+        "roofDamageReported": "STRING - Yes/No and type (Exterior Only, Interior, Both)",
+        "damagesLocation": "STRING - Exterior, Interior, Both",
+        "numberOfStories": "STRING - Number of stories",
+        "woodRoof": "STRING - Yes/No",
+        "yearBuilt": "STRING - Year property was built (YYYY or MM-DD-YYYY)",
+        "yearRoofInstall": "STRING - Year roof was installed (YYYY or MM-DD-YYYY)"
       },
       "policyDetails": {
-        "policyNumber": "STRING",
-        "inceptionDate": "STRING (MM/DD/YYYY)",
-        "producer": "STRING",
-        "thirdPartyInterest": "STRING",
+        "policyNumber": "STRING - Full policy number",
+        "policyStatus": "STRING - In force, Cancelled, etc.",
+        "policyType": "STRING - Homeowners, Renters, etc.",
+        "inceptionDate": "STRING - Policy inception date (MM/DD/YYYY)",
+        "producer": {
+          "name": "STRING - Producer/agent name",
+          "address": "STRING - Producer address",
+          "phone": "STRING - Producer phone",
+          "email": "STRING - Producer email"
+        },
+        "legalDescription": "STRING - Legal description if any",
+        "thirdPartyInterest": "STRING - Mortgagee or lienholder information",
+        "lineOfBusiness": "STRING - Homeowners Line, etc.",
         "deductibles": {
-          "policyDeductible": "STRING",
-          "windHailDeductible": "STRING"
+          "policyDeductible": "STRING - Amount and percentage (e.g., $2,348 0%)",
+          "windHailDeductible": "STRING - Amount and percentage (e.g., $4,696 1%)"
         }
       },
       "coverages": [
-        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
+        {
+          "coverageName": "STRING - Coverage name (e.g., Coverage A - Dwelling)",
+          "coverageCode": "STRING - Coverage letter/code if any",
+          "limit": "STRING - Coverage limit amount",
+          "limitPercentage": "STRING - Percentage of dwelling if applicable",
+          "valuationMethod": "STRING - Replacement Cost, ACV, etc.",
+          "terms": "STRING - Additional coverage terms"
+        }
       ],
-      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
+      "endorsementsListed": [
+        {
+          "formNumber": "STRING - Endorsement form number (e.g., HO 04 16)",
+          "title": "STRING - Endorsement title/description",
+          "notes": "STRING - Any special notes (e.g., Please review policy system)"
+        }
+      ],
+      "assignment": {
+        "enteredBy": "STRING - Who entered the claim",
+        "enteredDate": "STRING - Date entered in MM/DD/YYYY format"
+      },
+      "comments": "STRING - Any additional comments"
     }
   ]
 }
 
 ADDITIONALLY: Include a "pageText" field at the root level containing the complete verbatim text from this page, preserving the original layout as much as possible.$SYSTEM$,
 'This is page {{pageNum}} of {{totalPages}} of a FNOL document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.',
-'gpt-4o', 0.10, 4000, 'json_object',
+'gpt-4o', 0.10, 6000, 'json_object',
 'Extracts structured insurance data from First Notice of Loss (FNOL) documents using GPT-4 Vision');
 
 -- Document Extraction - Policy (HO Form Structure)
