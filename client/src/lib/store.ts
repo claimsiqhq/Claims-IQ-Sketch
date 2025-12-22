@@ -22,8 +22,15 @@ interface EstimateSettings {
   profitPct: number;
 }
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+}
+
 // Mock user for fallback when authUser is null
-const DEFAULT_USER = {
+const DEFAULT_USER: User = {
   id: 'default',
   name: 'Guest User',
   email: '',
@@ -37,8 +44,8 @@ interface StoreState {
   isAuthLoading: boolean;
   authError: string | null;
 
-  // Derived user object (for UI that expects a user object)
-  user: { id: string; name: string; email: string; avatar: string };
+  // User object for backward compatibility and UI components
+  user: User;
 
   claims: Claim[];
   activeClaim: Claim | null;
@@ -56,6 +63,7 @@ interface StoreState {
   logout: () => Promise<void>;
   checkAuth: () => Promise<boolean>;
   clearAuthError: () => void;
+  updateAuthUser: (updates: Partial<AuthUser>) => void;
 
   // Actions
   setActiveClaim: (claimId: string | null) => void;
@@ -183,6 +191,21 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   clearAuthError: () => set({ authError: null }),
+
+  updateAuthUser: (updates) => set((state) => {
+    if (!state.authUser) return state;
+    const updatedAuthUser = { ...state.authUser, ...updates };
+    const displayName = [updatedAuthUser.firstName, updatedAuthUser.lastName].filter(Boolean).join(' ') || updatedAuthUser.username;
+    return {
+      authUser: updatedAuthUser,
+      user: {
+        id: updatedAuthUser.id,
+        name: displayName,
+        email: updatedAuthUser.email || '',
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`,
+      },
+    };
+  }),
 
   setActiveClaim: (claimId) => set((state) => ({
     activeClaim: claimId ? state.claims.find((c) => c.id === claimId) || null : null,

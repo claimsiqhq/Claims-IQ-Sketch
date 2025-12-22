@@ -127,9 +127,10 @@ export default function Settings() {
   
   const authUser = useStore((state) => state.authUser);
   const user = useStore((state) => state.user);
+  const updateAuthUser = useStore((state) => state.updateAuthUser);
   
-  const displayName = authUser?.username || user?.name || 'User';
-  const displayEmail = user?.email || authUser?.email || '';
+  const displayName = [authUser?.firstName, authUser?.lastName].filter(Boolean).join(' ') || authUser?.username || user?.name || 'User';
+  const displayEmail = authUser?.email || user?.email || '';
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
   const [activeTab, setActiveTab] = useState(tabFromUrl || "profile");
@@ -176,6 +177,14 @@ export default function Settings() {
   const [approvalThreshold, setApprovalThreshold] = useState(10000);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+
+  useEffect(() => {
+    setProfileData(prev => ({
+      ...prev,
+      displayName: displayName,
+      email: displayEmail,
+    }));
+  }, [displayName, displayEmail]);
 
   const runHomeDepotScraper = async () => {
     setIsScrapingHomeDepot(true);
@@ -373,6 +382,13 @@ export default function Settings() {
         displayName: profileData.displayName,
         email: profileData.email,
       });
+      if (result.user) {
+        updateAuthUser({
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+          email: result.user.email,
+        });
+      }
       toast({
         title: "Profile Saved",
         description: result.message || "Your profile has been updated.",

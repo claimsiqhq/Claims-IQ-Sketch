@@ -117,6 +117,9 @@ interface GeometryEngineState {
 
   // Load from existing claim data
   loadFromClaimData: (structures: Structure[], rooms: RoomGeometry[]) => void;
+
+  // Load existing rooms (for editing saved sketches)
+  loadRooms: (rooms: RoomGeometry[]) => void;
 }
 
 const initialSessionState: VoiceSessionState = {
@@ -1422,6 +1425,20 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
         timestamp: new Date().toISOString(),
         result: `Loaded ${structures.length} structure(s) and ${rooms.length} room(s) from saved claim`,
       }],
+      undoStack: [],
+      transcript: [],
+      sessionState: initialSessionState,
+    });
+  },
+
+  loadRooms: (rooms: RoomGeometry[]) => {
+    set({
+      structures: [],
+      currentStructure: null,
+      currentRoom: null,
+      rooms: rooms,
+      photos: [],
+      commandHistory: [],
       undoStack: [],
       transcript: [],
       sessionState: initialSessionState,

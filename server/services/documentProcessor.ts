@@ -95,10 +95,19 @@ export interface ExtractedClaimData {
   policyholderSecondary?: string; // Second named insured
   contactPhone?: string;
   contactEmail?: string;
+  insuredAddress?: string; // Full insured address
+  policyholderAddress?: string; // Primary policyholder mailing address
+
+  // Property address (separate from insured address) - expanded for better parsing
+  propertyAddress?: string;
+  propertyStreetAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZipCode?: string;
 
   // Loss details
   dateOfLoss?: string; // Format: "MM/DD/YYYY@HH:MM AM/PM"
-  riskLocation?: string; // Full property address string
+  riskLocation?: string; // Full property address string (legacy)
   causeOfLoss?: string; // Hail, Fire, Water, Wind, etc.
   lossDescription?: string;
   dwellingDamageDescription?: string;
@@ -164,6 +173,10 @@ export interface ExtractedClaimData {
   droneEligible?: boolean;
   droneEligibleAtFNOL?: string; // New field for drone eligibility at FNOL
 
+  // Weather and alerts
+  weatherData?: string;
+  endorsementAlert?: string;
+
   // Legacy policyDetails for backward compatibility
   policyDetails?: {
     policyNumber?: string;
@@ -198,107 +211,323 @@ export interface ExtractedClaimData {
   claims?: FNOLClaimExtraction[];
 }
 
-// New interface for FNOL claim extraction with nested structure
+// Address component structure
+export interface AddressComponents {
+  streetAddress?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  fullAddress?: string;
+}
+
+// FNOL claim extraction structure - matches updated prompt format
 export interface FNOLClaimExtraction {
+  // New expanded structure from updated prompt
   claimInformation?: {
     claimNumber?: string;
     dateOfLoss?: string;
     claimStatus?: string;
     operatingCompany?: string;
     causeOfLoss?: string;
-    riskLocation?: string;
     lossDescription?: string;
     droneEligibleAtFNOL?: string;
   };
+  propertyAddress?: AddressComponents;
   insuredInformation?: {
     policyholderName1?: string;
+    policyholderAddress1?: AddressComponents;
     policyholderName2?: string;
+    policyholderAddress2?: AddressComponents;
+    contactPhone?: string;
     contactMobilePhone?: string;
     contactEmail?: string;
+    reportedBy?: string;
+    reportedByPhone?: string;
+    reportedDate?: string;
   };
   propertyDamageDetails?: {
+    dwellingDamageDescription?: string;
+    roofDamageReported?: string;
+    damagesLocation?: string;
+    numberOfStories?: string;
+    woodRoof?: string;
     yearBuilt?: string;
     yearRoofInstall?: string;
-    roofDamageReported?: string;
-    numberOfStories?: string;
   };
   policyDetails?: {
     policyNumber?: string;
+    policyStatus?: string;
+    policyType?: string;
     inceptionDate?: string;
-    producer?: string;
+    producer?: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      email?: string;
+    };
+    legalDescription?: string;
     thirdPartyInterest?: string;
+    lineOfBusiness?: string;
     deductibles?: {
       policyDeductible?: string;
       windHailDeductible?: string;
     };
   };
-  coverages?: {
+  coverages?: Array<{
     coverageName?: string;
+    coverageCode?: string;
     limit?: string;
+    limitPercentage?: string;
     valuationMethod?: string;
-  }[];
-  endorsementsListed?: string[];
+    terms?: string;
+  }>;
+  endorsementsListed?: Array<{
+    formNumber?: string;
+    title?: string;
+    notes?: string;
+  } | string>;
+  assignment?: {
+    enteredBy?: string;
+    enteredDate?: string;
+  };
+  comments?: string;
+
+  // Legacy structure support (for backward compatibility with old extractions)
+  claim?: {
+    claimNumber?: string;
+    endorsementAlert?: string;
+    dateOfLoss?: string;
+    policyNumber?: string;
+    policyholders?: string;
+    status?: string;
+    operatingCompany?: string;
+  };
+  loss?: {
+    cause?: string;
+    location?: string;
+    description?: string;
+    weatherData?: string;
+    droneEligible?: string;
+  };
+  insured?: {
+    name1?: string;
+    name2?: string;
+    address?: string;
+    mobilePhone?: string;
+    primaryPhoneType?: string;
+    email?: string;
+  };
+  propertyDamage?: {
+    dwellingDamages?: string;
+    roofDamage?: string;
+    damages?: string;
+    woodRoof?: string;
+    roofInstallYear?: string;
+    yearBuilt?: string;
+  };
+  policy?: {
+    producer?: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      email?: string;
+    };
+    propertyAddress?: string;
+    type?: string;
+    status?: string;
+    inceptionDate?: string;
+    legalDescription?: string;
+    thirdPartyInterest?: string;
+  };
+  deductibles?: Record<string, string>;
+  endorsements?: any[];
 }
 
 /**
- * Transform the new nested FNOL extraction format to the flat ExtractedClaimData format
- * This ensures backward compatibility with existing code
+ * Transform FNOL extraction to flat ExtractedClaimData format
+ * Supports both the new expanded structure and legacy structure
  */
 export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): ExtractedClaimData {
-  const ci = extraction.claimInformation || {};
-  const ii = extraction.insuredInformation || {};
-  const pd = extraction.propertyDamageDetails || {};
-  const pol = extraction.policyDetails || {};
-  const ded = pol.deductibles || {};
+  // Check if this is the new expanded format or legacy format
+  const isNewFormat = !!(extraction.claimInformation || extraction.insuredInformation || extraction.propertyDamageDetails || extraction.policyDetails);
+  
+  if (isNewFormat) {
+    // New expanded format
+    const claimInfo = extraction.claimInformation || {};
+    const propAddr = extraction.propertyAddress || {};
+    const insuredInfo = extraction.insuredInformation || {};
+    const propDmg = extraction.propertyDamageDetails || {};
+    const polDetails = extraction.policyDetails || {};
+    const ded = polDetails.deductibles || {};
+    const assign = extraction.assignment || {};
+
+    const result: ExtractedClaimData = {
+      // Claim Information
+      claimId: claimInfo.claimNumber || undefined,
+      dateOfLoss: claimInfo.dateOfLoss || undefined,
+      claimStatus: claimInfo.claimStatus || undefined,
+      carrier: claimInfo.operatingCompany || undefined,
+      causeOfLoss: claimInfo.causeOfLoss || undefined,
+      lossDescription: claimInfo.lossDescription || undefined,
+      droneEligibleAtFNOL: claimInfo.droneEligibleAtFNOL || undefined,
+
+      // Property Address (expanded)
+      propertyAddress: propAddr.fullAddress || undefined,
+      propertyStreetAddress: propAddr.streetAddress || undefined,
+      propertyCity: propAddr.city || undefined,
+      propertyState: propAddr.state || undefined,
+      propertyZipCode: propAddr.zipCode || undefined,
+      state: propAddr.state || undefined, // Also set top-level state
+
+      // Insured Information
+      policyholder: insuredInfo.policyholderName1 || undefined,
+      policyholderSecondary: insuredInfo.policyholderName2 || undefined,
+      contactPhone: insuredInfo.contactPhone || insuredInfo.contactMobilePhone || undefined,
+      contactEmail: insuredInfo.contactEmail || undefined,
+      insuredAddress: insuredInfo.policyholderAddress1?.fullAddress || 
+        (insuredInfo.policyholderAddress1 ? 
+          `${insuredInfo.policyholderAddress1.streetAddress || ''}, ${insuredInfo.policyholderAddress1.city || ''}, ${insuredInfo.policyholderAddress1.state || ''} ${insuredInfo.policyholderAddress1.zipCode || ''}`.trim() : 
+          undefined),
+      reportedBy: insuredInfo.reportedBy || undefined,
+
+      // Property Damage Details
+      yearBuilt: propDmg.yearBuilt || undefined,
+      yearRoofInstall: propDmg.yearRoofInstall || undefined,
+      roofDamageReported: propDmg.roofDamageReported || undefined,
+      numberOfStories: propDmg.numberOfStories || undefined,
+      isWoodRoof: propDmg.woodRoof ? (propDmg.woodRoof.toLowerCase() === 'yes' || propDmg.woodRoof.toLowerCase() === 'true') : undefined,
+      dwellingDamageDescription: propDmg.dwellingDamageDescription || undefined,
+      damageLocation: propDmg.damagesLocation || undefined,
+
+      // Policy Details
+      policyNumber: polDetails.policyNumber || undefined,
+      policyStatus: polDetails.policyStatus || undefined,
+      policyInceptionDate: polDetails.inceptionDate || undefined,
+      lineOfBusiness: polDetails.lineOfBusiness || polDetails.policyType || undefined,
+      producer: polDetails.producer?.name || undefined,
+      producerPhone: polDetails.producer?.phone || undefined,
+      producerEmail: polDetails.producer?.email || undefined,
+      thirdPartyInterest: polDetails.thirdPartyInterest || undefined,
+      mortgagee: polDetails.thirdPartyInterest || undefined,
+
+      // Deductibles
+      policyDeductible: ded.policyDeductible || undefined,
+      windHailDeductible: ded.windHailDeductible || undefined,
+
+      // Coverages
+      coverages: extraction.coverages?.map((cov, index) => ({
+        code: cov.coverageCode || String.fromCharCode(65 + index),
+        name: cov.coverageName || `Coverage ${String.fromCharCode(65 + index)}`,
+        limit: cov.limit || undefined,
+        valuationMethod: cov.valuationMethod || undefined,
+        percentage: cov.limitPercentage || undefined,
+      })) || undefined,
+
+      // Extract dwelling limit from coverages
+      dwellingLimit: extraction.coverages?.find(c =>
+        (c.coverageName || '').toLowerCase().includes('dwelling') ||
+        (c.coverageName || '').toLowerCase().includes('coverage a')
+      )?.limit || undefined,
+
+      // Endorsements (handle both object and string formats)
+      endorsementsListed: extraction.endorsementsListed?.map(e => 
+        typeof e === 'string' ? e : (e.formNumber || e.title || '')
+      ).filter(Boolean) || undefined,
+      
+      endorsementDetails: extraction.endorsementsListed?.filter(e => typeof e !== 'string').map(e => {
+        if (typeof e === 'string') return { formNumber: e };
+        return {
+          formNumber: e.formNumber || '',
+          name: e.title,
+          additionalInfo: e.notes,
+        };
+      }) || undefined,
+    };
+
+    // Remove undefined values
+    Object.keys(result).forEach(key => {
+      if ((result as any)[key] === undefined) {
+        delete (result as any)[key];
+      }
+    });
+
+    return result;
+  }
+
+  // Legacy format handling
+  const cl = extraction.claim || {};
+  const loss = extraction.loss || {};
+  const ins = extraction.insured || {};
+  const propDmg = extraction.propertyDamage || {};
+  const pol = extraction.policy || {};
+  const ded = extraction.deductibles || {};
+  const comments = typeof extraction.comments === 'string' ? {} : (extraction.comments || {});
 
   const result: ExtractedClaimData = {
     // Claim Information
-    claimId: ci.claimNumber || undefined,
-    dateOfLoss: ci.dateOfLoss || undefined,
-    claimStatus: ci.claimStatus || undefined,
-    carrier: ci.operatingCompany || undefined,
-    causeOfLoss: ci.causeOfLoss || undefined,
-    riskLocation: ci.riskLocation || undefined,
-    lossDescription: ci.lossDescription || undefined,
-    droneEligibleAtFNOL: ci.droneEligibleAtFNOL || undefined,
+    claimId: cl.claimNumber || undefined,
+    dateOfLoss: cl.dateOfLoss || undefined,
+    claimStatus: cl.status || undefined,
+    carrier: cl.operatingCompany || undefined,
+    causeOfLoss: loss.cause || undefined,
+    riskLocation: loss.location || undefined,
+    lossDescription: loss.description || undefined,
+    droneEligibleAtFNOL: loss.droneEligible || undefined,
 
     // Insured Information
-    policyholder: ii.policyholderName1 || undefined,
-    policyholderSecondary: ii.policyholderName2 || undefined,
-    contactPhone: ii.contactMobilePhone || undefined,
-    contactEmail: ii.contactEmail || undefined,
+    policyholder: ins.name1 || cl.policyholders || undefined,
+    policyholderSecondary: ins.name2 || undefined,
+    contactPhone: ins.mobilePhone || undefined,
+    contactEmail: ins.email || undefined,
+    insuredAddress: ins.address || undefined,
 
     // Property Damage Details
-    yearBuilt: pd.yearBuilt || undefined,
-    yearRoofInstall: pd.yearRoofInstall || undefined,
-    roofDamageReported: pd.roofDamageReported || undefined,
-    numberOfStories: pd.numberOfStories || undefined,
+    yearBuilt: propDmg.yearBuilt || undefined,
+    yearRoofInstall: propDmg.roofInstallYear || undefined,
+    roofDamageReported: propDmg.roofDamage || undefined,
+    isWoodRoof: propDmg.woodRoof ? (propDmg.woodRoof.toLowerCase() === 'yes' || propDmg.woodRoof.toLowerCase() === 'true') : undefined,
+    dwellingDamageDescription: propDmg.dwellingDamages || propDmg.damages || undefined,
 
     // Policy Details
-    policyNumber: pol.policyNumber || undefined,
+    policyNumber: cl.policyNumber || undefined,
     policyInceptionDate: pol.inceptionDate || undefined,
-    producer: pol.producer || undefined,
+    producer: pol.producer?.name || undefined,
+    producerPhone: pol.producer?.phone || undefined,
+    producerEmail: pol.producer?.email || undefined,
     thirdPartyInterest: pol.thirdPartyInterest || undefined,
-    mortgagee: pol.thirdPartyInterest || undefined, // Map thirdPartyInterest to mortgagee for backward compatibility
-    policyDeductible: ded.policyDeductible || undefined,
-    windHailDeductible: ded.windHailDeductible || undefined,
+    mortgagee: pol.thirdPartyInterest || undefined,
+    propertyAddress: pol.propertyAddress || undefined,
+    lineOfBusiness: pol.type || undefined,
 
-    // Coverages - transform from new format to existing CoverageDetail format
-    coverages: extraction.coverages?.map((cov, index) => ({
-      code: String.fromCharCode(65 + index), // A, B, C, etc.
-      name: cov.coverageName || `Coverage ${String.fromCharCode(65 + index)}`,
+    // Deductibles
+    policyDeductible: ded.policyDeductible || ded.policy || undefined,
+    windHailDeductible: ded.windHailDeductible || ded.windHail || undefined,
+
+    // Coverages
+    coverages: extraction.coverages?.map((cov: any, index: number) => ({
+      code: cov.code || String.fromCharCode(65 + index),
+      name: cov.name || cov.coverageName || `Coverage ${String.fromCharCode(65 + index)}`,
       limit: cov.limit || undefined,
       valuationMethod: cov.valuationMethod || undefined,
+      percentage: cov.percentage || undefined,
     })) || undefined,
 
-    // Extract dwelling limit from coverages if available
-    dwellingLimit: extraction.coverages?.find(c =>
-      c.coverageName?.toLowerCase().includes('dwelling') ||
-      c.coverageName?.toLowerCase().includes('coverage a')
+    // Extract dwelling limit from coverages
+    dwellingLimit: extraction.coverages?.find((c: any) =>
+      (c.name || c.coverageName || '').toLowerCase().includes('dwelling') ||
+      (c.name || c.coverageName || '').toLowerCase().includes('coverage a')
     )?.limit || undefined,
 
     // Endorsements
-    endorsementsListed: extraction.endorsementsListed || undefined,
+    endorsementsListed: extraction.endorsements?.map((e: any) => 
+      typeof e === 'string' ? e : (e.formNumber || e.name || JSON.stringify(e))
+    ) || undefined,
+
+    // Weather data
+    weatherData: loss.weatherData || undefined,
+
+    // Endorsement alert
+    endorsementAlert: cl.endorsementAlert || undefined,
   };
 
   // Remove undefined values
@@ -312,31 +541,149 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
 }
 
 /**
- * Transform OpenAI response that may contain the new nested claims array format
- * Returns a flat ExtractedClaimData, merging all claims if multiple are present
+ * Transform endorsement extraction to flat ExtractedClaimData
  */
-export function transformOpenAIResponse(response: any): ExtractedClaimData {
-  // If response has the new claims array structure
-  if (response.claims && Array.isArray(response.claims) && response.claims.length > 0) {
-    // Transform each claim and merge them
-    const flatClaims = response.claims.map((claim: FNOLClaimExtraction) =>
-      transformFNOLExtractionToFlat(claim)
-    );
+function transformEndorsementExtractionToFlat(response: any): ExtractedClaimData {
+  const result: ExtractedClaimData = {
+    policyNumber: response.policyNumber || undefined,
+    endorsementsListed: response.endorsementsListed || [],
+    endorsementDetails: [],
+  };
 
-    const merged = mergeExtractedData(...flatClaims);
-
-    // Preserve pageText if present at root level
-    if (response.pageText) {
-      merged.rawText = response.pageText;
+  // Map endorsements array to endorsementDetails
+  if (response.endorsements && Array.isArray(response.endorsements)) {
+    result.endorsementDetails = response.endorsements.map((e: any) => ({
+      formNumber: e.formNumber || '',
+      name: e.documentTitle || e.name || e.title || '',
+      documentTitle: e.documentTitle || e.title || '',
+      description: e.description || '',
+      appliesToState: e.appliesToState || undefined,
+      keyAmendments: e.keyAmendments || [],
+      additionalInfo: e.additionalInfo || e.notes || '',
+    }));
+    
+    // Also populate endorsementsListed from endorsements if not already set
+    if (!result.endorsementsListed || result.endorsementsListed.length === 0) {
+      result.endorsementsListed = response.endorsements
+        .map((e: any) => e.formNumber)
+        .filter(Boolean);
     }
-
-    // Also store the original claims array for reference
-    merged.claims = response.claims;
-
-    return merged;
   }
 
-  // Otherwise, return as-is (old format or already flat)
+  // Remove undefined values
+  Object.keys(result).forEach(key => {
+    if ((result as any)[key] === undefined) {
+      delete (result as any)[key];
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Transform policy extraction to flat ExtractedClaimData
+ * Preserves all policy form fields including formNumber, documentTitle, baseStructure, etc.
+ */
+function transformPolicyExtractionToFlat(response: any): ExtractedClaimData {
+  const result: ExtractedClaimData = {
+    // Core policyholder info
+    policyholder: response.policyholder || undefined,
+    policyholderSecondary: response.policyholderSecondary || undefined,
+    riskLocation: response.riskLocation || undefined,
+    propertyAddress: response.riskLocation || response.propertyAddress || undefined,
+    policyNumber: response.policyNumber || undefined,
+    state: response.state || undefined,
+    carrier: response.carrier || undefined,
+    yearRoofInstall: response.yearRoofInstall || undefined,
+    policyDeductible: response.policyDeductible || undefined,
+    windHailDeductible: response.windHailDeductible || undefined,
+    dwellingLimit: response.dwellingLimit || undefined,
+    mortgagee: response.mortgagee || undefined,
+    
+    // Coverages
+    coverages: response.coverages?.map((c: any, i: number) => ({
+      code: c.code || String.fromCharCode(65 + i),
+      name: c.name || c.coverageName || '',
+      limit: c.limit || undefined,
+      valuationMethod: c.valuationMethod || undefined,
+    })) || undefined,
+    scheduledStructures: response.scheduledStructures || undefined,
+    
+    // Endorsements
+    endorsementsListed: response.endorsementsListed || [],
+    endorsementDetails: response.endorsementDetails?.map((e: any) => ({
+      formNumber: e.formNumber || '',
+      name: e.name || e.documentTitle || '',
+      documentTitle: e.documentTitle || e.name || '',
+      additionalInfo: e.additionalInfo || '',
+    })) || undefined,
+    
+    // CRITICAL: Policy form structure fields needed for policy_forms upsert
+    documentType: response.documentType || undefined,
+    formNumber: response.formNumber || undefined,
+    documentTitle: response.documentTitle || undefined,
+    baseStructure: response.baseStructure || undefined,
+    defaultPolicyProvisionSummary: response.defaultPolicyProvisionSummary || undefined,
+    
+    // Additional coverage limits if extracted separately
+    otherStructuresLimit: response.otherStructuresLimit || undefined,
+    personalPropertyLimit: response.personalPropertyLimit || undefined,
+    lossOfUseLimit: response.lossOfUseLimit || undefined,
+    liabilityLimit: response.liabilityLimit || undefined,
+    medicalLimit: response.medicalLimit || undefined,
+    unscheduledStructuresLimit: response.unscheduledStructuresLimit || undefined,
+    additionalCoverages: response.additionalCoverages || undefined,
+    
+    // Third party and producer
+    thirdPartyInterest: response.thirdPartyInterest || undefined,
+    producer: response.producer || undefined,
+    producerPhone: response.producerPhone || undefined,
+    producerEmail: response.producerEmail || undefined,
+    
+    // Deductible details if available as percentages
+    windHailDeductiblePercent: response.windHailDeductiblePercent || undefined,
+    
+    // Raw text if provided
+    rawText: response.rawText || undefined,
+    pageTexts: response.pageTexts || undefined,
+    fullText: response.fullText || undefined,
+  };
+
+  // Remove undefined values
+  Object.keys(result).forEach(key => {
+    if ((result as any)[key] === undefined) {
+      delete (result as any)[key];
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Transform OpenAI response to flat ExtractedClaimData
+ */
+export function transformOpenAIResponse(response: any): ExtractedClaimData {
+  // New expanded prompt structure: claimInformation/propertyAddress/insuredInformation/etc (FNOL)
+  if (response.claimInformation || response.insuredInformation || response.propertyDamageDetails || response.policyDetails) {
+    return transformFNOLExtractionToFlat(response as FNOLClaimExtraction);
+  }
+  
+  // Legacy prompt structure: claim/loss/insured/etc at root level (FNOL)
+  if (response.claim || response.loss || response.insured || response.propertyDamage || response.policy) {
+    return transformFNOLExtractionToFlat(response as FNOLClaimExtraction);
+  }
+
+  // Endorsement document structure: has endorsements array with keyAmendments
+  if (response.endorsements && Array.isArray(response.endorsements)) {
+    return transformEndorsementExtractionToFlat(response);
+  }
+
+  // Policy document structure: has policy-specific fields at root level
+  if (response.policyholder || response.coverages || response.dwellingLimit || response.scheduledStructures) {
+    return transformPolicyExtractionToFlat(response);
+  }
+
+  // Return as-is if already flat
   return response as ExtractedClaimData;
 }
 
@@ -752,47 +1099,68 @@ Output Rules:
 4. For missing data, set the value to null.
 5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
 6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+7. Address Parsing: Extract property address into separate components (street, city, state, zip).
 
 JSON Template:
 {
   "claims": [
     {
       "claimInformation": {
-        "claimNumber": "STRING",
+        "claimNumber": "STRING - Full claim number including any CAT/PCS designations",
         "dateOfLoss": "STRING",
         "claimStatus": "STRING",
         "operatingCompany": "STRING",
         "causeOfLoss": "STRING",
-        "riskLocation": "STRING",
         "lossDescription": "STRING",
         "droneEligibleAtFNOL": "STRING"
       },
+      "propertyAddress": {
+        "streetAddress": "STRING - Street number and name",
+        "city": "STRING - City name",
+        "state": "STRING - State abbreviation",
+        "zipCode": "STRING - ZIP code",
+        "fullAddress": "STRING - Complete formatted address"
+      },
       "insuredInformation": {
         "policyholderName1": "STRING",
+        "policyholderAddress1": { "streetAddress": "STRING", "city": "STRING", "state": "STRING", "zipCode": "STRING" },
         "policyholderName2": "STRING",
+        "policyholderAddress2": { "streetAddress": "STRING", "city": "STRING", "state": "STRING", "zipCode": "STRING" },
+        "contactPhone": "STRING",
         "contactMobilePhone": "STRING",
-        "contactEmail": "STRING"
+        "contactEmail": "STRING",
+        "reportedBy": "STRING",
+        "reportedByPhone": "STRING",
+        "reportedDate": "STRING"
       },
       "propertyDamageDetails": {
-        "yearBuilt": "STRING (YYYY)",
-        "yearRoofInstall": "STRING (YYYY)",
+        "dwellingDamageDescription": "STRING",
         "roofDamageReported": "STRING",
-        "numberOfStories": "STRING"
+        "damagesLocation": "STRING",
+        "numberOfStories": "STRING",
+        "woodRoof": "STRING",
+        "yearBuilt": "STRING",
+        "yearRoofInstall": "STRING"
       },
       "policyDetails": {
         "policyNumber": "STRING",
-        "inceptionDate": "STRING (MM/DD/YYYY)",
-        "producer": "STRING",
+        "policyStatus": "STRING",
+        "policyType": "STRING",
+        "inceptionDate": "STRING",
+        "producer": { "name": "STRING", "address": "STRING", "phone": "STRING", "email": "STRING" },
+        "legalDescription": "STRING",
         "thirdPartyInterest": "STRING",
-        "deductibles": {
-          "policyDeductible": "STRING",
-          "windHailDeductible": "STRING"
-        }
+        "lineOfBusiness": "STRING",
+        "deductibles": { "policyDeductible": "STRING", "windHailDeductible": "STRING" }
       },
       "coverages": [
-        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
+        { "coverageName": "STRING", "coverageCode": "STRING", "limit": "STRING", "limitPercentage": "STRING", "valuationMethod": "STRING", "terms": "STRING" }
       ],
-      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
+      "endorsementsListed": [
+        { "formNumber": "STRING", "title": "STRING", "notes": "STRING" }
+      ],
+      "assignment": { "enteredBy": "STRING", "enteredDate": "STRING" },
+      "comments": "STRING"
     }
   ]
 }`;
@@ -1002,6 +1370,12 @@ export async function createClaimFromDocuments(
       reasoning: perilInference.inferenceReasoning
     });
 
+    // Derive property address from new expanded format or fall back to riskLocation
+    const propertyAddress = claimData.propertyAddress || claimData.propertyStreetAddress || claimData.riskLocation || null;
+    const propertyCity = claimData.propertyCity || null;
+    const propertyState = claimData.propertyState || state || null;
+    const propertyZip = claimData.propertyZipCode || null;
+
     // Create claim with correct database schema columns
     const claimResult = await client.query(
       `INSERT INTO claims (
@@ -1019,10 +1393,10 @@ export async function createClaimFromDocuments(
         generatedClaimId,
         claimData.policyholder || null,
         claimData.dateOfLoss || null,
-        claimData.riskLocation || null,
-        null,
-        state,
-        null,
+        propertyAddress,
+        propertyCity,
+        propertyState,
+        propertyZip,
         claimData.causeOfLoss || null,
         claimData.lossDescription || null,
         policyNumber,
@@ -1038,18 +1412,38 @@ export async function createClaimFromDocuments(
         JSON.stringify({
           extractedFrom: documentIds,
           riskLocation: claimData.riskLocation,
+          propertyAddress: claimData.propertyAddress,
+          propertyStreetAddress: claimData.propertyStreetAddress,
+          propertyCity: claimData.propertyCity,
+          propertyState: claimData.propertyState,
+          propertyZipCode: claimData.propertyZipCode,
           policyholderSecondary: claimData.policyholderSecondary,
           contactPhone: claimData.contactPhone,
           contactEmail: claimData.contactEmail,
           yearBuilt: claimData.yearBuilt,
           carrier: claimData.carrier,
+          claimStatus: claimData.claimStatus,
+          droneEligibleAtFNOL: claimData.droneEligibleAtFNOL,
           lineOfBusiness: claimData.lineOfBusiness,
+          policyInceptionDate: claimData.policyInceptionDate,
+          policyStatus: claimData.policyStatus,
+          policyDeductible: claimData.policyDeductible,
           coverages: claimData.coverages,
           scheduledStructures: claimData.scheduledStructures,
           additionalCoverages: claimData.additionalCoverages,
           endorsementDetails: claimData.endorsementDetails,
           mortgagee: claimData.mortgagee,
+          thirdPartyInterest: claimData.thirdPartyInterest,
           producer: claimData.producer,
+          producerPhone: claimData.producerPhone,
+          producerEmail: claimData.producerEmail,
+          reportedBy: claimData.reportedBy,
+          roofDamageReported: claimData.roofDamageReported,
+          numberOfStories: claimData.numberOfStories,
+          isWoodRoof: claimData.isWoodRoof,
+          dwellingDamageDescription: claimData.dwellingDamageDescription,
+          damageLocation: claimData.damageLocation,
+          insuredAddress: claimData.insuredAddress,
           perilInferenceReasoning: perilInference.inferenceReasoning,
         })
       ]

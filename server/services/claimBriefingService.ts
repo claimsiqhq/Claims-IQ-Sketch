@@ -194,31 +194,67 @@ function buildBriefingPromptWithTemplate(
     const inspectionRules = getInspectionRulesForPeril(context.primaryPeril);
     const mergedGuidance = getMergedInspectionGuidance(context.primaryPeril, context.secondaryPerils);
 
+    // Extract additional property details from context if available
+    const propertyDetails = (context as any).propertyDetails || {};
+    const policyholderInfo = (context as any).policyholderInfo || {};
+    const documentText = (context as any).documentText || '';
+
     const variables = {
+      // Basic claim info
       claimNumber: context.claimNumber,
       primaryPeril: context.primaryPeril,
       secondaryPerils: context.secondaryPerils.join(', ') || 'None',
       dateOfLoss: context.dateOfLoss || 'Unknown',
+      reportDate: (context as any).reportDate || 'Unknown',
       lossDescription: context.lossDescription || 'No description provided',
       propertyLocation: [context.propertyAddress, context.propertyCity, context.propertyState, context.propertyZip].filter(Boolean).join(', ') || 'Unknown',
+
+      // Policyholder information
+      policyholderName: context.policyholderName || policyholderInfo.name || 'Unknown',
+      contactPhone: policyholderInfo.phone || (context as any).contactPhone || 'Not provided',
+      contactEmail: policyholderInfo.email || (context as any).contactEmail || 'Not provided',
+
+      // Policy context
       policyNumber: context.policyContext.policyNumber || 'Unknown',
+      carrier: (context as any).carrier || context.policyContext.carrier || 'Unknown',
       state: context.policyContext.state || 'Unknown',
       dwellingLimit: context.policyContext.dwellingLimit || 'Unknown',
+      otherStructuresLimit: context.policyContext.otherStructuresLimit || 'Unknown',
+      personalPropertyLimit: context.policyContext.personalPropertyLimit || 'Unknown',
+      lossOfUseLimit: context.policyContext.lossOfUseLimit || 'Unknown',
       deductible: context.policyContext.deductible || 'Unknown',
       windHailDeductible: context.policyContext.windHailDeductible || 'Unknown',
+
+      // Property details
+      yearBuilt: propertyDetails.yearBuilt || context.policyContext.yearBuilt || 'Unknown',
       yearRoofInstall: context.policyContext.yearRoofInstall || 'Unknown',
+      roofType: propertyDetails.roofType || context.policyContext.roofType || 'Unknown',
+      constructionType: propertyDetails.constructionType || context.policyContext.constructionType || 'Unknown',
+      stories: propertyDetails.stories || context.policyContext.stories || 'Unknown',
+      squareFootage: propertyDetails.squareFootage || context.policyContext.squareFootage || 'Unknown',
+
+      // Endorsements
       endorsementsListed: context.policyContext.endorsementsListed.join(', ') || 'None',
       endorsementsDetail: context.endorsements.length > 0
         ? context.endorsements.map(e => `- ${e.formNumber}: ${e.documentTitle || 'No title'} - ${e.description || 'No description'}\n  Key Changes: ${JSON.stringify(e.keyChanges)}`).join('\n')
         : 'No endorsements loaded',
+
+      // Damage zones
       damageZones: context.damageZones.length > 0
         ? context.damageZones.map(z => `- ${z.name}: ${z.damageType || 'Unknown damage'} (${z.damageSeverity || 'unknown severity'})\n  Peril: ${z.associatedPeril || 'Unknown'}, Water Category: ${z.waterCategory || 'N/A'}`).join('\n')
         : 'No damage zones defined',
+
+      // Coverage advisories
       coverageAdvisories: context.coverageAdvisories.length > 0
         ? context.coverageAdvisories.map(a => `- [${a.type.toUpperCase()}] ${a.message}`).join('\n')
         : 'No advisories',
+
+      // Inspection guidance
       priorityAreas: mergedGuidance.priorityAreas.slice(0, 5).map(a => a.area).join(', '),
       commonMisses: mergedGuidance.commonMisses.slice(0, 3).map(m => m.issue).join(', '),
+
+      // Document text (for comprehensive analysis)
+      documentText: documentText || 'No document text available',
     };
 
     return substituteVariables(userPromptTemplate, variables);

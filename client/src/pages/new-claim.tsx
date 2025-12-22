@@ -94,6 +94,11 @@ interface ExtractedData {
   contactEmail?: string;
   dateOfLoss?: string;
   riskLocation?: string;
+  propertyAddress?: string;
+  propertyStreetAddress?: string;
+  propertyCity?: string;
+  propertyState?: string;
+  propertyZipCode?: string;
   causeOfLoss?: string;
   lossDescription?: string;
   dwellingDamageDescription?: string;
@@ -1425,7 +1430,7 @@ export default function NewClaim() {
       { label: 'Second Insured', value: data.policyholderSecondary },
       { label: 'Phone', value: data.contactPhone },
       { label: 'Email', value: data.contactEmail },
-      { label: 'Risk Location', value: data.riskLocation },
+      { label: 'Property Address', value: data.propertyAddress || data.riskLocation },
     ].filter(f => f.value) : [];
 
     // Policy info
@@ -2154,9 +2159,9 @@ export default function NewClaim() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="riskLocation">Risk Location</Label>
+                  <Label htmlFor="propertyAddress">Property Address</Label>
                   <Input
-                    id="riskLocation"
+                    id="propertyAddress"
                     placeholder="123 Main St, City, ST 12345"
                     value={claimData.riskLocation || ''}
                     onChange={(e) => setClaimData({ ...claimData, riskLocation: e.target.value })}

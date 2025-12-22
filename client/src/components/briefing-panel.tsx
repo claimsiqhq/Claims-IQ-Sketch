@@ -312,21 +312,28 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
                 badgeCount={content.endorsement_watchouts.length}
               >
                 <div className="space-y-3">
-                  {content.endorsement_watchouts.map((watchout, i) => (
-                    <div key={i} className="border rounded p-3 bg-muted/30">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="outline" className="font-mono text-xs">
-                          {watchout.endorsement_id}
-                        </Badge>
+                  {content.endorsement_watchouts.map((watchout: any, i) => {
+                    const endorsementId = watchout.endorsement_id || watchout.endorsement || 'Unknown';
+                    const impact = watchout.impact || watchout.description || '';
+                    const implications = watchout.inspection_implications || [];
+                    return (
+                      <div key={i} className="border rounded p-3 bg-muted/30">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge variant="outline" className="font-mono text-xs">
+                            {endorsementId}
+                          </Badge>
+                        </div>
+                        {impact && <p className="text-sm font-medium mb-1">{impact}</p>}
+                        {Array.isArray(implications) && implications.length > 0 && (
+                          <ul className="list-disc list-inside text-sm text-muted-foreground">
+                            {implications.map((impl: string, j: number) => (
+                              <li key={j}>{impl}</li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
-                      <p className="text-sm font-medium mb-1">{watchout.impact}</p>
-                      <ul className="list-disc list-inside text-sm text-muted-foreground">
-                        {watchout.inspection_implications.map((impl, j) => (
-                          <li key={j}>{impl}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CollapsibleSection>
             )}
@@ -339,16 +346,23 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               onToggle={() => toggleSection('photos')}
             >
               <div className="space-y-3">
-                {content.photo_requirements.map((req, i) => (
-                  <div key={i}>
-                    <h5 className="text-sm font-medium mb-1">{req.category}</h5>
-                    <ul className="list-disc list-inside text-sm text-muted-foreground">
-                      {req.items.map((item, j) => (
-                        <li key={j}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+                {content.photo_requirements.map((req: any, i: number) => {
+                  if (typeof req === 'string') {
+                    return <li key={i} className="text-sm list-disc list-inside">{req}</li>;
+                  }
+                  return (
+                    <div key={i}>
+                      <h5 className="text-sm font-medium mb-1">{req.category}</h5>
+                      {Array.isArray(req.items) && (
+                        <ul className="list-disc list-inside text-sm text-muted-foreground">
+                          {req.items.map((item: string, j: number) => (
+                            <li key={j}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </CollapsibleSection>
 

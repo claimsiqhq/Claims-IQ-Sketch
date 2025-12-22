@@ -104,7 +104,7 @@ import { formatDistanceToNow } from "date-fns";
 
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
-import { saveClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
+import { saveClaimRooms, getClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
 import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
@@ -149,6 +149,8 @@ export default function ClaimDetail() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [endorsements, setEndorsements] = useState<Endorsement[]>([]);
   const [scopeItems, setScopeItems] = useState<ScopeItem[]>([]);
+  const [savedRooms, setSavedRooms] = useState<ClaimRoom[]>([]);
+  const [savedDamageZones, setSavedDamageZones] = useState<ClaimDamageZone[]>([]);
   const [loadingApiData, setLoadingApiData] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
@@ -232,16 +234,19 @@ export default function ClaimDetail() {
     setApiError(null);
 
     try {
-      const [claimData, docsData, endorsementsData, scopeData] = await Promise.all([
+      const [claimData, docsData, endorsementsData, scopeData, roomsData] = await Promise.all([
         getClaim(params.id),
         getClaimDocuments(params.id),
         getClaimEndorsements(params.id).catch(() => []), // Don't fail if endorsements fail
-        getScopeItems(params.id).catch(() => []) // Don't fail if scope items fail
+        getScopeItems(params.id).catch(() => []), // Don't fail if scope items fail
+        getClaimRooms(params.id).catch(() => ({ rooms: [], damageZones: [] })) // Don't fail if rooms fail
       ]);
       setApiClaim(claimData);
       setDocuments(docsData);
       setEndorsements(endorsementsData);
       setScopeItems(scopeData);
+      setSavedRooms(roomsData.rooms || []);
+      setSavedDamageZones(roomsData.damageZones || []);
       // Ensure the claim exists in the store for sketch operations
       // Cast the API Claim to the store's Partial<Claim> type (status field is compatible)
       ensureClaim(params.id, claimData as any);
@@ -597,43 +602,29 @@ export default function ClaimDetail() {
       const claimRoom: ClaimRoom = {
         id: voiceRoom.id,
         name: voiceRoom.name.replace(/_/g, ' '),
-        type: inferRoomType(voiceRoom.name),
-        width: voiceRoom.width_ft,
-        height: voiceRoom.length_ft,
-        x: 0,
-        y: 0,
-        ceilingHeight: voiceRoom.ceiling_height_ft,
+        roomType: inferRoomType(voiceRoom.name),
+        widthFt: String(voiceRoom.width_ft),
+        lengthFt: String(voiceRoom.length_ft),
+        ceilingHeightFt: String(voiceRoom.ceiling_height_ft),
+        originXFt: '0',
+        originYFt: '0',
+        shape: 'rectangular',
       };
       claimRooms.push(claimRoom);
 
       voiceRoom.damageZones.forEach((vDamage) => {
-        const mapDamageType = (type: string): 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other' => {
-          const typeMap: Record<string, 'Water' | 'Fire' | 'Smoke' | 'Mold' | 'Impact' | 'Wind' | 'Other'> = {
-            water: 'Water', fire: 'Fire', smoke: 'Smoke', mold: 'Mold', wind: 'Wind', impact: 'Impact',
-          };
-          return typeMap[type.toLowerCase()] || 'Other';
-        };
-        const mapSeverity = (cat?: string): 'Low' | 'Medium' | 'High' | 'Total' => {
-          if (!cat) return 'Medium';
-          switch (cat) { case '1': return 'Low'; case '2': return 'Medium'; case '3': return 'High'; default: return 'Medium'; }
-        };
-        const perimeter = 2 * (voiceRoom.width_ft + voiceRoom.length_ft);
-        const wallLength = perimeter / 4;
-        const affectedWallCount = vDamage.affected_walls.length;
-        
         const claimDamage: ClaimDamageZone = {
           id: vDamage.id,
           roomId: voiceRoom.id,
-          type: mapDamageType(vDamage.type),
-          severity: mapSeverity(vDamage.category),
-          affectedSurfaces: [
-            ...vDamage.affected_walls.map((w) => `Wall ${w.charAt(0).toUpperCase() + w.slice(1)}`),
-            ...(vDamage.floor_affected ? ['Floor'] : []),
-            ...(vDamage.ceiling_affected ? ['Ceiling'] : []),
-          ],
-          affectedArea: vDamage.extent_ft * wallLength * affectedWallCount,
-          notes: vDamage.source || '',
-          photos: [],
+          damageType: vDamage.type,
+          severity: vDamage.category || 'medium',
+          affectedWalls: vDamage.affected_walls,
+          floorAffected: vDamage.floor_affected,
+          ceilingAffected: vDamage.ceiling_affected,
+          extentFt: String(vDamage.extent_ft),
+          source: vDamage.source || '',
+          notes: vDamage.notes || '',
+          isFreeform: vDamage.is_freeform || false,
         };
         claimDamageZones.push(claimDamage);
       });
@@ -1181,8 +1172,8 @@ export default function ClaimDetail() {
                       </div>
                       <Separator />
                       <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground uppercase">Risk Location</Label>
-                        <p className="font-medium">{apiClaim?.riskLocation || '-'}</p>
+                        <Label className="text-xs text-muted-foreground uppercase">Property Address</Label>
+                        <p className="font-medium">{apiClaim?.propertyAddress || apiClaim?.riskLocation || '-'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
@@ -1750,6 +1741,49 @@ export default function ClaimDetail() {
 
                       <ScrollArea className="flex-1 p-4">
                         <div className="space-y-6">
+                          {/* Saved Rooms Section */}
+                          {savedRooms.length > 0 && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4" data-testid="saved-rooms-section">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <Square className="h-5 w-5 text-blue-600" />
+                                  <h3 className="font-semibold text-blue-900">Saved Rooms ({savedRooms.length})</h3>
+                                </div>
+                                <Link href={`/voice-sketch/${params?.id}`}>
+                                  <Button size="sm" variant="outline" className="text-blue-600 border-blue-300 hover:bg-blue-100" data-testid="button-edit-sketch">
+                                    <PenTool className="h-4 w-4 mr-2" />
+                                    Edit Sketch
+                                  </Button>
+                                </Link>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                {savedRooms.map((room) => (
+                                  <div key={room.id} className="bg-white border border-blue-100 rounded p-2 text-sm" data-testid={`room-card-${room.id}`}>
+                                    <p className="font-medium truncate">{room.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {parseFloat(String(room.widthFt)).toFixed(0)}' × {parseFloat(String(room.lengthFt)).toFixed(0)}'
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* No rooms yet - show button to create sketch */}
+                          {savedRooms.length === 0 && (
+                            <div className="text-center py-8 bg-slate-50 rounded-lg border border-dashed">
+                              <Square className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                              <h3 className="font-medium text-muted-foreground mb-2">No Room Sketches Yet</h3>
+                              <p className="text-sm text-muted-foreground mb-4">Create a sketch to document room dimensions and damage</p>
+                              <Link href={`/voice-sketch/${params?.id}`}>
+                                <Button variant="outline" data-testid="button-create-sketch">
+                                  <PenTool className="h-4 w-4 mr-2" />
+                                  Create Sketch
+                                </Button>
+                              </Link>
+                            </div>
+                          )}
+                          
                           {/* Voice Scope Controller */}
                           {isVoiceScopeOpen && (
                             <VoiceScopeController
@@ -2274,25 +2308,55 @@ export default function ClaimDetail() {
             {/* TAB: PHOTOS */}
             <TabsContent value="photos" className="h-full p-4 md:p-6 m-0 overflow-auto">
                <div className="max-w-6xl mx-auto">
-                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                   <div className="aspect-square bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 hover:border-primary/50 hover:text-primary cursor-pointer transition-colors">
-                     <Camera className="h-8 w-8 mb-2" />
-                     <span className="text-sm font-medium">Add Photo</span>
-                   </div>
-                   {/* Mock Photos */}
-                   {[1, 2, 3].map((i) => (
-                     <div key={i} className="aspect-square bg-slate-200 rounded-lg overflow-hidden relative group">
-                       <img 
-                         src={`https://images.unsplash.com/photo-158${i}578943-2c${i}2a4e2a?auto=format&fit=crop&w=300&q=80`} 
-                         alt="Damage" 
-                         className="w-full h-full object-cover"
+                 {/* Filter documents to only show actual photos (image content types) */}
+                 {(() => {
+                   const photoDocuments = documents.filter(doc => 
+                     doc.type === 'photo' || 
+                     (doc.mimeType && doc.mimeType.startsWith('image/'))
+                   );
+                   
+                   return (
+                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                       <label htmlFor="photo-upload" className="aspect-square bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 hover:border-primary/50 hover:text-primary cursor-pointer transition-colors">
+                         <Camera className="h-8 w-8 mb-2" />
+                         <span className="text-sm font-medium">Add Photo</span>
+                       </label>
+                       <input
+                         id="photo-upload"
+                         type="file"
+                         accept="image/*"
+                         className="hidden"
+                         onChange={handleDocumentUpload}
                        />
-                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                         <p className="text-white text-xs truncate">Damage Detail {i}</p>
-                       </div>
+                       {photoDocuments.length === 0 ? (
+                         <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
+                           <Camera className="h-12 w-12 text-slate-300 mb-4" />
+                           <h3 className="text-lg font-semibold text-slate-900 mb-2">No photos yet</h3>
+                           <p className="text-slate-500">
+                             Take or upload photos to document damage
+                           </p>
+                         </div>
+                       ) : (
+                         photoDocuments.map((photo) => (
+                           <div key={photo.id} className="aspect-square bg-slate-200 rounded-lg overflow-hidden relative group cursor-pointer" onClick={() => handleDocumentPreview(photo.id, photo.name || photo.fileName)}>
+                             <img 
+                               src={getDocumentDownloadUrl(photo.id)} 
+                               alt={photo.name || 'Photo'} 
+                               className="w-full h-full object-cover"
+                               onError={(e) => {
+                                 // Hide broken images
+                                 (e.target as HTMLImageElement).style.display = 'none';
+                               }}
+                             />
+                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                               <p className="text-white text-xs truncate">{photo.name || 'Photo'}</p>
+                             </div>
+                           </div>
+                         ))
+                       )}
                      </div>
-                   ))}
-                 </div>
+                   );
+                 })()}
                </div>
             </TabsContent>
 
@@ -2781,7 +2845,12 @@ export default function ClaimDetail() {
 
       {/* Document Preview Modal */}
       {previewDocId && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+        <div 
+          className="fixed inset-0 z-50 bg-black/90 flex flex-col"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeDocumentPreview();
+          }}
+        >
           <div className="flex items-center justify-between p-4 text-white">
             <div className="flex items-center gap-4">
               <Button 
@@ -2828,14 +2897,15 @@ export default function ClaimDetail() {
                   <ZoomIn className="w-5 h-5" />
                 </Button>
               </div>
-              <span className="text-sm opacity-75 max-w-[200px] truncate">{previewDocName}</span>
+              <span className="text-sm opacity-75 max-w-[200px] truncate hidden sm:inline">{previewDocName}</span>
               <Button 
-                variant="ghost" 
+                variant="default" 
                 size="sm" 
                 onClick={closeDocumentPreview} 
-                className="text-white hover:bg-white/20"
+                className="bg-white text-black hover:bg-gray-200 font-medium"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 mr-1" />
+                Close
               </Button>
             </div>
           </div>

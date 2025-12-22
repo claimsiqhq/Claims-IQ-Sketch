@@ -96,11 +96,18 @@ interface StopWeatherData {
     uvIndex?: number;
   };
   alerts: { event: string; severity: string; headline: string }[];
-  inspectionImpact: {
+  inspectionImpact?: {
     score: 'good' | 'caution' | 'warning' | 'severe';
     reasons: string[];
     recommendations: string[];
   };
+  forecast?: {
+    time: string;
+    temp: number;
+    pop: number;
+    conditions: { id: string; main: string; description: string; icon: string }[];
+    windSpeed: number;
+  }[];
 }
 
 interface MyDayInsight {
@@ -375,10 +382,12 @@ function AiInsightsPanel({
   analysis,
   isLoading,
   isMobile,
+  weather,
 }: {
   analysis?: MyDayAnalysisResult;
   isLoading: boolean;
   isMobile: boolean;
+  weather?: StopWeatherData;
 }) {
   const [isOpen, setIsOpen] = useState(true);
 
@@ -457,13 +466,38 @@ function AiInsightsPanel({
               <div className="bg-white rounded-lg border border-border p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <CloudSun className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">Weather Impact</span>
+                  <span className="text-sm font-medium text-muted-foreground">Weather Forecast</span>
                 </div>
                 <div className="text-sm text-foreground">
-                  {analysis.weatherImpact.affectedStops > 0 ? (
+                  {weather?.current ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const WeatherIcon = getWeatherConditionIcon(weather.current.conditions[0]?.main || 'Clear');
+                          return <WeatherIcon className="h-4 w-4 text-sky-600" />;
+                        })()}
+                        <span className="font-medium">{weather.current.temp}°F</span>
+                        <span className="text-muted-foreground">{weather.current.conditions[0]?.description || 'Clear'}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>Wind: {weather.current.windSpeed} mph</span>
+                        <span>Humidity: {weather.current.humidity}%</span>
+                      </div>
+                      {weather.forecast && weather.forecast.length > 0 && (
+                        <div className="flex gap-2 mt-2 pt-2 border-t border-border">
+                          {weather.forecast.slice(0, 3).map((f, i) => (
+                            <div key={i} className="text-center text-xs">
+                              <div className="text-muted-foreground">{new Date(f.time).toLocaleTimeString([], { hour: 'numeric' })}</div>
+                              <div className="font-medium">{f.temp}°</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : analysis.weatherImpact.affectedStops > 0 ? (
                     <span className="text-orange-600 font-medium">{analysis.weatherImpact.affectedStops} stop(s) affected</span>
                   ) : (
-                    <span className="text-green-600 font-medium">All clear</span>
+                    <span className="text-green-600 font-medium">Good conditions</span>
                   )}
                 </div>
               </div>
@@ -1392,6 +1426,57 @@ export default function MyDay() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<MyDayAnalysisResult | undefined>();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [localWeather, setLocalWeather] = useState<StopWeatherData | undefined>();
+
+  // Fetch current location weather - fetch immediately with defaults, update with geolocation
+  useEffect(() => {
+    async function fetchLocalWeather(lat: number, lng: number) {
+      try {
+        console.log('[MyDay] Fetching weather for:', lat, lng);
+        const response = await fetch('/api/weather/locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            locations: [{ lat, lng, stopId: 'current-location' }],
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[MyDay] Weather response:', data);
+          if (data.weather && data.weather.length > 0) {
+            setLocalWeather(data.weather[0]);
+          }
+        }
+      } catch (err) {
+        console.error('[MyDay] Failed to fetch local weather:', err);
+      }
+    }
+
+    // Fetch immediately with Austin, TX as default
+    const defaultLat = 30.2672;
+    const defaultLng = -97.7431;
+    fetchLocalWeather(defaultLat, defaultLng);
+
+    // Then try to get actual location and update
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => fetchLocalWeather(position.coords.latitude, position.coords.longitude),
+        () => {}, // Already fetched with defaults
+        { timeout: 5000, maximumAge: 300000 }
+      );
+    }
+  }, []);
+
+  const userDisplayName = useMemo(() => {
+    if (authUser?.firstName && authUser?.lastName) {
+      return `${authUser.firstName} ${authUser.lastName}`.trim();
+    }
+    if (authUser?.firstName) {
+      return authUser.firstName;
+    }
+    return authUser?.username || "Adjuster";
+  }, [authUser?.firstName, authUser?.lastName, authUser?.username]);
 
   const { data: claimsData, isLoading, error } = useQuery<{ claims: ClaimFromAPI[]; total: number }>({
     queryKey: ["/api/claims"],
@@ -1579,9 +1664,9 @@ export default function MyDay() {
       <div className="min-h-full bg-background">
         {/* Day Context Bar */}
         {isMobileLayout ? (
-          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0]} />
+          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} />
         ) : (
-          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0]} />
+          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} />
         )}
 
         {/* Main Content */}
@@ -1596,7 +1681,7 @@ export default function MyDay() {
               <p className="text-sm text-muted-foreground text-center max-w-sm">
                 Upload FNOL documents to create new claims, then they'll appear here for inspection.
               </p>
-              <Link href="/claims/new" className="mt-4 text-primary hover:underline text-sm font-medium">
+              <Link href="/new-claim" className="mt-4 text-primary hover:underline text-sm font-medium">
                 Create New Claim
               </Link>
             </div>
@@ -1608,6 +1693,7 @@ export default function MyDay() {
               analysis={aiAnalysis}
               isLoading={isAnalyzing}
               isMobile={isMobileLayout}
+              weather={aiAnalysis?.weatherData?.[0] || localWeather}
             />
           )}
 

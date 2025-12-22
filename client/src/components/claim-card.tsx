@@ -50,10 +50,10 @@ export default function ClaimCard({ claim }: ClaimCardProps) {
           </div>
         </CardHeader>
         <CardContent className="p-4 pt-2">
-          {claim.riskLocation && (
+          {(claim.propertyAddress || claim.riskLocation) && (
             <div className="flex items-start gap-2 text-sm text-muted-foreground mb-2">
               <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>{claim.riskLocation}</span>
+              <span>{claim.propertyAddress || claim.riskLocation}</span>
             </div>
           )}
           <div className="flex items-center gap-4 text-xs text-muted-foreground mt-4">

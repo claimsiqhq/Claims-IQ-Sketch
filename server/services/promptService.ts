@@ -237,61 +237,72 @@ export async function updatePrompt(
  */
 export const FALLBACK_PROMPTS: Record<string, { system: string; user?: string; model: string; temperature: number; maxTokens?: number; responseFormat: string }> = {
   [PromptKey.DOCUMENT_EXTRACTION_FNOL]: {
-    system: `You are an expert insurance document analyzer with a specialty in First Notice of Loss (FNOL) reports. Your task is to analyze the provided text/document content, which may contain one or more FNOL reports, and extract all relevant information for each claim into a structured JSON array.
+    system: `You are an insurance document data extractor. Extract ALL information from this FNOL (First Notice of Loss) report into structured JSON.
 
-Output Rules:
-1. The output MUST be a single JSON array containing one object for each distinct claim found in the source text.
-2. Strictly adhere to the field names, hierarchy, and data types specified in the template below.
-3. Use the most accurate and complete information directly from the source.
-4. For missing data, set the value to null.
-5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
-6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+RULES:
+- Extract every piece of information present in the document
+- Use null for any field not found
+- Preserve exact values (don't reformat currency, dates, or percentages)
+- Include all endorsements and all coverages
 
-JSON Template:
 {
-  "claims": [
-    {
-      "claimInformation": {
-        "claimNumber": "STRING",
-        "dateOfLoss": "STRING",
-        "claimStatus": "STRING",
-        "operatingCompany": "STRING",
-        "causeOfLoss": "STRING",
-        "riskLocation": "STRING",
-        "lossDescription": "STRING",
-        "droneEligibleAtFNOL": "STRING"
-      },
-      "insuredInformation": {
-        "policyholderName1": "STRING",
-        "policyholderName2": "STRING",
-        "contactMobilePhone": "STRING",
-        "contactEmail": "STRING"
-      },
-      "propertyDamageDetails": {
-        "yearBuilt": "STRING (YYYY)",
-        "yearRoofInstall": "STRING (YYYY)",
-        "roofDamageReported": "STRING",
-        "numberOfStories": "STRING"
-      },
-      "policyDetails": {
-        "policyNumber": "STRING",
-        "inceptionDate": "STRING (MM/DD/YYYY)",
-        "producer": "STRING",
-        "thirdPartyInterest": "STRING",
-        "deductibles": {
-          "policyDeductible": "STRING",
-          "windHailDeductible": "STRING"
-        }
-      },
-      "coverages": [
-        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
-      ],
-      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
-    }
-  ]
+  "claim": {
+    "claimNumber": "",
+    "endorsementAlert": "",
+    "dateOfLoss": "",
+    "policyNumber": "",
+    "policyholders": "",
+    "status": "",
+    "operatingCompany": ""
+  },
+  "loss": {
+    "cause": "",
+    "location": "",
+    "description": "",
+    "weatherData": "",
+    "droneEligible": ""
+  },
+  "insured": {
+    "name1": "",
+    "name2": "",
+    "address": "",
+    "mobilePhone": "",
+    "primaryPhoneType": "",
+    "email": ""
+  },
+  "propertyDamage": {
+    "dwellingDamages": "",
+    "roofDamage": "",
+    "damages": "",
+    "woodRoof": "",
+    "roofInstallYear": "",
+    "yearBuilt": ""
+  },
+  "policy": {
+    "producer": {
+      "name": "",
+      "address": "",
+      "phone": "",
+      "email": ""
+    },
+    "propertyAddress": "",
+    "type": "",
+    "status": "",
+    "inceptionDate": "",
+    "legalDescription": "",
+    "thirdPartyInterest": ""
+  },
+  "deductibles": {},
+  "endorsements": [],
+  "coverages": [],
+  "comments": {
+    "assignment": "",
+    "reportedBy": "",
+    "enteredBy": ""
+  }
 }
 
-ADDITIONALLY: Include a "pageText" field at the root level containing the complete verbatim text from this page, preserving the original layout as much as possible.`,
+Extract all data from the document now.`,
     model: 'gpt-4o',
     temperature: 0.1,
     maxTokens: 4000,
@@ -357,8 +368,10 @@ JSON Template:
   },
 
   [PromptKey.MY_DAY_SUMMARY]: {
-    system: `You are an insurance claims assistant. Generate a brief, actionable summary for an adjuster's day.`,
-    user: `Context:
+    system: `You are an insurance claims assistant generating personalized daily summaries. CRITICAL RULE: You MUST use the exact adjuster name provided in the user message - never use placeholders like "[Adjuster's Name]", "[Your Name]", "[Name]" or any bracketed placeholder text. Always use the actual name given.`,
+    user: `The adjuster's name is: {{userName}}
+
+Context:
 - {{routeLength}} inspections scheduled
 - {{claimsCount}} active claims
 - {{criticalCount}} critical issues, {{warningCount}} warnings
@@ -369,12 +382,9 @@ Key issues:
 {{criticalIssues}}
 {{warningIssues}}
 
-Generate a 2-3 sentence summary that:
-1. Highlights the most important priority
-2. Mentions any weather or SLA concerns
-3. Gives one actionable recommendation
+Generate a 2-3 sentence personalized summary. Start with "Good morning, {{userName}}." using the exact name provided above. Then highlight the most important priority and give one actionable recommendation.
 
-Be concise and professional.`,
+IMPORTANT: Do NOT use placeholders like [Name] or [Adjuster's Name]. The greeting MUST use the actual name "{{userName}}" that was provided.`,
     model: 'gpt-4o-mini',
     temperature: 0.5,
     maxTokens: 150,

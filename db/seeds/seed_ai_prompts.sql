@@ -16,54 +16,107 @@ Output Rules:
 4. For missing data, set the value to null.
 5. Date/Time Format: Strictly use "MM/DD/YYYY@HH:MM AM/PM" (e.g., 05/24/2025@1:29 PM).
 6. Limit/Currency Format: Preserve the format found in the source (e.g., "$7,932 1%").
+7. Address Parsing: Extract property address into separate components (street, city, state, zip).
 
 JSON Template:
 {
   "claims": [
     {
       "claimInformation": {
-        "claimNumber": "STRING",
-        "dateOfLoss": "STRING",
-        "claimStatus": "STRING",
-        "operatingCompany": "STRING",
-        "causeOfLoss": "STRING",
-        "riskLocation": "STRING",
-        "lossDescription": "STRING",
-        "droneEligibleAtFNOL": "STRING"
+        "claimNumber": "STRING - Full claim number including any CAT/PCS designations",
+        "dateOfLoss": "STRING - Date and time of loss in MM/DD/YYYY@HH:MM AM/PM format",
+        "claimStatus": "STRING - Open, Closed, etc.",
+        "operatingCompany": "STRING - Insurance company name (e.g., American Family Insurance)",
+        "causeOfLoss": "STRING - Primary cause (Hail, Wind, Fire, Water, etc.)",
+        "lossDescription": "STRING - Full description of loss/damage",
+        "droneEligibleAtFNOL": "STRING - Yes/No"
+      },
+      "propertyAddress": {
+        "streetAddress": "STRING - Street number and name (e.g., 897 E DIABERLVILLE St)",
+        "city": "STRING - City name (e.g., Dodgeville)",
+        "state": "STRING - State abbreviation (e.g., WI)",
+        "zipCode": "STRING - ZIP code with extension if available (e.g., 53533-1427)",
+        "fullAddress": "STRING - Complete formatted address"
       },
       "insuredInformation": {
-        "policyholderName1": "STRING",
-        "policyholderName2": "STRING",
-        "contactMobilePhone": "STRING",
-        "contactEmail": "STRING"
+        "policyholderName1": "STRING - Primary policyholder full name",
+        "policyholderAddress1": {
+          "streetAddress": "STRING",
+          "city": "STRING",
+          "state": "STRING",
+          "zipCode": "STRING"
+        },
+        "policyholderName2": "STRING - Secondary policyholder full name if any",
+        "policyholderAddress2": {
+          "streetAddress": "STRING",
+          "city": "STRING",
+          "state": "STRING",
+          "zipCode": "STRING"
+        },
+        "contactPhone": "STRING - Contact phone number",
+        "contactMobilePhone": "STRING - Mobile phone if specified",
+        "contactEmail": "STRING - Email address",
+        "reportedBy": "STRING - Name of person who reported the claim",
+        "reportedByPhone": "STRING - Phone of person who reported",
+        "reportedDate": "STRING - Date claim was reported in MM/DD/YYYY format"
       },
       "propertyDamageDetails": {
-        "yearBuilt": "STRING (YYYY)",
-        "yearRoofInstall": "STRING (YYYY)",
-        "roofDamageReported": "STRING",
-        "numberOfStories": "STRING"
+        "dwellingDamageDescription": "STRING - Description of dwelling damage",
+        "roofDamageReported": "STRING - Yes/No and type (Exterior Only, Interior, Both)",
+        "damagesLocation": "STRING - Exterior, Interior, Both",
+        "numberOfStories": "STRING - Number of stories",
+        "woodRoof": "STRING - Yes/No",
+        "yearBuilt": "STRING - Year property was built (YYYY or MM-DD-YYYY)",
+        "yearRoofInstall": "STRING - Year roof was installed (YYYY or MM-DD-YYYY)"
       },
       "policyDetails": {
-        "policyNumber": "STRING",
-        "inceptionDate": "STRING (MM/DD/YYYY)",
-        "producer": "STRING",
-        "thirdPartyInterest": "STRING",
+        "policyNumber": "STRING - Full policy number",
+        "policyStatus": "STRING - In force, Cancelled, etc.",
+        "policyType": "STRING - Homeowners, Renters, etc.",
+        "inceptionDate": "STRING - Policy inception date (MM/DD/YYYY)",
+        "producer": {
+          "name": "STRING - Producer/agent name",
+          "address": "STRING - Producer address",
+          "phone": "STRING - Producer phone",
+          "email": "STRING - Producer email"
+        },
+        "legalDescription": "STRING - Legal description if any",
+        "thirdPartyInterest": "STRING - Mortgagee or lienholder information",
+        "lineOfBusiness": "STRING - Homeowners Line, etc.",
         "deductibles": {
-          "policyDeductible": "STRING",
-          "windHailDeductible": "STRING"
+          "policyDeductible": "STRING - Amount and percentage (e.g., $2,348 0%)",
+          "windHailDeductible": "STRING - Amount and percentage (e.g., $4,696 1%)"
         }
       },
       "coverages": [
-        {"coverageName": "STRING", "limit": "STRING", "valuationMethod": "STRING"}
+        {
+          "coverageName": "STRING - Coverage name (e.g., Coverage A - Dwelling)",
+          "coverageCode": "STRING - Coverage letter/code if any",
+          "limit": "STRING - Coverage limit amount",
+          "limitPercentage": "STRING - Percentage of dwelling if applicable",
+          "valuationMethod": "STRING - Replacement Cost, ACV, etc.",
+          "terms": "STRING - Additional coverage terms"
+        }
       ],
-      "endorsementsListed": ["ARRAY of STRING (Form Numbers/Titles)"]
+      "endorsementsListed": [
+        {
+          "formNumber": "STRING - Endorsement form number (e.g., HO 04 16)",
+          "title": "STRING - Endorsement title/description",
+          "notes": "STRING - Any special notes (e.g., Please review policy system)"
+        }
+      ],
+      "assignment": {
+        "enteredBy": "STRING - Who entered the claim",
+        "enteredDate": "STRING - Date entered in MM/DD/YYYY format"
+      },
+      "comments": "STRING - Any additional comments"
     }
   ]
 }
 
 ADDITIONALLY: Include a "pageText" field at the root level containing the complete verbatim text from this page, preserving the original layout as much as possible.$SYSTEM$,
 'This is page {{pageNum}} of {{totalPages}} of a FNOL document. Extract all relevant information AND transcribe the complete text from this page. Return ONLY valid JSON with extracted fields and "pageText" containing the full page text.',
-'gpt-4o', 0.10, 4000, 'json_object',
+'gpt-4o', 0.10, 6000, 'json_object',
 'Extracts structured insurance data from First Notice of Loss (FNOL) documents using GPT-4 Vision');
 
 -- Document Extraction - Policy (HO Form Structure)
@@ -131,8 +184,8 @@ ADDITIONALLY: Include a "pageText" field in your JSON response containing the co
 -- My Day Analysis Summary
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
 ('analysis.my_day_summary', 'My Day Summary Generation', 'analysis',
-'You are an insurance claims assistant. Generate a brief, personalized, actionable summary for an adjuster''s day. Address the adjuster by name when starting your summary.',
-$USER$You are helping {{userName}} plan their day.
+'You are an insurance claims assistant generating personalized daily summaries. CRITICAL RULE: You MUST use the exact adjuster name provided in the user message - never use placeholders like "[Adjuster''s Name]", "[Your Name]", "[Name]" or any bracketed placeholder text. Always use the actual name given.',
+$USER$The adjuster's name is: {{userName}}
 
 Context:
 - {{routeLength}} inspections scheduled
@@ -145,13 +198,9 @@ Key issues:
 {{criticalIssues}}
 {{warningIssues}}
 
-Generate a 2-3 sentence personalized summary that:
-1. Address {{userName}} by name at the start
-2. Highlights the most important priority
-3. Mentions any weather or SLA concerns
-4. Gives one actionable recommendation
+Generate a 2-3 sentence personalized summary. Start with "Good morning, {{userName}}." using the exact name provided above. Then highlight the most important priority and give one actionable recommendation.
 
-Be concise and professional.$USER$,
+IMPORTANT: Do NOT use placeholders like [Name] or [Adjuster's Name]. The greeting MUST use the actual name "{{userName}}" that was provided.$USER$,
 'gpt-4o-mini', 0.50, 150, 'text',
 'Generates a personalized daily summary for insurance adjusters with priorities and actionable recommendations');
 
@@ -219,83 +268,160 @@ Available items:
 'gpt-4o-mini', 0.20, NULL, 'json_object',
 'Quick voice-driven line item matching for estimate building');
 
--- Claim Briefing
+-- Claim Briefing (Pre-Inspection Analysis)
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
-('briefing.claim', 'Claim Briefing Generation', 'briefing',
-'You are an expert insurance claim inspection advisor. Output ONLY valid JSON.',
-$USER$You are an expert insurance claim inspection advisor. Generate a field-ready claim briefing for an adjuster based on the following claim data.
+('briefing.claim', 'Pre-Inspection Briefing Generation', 'briefing',
+$SYSTEM$You are an expert insurance claims analyst. Analyze the provided insurance documents (FNOL, Policy Declarations, Endorsements) and extract a comprehensive Pre-Inspection Briefing.
 
-IMPORTANT RULES:
-1. Do NOT make coverage determinations or policy interpretations
-2. Focus ONLY on inspection planning and field execution
-3. Be practical, concise, and field-focused
-4. If information is missing, add it to "open_questions_for_adjuster"
-5. Do NOT guess or assume - only use provided data
+CRITICAL INSTRUCTIONS:
+1. Extract ALL claim identifiers: Claim #, Policy #, Loss Date, Report Date, Policyholder info, Property address, Carrier, Adjuster
+2. Extract PROPERTY DETAILS: Construction type, Year built, Square footage, Roof type, Roof age, Stories, Special features
+3. Extract COVERAGE LIMITS: Coverage A (Dwelling), B (Other Structures), C (Personal Property), D (Loss of Use), Deductibles
+4. DEDUCTIBLE CALCULATION: If deductible is percentage-based (e.g., "1% of Cov A"), calculate the actual dollar amount
+5. Flag ENDORSEMENT ALERTS with severity (HIGH/MEDIUM/LOW):
+   - HO 86 05 or similar Roof Surface Payment Schedule
+   - Cosmetic damage exclusions
+   - Matching limitations
+   - Ordinance or Law coverage
+   - Water damage limitations
+   - Any coverage restrictions or sublimits
+6. Analyze CAUSE OF LOSS and identify coverage concerns
+7. Generate 5-7 specific ADJUSTER ACTION ITEMS based on the claim
+
+Output ONLY valid JSON.$SYSTEM$,
+$USER$Analyze the following insurance claim documents and generate a comprehensive Pre-Inspection Briefing.
 
 CLAIM DATA:
 - Claim Number: {{claimNumber}}
 - Primary Peril: {{primaryPeril}}
 - Secondary Perils: {{secondaryPerils}}
 - Date of Loss: {{dateOfLoss}}
+- Report Date: {{reportDate}}
 - Loss Description: {{lossDescription}}
 - Property Location: {{propertyLocation}}
 
+POLICYHOLDER INFORMATION:
+- Name: {{policyholderName}}
+- Contact Phone: {{contactPhone}}
+- Contact Email: {{contactEmail}}
+
 POLICY CONTEXT:
 - Policy Number: {{policyNumber}}
+- Carrier: {{carrier}}
 - State: {{state}}
-- Dwelling Limit: {{dwellingLimit}}
+- Dwelling Limit (Cov A): {{dwellingLimit}}
+- Other Structures (Cov B): {{otherStructuresLimit}}
+- Personal Property (Cov C): {{personalPropertyLimit}}
+- Loss of Use (Cov D): {{lossOfUseLimit}}
 - Deductible: {{deductible}}
 - Wind/Hail Deductible: {{windHailDeductible}}
+
+PROPERTY DETAILS:
+- Year Built: {{yearBuilt}}
 - Year Roof Installed: {{yearRoofInstall}}
-- Endorsements Listed: {{endorsementsListed}}
+- Roof Type: {{roofType}}
+- Construction Type: {{constructionType}}
+- Number of Stories: {{stories}}
+- Square Footage: {{squareFootage}}
+
+ENDORSEMENTS LISTED:
+{{endorsementsListed}}
 
 ENDORSEMENTS DETAIL:
 {{endorsementsDetail}}
 
-DAMAGE ZONES:
+DAMAGE ZONES (if documented):
 {{damageZones}}
 
-COVERAGE ADVISORIES:
-{{coverageAdvisories}}
-
-PERIL-SPECIFIC INSPECTION GUIDANCE (use as reference):
-Priority Areas: {{priorityAreas}}
-Common Misses: {{commonMisses}}
+EXTRACTED DOCUMENT TEXT:
+{{documentText}}
 
 Generate a JSON briefing with this EXACT structure:
 {
-  "claim_summary": {
-    "primary_peril": "string - the main peril",
-    "secondary_perils": ["array of secondary perils"],
-    "overview": ["array of 2-4 brief overview points about this claim"]
+  "claim_identifiers": {
+    "claim_number": "string",
+    "policy_number": "string",
+    "loss_date": "string",
+    "report_date": "string",
+    "policyholder": {
+      "name": "string",
+      "phone": "string or null",
+      "email": "string or null"
+    },
+    "property_address": "string",
+    "carrier": "string",
+    "assigned_adjuster": "string or null"
   },
-  "inspection_strategy": {
-    "where_to_start": ["array of 2-4 specific areas to begin inspection"],
-    "what_to_prioritize": ["array of 3-5 priority items for this peril/claim"],
-    "common_misses": ["array of 2-4 things commonly missed for this peril"]
+  "property_details": {
+    "construction_type": "string",
+    "year_built": "number or null",
+    "square_footage": "number or null",
+    "roof_type": "string",
+    "roof_age_years": "number or null",
+    "stories": "number or null",
+    "special_features": ["array of notable features"]
   },
-  "peril_specific_risks": ["array of 3-5 risks specific to this peril type"],
-  "endorsement_watchouts": [
+  "coverage_summary": {
+    "coverage_a_dwelling": "number",
+    "coverage_b_other_structures": "number or null",
+    "coverage_c_personal_property": "number or null",
+    "coverage_d_loss_of_use": "number or null",
+    "deductible": {
+      "type": "flat or percentage",
+      "stated_value": "string (as shown in policy)",
+      "calculated_amount": "number (actual dollar amount)",
+      "applies_to": "string (e.g., 'All Perils' or 'Wind/Hail only')"
+    },
+    "wind_hail_deductible": {
+      "type": "flat or percentage or null",
+      "stated_value": "string or null",
+      "calculated_amount": "number or null"
+    }
+  },
+  "endorsement_alerts": [
     {
-      "endorsement_id": "form number",
-      "impact": "brief description of impact",
-      "inspection_implications": ["what this means for inspection"]
+      "endorsement_id": "form number (e.g., HO 86 05)",
+      "endorsement_name": "full name",
+      "severity": "HIGH, MEDIUM, or LOW",
+      "impact_summary": "brief description of how this affects the claim",
+      "adjuster_action": "what the adjuster needs to do about this"
     }
   ],
-  "photo_requirements": [
+  "cause_of_loss_analysis": {
+    "primary_peril": "string",
+    "secondary_perils": ["array"],
+    "coverage_concerns": ["array of potential coverage issues"],
+    "investigation_points": ["array of things to verify during inspection"]
+  },
+  "adjuster_action_items": [
     {
-      "category": "category name",
-      "items": ["specific photos needed"]
+      "priority": "1, 2, 3, etc.",
+      "action": "specific action to take",
+      "reason": "why this is important"
     }
   ],
-  "sketch_requirements": ["array of sketch/diagram needs for this claim"],
-  "depreciation_considerations": ["array of depreciation items to document"],
-  "open_questions_for_adjuster": ["array of questions that need answers before/during inspection"]
+  "inspection_requirements": {
+    "photo_requirements": [
+      {
+        "category": "category name",
+        "required_photos": ["specific photos needed"]
+      }
+    ],
+    "sketch_requirements": ["array of sketch/diagram needs"],
+    "measurement_requirements": ["specific measurements to take"]
+  },
+  "depreciation_considerations": [
+    {
+      "item": "what needs depreciation assessment",
+      "factors": ["factors to document for depreciation"]
+    }
+  ],
+  "missing_information": ["array of information not found in documents that adjuster should obtain"]
 }
 
 Respond ONLY with valid JSON. No explanation, no markdown.$USER$,
-'gpt-4o', 0.30, 2000, 'json_object',
-'Generates field-ready claim briefings for insurance adjusters with inspection strategy and requirements');
+'gpt-4o', 0.20, 4000, 'json_object',
+'Generates comprehensive pre-inspection briefings from FNOL, policy declarations, and endorsement documents with deductible calculations and endorsement alerts');
 
 -- Voice Room Sketch Agent
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES

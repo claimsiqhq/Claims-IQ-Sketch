@@ -29,8 +29,9 @@ import { useGeometryEngine, geometryEngine } from './services/geometry-engine';
 import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms, getClaimPhotos } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
-import type { RoomGeometry, Structure } from './types/geometry';
+import type { RoomGeometry, Structure, VoiceDamageZone } from './types/geometry';
 import type { ClaimRoom, ClaimDamageZone, ClaimStructure, Claim } from '@/lib/api';
+import { generatePolygon } from './utils/polygon-math';
 
 export default function VoiceSketchPage() {
   const params = useParams();
@@ -39,10 +40,11 @@ export default function VoiceSketchPage() {
   const claimId = params.claimId;
   const authUser = useStore((state) => state.authUser);
 
-  const { rooms, currentRoom, structures, resetSession } = useGeometryEngine();
+  const { rooms, currentRoom, structures, resetSession, loadRooms } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
   const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState<string>('');
+  const hasLoadedRooms = useRef(false);
 
   // Fetch the real claim from the database (only if claimId provided)
   const { data: claim, isLoading, error } = useQuery({
@@ -51,6 +53,89 @@ export default function VoiceSketchPage() {
     enabled: !!claimId,
     staleTime: 30000,
   });
+  
+  // Fetch existing rooms for this claim
+  const { data: existingRoomsData } = useQuery({
+    queryKey: ['claim-rooms', claimId],
+    queryFn: () => getClaimRooms(claimId!),
+    enabled: !!claimId,
+    staleTime: 30000,
+  });
+  
+  // Load existing rooms into geometry engine when data is available
+  useEffect(() => {
+    if (existingRoomsData?.rooms && existingRoomsData.rooms.length > 0 && !hasLoadedRooms.current) {
+      hasLoadedRooms.current = true;
+      
+      // Convert ClaimRoom to RoomGeometry (API response uses camelCase from database)
+      const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((roomData) => {
+        const room = roomData as any; // API response matches database schema
+        const width = parseFloat(room.widthFt || room.width || '10');
+        const length = parseFloat(room.lengthFt || room.height || '10');
+        const ceilingHeight = parseFloat(room.ceilingHeightFt || room.ceilingHeight || '8');
+        
+        // Map database shape values to RoomShape type
+        const shapeMap: Record<string, 'rectangle' | 'l_shape' | 't_shape' | 'irregular'> = {
+          'rectangular': 'rectangle',
+          'rectangle': 'rectangle',
+          'l_shaped': 'l_shape',
+          'l_shape': 'l_shape',
+          't_shaped': 't_shape',
+          't_shape': 't_shape',
+          'polygon': 'irregular',
+          'irregular': 'irregular',
+        };
+        const roomShape = shapeMap[room.shape] || 'rectangle';
+        
+        // Find damage zones for this room
+        const roomDamageZones = (existingRoomsData.damageZones || [])
+          .filter((dz) => dz.roomId === room.id)
+          .map((dzData): VoiceDamageZone => {
+            const dz = dzData as any;
+            return {
+              id: dz.id,
+              type: dz.damageType || dz.type || 'water',
+              category: dz.severity || 'moderate',
+              affected_walls: Array.isArray(dz.affectedWalls) ? dz.affectedWalls.map((w: string) => w.toLowerCase()) : [],
+              floor_affected: dz.floorAffected || false,
+              ceiling_affected: dz.ceilingAffected || false,
+              extent_ft: parseFloat(dz.extentFt || '0'),
+              polygon: [],
+              is_freeform: dz.isFreeform || false,
+              source: dz.source || '',
+            };
+          });
+        
+        return {
+          id: room.id,
+          name: room.name.replace(/ /g, '_'),
+          shape: roomShape,
+          width_ft: width,
+          length_ft: length,
+          ceiling_height_ft: ceilingHeight,
+          polygon: generatePolygon(roomShape, width, length),
+          openings: Array.isArray(room.openings) ? room.openings : [],
+          features: Array.isArray(room.features) ? room.features : [],
+          damageZones: roomDamageZones,
+          notes: Array.isArray(room.notes) ? room.notes : [],
+          origin_x_ft: parseFloat(room.originXFt || '0'),
+          origin_y_ft: parseFloat(room.originYFt || '0'),
+          structureId: room.structureId || undefined,
+          created_at: room.createdAt?.toString() || new Date().toISOString(),
+          updated_at: room.updatedAt?.toString() || new Date().toISOString(),
+          hierarchyLevel: room.hierarchyLevel ?? 1,
+          subRooms: room.subRooms || [],
+          objects: room.objects || [],
+          photos: room.photos || [],
+        };
+      });
+      
+      loadRooms(convertedRooms);
+      toast.info(`Loaded ${convertedRooms.length} saved room(s)`, {
+        description: 'You can continue editing or add more rooms.',
+      });
+    }
+  }, [existingRoomsData, loadRooms]);
 
   // Fetch available claims for the claim selector (when no claim is attached)
   const { data: claimsData } = useQuery({
@@ -280,12 +365,13 @@ export default function VoiceSketchPage() {
       const claimRoom: ClaimRoom = {
         id: voiceRoom.id,
         name: voiceRoom.name.replace(/_/g, ' '),
-        type: inferRoomType(voiceRoom.name),
-        width: voiceRoom.width_ft,
-        height: voiceRoom.length_ft,
-        x: voiceRoom.origin_x_ft || 0,
-        y: voiceRoom.origin_y_ft || 0,
-        ceilingHeight: voiceRoom.ceiling_height_ft,
+        roomType: inferRoomType(voiceRoom.name),
+        widthFt: String(voiceRoom.width_ft),
+        lengthFt: String(voiceRoom.length_ft),
+        ceilingHeightFt: String(voiceRoom.ceiling_height_ft),
+        originXFt: String(voiceRoom.origin_x_ft || 0),
+        originYFt: String(voiceRoom.origin_y_ft || 0),
+        shape: 'rectangular',
         structureId: voiceRoom.structureId,
       };
       claimRooms.push(claimRoom);
@@ -294,16 +380,15 @@ export default function VoiceSketchPage() {
         const claimDamage: ClaimDamageZone = {
           id: vDamage.id,
           roomId: voiceRoom.id,
-          type: mapDamageType(vDamage.type),
-          severity: mapDamageSeverity(vDamage.category),
-          affectedSurfaces: [
-            ...vDamage.affected_walls.map((w) => `Wall ${w.charAt(0).toUpperCase() + w.slice(1)}`),
-            ...(vDamage.floor_affected ? ['Floor'] : []),
-            ...(vDamage.ceiling_affected ? ['Ceiling'] : []),
-          ],
-          affectedArea: calculateDamageArea(vDamage, voiceRoom),
-          notes: vDamage.source || '',
-          photos: [],
+          damageType: vDamage.type,
+          severity: vDamage.category || 'medium',
+          affectedWalls: vDamage.affected_walls,
+          floorAffected: vDamage.floor_affected,
+          ceilingAffected: vDamage.ceiling_affected,
+          extentFt: String(vDamage.extent_ft),
+          source: vDamage.source || '',
+          notes: vDamage.notes || '',
+          isFreeform: vDamage.is_freeform || false,
         };
         claimDamageZones.push(claimDamage);
       });
@@ -441,7 +526,7 @@ export default function VoiceSketchPage() {
               {claim ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Claim: {claim.policyholder || 'Unknown'} - {claim.riskLocation || 'No address'}
+                    Claim: {claim.policyholder || 'Unknown'} - {claim.propertyAddress || claim.riskLocation || 'No address'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}
@@ -547,6 +632,18 @@ export default function VoiceSketchPage() {
 
 function inferRoomType(name: string): string {
   const nameLower = name.toLowerCase();
+  // Exterior zones - Roof
+  if (nameLower.includes('roof')) return 'Roof';
+  // Exterior zones - Elevations
+  if (nameLower.includes('elevation')) return 'Elevation';
+  // Exterior zones - Other
+  if (nameLower.includes('siding')) return 'Siding';
+  if (nameLower.includes('gutter')) return 'Gutters';
+  if (nameLower.includes('deck')) return 'Deck';
+  if (nameLower.includes('patio')) return 'Patio';
+  if (nameLower.includes('fence')) return 'Fence';
+  if (nameLower.includes('driveway')) return 'Driveway';
+  // Interior rooms
   if (nameLower.includes('bedroom') || nameLower.includes('master')) return 'Bedroom';
   if (nameLower.includes('bathroom') || nameLower.includes('bath')) return 'Bathroom';
   if (nameLower.includes('kitchen')) return 'Kitchen';

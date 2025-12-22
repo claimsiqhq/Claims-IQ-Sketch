@@ -31,7 +31,14 @@ import {
   Shield,
   Mic,
   ChevronRight,
-  Archive
+  Archive,
+  Sun,
+  Cloud,
+  CloudRain,
+  CloudSnow,
+  CloudLightning,
+  Wind,
+  Thermometer,
 } from "lucide-react";
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
@@ -166,6 +173,24 @@ function MobileClaimCard({ claim }: { claim: Claim }) {
   );
 }
 
+// Weather data interface for current location
+interface CurrentWeather {
+  temp: number;
+  conditions: string;
+  icon: string;
+}
+
+// Get weather icon component based on condition
+function getWeatherIconComponent(conditions: string) {
+  const c = conditions.toLowerCase();
+  if (c.includes('thunder') || c.includes('lightning')) return CloudLightning;
+  if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) return CloudRain;
+  if (c.includes('snow') || c.includes('sleet') || c.includes('ice')) return CloudSnow;
+  if (c.includes('wind')) return Wind;
+  if (c.includes('cloud') || c.includes('overcast')) return Cloud;
+  return Sun;
+}
+
 export default function Home() {
   const user = useStore((state) => state.user);
   const authUser = useStore((state) => state.authUser);
@@ -176,11 +201,58 @@ export default function Home() {
   const [stats, setStats] = useState<ClaimStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [weather, setWeather] = useState<CurrentWeather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showClosed, setShowClosed] = useState(false);
+
+  // Fetch weather for current location
+  useEffect(() => {
+    async function fetchWeather(lat: number, lng: number) {
+      try {
+        const response = await fetch('/api/weather/locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            locations: [{ lat, lng, stopId: 'current' }],
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.weather && data.weather.length > 0) {
+            const w = data.weather[0];
+            setWeather({
+              temp: w.current?.temp || 0,
+              conditions: w.current?.conditions?.[0]?.main || 'Clear',
+              icon: w.current?.conditions?.[0]?.icon || '01d',
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch weather:', err);
+      } finally {
+        setWeatherLoading(false);
+      }
+    }
+
+    // Default to Austin, TX if geolocation unavailable
+    const defaultLat = 30.2672;
+    const defaultLng = -97.7431;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => fetchWeather(position.coords.latitude, position.coords.longitude),
+        () => fetchWeather(defaultLat, defaultLng), // Fallback on error
+        { timeout: 5000, maximumAge: 300000 }
+      );
+    } else {
+      fetchWeather(defaultLat, defaultLng);
+    }
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -222,14 +294,29 @@ export default function Home() {
     return (
       <Layout>
         <div className="p-4">
-          {/* Mobile Welcome */}
-          <div className="mb-4">
-            <h1 className="text-xl font-display font-bold text-slate-900">
-              Hi, {displayName.split(' ')[0]}
-            </h1>
-            <p className="text-sm text-slate-500">
-              {stats ? `${(stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims` : 'Loading...'}
-            </p>
+          {/* Mobile Welcome with Weather */}
+          <div className="mb-4 flex items-start justify-between">
+            <div>
+              <h1 className="text-xl font-display font-bold text-slate-900">
+                Hi, {displayName.split(' ')[0]}
+              </h1>
+              <p className="text-sm text-slate-500">
+                {stats ? `${(stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims` : 'Loading...'}
+              </p>
+            </div>
+            {weatherLoading ? (
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
+              </div>
+            ) : weather && (
+              <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5" data-testid="weather-badge-home">
+                {(() => {
+                  const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                  return <WeatherIcon className="h-4 w-4 text-sky-600" />;
+                })()}
+                <span className="text-sm font-medium text-sky-700">{Math.round(weather.temp)}°F</span>
+              </div>
+            )}
           </div>
 
           {/* Mobile Quick Actions */}
@@ -389,14 +476,32 @@ export default function Home() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto p-6 md:p-8">
-        {/* Welcome Section */}
+        {/* Welcome Section with Weather */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-display font-bold text-slate-900">Dashboard</h1>
-            <p className="text-slate-500 mt-1">
-              Welcome back, {displayName}.
-              {stats && ` You have ${stats.byStatus.open || 0} active claims.`}
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-display font-bold text-slate-900">Dashboard</h1>
+              <p className="text-slate-500 mt-1">
+                Welcome back, {displayName}.
+                {stats && ` You have ${stats.byStatus.open || 0} active claims.`}
+              </p>
+            </div>
+            {weatherLoading ? (
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
+                <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
+              </div>
+            ) : weather && (
+              <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2" data-testid="weather-badge-desktop">
+                {(() => {
+                  const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                  return <WeatherIcon className="h-5 w-5 text-sky-600" />;
+                })()}
+                <div>
+                  <span className="text-lg font-semibold text-sky-700">{Math.round(weather.temp)}°F</span>
+                  <p className="text-xs text-sky-600">{weather.conditions}</p>
+                </div>
+              </div>
+            )}
           </div>
           <Link href="/new-claim">
             <Button size="lg" className="shadow-lg shadow-primary/20">

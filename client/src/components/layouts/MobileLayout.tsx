@@ -70,7 +70,15 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
     setLocation("/auth");
   };
 
-  const displayName = authUser?.username || user.name;
+  const displayName = (() => {
+    if (authUser?.firstName && authUser?.lastName) {
+      return `${authUser.firstName} ${authUser.lastName}`.trim();
+    }
+    if (authUser?.firstName) {
+      return authUser.firstName;
+    }
+    return authUser?.username || user.name;
+  })();
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
   // Check if current route should be highlighted
