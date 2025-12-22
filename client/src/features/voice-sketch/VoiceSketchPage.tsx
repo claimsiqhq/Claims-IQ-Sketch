@@ -2,7 +2,7 @@
 // Full page component for voice-driven room sketching
 // Works standalone or attached to a specific claim
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText } from 'lucide-react';
@@ -26,11 +26,12 @@ import {
 } from '@/components/ui/select';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine } from './services/geometry-engine';
-import { getClaim, getClaims, saveClaimHierarchy } from '@/lib/api';
+import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
-import type { RoomGeometry, Structure } from './types/geometry';
+import type { RoomGeometry, Structure, VoiceDamageZone } from './types/geometry';
 import type { ClaimRoom, ClaimDamageZone, ClaimStructure, Claim } from '@/lib/api';
+import { generatePolygon } from './utils/polygon-math';
 
 export default function VoiceSketchPage() {
   const params = useParams();
@@ -39,10 +40,11 @@ export default function VoiceSketchPage() {
   const claimId = params.claimId;
   const authUser = useStore((state) => state.authUser);
 
-  const { rooms, currentRoom, structures, resetSession } = useGeometryEngine();
+  const { rooms, currentRoom, structures, resetSession, loadRooms } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
   const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState<string>('');
+  const hasLoadedRooms = useRef(false);
 
   // Fetch the real claim from the database (only if claimId provided)
   const { data: claim, isLoading, error } = useQuery({
@@ -51,6 +53,68 @@ export default function VoiceSketchPage() {
     enabled: !!claimId,
     staleTime: 30000,
   });
+  
+  // Fetch existing rooms for this claim
+  const { data: existingRoomsData } = useQuery({
+    queryKey: ['claim-rooms', claimId],
+    queryFn: () => getClaimRooms(claimId!),
+    enabled: !!claimId,
+    staleTime: 30000,
+  });
+  
+  // Load existing rooms into geometry engine when data is available
+  useEffect(() => {
+    if (existingRoomsData?.rooms && existingRoomsData.rooms.length > 0 && !hasLoadedRooms.current) {
+      hasLoadedRooms.current = true;
+      
+      // Convert ClaimRoom to RoomGeometry
+      const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((room) => {
+        const width = parseFloat(room.widthFt || '10');
+        const length = parseFloat(room.lengthFt || '10');
+        const ceilingHeight = parseFloat(room.ceilingHeightFt || '8');
+        
+        // Find damage zones for this room
+        const roomDamageZones = (existingRoomsData.damageZones || [])
+          .filter((dz) => dz.roomId === room.id)
+          .map((dz): VoiceDamageZone => ({
+            id: dz.id,
+            type: dz.damageType || 'water',
+            category: dz.severity || 'moderate',
+            affected_walls: Array.isArray(dz.affectedWalls) ? dz.affectedWalls.map((w: string) => w.toLowerCase()) : [],
+            floor_affected: dz.floorAffected || false,
+            ceiling_affected: dz.ceilingAffected || false,
+            extent_ft: parseFloat(dz.extentFt || '0'),
+            polygon: [],
+            is_freeform: dz.isFreeform || false,
+            source: dz.source || '',
+          }));
+        
+        return {
+          id: room.id,
+          name: room.name.replace(/ /g, '_'),
+          shape: (room.shape as 'rectangular' | 'l_shaped' | 't_shaped' | 'polygon') || 'rectangular',
+          width_ft: width,
+          length_ft: length,
+          ceiling_height_ft: ceilingHeight,
+          polygon: generatePolygon(width, length),
+          openings: Array.isArray(room.openings) ? room.openings : [],
+          features: Array.isArray(room.features) ? room.features : [],
+          damageZones: roomDamageZones,
+          notes: Array.isArray(room.notes) ? room.notes : [],
+          origin_x_ft: parseFloat(room.originXFt || '0'),
+          origin_y_ft: parseFloat(room.originYFt || '0'),
+          structureId: room.structureId || undefined,
+          created_at: room.createdAt?.toString() || new Date().toISOString(),
+          updated_at: room.updatedAt?.toString() || new Date().toISOString(),
+        };
+      });
+      
+      loadRooms(convertedRooms);
+      toast.info(`Loaded ${convertedRooms.length} saved room(s)`, {
+        description: 'You can continue editing or add more rooms.',
+      });
+    }
+  }, [existingRoomsData, loadRooms]);
 
   // Fetch available claims for the claim selector (when no claim is attached)
   const { data: claimsData } = useQuery({

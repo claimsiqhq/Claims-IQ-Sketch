@@ -114,6 +114,9 @@ interface GeometryEngineState {
 
   // Reset state
   resetSession: () => void;
+  
+  // Load existing rooms (for editing saved sketches)
+  loadRooms: (rooms: RoomGeometry[]) => void;
 }
 
 const initialSessionState: VoiceSessionState = {
@@ -1396,6 +1399,20 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       currentStructure: null,
       currentRoom: null,
       rooms: [],
+      photos: [],
+      commandHistory: [],
+      undoStack: [],
+      transcript: [],
+      sessionState: initialSessionState,
+    });
+  },
+  
+  loadRooms: (rooms: RoomGeometry[]) => {
+    set({
+      structures: [],
+      currentStructure: null,
+      currentRoom: null,
+      rooms: rooms,
       photos: [],
       commandHistory: [],
       undoStack: [],

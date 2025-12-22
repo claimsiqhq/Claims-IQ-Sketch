@@ -104,7 +104,7 @@ import { formatDistanceToNow } from "date-fns";
 
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
-import { saveClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
+import { saveClaimRooms, getClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
 import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
@@ -149,6 +149,8 @@ export default function ClaimDetail() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [endorsements, setEndorsements] = useState<Endorsement[]>([]);
   const [scopeItems, setScopeItems] = useState<ScopeItem[]>([]);
+  const [savedRooms, setSavedRooms] = useState<ClaimRoom[]>([]);
+  const [savedDamageZones, setSavedDamageZones] = useState<ClaimDamageZone[]>([]);
   const [loadingApiData, setLoadingApiData] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
@@ -232,16 +234,19 @@ export default function ClaimDetail() {
     setApiError(null);
 
     try {
-      const [claimData, docsData, endorsementsData, scopeData] = await Promise.all([
+      const [claimData, docsData, endorsementsData, scopeData, roomsData] = await Promise.all([
         getClaim(params.id),
         getClaimDocuments(params.id),
         getClaimEndorsements(params.id).catch(() => []), // Don't fail if endorsements fail
-        getScopeItems(params.id).catch(() => []) // Don't fail if scope items fail
+        getScopeItems(params.id).catch(() => []), // Don't fail if scope items fail
+        getClaimRooms(params.id).catch(() => ({ rooms: [], damageZones: [] })) // Don't fail if rooms fail
       ]);
       setApiClaim(claimData);
       setDocuments(docsData);
       setEndorsements(endorsementsData);
       setScopeItems(scopeData);
+      setSavedRooms(roomsData.rooms || []);
+      setSavedDamageZones(roomsData.damageZones || []);
       // Ensure the claim exists in the store for sketch operations
       // Cast the API Claim to the store's Partial<Claim> type (status field is compatible)
       ensureClaim(params.id, claimData as any);
@@ -1750,6 +1755,53 @@ export default function ClaimDetail() {
 
                       <ScrollArea className="flex-1 p-4">
                         <div className="space-y-6">
+                          {/* Saved Rooms Section */}
+                          {savedRooms.length > 0 && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4" data-testid="saved-rooms-section">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <Square className="h-5 w-5 text-blue-600" />
+                                  <h3 className="font-semibold text-blue-900">Saved Rooms ({savedRooms.length})</h3>
+                                </div>
+                                <Link href={`/voice-sketch/${params?.id}`}>
+                                  <Button size="sm" variant="outline" className="text-blue-600 border-blue-300 hover:bg-blue-100" data-testid="button-edit-sketch">
+                                    <PenTool className="h-4 w-4 mr-2" />
+                                    Edit Sketch
+                                  </Button>
+                                </Link>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                {savedRooms.map((room) => {
+                                  const width = (room as any).widthFt || (room as any).width || 0;
+                                  const length = (room as any).lengthFt || (room as any).height || 0;
+                                  return (
+                                    <div key={room.id} className="bg-white border border-blue-100 rounded p-2 text-sm" data-testid={`room-card-${room.id}`}>
+                                      <p className="font-medium truncate">{room.name}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {parseFloat(width).toFixed(0)}' × {parseFloat(length).toFixed(0)}'
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* No rooms yet - show button to create sketch */}
+                          {savedRooms.length === 0 && (
+                            <div className="text-center py-8 bg-slate-50 rounded-lg border border-dashed">
+                              <Square className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                              <h3 className="font-medium text-muted-foreground mb-2">No Room Sketches Yet</h3>
+                              <p className="text-sm text-muted-foreground mb-4">Create a sketch to document room dimensions and damage</p>
+                              <Link href={`/voice-sketch/${params?.id}`}>
+                                <Button variant="outline" data-testid="button-create-sketch">
+                                  <PenTool className="h-4 w-4 mr-2" />
+                                  Create Sketch
+                                </Button>
+                              </Link>
+                            </div>
+                          )}
+                          
                           {/* Voice Scope Controller */}
                           {isVoiceScopeOpen && (
                             <VoiceScopeController
