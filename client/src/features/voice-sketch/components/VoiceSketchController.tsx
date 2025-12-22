@@ -6,6 +6,7 @@ import React, { useState, useCallback } from 'react';
 import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -473,10 +474,10 @@ export function VoiceSketchController({
         </Alert>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 min-h-0">
-        {/* Left Column: Room Preview - takes 2/3 of space */}
-        <div className="lg:col-span-2 flex flex-col min-h-[300px] lg:min-h-0">
+      {/* Main Content - Resizable on desktop, stacked on mobile */}
+      <div className="flex-1 min-h-0 lg:hidden flex flex-col gap-4 p-4">
+        {/* Mobile: stacked layout */}
+        <div className="flex flex-col min-h-[300px]">
           <RoomPreview room={currentRoom} className="flex-1" />
           {lastToolCall && (
             <div className="bg-secondary/50 rounded-lg p-2 text-sm mt-2">
@@ -487,12 +488,8 @@ export function VoiceSketchController({
             </div>
           )}
         </div>
-
-        {/* Right Column: Command History & Hierarchy Summary */}
-        <div className="flex flex-col min-h-[200px] lg:min-h-0 gap-2">
+        <div className="flex flex-col min-h-[200px] gap-2">
           <CommandHistory className="flex-1" />
-          
-          {/* Structures & Rooms Summary */}
           {structures.length > 0 && (
             <div className="bg-muted rounded-lg p-3">
               <h3 className="font-medium text-xs mb-2 flex items-center gap-1">
@@ -515,20 +512,12 @@ export function VoiceSketchController({
                         ({structure.rooms.length} rooms)
                       </span>
                     </div>
-                    {/* Show rooms in this structure */}
                     {structure.rooms.length > 0 && structure.id === currentStructure?.id && (
                       <div className="pl-4 space-y-0.5">
                         {structure.rooms.map((room) => (
-                          <div
-                            key={room.id}
-                            className="text-xs text-muted-foreground flex justify-between"
-                          >
-                            <span className="capitalize truncate">
-                              {room.name.replace(/_/g, ' ')}
-                            </span>
-                            <span className="flex-shrink-0 ml-2">
-                              {room.width_ft}' × {room.length_ft}'
-                            </span>
+                          <div key={room.id} className="text-xs text-muted-foreground flex justify-between">
+                            <span className="capitalize truncate">{room.name.replace(/_/g, ' ')}</span>
+                            <span className="flex-shrink-0 ml-2">{room.width_ft}' × {room.length_ft}'</span>
                           </div>
                         ))}
                       </div>
@@ -538,31 +527,117 @@ export function VoiceSketchController({
               </div>
             </div>
           )}
-          
-          {/* Standalone rooms (legacy/backward compatibility) */}
           {rooms.length > 0 && structures.length === 0 && (
             <div className="bg-muted rounded-lg p-3">
-              <h3 className="font-medium text-xs mb-1">
-                Rooms ({rooms.length})
-              </h3>
+              <h3 className="font-medium text-xs mb-1">Rooms ({rooms.length})</h3>
               <div className="space-y-0.5">
                 {rooms.map((room) => (
-                  <div
-                    key={room.id}
-                    className="text-xs text-muted-foreground flex justify-between"
-                  >
-                    <span className="capitalize truncate">
-                      {room.name.replace(/_/g, ' ')}
-                    </span>
-                    <span className="flex-shrink-0 ml-2">
-                      {room.width_ft}' × {room.length_ft}'
-                    </span>
+                  <div key={room.id} className="text-xs text-muted-foreground flex justify-between">
+                    <span className="capitalize truncate">{room.name.replace(/_/g, ' ')}</span>
+                    <span className="flex-shrink-0 ml-2">{room.width_ft}' × {room.length_ft}'</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
         </div>
+      </div>
+
+      {/* Desktop: Resizable panels */}
+      <div className="flex-1 min-h-0 hidden lg:block p-2">
+        <ResizablePanelGroup direction="horizontal" className="h-full rounded-lg border">
+          {/* Left Panel: Room Preview (resizable) */}
+          <ResizablePanel defaultSize={70} minSize={40}>
+            <div className="h-full flex flex-col p-3">
+              <RoomPreview room={currentRoom} className="flex-1" />
+              {lastToolCall && (
+                <div className="bg-secondary/50 rounded-lg p-2 text-sm mt-2">
+                  <span className="font-medium text-secondary-foreground">
+                    {lastToolCall.name}:
+                  </span>{' '}
+                  <span className="text-muted-foreground">{lastToolCall.result}</span>
+                </div>
+              )}
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Right Panel: Command History & Summary (resizable) */}
+          <ResizablePanel defaultSize={30} minSize={20}>
+            <div className="h-full flex flex-col gap-2 p-3 overflow-y-auto">
+              <CommandHistory className="flex-1 min-h-[150px]" />
+              
+              {structures.length > 0 && (
+                <div className="bg-muted rounded-lg p-3 flex-shrink-0">
+                  <h3 className="font-medium text-xs mb-2 flex items-center gap-1">
+                    <Building2 className="h-3 w-3" />
+                    Structures ({structures.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {structures.map((structure) => (
+                      <div key={structure.id} className="space-y-0.5">
+                        <div 
+                          className={cn(
+                            "text-xs font-medium flex items-center gap-1 cursor-pointer hover:text-primary",
+                            structure.id === currentStructure?.id && "text-primary"
+                          )}
+                          onClick={() => selectStructure({ structure_id: structure.id })}
+                        >
+                          <Home className="h-3 w-3" />
+                          {structure.name}
+                          <span className="text-muted-foreground font-normal">
+                            ({structure.rooms.length} rooms)
+                          </span>
+                        </div>
+                        {structure.rooms.length > 0 && structure.id === currentStructure?.id && (
+                          <div className="pl-4 space-y-0.5">
+                            {structure.rooms.map((room) => (
+                              <div
+                                key={room.id}
+                                className="text-xs text-muted-foreground flex justify-between"
+                              >
+                                <span className="capitalize truncate">
+                                  {room.name.replace(/_/g, ' ')}
+                                </span>
+                                <span className="flex-shrink-0 ml-2">
+                                  {room.width_ft}' × {room.length_ft}'
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {rooms.length > 0 && structures.length === 0 && (
+                <div className="bg-muted rounded-lg p-3 flex-shrink-0">
+                  <h3 className="font-medium text-xs mb-1">
+                    Rooms ({rooms.length})
+                  </h3>
+                  <div className="space-y-0.5">
+                    {rooms.map((room) => (
+                      <div
+                        key={room.id}
+                        className="text-xs text-muted-foreground flex justify-between"
+                      >
+                        <span className="capitalize truncate">
+                          {room.name.replace(/_/g, ' ')}
+                        </span>
+                        <span className="flex-shrink-0 ml-2">
+                          {room.width_ft}' × {room.length_ft}'
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   );
