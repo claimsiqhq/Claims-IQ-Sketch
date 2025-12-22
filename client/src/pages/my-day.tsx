@@ -96,11 +96,18 @@ interface StopWeatherData {
     uvIndex?: number;
   };
   alerts: { event: string; severity: string; headline: string }[];
-  inspectionImpact: {
+  inspectionImpact?: {
     score: 'good' | 'caution' | 'warning' | 'severe';
     reasons: string[];
     recommendations: string[];
   };
+  forecast?: {
+    time: string;
+    temp: number;
+    pop: number;
+    conditions: { id: string; main: string; description: string; icon: string }[];
+    windSpeed: number;
+  }[];
 }
 
 interface MyDayInsight {
@@ -1680,6 +1687,7 @@ export default function MyDay() {
               analysis={aiAnalysis}
               isLoading={isAnalyzing}
               isMobile={isMobileLayout}
+              weather={aiAnalysis?.weatherData?.[0] || localWeather}
             />
           )}
 
