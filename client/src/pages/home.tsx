@@ -202,6 +202,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [weather, setWeather] = useState<CurrentWeather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -210,39 +211,46 @@ export default function Home() {
 
   // Fetch weather for current location
   useEffect(() => {
+    async function fetchWeather(lat: number, lng: number) {
+      try {
+        const response = await fetch('/api/weather/locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            locations: [{ lat, lng, stopId: 'current' }],
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.weather && data.weather.length > 0) {
+            const w = data.weather[0];
+            setWeather({
+              temp: w.current?.temp || 0,
+              conditions: w.current?.conditions?.[0]?.main || 'Clear',
+              icon: w.current?.conditions?.[0]?.icon || '01d',
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch weather:', err);
+      } finally {
+        setWeatherLoading(false);
+      }
+    }
+
+    // Default to Austin, TX if geolocation unavailable
+    const defaultLat = 30.2672;
+    const defaultLng = -97.7431;
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const response = await fetch('/api/weather/locations', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                locations: [{
-                  lat: position.coords.latitude,
-                  lng: position.coords.longitude,
-                  stopId: 'current',
-                }],
-              }),
-            });
-            if (response.ok) {
-              const data = await response.json();
-              if (data.weather && data.weather.length > 0) {
-                const w = data.weather[0];
-                setWeather({
-                  temp: w.current?.temp || 0,
-                  conditions: w.current?.conditions?.[0]?.main || 'Clear',
-                  icon: w.current?.conditions?.[0]?.icon || '01d',
-                });
-              }
-            }
-          } catch (err) {
-            console.error('Failed to fetch weather:', err);
-          }
-        },
-        (err) => console.log('Geolocation not available:', err.message)
+        (position) => fetchWeather(position.coords.latitude, position.coords.longitude),
+        () => fetchWeather(defaultLat, defaultLng), // Fallback on error
+        { timeout: 5000, maximumAge: 300000 }
       );
+    } else {
+      fetchWeather(defaultLat, defaultLng);
     }
   }, []);
 
@@ -296,7 +304,11 @@ export default function Home() {
                 {stats ? `${(stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims` : 'Loading...'}
               </p>
             </div>
-            {weather && (
+            {weatherLoading ? (
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
+              </div>
+            ) : weather && (
               <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5" data-testid="weather-badge-home">
                 {(() => {
                   const WeatherIcon = getWeatherIconComponent(weather.conditions);
@@ -474,7 +486,11 @@ export default function Home() {
                 {stats && ` You have ${stats.byStatus.open || 0} active claims.`}
               </p>
             </div>
-            {weather && (
+            {weatherLoading ? (
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
+                <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
+              </div>
+            ) : weather && (
               <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2" data-testid="weather-badge-desktop">
                 {(() => {
                   const WeatherIcon = getWeatherIconComponent(weather.conditions);
