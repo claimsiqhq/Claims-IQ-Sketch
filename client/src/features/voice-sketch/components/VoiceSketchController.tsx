@@ -3,7 +3,7 @@
 // Hierarchy: Structure > Room > Sub-room > Object
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera } from 'lucide-react';
+import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera, Layers, Triangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
@@ -71,7 +71,7 @@ export function VoiceSketchController({
       console.warn('Please create a structure first before adding rooms');
       return;
     }
-    
+
     const roomDefaults: Record<string, { width: number; length: number; name: string }> = {
       bedroom: { width: 12, length: 14, name: 'Bedroom' },
       bathroom: { width: 8, length: 10, name: 'Bathroom' },
@@ -91,6 +91,44 @@ export function VoiceSketchController({
       width_ft: defaults.width,
       length_ft: defaults.length,
       ceiling_height_ft: 8,
+      structure_id: currentStructure.id,
+    });
+  }, [createRoom, currentStructure]);
+
+  // Exterior zone creation handler (Roof, Elevations, Deck)
+  const handleAddExteriorZone = useCallback((zoneType: string) => {
+    if (!currentStructure) {
+      console.warn('Please create a structure first before adding exterior zones');
+      return;
+    }
+
+    // Exterior zones with typical dimensions for estimating
+    const exteriorDefaults: Record<string, { width: number; length: number; name: string; ceilingHeight?: number }> = {
+      // Roof zones - width/length represent footprint, ceiling height not applicable
+      roof_main: { width: 40, length: 30, name: 'Roof - Main', ceilingHeight: 0 },
+      roof_garage: { width: 24, length: 24, name: 'Roof - Garage', ceilingHeight: 0 },
+      roof_porch: { width: 12, length: 8, name: 'Roof - Porch', ceilingHeight: 0 },
+      // Elevation zones - width is wall length, length is wall height
+      elevation_front: { width: 40, length: 10, name: 'Elevation - Front', ceilingHeight: 0 },
+      elevation_back: { width: 40, length: 10, name: 'Elevation - Back', ceilingHeight: 0 },
+      elevation_left: { width: 30, length: 10, name: 'Elevation - Left Side', ceilingHeight: 0 },
+      elevation_right: { width: 30, length: 10, name: 'Elevation - Right Side', ceilingHeight: 0 },
+      // Other exterior zones
+      deck: { width: 16, length: 12, name: 'Deck', ceilingHeight: 0 },
+      patio: { width: 16, length: 12, name: 'Patio', ceilingHeight: 0 },
+      fence: { width: 100, length: 6, name: 'Fence', ceilingHeight: 0 },
+      driveway: { width: 20, length: 40, name: 'Driveway', ceilingHeight: 0 },
+      siding: { width: 40, length: 10, name: 'Siding Section', ceilingHeight: 0 },
+      gutters: { width: 100, length: 1, name: 'Gutters', ceilingHeight: 0 },
+    };
+
+    const defaults = exteriorDefaults[zoneType] || { width: 20, length: 20, name: 'Exterior Zone', ceilingHeight: 0 };
+    createRoom({
+      name: defaults.name,
+      shape: 'rectangle',
+      width_ft: defaults.width,
+      length_ft: defaults.length,
+      ceiling_height_ft: defaults.ceilingHeight ?? 0,
       structure_id: currentStructure.id,
     });
   }, [createRoom, currentStructure]);
@@ -354,9 +392,9 @@ export function VoiceSketchController({
           {/* Add Room dropdown - only enabled when a structure is selected */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="h-7 px-2"
                 disabled={!currentStructure}
                 title={!currentStructure ? 'Add a structure first' : 'Add room'}
@@ -378,6 +416,65 @@ export function VoiceSketchController({
               <DropdownMenuItem onClick={() => handleAddRoom('hallway')}>Hallway</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => handleAddRoom('closet')}>Closet (Sub-room)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Add Exterior Zone dropdown - for roof, elevations, deck (wind/hail claims) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2"
+                disabled={!currentStructure}
+                title={!currentStructure ? 'Add a structure first' : 'Add exterior zone (roof, elevation)'}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                <Triangle className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Add Exterior Zone</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Roof Sections</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_main')}>
+                <Triangle className="h-4 w-4 mr-2" />
+                Roof - Main
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_garage')}>
+                <Triangle className="h-4 w-4 mr-2" />
+                Roof - Garage
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_porch')}>
+                <Triangle className="h-4 w-4 mr-2" />
+                Roof - Porch/Addition
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Exterior Elevations</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_front')}>
+                <Layers className="h-4 w-4 mr-2" />
+                Front Elevation
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_back')}>
+                <Layers className="h-4 w-4 mr-2" />
+                Back Elevation
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_left')}>
+                <Layers className="h-4 w-4 mr-2" />
+                Left Side Elevation
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_right')}>
+                <Layers className="h-4 w-4 mr-2" />
+                Right Side Elevation
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Other Exterior</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('siding')}>Siding Section</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('gutters')}>Gutters</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('deck')}>Deck</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('patio')}>Patio</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('fence')}>Fence</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('driveway')}>Driveway</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

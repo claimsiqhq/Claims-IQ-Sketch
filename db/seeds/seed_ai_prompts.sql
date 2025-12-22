@@ -219,83 +219,160 @@ Available items:
 'gpt-4o-mini', 0.20, NULL, 'json_object',
 'Quick voice-driven line item matching for estimate building');
 
--- Claim Briefing
+-- Claim Briefing (Pre-Inspection Analysis)
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES
-('briefing.claim', 'Claim Briefing Generation', 'briefing',
-'You are an expert insurance claim inspection advisor. Output ONLY valid JSON.',
-$USER$You are an expert insurance claim inspection advisor. Generate a field-ready claim briefing for an adjuster based on the following claim data.
+('briefing.claim', 'Pre-Inspection Briefing Generation', 'briefing',
+$SYSTEM$You are an expert insurance claims analyst. Analyze the provided insurance documents (FNOL, Policy Declarations, Endorsements) and extract a comprehensive Pre-Inspection Briefing.
 
-IMPORTANT RULES:
-1. Do NOT make coverage determinations or policy interpretations
-2. Focus ONLY on inspection planning and field execution
-3. Be practical, concise, and field-focused
-4. If information is missing, add it to "open_questions_for_adjuster"
-5. Do NOT guess or assume - only use provided data
+CRITICAL INSTRUCTIONS:
+1. Extract ALL claim identifiers: Claim #, Policy #, Loss Date, Report Date, Policyholder info, Property address, Carrier, Adjuster
+2. Extract PROPERTY DETAILS: Construction type, Year built, Square footage, Roof type, Roof age, Stories, Special features
+3. Extract COVERAGE LIMITS: Coverage A (Dwelling), B (Other Structures), C (Personal Property), D (Loss of Use), Deductibles
+4. DEDUCTIBLE CALCULATION: If deductible is percentage-based (e.g., "1% of Cov A"), calculate the actual dollar amount
+5. Flag ENDORSEMENT ALERTS with severity (HIGH/MEDIUM/LOW):
+   - HO 86 05 or similar Roof Surface Payment Schedule
+   - Cosmetic damage exclusions
+   - Matching limitations
+   - Ordinance or Law coverage
+   - Water damage limitations
+   - Any coverage restrictions or sublimits
+6. Analyze CAUSE OF LOSS and identify coverage concerns
+7. Generate 5-7 specific ADJUSTER ACTION ITEMS based on the claim
+
+Output ONLY valid JSON.$SYSTEM$,
+$USER$Analyze the following insurance claim documents and generate a comprehensive Pre-Inspection Briefing.
 
 CLAIM DATA:
 - Claim Number: {{claimNumber}}
 - Primary Peril: {{primaryPeril}}
 - Secondary Perils: {{secondaryPerils}}
 - Date of Loss: {{dateOfLoss}}
+- Report Date: {{reportDate}}
 - Loss Description: {{lossDescription}}
 - Property Location: {{propertyLocation}}
 
+POLICYHOLDER INFORMATION:
+- Name: {{policyholderName}}
+- Contact Phone: {{contactPhone}}
+- Contact Email: {{contactEmail}}
+
 POLICY CONTEXT:
 - Policy Number: {{policyNumber}}
+- Carrier: {{carrier}}
 - State: {{state}}
-- Dwelling Limit: {{dwellingLimit}}
+- Dwelling Limit (Cov A): {{dwellingLimit}}
+- Other Structures (Cov B): {{otherStructuresLimit}}
+- Personal Property (Cov C): {{personalPropertyLimit}}
+- Loss of Use (Cov D): {{lossOfUseLimit}}
 - Deductible: {{deductible}}
 - Wind/Hail Deductible: {{windHailDeductible}}
+
+PROPERTY DETAILS:
+- Year Built: {{yearBuilt}}
 - Year Roof Installed: {{yearRoofInstall}}
-- Endorsements Listed: {{endorsementsListed}}
+- Roof Type: {{roofType}}
+- Construction Type: {{constructionType}}
+- Number of Stories: {{stories}}
+- Square Footage: {{squareFootage}}
+
+ENDORSEMENTS LISTED:
+{{endorsementsListed}}
 
 ENDORSEMENTS DETAIL:
 {{endorsementsDetail}}
 
-DAMAGE ZONES:
+DAMAGE ZONES (if documented):
 {{damageZones}}
 
-COVERAGE ADVISORIES:
-{{coverageAdvisories}}
-
-PERIL-SPECIFIC INSPECTION GUIDANCE (use as reference):
-Priority Areas: {{priorityAreas}}
-Common Misses: {{commonMisses}}
+EXTRACTED DOCUMENT TEXT:
+{{documentText}}
 
 Generate a JSON briefing with this EXACT structure:
 {
-  "claim_summary": {
-    "primary_peril": "string - the main peril",
-    "secondary_perils": ["array of secondary perils"],
-    "overview": ["array of 2-4 brief overview points about this claim"]
+  "claim_identifiers": {
+    "claim_number": "string",
+    "policy_number": "string",
+    "loss_date": "string",
+    "report_date": "string",
+    "policyholder": {
+      "name": "string",
+      "phone": "string or null",
+      "email": "string or null"
+    },
+    "property_address": "string",
+    "carrier": "string",
+    "assigned_adjuster": "string or null"
   },
-  "inspection_strategy": {
-    "where_to_start": ["array of 2-4 specific areas to begin inspection"],
-    "what_to_prioritize": ["array of 3-5 priority items for this peril/claim"],
-    "common_misses": ["array of 2-4 things commonly missed for this peril"]
+  "property_details": {
+    "construction_type": "string",
+    "year_built": "number or null",
+    "square_footage": "number or null",
+    "roof_type": "string",
+    "roof_age_years": "number or null",
+    "stories": "number or null",
+    "special_features": ["array of notable features"]
   },
-  "peril_specific_risks": ["array of 3-5 risks specific to this peril type"],
-  "endorsement_watchouts": [
+  "coverage_summary": {
+    "coverage_a_dwelling": "number",
+    "coverage_b_other_structures": "number or null",
+    "coverage_c_personal_property": "number or null",
+    "coverage_d_loss_of_use": "number or null",
+    "deductible": {
+      "type": "flat or percentage",
+      "stated_value": "string (as shown in policy)",
+      "calculated_amount": "number (actual dollar amount)",
+      "applies_to": "string (e.g., 'All Perils' or 'Wind/Hail only')"
+    },
+    "wind_hail_deductible": {
+      "type": "flat or percentage or null",
+      "stated_value": "string or null",
+      "calculated_amount": "number or null"
+    }
+  },
+  "endorsement_alerts": [
     {
-      "endorsement_id": "form number",
-      "impact": "brief description of impact",
-      "inspection_implications": ["what this means for inspection"]
+      "endorsement_id": "form number (e.g., HO 86 05)",
+      "endorsement_name": "full name",
+      "severity": "HIGH, MEDIUM, or LOW",
+      "impact_summary": "brief description of how this affects the claim",
+      "adjuster_action": "what the adjuster needs to do about this"
     }
   ],
-  "photo_requirements": [
+  "cause_of_loss_analysis": {
+    "primary_peril": "string",
+    "secondary_perils": ["array"],
+    "coverage_concerns": ["array of potential coverage issues"],
+    "investigation_points": ["array of things to verify during inspection"]
+  },
+  "adjuster_action_items": [
     {
-      "category": "category name",
-      "items": ["specific photos needed"]
+      "priority": "1, 2, 3, etc.",
+      "action": "specific action to take",
+      "reason": "why this is important"
     }
   ],
-  "sketch_requirements": ["array of sketch/diagram needs for this claim"],
-  "depreciation_considerations": ["array of depreciation items to document"],
-  "open_questions_for_adjuster": ["array of questions that need answers before/during inspection"]
+  "inspection_requirements": {
+    "photo_requirements": [
+      {
+        "category": "category name",
+        "required_photos": ["specific photos needed"]
+      }
+    ],
+    "sketch_requirements": ["array of sketch/diagram needs"],
+    "measurement_requirements": ["specific measurements to take"]
+  },
+  "depreciation_considerations": [
+    {
+      "item": "what needs depreciation assessment",
+      "factors": ["factors to document for depreciation"]
+    }
+  ],
+  "missing_information": ["array of information not found in documents that adjuster should obtain"]
 }
 
 Respond ONLY with valid JSON. No explanation, no markdown.$USER$,
-'gpt-4o', 0.30, 2000, 'json_object',
-'Generates field-ready claim briefings for insurance adjusters with inspection strategy and requirements');
+'gpt-4o', 0.20, 4000, 'json_object',
+'Generates comprehensive pre-inspection briefings from FNOL, policy declarations, and endorsement documents with deductible calculations and endorsement alerts');
 
 -- Voice Room Sketch Agent
 INSERT INTO ai_prompts (prompt_key, prompt_name, category, system_prompt, user_prompt_template, model, temperature, max_tokens, response_format, description) VALUES

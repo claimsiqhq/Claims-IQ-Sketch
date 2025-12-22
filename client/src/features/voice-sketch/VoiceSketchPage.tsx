@@ -441,6 +441,18 @@ export default function VoiceSketchPage() {
 
 function inferRoomType(name: string): string {
   const nameLower = name.toLowerCase();
+  // Exterior zones - Roof
+  if (nameLower.includes('roof')) return 'Roof';
+  // Exterior zones - Elevations
+  if (nameLower.includes('elevation')) return 'Elevation';
+  // Exterior zones - Other
+  if (nameLower.includes('siding')) return 'Siding';
+  if (nameLower.includes('gutter')) return 'Gutters';
+  if (nameLower.includes('deck')) return 'Deck';
+  if (nameLower.includes('patio')) return 'Patio';
+  if (nameLower.includes('fence')) return 'Fence';
+  if (nameLower.includes('driveway')) return 'Driveway';
+  // Interior rooms
   if (nameLower.includes('bedroom') || nameLower.includes('master')) return 'Bedroom';
   if (nameLower.includes('bathroom') || nameLower.includes('bath')) return 'Bathroom';
   if (nameLower.includes('kitchen')) return 'Kitchen';
