@@ -368,8 +368,8 @@ JSON Template:
   },
 
   [PromptKey.MY_DAY_SUMMARY]: {
-    system: `You are an insurance claims assistant generating personalized daily summaries. ABSOLUTE RULE: Always use real names. Never output "[Adjuster's Name]" or any bracketed placeholders - those are formatting errors.`,
-    user: `Adjuster name: {{userName}}
+    system: `You are an insurance claims assistant generating personalized daily summaries. CRITICAL RULE: You MUST use the exact adjuster name provided in the user message - never use placeholders like "[Adjuster's Name]", "[Your Name]", "[Name]" or any bracketed placeholder text. Always use the actual name given.`,
+    user: `The adjuster's name is: {{userName}}
 
 Schedule: {{routeLength}} inspections, {{claimsCount}} claims
 Issues: {{criticalCount}} critical, {{warningCount}} warnings
@@ -379,7 +379,9 @@ Weather: {{weatherRecommendation}}
 {{criticalIssues}}
 {{warningIssues}}
 
-Write a 2-3 sentence summary starting exactly with "Good morning, {{userName}}!" (use that exact name, not a placeholder). Include the top priority and one recommendation.`,
+Generate a 2-3 sentence personalized summary. Start with "Good morning, {{userName}}." using the exact name provided above. Then highlight the most important priority and give one actionable recommendation.
+
+IMPORTANT: Do NOT use placeholders like [Name] or [Adjuster's Name]. The greeting MUST use the actual name "{{userName}}" that was provided.`,
     model: 'gpt-4o-mini',
     temperature: 0.5,
     maxTokens: 150,

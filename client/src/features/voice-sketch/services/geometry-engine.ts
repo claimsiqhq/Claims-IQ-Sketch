@@ -114,7 +114,10 @@ interface GeometryEngineState {
 
   // Reset state
   resetSession: () => void;
-  
+
+  // Load from existing claim data
+  loadFromClaimData: (structures: Structure[], rooms: RoomGeometry[]) => void;
+
   // Load existing rooms (for editing saved sketches)
   loadRooms: (rooms: RoomGeometry[]) => void;
 }
@@ -1406,7 +1409,28 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       sessionState: initialSessionState,
     });
   },
-  
+
+  loadFromClaimData: (structures: Structure[], rooms: RoomGeometry[]) => {
+    // Reset current session state and load existing claim data
+    set({
+      structures,
+      rooms,
+      currentStructure: structures.length > 0 ? structures[0] : null,
+      currentRoom: null,
+      photos: [],
+      commandHistory: [{
+        id: generateId(),
+        action: 'load_claim',
+        params: { structureCount: structures.length, roomCount: rooms.length },
+        timestamp: new Date().toISOString(),
+        result: `Loaded ${structures.length} structure(s) and ${rooms.length} room(s) from saved claim`,
+      }],
+      undoStack: [],
+      transcript: [],
+      sessionState: initialSessionState,
+    });
+  },
+
   loadRooms: (rooms: RoomGeometry[]) => {
     set({
       structures: [],
@@ -1462,4 +1486,7 @@ export const geometryEngine = {
   },
   getCurrentHierarchyPath: () => useGeometryEngine.getState().getCurrentHierarchyPath(),
   getHierarchyContext: () => useGeometryEngine.getState().getHierarchyContext(),
+  loadFromClaimData: (structures: Structure[], rooms: RoomGeometry[]) =>
+    useGeometryEngine.getState().loadFromClaimData(structures, rooms),
+  resetSession: () => useGeometryEngine.getState().resetSession(),
 };

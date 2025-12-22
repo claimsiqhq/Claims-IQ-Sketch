@@ -117,7 +117,10 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       const response = await apiLogin(username, password, rememberMe);
       if (response.user) {
-        const displayName = [response.user.firstName, response.user.lastName].filter(Boolean).join(' ') || response.user.username;
+        // Construct display name from firstName/lastName, falling back to username
+        const displayName = [response.user.firstName, response.user.lastName]
+          .filter(Boolean)
+          .join(' ') || response.user.username;
         set({
           authUser: response.user,
           isAuthenticated: true,
@@ -160,7 +163,10 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ isAuthLoading: true });
     try {
       const response = await apiCheckAuth();
-      const displayName = response.user ? ([response.user.firstName, response.user.lastName].filter(Boolean).join(' ') || response.user.username) : 'Guest';
+      // Construct display name from firstName/lastName, falling back to username
+      const displayName = response.user
+        ? ([response.user.firstName, response.user.lastName].filter(Boolean).join(' ') || response.user.username)
+        : '';
       set({
         authUser: response.user,
         isAuthenticated: response.authenticated,
