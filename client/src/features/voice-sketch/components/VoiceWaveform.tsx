@@ -10,6 +10,7 @@ interface VoiceWaveformProps {
   isListening: boolean;
   isSpeaking: boolean;
   className?: string;
+  compact?: boolean;
 }
 
 export function VoiceWaveform({
@@ -17,6 +18,7 @@ export function VoiceWaveform({
   isListening,
   isSpeaking,
   className,
+  compact = false,
 }: VoiceWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
@@ -128,6 +130,50 @@ export function VoiceWaveform({
 
   const status = getStatusLabel();
   const StatusIcon = status.icon;
+
+  // Compact mode: just waveform with minimal status indicator
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          'rounded border bg-card/50 px-2 py-1 flex items-center gap-2',
+          className
+        )}
+      >
+        {/* Small status indicator */}
+        <div
+          className={cn(
+            'w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0',
+            !isConnected && 'bg-muted',
+            isConnected && isListening && 'bg-green-100',
+            isConnected && isSpeaking && 'bg-primary/10',
+            isConnected && !isListening && !isSpeaking && 'bg-muted'
+          )}
+        >
+          <StatusIcon
+            className={cn(
+              'h-3 w-3',
+              !isConnected && 'text-muted-foreground',
+              isConnected && isListening && 'text-green-600',
+              isConnected && isSpeaking && 'text-primary'
+            )}
+          />
+        </div>
+
+        {/* Waveform Canvas - compact */}
+        <canvas
+          ref={canvasRef}
+          className="flex-1"
+          style={{ height: '20px' }}
+        />
+
+        {/* Compact status text */}
+        <span className={cn('text-[10px] font-medium flex-shrink-0', status.className)}>
+          {status.text}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div

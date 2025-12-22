@@ -382,51 +382,21 @@ export function VoiceSketchController({
         </div>
       </div>
 
-      {/* Header with Voice Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 sm:p-3 border-b bg-background">
-        <div className="flex items-center gap-3">
-          <h2 className="text-base sm:text-lg font-semibold text-foreground">Voice Sketch</h2>
-          {isConnected && (
-            <div className="flex items-center gap-2">
-              {isListening && (
-                <span className="flex items-center gap-1 text-xs sm:text-sm text-green-600">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                  </span>
-                  <span className="hidden xs:inline">Listening</span>
-                </span>
-              )}
-              {isSpeaking && (
-                <span className="flex items-center gap-1 text-xs sm:text-sm text-blue-600">
-                  <Volume2 className="h-4 w-4 animate-pulse" />
-                  <span className="hidden xs:inline">Speaking</span>
-                </span>
-              )}
-            </div>
-          )}
-          {/* Photo count badge */}
-          {photos.length > 0 && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-              <Camera className="h-3 w-3" />
-              {photos.length}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* Compact Header with Voice Controls and Waveform - combined for desktop */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-background">
+        {/* Voice controls - left side */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {!isConnected ? (
             <Button 
               onClick={handleStartSession} 
               variant="default" 
               size="sm" 
-              className="flex-1 sm:flex-none"
+              className="h-7"
               disabled={!userName}
-              title={!userName ? "Loading user..." : undefined}
+              title={!userName ? "Loading user..." : "Start voice sketching"}
             >
-              <Mic className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">{userName ? 'Start Voice Sketching' : 'Loading...'}</span>
-              <span className="sm:hidden">{userName ? 'Start' : '...'}</span>
+              <Mic className="h-3.5 w-3.5 mr-1" />
+              <span className="text-xs">Start</span>
             </Button>
           ) : (
             <>
@@ -434,34 +404,54 @@ export function VoiceSketchController({
                 onClick={interruptAgent}
                 variant="outline"
                 size="sm"
+                className="h-7"
                 disabled={!isSpeaking}
+                title="Stop speaking"
               >
-                <Square className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Stop Speaking</span>
+                <Square className="h-3.5 w-3.5" />
               </Button>
-              <Button onClick={handleStopSession} variant="destructive" size="sm">
-                <MicOff className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">End Session</span>
+              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-7" title="End session">
+                <MicOff className="h-3.5 w-3.5" />
               </Button>
             </>
           )}
-          <Button onClick={handleReset} variant="ghost" size="sm" title="Reset session">
-            <RotateCcw className="h-4 w-4" />
+          <Button onClick={handleReset} variant="ghost" size="sm" className="h-7 w-7 p-0" title="Reset session">
+            <RotateCcw className="h-3.5 w-3.5" />
           </Button>
+        </div>
+
+        {/* Waveform - center, grows to fill space */}
+        <VoiceWaveform
+          isConnected={isConnected}
+          isListening={isListening}
+          isSpeaking={isSpeaking}
+          className="flex-1 h-7"
+          compact
+        />
+
+        {/* Status and actions - right side */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {photos.length > 0 && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              <Camera className="h-3 w-3" />
+              {photos.length}
+            </span>
+          )}
           {onSave && hasRooms && (
             <Button 
               onClick={handleSave} 
               variant="default" 
               size="sm"
+              className="h-7"
               disabled={isSaving}
               data-testid="button-save-sketch"
             >
               {isSaving ? (
-                <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Save className="h-4 w-4 sm:mr-2" />
+                <Save className="h-3.5 w-3.5 mr-1" />
               )}
-              <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save to Claim'}</span>
+              <span className="text-xs">{isSaving ? 'Saving...' : 'Save'}</span>
             </Button>
           )}
         </div>
@@ -477,19 +467,11 @@ export function VoiceSketchController({
 
       {/* Error Alert */}
       {error && (
-        <Alert variant="destructive" className="m-4">
+        <Alert variant="destructive" className="mx-3 my-1">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-
-      {/* Voice Waveform - compact bar */}
-      <VoiceWaveform
-        isConnected={isConnected}
-        isListening={isListening}
-        isSpeaking={isSpeaking}
-        className="mx-4 mt-2"
-      />
 
       {/* Main Content */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 min-h-0">
