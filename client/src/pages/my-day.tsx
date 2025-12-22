@@ -1392,6 +1392,45 @@ export default function MyDay() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<MyDayAnalysisResult | undefined>();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [localWeather, setLocalWeather] = useState<StopWeatherData | undefined>();
+
+  // Fetch current location weather as fallback
+  useEffect(() => {
+    async function fetchLocalWeather(lat: number, lng: number) {
+      try {
+        const response = await fetch('/api/weather/locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            locations: [{ lat, lng, stopId: 'current-location' }],
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.weather && data.weather.length > 0) {
+            setLocalWeather(data.weather[0]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch local weather:', err);
+      }
+    }
+
+    // Default to Austin, TX if geolocation unavailable
+    const defaultLat = 30.2672;
+    const defaultLng = -97.7431;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => fetchLocalWeather(position.coords.latitude, position.coords.longitude),
+        () => fetchLocalWeather(defaultLat, defaultLng),
+        { timeout: 5000, maximumAge: 300000 }
+      );
+    } else {
+      fetchLocalWeather(defaultLat, defaultLng);
+    }
+  }, []);
 
   const userDisplayName = useMemo(() => {
     if (authUser?.firstName && authUser?.lastName) {
@@ -1583,9 +1622,9 @@ export default function MyDay() {
       <div className="min-h-full bg-background">
         {/* Day Context Bar */}
         {isMobileLayout ? (
-          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0]} />
+          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} />
         ) : (
-          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0]} />
+          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} />
         )}
 
         {/* Main Content */}
