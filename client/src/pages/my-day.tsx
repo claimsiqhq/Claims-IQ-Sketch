@@ -359,7 +359,7 @@ function getWeatherConditionIcon(main: string) {
   return CloudSun;
 }
 
-function getImpactScoreStyles(score: StopWeatherData['inspectionImpact']['score']) {
+function getImpactScoreStyles(score?: 'good' | 'caution' | 'warning' | 'severe') {
   switch (score) {
     case 'good':
       return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', icon: CheckCircle2 };
@@ -583,13 +583,13 @@ function StopWeatherBadge({ weather }: { weather?: StopWeatherData }) {
   const { current, inspectionImpact } = weather;
   const mainCondition = current.conditions[0]?.main || 'Clear';
   const WeatherIcon = getWeatherConditionIcon(mainCondition);
-  const impactStyles = getImpactScoreStyles(inspectionImpact.score);
+  const impactStyles = getImpactScoreStyles(inspectionImpact?.score);
 
   return (
     <div className={cn("flex items-center gap-2 rounded-md px-2 py-1 text-xs", impactStyles.bg, impactStyles.border, "border")} data-testid="weather-badge">
       <WeatherIcon className={cn("h-3.5 w-3.5", impactStyles.text)} />
       <span className={impactStyles.text}>{current.temp}°F</span>
-      {inspectionImpact.score !== 'good' && (
+      {inspectionImpact?.score && inspectionImpact.score !== 'good' && (
         <span className={cn("font-medium", impactStyles.text)}>{inspectionImpact.score}</span>
       )}
     </div>
@@ -816,7 +816,7 @@ function MobileRouteStopCard({
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
   const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
-  const hasWeatherConcern = stopWeather?.inspectionImpact.score !== 'good' && stopWeather?.inspectionImpact.score !== undefined;
+  const hasWeatherConcern = stopWeather?.inspectionImpact?.score !== 'good' && stopWeather?.inspectionImpact?.score !== undefined;
 
   return (
     <Link href={`/claim/${stop.claimId}`}>
@@ -830,7 +830,7 @@ function MobileRouteStopCard({
           <div className="flex items-center gap-2 text-amber-700 text-xs px-3 py-2 border-b border-amber-200 bg-amber-50">
             <CloudRain className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
-              {weatherAlert?.description || stopWeather?.inspectionImpact.reasons[0] || 'Weather concern'}
+              {weatherAlert?.description || stopWeather?.inspectionImpact?.reasons?.[0] || 'Weather concern'}
             </span>
           </div>
         )}
@@ -926,7 +926,7 @@ function DesktopRouteStopCard({
 }) {
   const PerilIcon = getPerilIcon(stop.peril);
   const perilColors = PERIL_COLORS[stop.peril] || PERIL_COLORS[Peril.OTHER];
-  const hasWeatherConcern = stopWeather?.inspectionImpact.score !== 'good' && stopWeather?.inspectionImpact.score !== undefined;
+  const hasWeatherConcern = stopWeather?.inspectionImpact?.score !== 'good' && stopWeather?.inspectionImpact?.score !== undefined;
 
   return (
     <div className="relative">
@@ -946,7 +946,7 @@ function DesktopRouteStopCard({
             <div className="flex items-center gap-2 text-amber-700 text-sm mb-3 pb-3 border-b border-amber-200">
               <CloudRain className="h-4 w-4" />
               <span>
-                {weatherAlert?.description || stopWeather?.inspectionImpact.reasons[0] || 'Weather concern'}
+                {weatherAlert?.description || stopWeather?.inspectionImpact?.reasons?.[0] || 'Weather concern'}
                 {weatherAlert?.impact && ` — ${weatherAlert.impact}`}
               </span>
             </div>
