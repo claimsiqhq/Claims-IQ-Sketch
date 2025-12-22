@@ -2308,25 +2308,55 @@ export default function ClaimDetail() {
             {/* TAB: PHOTOS */}
             <TabsContent value="photos" className="h-full p-4 md:p-6 m-0 overflow-auto">
                <div className="max-w-6xl mx-auto">
-                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                   <div className="aspect-square bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 hover:border-primary/50 hover:text-primary cursor-pointer transition-colors">
-                     <Camera className="h-8 w-8 mb-2" />
-                     <span className="text-sm font-medium">Add Photo</span>
-                   </div>
-                   {/* Mock Photos */}
-                   {[1, 2, 3].map((i) => (
-                     <div key={i} className="aspect-square bg-slate-200 rounded-lg overflow-hidden relative group">
-                       <img 
-                         src={`https://images.unsplash.com/photo-158${i}578943-2c${i}2a4e2a?auto=format&fit=crop&w=300&q=80`} 
-                         alt="Damage" 
-                         className="w-full h-full object-cover"
+                 {/* Filter documents to only show actual photos (image content types) */}
+                 {(() => {
+                   const photoDocuments = documents.filter(doc => 
+                     doc.type === 'photo' || 
+                     (doc.mimeType && doc.mimeType.startsWith('image/'))
+                   );
+                   
+                   return (
+                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                       <label htmlFor="photo-upload" className="aspect-square bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 hover:border-primary/50 hover:text-primary cursor-pointer transition-colors">
+                         <Camera className="h-8 w-8 mb-2" />
+                         <span className="text-sm font-medium">Add Photo</span>
+                       </label>
+                       <input
+                         id="photo-upload"
+                         type="file"
+                         accept="image/*"
+                         className="hidden"
+                         onChange={handleDocumentUpload}
                        />
-                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                         <p className="text-white text-xs truncate">Damage Detail {i}</p>
-                       </div>
+                       {photoDocuments.length === 0 ? (
+                         <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
+                           <Camera className="h-12 w-12 text-slate-300 mb-4" />
+                           <h3 className="text-lg font-semibold text-slate-900 mb-2">No photos yet</h3>
+                           <p className="text-slate-500">
+                             Take or upload photos to document damage
+                           </p>
+                         </div>
+                       ) : (
+                         photoDocuments.map((photo) => (
+                           <div key={photo.id} className="aspect-square bg-slate-200 rounded-lg overflow-hidden relative group cursor-pointer" onClick={() => handleDocumentPreview(photo.id, photo.name || photo.fileName)}>
+                             <img 
+                               src={getDocumentDownloadUrl(photo.id)} 
+                               alt={photo.name || 'Photo'} 
+                               className="w-full h-full object-cover"
+                               onError={(e) => {
+                                 // Hide broken images
+                                 (e.target as HTMLImageElement).style.display = 'none';
+                               }}
+                             />
+                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                               <p className="text-white text-xs truncate">{photo.name || 'Photo'}</p>
+                             </div>
+                           </div>
+                         ))
+                       )}
                      </div>
-                   ))}
-                 </div>
+                   );
+                 })()}
                </div>
             </TabsContent>
 
