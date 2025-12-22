@@ -375,10 +375,12 @@ function AiInsightsPanel({
   analysis,
   isLoading,
   isMobile,
+  weather,
 }: {
   analysis?: MyDayAnalysisResult;
   isLoading: boolean;
   isMobile: boolean;
+  weather?: StopWeatherData;
 }) {
   const [isOpen, setIsOpen] = useState(true);
 
@@ -457,13 +459,38 @@ function AiInsightsPanel({
               <div className="bg-white rounded-lg border border-border p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <CloudSun className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">Weather Impact</span>
+                  <span className="text-sm font-medium text-muted-foreground">Weather Forecast</span>
                 </div>
                 <div className="text-sm text-foreground">
-                  {analysis.weatherImpact.affectedStops > 0 ? (
+                  {weather?.current ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const WeatherIcon = getWeatherConditionIcon(weather.current.conditions[0]?.main || 'Clear');
+                          return <WeatherIcon className="h-4 w-4 text-sky-600" />;
+                        })()}
+                        <span className="font-medium">{weather.current.temp}°F</span>
+                        <span className="text-muted-foreground">{weather.current.conditions[0]?.description || 'Clear'}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>Wind: {weather.current.windSpeed} mph</span>
+                        <span>Humidity: {weather.current.humidity}%</span>
+                      </div>
+                      {weather.forecast && weather.forecast.length > 0 && (
+                        <div className="flex gap-2 mt-2 pt-2 border-t border-border">
+                          {weather.forecast.slice(0, 3).map((f, i) => (
+                            <div key={i} className="text-center text-xs">
+                              <div className="text-muted-foreground">{new Date(f.time).toLocaleTimeString([], { hour: 'numeric' })}</div>
+                              <div className="font-medium">{f.temp}°</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : analysis.weatherImpact.affectedStops > 0 ? (
                     <span className="text-orange-600 font-medium">{analysis.weatherImpact.affectedStops} stop(s) affected</span>
                   ) : (
-                    <span className="text-green-600 font-medium">All clear</span>
+                    <span className="text-green-600 font-medium">Good conditions</span>
                   )}
                 </div>
               </div>
