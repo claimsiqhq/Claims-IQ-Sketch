@@ -525,3 +525,118 @@ export async function getClaimStats(organizationId: string): Promise<{
     client.release();
   }
 }
+
+/**
+ * Permanently delete ALL claims and related data for an organization
+ * This is a destructive operation that cannot be undone
+ */
+export async function purgeAllClaims(organizationId: string): Promise<{
+  claimsDeleted: number;
+  relatedRecordsDeleted: number;
+}> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get all claim IDs for this organization
+    const claimIdsResult = await client.query(
+      `SELECT id FROM claims WHERE organization_id = $1`,
+      [organizationId]
+    );
+    const claimIds = claimIdsResult.rows.map(r => r.id);
+
+    if (claimIds.length === 0) {
+      await client.query('COMMIT');
+      return { claimsDeleted: 0, relatedRecordsDeleted: 0 };
+    }
+
+    let relatedRecordsDeleted = 0;
+
+    // Delete related records in order (respecting foreign key constraints)
+    // 1. Inspection workflows
+    const workflowsResult = await client.query(
+      `DELETE FROM inspection_workflows WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += workflowsResult.rowCount || 0;
+
+    // 2. Claim briefings
+    const briefingsResult = await client.query(
+      `DELETE FROM claim_briefings WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += briefingsResult.rowCount || 0;
+
+    // 3. Claim photos
+    const photosResult = await client.query(
+      `DELETE FROM claim_photos WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += photosResult.rowCount || 0;
+
+    // 4. Claim damage zones
+    const zonesResult = await client.query(
+      `DELETE FROM claim_damage_zones WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += zonesResult.rowCount || 0;
+
+    // 5. Claim rooms
+    const roomsResult = await client.query(
+      `DELETE FROM claim_rooms WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += roomsResult.rowCount || 0;
+
+    // 6. Claim structures
+    const structuresResult = await client.query(
+      `DELETE FROM claim_structures WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += structuresResult.rowCount || 0;
+
+    // 7. Documents
+    const documentsResult = await client.query(
+      `DELETE FROM documents WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += documentsResult.rowCount || 0;
+
+    // 8. Estimates and related tables
+    const estimatesResult = await client.query(
+      `DELETE FROM estimates WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += estimatesResult.rowCount || 0;
+
+    // 9. Policy forms
+    const policyFormsResult = await client.query(
+      `DELETE FROM policy_forms WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += policyFormsResult.rowCount || 0;
+
+    // 10. Endorsements
+    const endorsementsResult = await client.query(
+      `DELETE FROM endorsements WHERE claim_id = ANY($1::uuid[])`,
+      [claimIds]
+    );
+    relatedRecordsDeleted += endorsementsResult.rowCount || 0;
+
+    // Finally, delete the claims themselves
+    const claimsResult = await client.query(
+      `DELETE FROM claims WHERE organization_id = $1`,
+      [organizationId]
+    );
+    const claimsDeleted = claimsResult.rowCount || 0;
+
+    await client.query('COMMIT');
+
+    return { claimsDeleted, relatedRecordsDeleted };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}

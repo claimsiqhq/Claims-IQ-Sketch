@@ -89,7 +89,8 @@ import {
   listClaims,
   updateClaim,
   deleteClaim,
-  getClaimStats
+  getClaimStats,
+  purgeAllClaims
 } from "./services/claims";
 import {
   createDocument,
@@ -823,20 +824,35 @@ export async function registerRoutes(
         const dbTime = dbResult.rows[0].time;
         const dbVersion = dbResult.rows[0].version;
 
-        // Get table counts
-        const countsResult = await client.query(`
-          SELECT
-            (SELECT COUNT(*) FROM materials) as materials_count,
-            (SELECT COUNT(*) FROM line_items) as line_items_count,
-            (SELECT COUNT(*) FROM regions) as regions_count,
-            (SELECT COUNT(*) FROM material_regional_prices) as prices_count
-        `);
-        const counts = countsResult.rows[0];
+        // Helper function to safely count table rows
+        const safeCount = async (tableName: string): Promise<number> => {
+          try {
+            const result = await client.query(`SELECT COUNT(*) FROM ${tableName}`);
+            return parseInt(result.rows[0].count);
+          } catch {
+            return 0; // Table doesn't exist
+          }
+        };
 
-        // Get regions list
-        const regionsResult = await client.query(`
-          SELECT id, name FROM regions ORDER BY id
-        `);
+        // Get table counts (handle missing tables gracefully)
+        const [claimsCount, estimatesCount, lineItemsCount, priceListsCount, regionsCount] = await Promise.all([
+          safeCount('claims'),
+          safeCount('estimates'),
+          safeCount('xact_line_items'),
+          safeCount('price_lists'),
+          safeCount('regional_multipliers'),
+        ]);
+
+        // Try to get regions list from regional_multipliers
+        let regions: { id: string; name: string }[] = [];
+        try {
+          const regionsResult = await client.query(
+            `SELECT region_code as id, region_name as name FROM regional_multipliers WHERE is_active = true ORDER BY region_code`
+          );
+          regions = regionsResult.rows;
+        } catch {
+          // Table doesn't exist, that's ok
+        }
 
         res.json({
           database: {
@@ -845,12 +861,13 @@ export async function registerRoutes(
             version: dbVersion.split(' ')[0] + ' ' + dbVersion.split(' ')[1]
           },
           counts: {
-            materials: parseInt(counts.materials_count),
-            lineItems: parseInt(counts.line_items_count),
-            regions: parseInt(counts.regions_count),
-            prices: parseInt(counts.prices_count)
+            claims: claimsCount,
+            estimates: estimatesCount,
+            lineItems: lineItemsCount,
+            priceLists: priceListsCount,
+            regions: regionsCount
           },
-          regions: regionsResult.rows,
+          regions,
           environment: process.env.NODE_ENV || 'development',
           openaiConfigured: !!process.env.OPENAI_API_KEY
         });
@@ -2937,6 +2954,22 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Purge ALL claims - permanently delete all claims and related data
+  app.delete('/api/claims/purge-all', requireAuth, requireOrganization, requireOrgRole('owner'), async (req, res) => {
+    try {
+      const result = await purgeAllClaims(req.organizationId!);
+      res.json({
+        success: true,
+        message: `Permanently deleted ${result.claimsDeleted} claims and ${result.relatedRecordsDeleted} related records`,
+        ...result
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Purge all claims failed:', error);
       res.status(500).json({ error: message });
     }
   });

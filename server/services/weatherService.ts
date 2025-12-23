@@ -79,7 +79,7 @@ export async function getWeatherForLocations(locations: WeatherLocation[]): Prom
 
 async function fetchNWSWeatherData(location: WeatherLocation): Promise<WeatherData> {
   const { lat, lng, stopId = 'unknown' } = location;
-  
+
   // Round coordinates to 4 decimal places for NWS API
   const roundedLat = Math.round(lat * 10000) / 10000;
   const roundedLng = Math.round(lng * 10000) / 10000;
@@ -87,7 +87,7 @@ async function fetchNWSWeatherData(location: WeatherLocation): Promise<WeatherDa
 
   // Step 1: Get grid point (cached if available)
   let gridPoint = gridPointCache.get(cacheKey);
-  
+
   if (!gridPoint) {
     const pointsUrl = `https://api.weather.gov/points/${roundedLat},${roundedLng}`;
     const pointsResponse = await fetch(pointsUrl, {
@@ -95,6 +95,11 @@ async function fetchNWSWeatherData(location: WeatherLocation): Promise<WeatherDa
     });
 
     if (!pointsResponse.ok) {
+      // 404 means the coordinates are not covered by NWS (outside US, ocean, etc.)
+      // This is expected for non-US locations, so handle gracefully
+      if (pointsResponse.status === 404) {
+        return createFallbackWeather(location, 'Location not covered by NWS');
+      }
       throw new Error(`NWS points API error: ${pointsResponse.status}`);
     }
 
@@ -297,7 +302,7 @@ function mapNWSAlertSeverity(severity: string | null): 'minor' | 'moderate' | 's
   return 'minor';
 }
 
-function createFallbackWeather(location: WeatherLocation): WeatherData {
+function createFallbackWeather(location: WeatherLocation, reason?: string): WeatherData {
   return {
     stopId: location.stopId || 'unknown',
     location: { lat: location.lat, lng: location.lng },
@@ -313,7 +318,7 @@ function createFallbackWeather(location: WeatherLocation): WeatherData {
     forecast: [],
     inspectionImpact: {
       score: 'good',
-      reasons: ['Weather data unavailable - assuming clear conditions'],
+      reasons: [reason || 'Weather data unavailable - assuming clear conditions'],
       recommendations: [],
     },
   };
