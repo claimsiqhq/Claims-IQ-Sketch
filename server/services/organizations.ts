@@ -1,4 +1,4 @@
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { InsertOrganization } from '../../shared/schema';
 
 export interface OrganizationWithStats {
@@ -16,393 +16,340 @@ export interface OrganizationWithStats {
   claimCount?: number;
 }
 
-/**
- * Create a new organization (tenant)
- */
 export async function createOrganization(
   data: InsertOrganization,
   creatorUserId?: string
 ): Promise<OrganizationWithStats> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const slug = data.slug || data.name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
-    // Generate slug from name if not provided
-    const slug = data.slug || data.name.toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
+  const { data: existingSlug } = await supabaseAdmin
+    .from('organizations')
+    .select('id')
+    .eq('slug', slug)
+    .single();
 
-    // Check slug uniqueness
-    const existingSlug = await client.query(
-      'SELECT id FROM organizations WHERE slug = $1',
-      [slug]
-    );
-    if (existingSlug.rows.length > 0) {
-      throw new Error('Organization slug already exists');
-    }
-
-    // Create organization
-    const result = await client.query(
-      `INSERT INTO organizations (name, slug, type, email, phone, address, status, settings)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [
-        data.name,
-        slug,
-        data.type || 'carrier',
-        data.email || null,
-        data.phone || null,
-        data.address || null,
-        data.status || 'active',
-        JSON.stringify(data.settings || {})
-      ]
-    );
-
-    const org = result.rows[0];
-
-    // If a creator user ID is provided, make them the owner
-    if (creatorUserId) {
-      await client.query(
-        `INSERT INTO organization_memberships (user_id, organization_id, role, status)
-         VALUES ($1, $2, 'owner', 'active')`,
-        [creatorUserId, org.id]
-      );
-
-      // Set as user's current organization
-      await client.query(
-        `UPDATE users SET current_organization_id = $1 WHERE id = $2`,
-        [org.id, creatorUserId]
-      );
-    }
-
-    await client.query('COMMIT');
-    return org;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+  if (existingSlug) {
+    throw new Error('Organization slug already exists');
   }
+
+  const { data: org, error } = await supabaseAdmin
+    .from('organizations')
+    .insert({
+      name: data.name,
+      slug,
+      type: data.type || 'carrier',
+      email: data.email || null,
+      phone: data.phone || null,
+      address: data.address || null,
+      status: data.status || 'active',
+      settings: data.settings || {}
+    })
+    .select('*')
+    .single();
+
+  if (error || !org) {
+    throw new Error(`Failed to create organization: ${error?.message}`);
+  }
+
+  if (creatorUserId) {
+    await supabaseAdmin
+      .from('organization_memberships')
+      .insert({
+        user_id: creatorUserId,
+        organization_id: org.id,
+        role: 'owner',
+        status: 'active'
+      });
+
+    await supabaseAdmin
+      .from('users')
+      .update({ current_organization_id: org.id })
+      .eq('id', creatorUserId);
+  }
+
+  return org as OrganizationWithStats;
 }
 
-/**
- * Get organization by ID
- */
 export async function getOrganization(id: string): Promise<OrganizationWithStats | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT o.*,
-         (SELECT COUNT(*) FROM organization_memberships WHERE organization_id = o.id AND status = 'active') as member_count,
-         (SELECT COUNT(*) FROM claims WHERE organization_id = o.id) as claim_count
-       FROM organizations o WHERE o.id = $1`,
-      [id]
-    );
-    if (result.rows.length === 0) return null;
-    const row = result.rows[0];
-    return {
-      ...row,
-      memberCount: parseInt(row.member_count),
-      claimCount: parseInt(row.claim_count)
-    };
-  } finally {
-    client.release();
-  }
+  const { data: org, error } = await supabaseAdmin
+    .from('organizations')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !org) return null;
+
+  const { count: memberCount } = await supabaseAdmin
+    .from('organization_memberships')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', id)
+    .eq('status', 'active');
+
+  const { count: claimCount } = await supabaseAdmin
+    .from('claims')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', id);
+
+  return {
+    ...org,
+    memberCount: memberCount || 0,
+    claimCount: claimCount || 0
+  } as OrganizationWithStats;
 }
 
-/**
- * Get organization by slug
- */
 export async function getOrganizationBySlug(slug: string): Promise<OrganizationWithStats | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT o.*,
-         (SELECT COUNT(*) FROM organization_memberships WHERE organization_id = o.id AND status = 'active') as member_count,
-         (SELECT COUNT(*) FROM claims WHERE organization_id = o.id) as claim_count
-       FROM organizations o WHERE o.slug = $1`,
-      [slug]
-    );
-    if (result.rows.length === 0) return null;
-    const row = result.rows[0];
-    return {
-      ...row,
-      memberCount: parseInt(row.member_count),
-      claimCount: parseInt(row.claim_count)
-    };
-  } finally {
-    client.release();
-  }
+  const { data: org, error } = await supabaseAdmin
+    .from('organizations')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+
+  if (error || !org) return null;
+
+  const { count: memberCount } = await supabaseAdmin
+    .from('organization_memberships')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', org.id)
+    .eq('status', 'active');
+
+  const { count: claimCount } = await supabaseAdmin
+    .from('claims')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', org.id);
+
+  return {
+    ...org,
+    memberCount: memberCount || 0,
+    claimCount: claimCount || 0
+  } as OrganizationWithStats;
 }
 
-/**
- * List all organizations (admin only)
- */
 export async function listOrganizations(options?: {
   status?: string;
   type?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ organizations: OrganizationWithStats[]; total: number }> {
-  const client = await pool.connect();
-  try {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramIndex = 1;
+  let query = supabaseAdmin
+    .from('organizations')
+    .select('*', { count: 'exact' });
 
-    if (options?.status) {
-      conditions.push(`o.status = $${paramIndex}`);
-      params.push(options.status);
-      paramIndex++;
-    }
-    if (options?.type) {
-      conditions.push(`o.type = $${paramIndex}`);
-      params.push(options.type);
-      paramIndex++;
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    // Get total count
-    const countResult = await client.query(
-      `SELECT COUNT(*) FROM organizations o ${whereClause}`,
-      params
-    );
-    const total = parseInt(countResult.rows[0].count);
-
-    // Get organizations with stats
-    const limit = options?.limit || 50;
-    const offset = options?.offset || 0;
-    params.push(limit, offset);
-
-    const result = await client.query(
-      `SELECT o.*,
-         (SELECT COUNT(*) FROM organization_memberships WHERE organization_id = o.id AND status = 'active') as member_count,
-         (SELECT COUNT(*) FROM claims WHERE organization_id = o.id) as claim_count
-       FROM organizations o
-       ${whereClause}
-       ORDER BY o.created_at DESC
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      params
-    );
-
-    const organizations = result.rows.map(row => ({
-      ...row,
-      memberCount: parseInt(row.member_count),
-      claimCount: parseInt(row.claim_count)
-    }));
-
-    return { organizations, total };
-  } finally {
-    client.release();
+  if (options?.status) {
+    query = query.eq('status', options.status);
   }
+  if (options?.type) {
+    query = query.eq('type', options.type);
+  }
+
+  const limit = options?.limit || 50;
+  const offset = options?.offset || 0;
+
+  query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+
+  const { data: orgs, count, error } = await query;
+
+  if (error || !orgs) {
+    return { organizations: [], total: 0 };
+  }
+
+  const organizations = await Promise.all(orgs.map(async (org) => {
+    const { count: memberCount } = await supabaseAdmin
+      .from('organization_memberships')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', org.id)
+      .eq('status', 'active');
+
+    const { count: claimCount } = await supabaseAdmin
+      .from('claims')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', org.id);
+
+    return {
+      ...org,
+      memberCount: memberCount || 0,
+      claimCount: claimCount || 0
+    } as OrganizationWithStats;
+  }));
+
+  return { organizations, total: count || 0 };
 }
 
-/**
- * Update organization
- */
 export async function updateOrganization(
   id: string,
   updates: Partial<InsertOrganization>
 ): Promise<OrganizationWithStats | null> {
-  const client = await pool.connect();
-  try {
-    const setClauses: string[] = [];
-    const params: any[] = [];
-    let paramIndex = 1;
+  const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
 
-    if (updates.name !== undefined) {
-      setClauses.push(`name = $${paramIndex}`);
-      params.push(updates.name);
-      paramIndex++;
-    }
-    if (updates.type !== undefined) {
-      setClauses.push(`type = $${paramIndex}`);
-      params.push(updates.type);
-      paramIndex++;
-    }
-    if (updates.email !== undefined) {
-      setClauses.push(`email = $${paramIndex}`);
-      params.push(updates.email);
-      paramIndex++;
-    }
-    if (updates.phone !== undefined) {
-      setClauses.push(`phone = $${paramIndex}`);
-      params.push(updates.phone);
-      paramIndex++;
-    }
-    if (updates.address !== undefined) {
-      setClauses.push(`address = $${paramIndex}`);
-      params.push(updates.address);
-      paramIndex++;
-    }
-    if (updates.status !== undefined) {
-      setClauses.push(`status = $${paramIndex}`);
-      params.push(updates.status);
-      paramIndex++;
-    }
-    if (updates.settings !== undefined) {
-      setClauses.push(`settings = $${paramIndex}`);
-      params.push(JSON.stringify(updates.settings));
-      paramIndex++;
-    }
+  if (updates.name !== undefined) updateData.name = updates.name;
+  if (updates.type !== undefined) updateData.type = updates.type;
+  if (updates.email !== undefined) updateData.email = updates.email;
+  if (updates.phone !== undefined) updateData.phone = updates.phone;
+  if (updates.address !== undefined) updateData.address = updates.address;
+  if (updates.status !== undefined) updateData.status = updates.status;
+  if (updates.settings !== undefined) updateData.settings = updates.settings;
 
-    if (setClauses.length === 0) {
-      return getOrganization(id);
-    }
-
-    setClauses.push(`updated_at = NOW()`);
-    params.push(id);
-
-    const result = await client.query(
-      `UPDATE organizations SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-      params
-    );
-
-    if (result.rows.length === 0) return null;
+  if (Object.keys(updateData).length === 1) {
     return getOrganization(id);
-  } finally {
-    client.release();
   }
+
+  const { error } = await supabaseAdmin
+    .from('organizations')
+    .update(updateData)
+    .eq('id', id);
+
+  if (error) return null;
+  return getOrganization(id);
 }
 
-/**
- * Get organizations for a user
- */
 export async function getUserOrganizations(userId: string): Promise<OrganizationWithStats[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT o.*, om.role as membership_role,
-         (SELECT COUNT(*) FROM organization_memberships WHERE organization_id = o.id AND status = 'active') as member_count,
-         (SELECT COUNT(*) FROM claims WHERE organization_id = o.id) as claim_count
-       FROM organizations o
-       JOIN organization_memberships om ON o.id = om.organization_id
-       WHERE om.user_id = $1 AND om.status = 'active'
-       ORDER BY o.name`,
-      [userId]
-    );
+  const { data: memberships, error } = await supabaseAdmin
+    .from('organization_memberships')
+    .select('organization_id, role')
+    .eq('user_id', userId)
+    .eq('status', 'active');
 
-    return result.rows.map(row => ({
-      ...row,
-      memberCount: parseInt(row.member_count),
-      claimCount: parseInt(row.claim_count)
-    }));
-  } finally {
-    client.release();
+  if (error || !memberships || memberships.length === 0) {
+    return [];
   }
+
+  const orgIds = memberships.map(m => m.organization_id);
+
+  const { data: orgs } = await supabaseAdmin
+    .from('organizations')
+    .select('*')
+    .in('id', orgIds)
+    .order('name');
+
+  if (!orgs) return [];
+
+  const organizations = await Promise.all(orgs.map(async (org) => {
+    const membership = memberships.find(m => m.organization_id === org.id);
+
+    const { count: memberCount } = await supabaseAdmin
+      .from('organization_memberships')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', org.id)
+      .eq('status', 'active');
+
+    const { count: claimCount } = await supabaseAdmin
+      .from('claims')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', org.id);
+
+    return {
+      ...org,
+      membership_role: membership?.role,
+      memberCount: memberCount || 0,
+      claimCount: claimCount || 0
+    } as OrganizationWithStats;
+  }));
+
+  return organizations;
 }
 
-/**
- * Add member to organization
- */
 export async function addOrganizationMember(
   organizationId: string,
   userId: string,
   role: string = 'member'
 ): Promise<void> {
-  const client = await pool.connect();
-  try {
-    // Check if already a member
-    const existing = await client.query(
-      `SELECT id FROM organization_memberships WHERE organization_id = $1 AND user_id = $2`,
-      [organizationId, userId]
-    );
+  const { data: existing } = await supabaseAdmin
+    .from('organization_memberships')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('user_id', userId)
+    .single();
 
-    if (existing.rows.length > 0) {
-      // Update existing membership
-      await client.query(
-        `UPDATE organization_memberships SET role = $1, status = 'active', updated_at = NOW()
-         WHERE organization_id = $2 AND user_id = $3`,
-        [role, organizationId, userId]
-      );
-    } else {
-      // Create new membership
-      await client.query(
-        `INSERT INTO organization_memberships (organization_id, user_id, role, status)
-         VALUES ($1, $2, $3, 'active')`,
-        [organizationId, userId, role]
-      );
-    }
-  } finally {
-    client.release();
+  if (existing) {
+    await supabaseAdmin
+      .from('organization_memberships')
+      .update({ role, status: 'active', updated_at: new Date().toISOString() })
+      .eq('organization_id', organizationId)
+      .eq('user_id', userId);
+  } else {
+    await supabaseAdmin
+      .from('organization_memberships')
+      .insert({
+        organization_id: organizationId,
+        user_id: userId,
+        role,
+        status: 'active'
+      });
   }
 }
 
-/**
- * Remove member from organization
- */
 export async function removeOrganizationMember(
   organizationId: string,
   userId: string
 ): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query(
-      `UPDATE organization_memberships SET status = 'removed', updated_at = NOW()
-       WHERE organization_id = $1 AND user_id = $2`,
-      [organizationId, userId]
-    );
+  await supabaseAdmin
+    .from('organization_memberships')
+    .update({ status: 'removed', updated_at: new Date().toISOString() })
+    .eq('organization_id', organizationId)
+    .eq('user_id', userId);
 
-    // If this was the user's current org, clear it
-    await client.query(
-      `UPDATE users SET current_organization_id = NULL
-       WHERE id = $1 AND current_organization_id = $2`,
-      [userId, organizationId]
-    );
-  } finally {
-    client.release();
-  }
+  await supabaseAdmin
+    .from('users')
+    .update({ current_organization_id: null })
+    .eq('id', userId)
+    .eq('current_organization_id', organizationId);
 }
 
-/**
- * Get organization members
- */
 export async function getOrganizationMembers(organizationId: string): Promise<any[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.role as system_role,
-              om.role as org_role, om.status, om.created_at as joined_at
-       FROM users u
-       JOIN organization_memberships om ON u.id = om.user_id
-       WHERE om.organization_id = $1 AND om.status = 'active'
-       ORDER BY om.created_at`,
-      [organizationId]
-    );
-    return result.rows;
-  } finally {
-    client.release();
-  }
+  const { data: memberships, error } = await supabaseAdmin
+    .from('organization_memberships')
+    .select('user_id, role, status, created_at')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active');
+
+  if (error || !memberships) return [];
+
+  const userIds = memberships.map(m => m.user_id);
+
+  const { data: users } = await supabaseAdmin
+    .from('users')
+    .select('id, username, email, first_name, last_name, role')
+    .in('id', userIds);
+
+  if (!users) return [];
+
+  return users.map(user => {
+    const membership = memberships.find(m => m.user_id === user.id);
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      system_role: user.role,
+      org_role: membership?.role,
+      status: membership?.status,
+      joined_at: membership?.created_at
+    };
+  });
 }
 
-/**
- * Switch user's current organization
- */
 export async function switchOrganization(
   userId: string,
   organizationId: string
 ): Promise<boolean> {
-  const client = await pool.connect();
-  try {
-    // Verify membership
-    const membership = await client.query(
-      `SELECT id FROM organization_memberships
-       WHERE user_id = $1 AND organization_id = $2 AND status = 'active'`,
-      [userId, organizationId]
-    );
+  const { data: membership } = await supabaseAdmin
+    .from('organization_memberships')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .single();
 
-    if (membership.rows.length === 0) {
-      return false;
-    }
-
-    await client.query(
-      `UPDATE users SET current_organization_id = $1, updated_at = NOW() WHERE id = $2`,
-      [organizationId, userId]
-    );
-
-    return true;
-  } finally {
-    client.release();
+  if (!membership) {
+    return false;
   }
+
+  await supabaseAdmin
+    .from('users')
+    .update({ current_organization_id: organizationId, updated_at: new Date().toISOString() })
+    .eq('id', userId);
+
+  return true;
 }

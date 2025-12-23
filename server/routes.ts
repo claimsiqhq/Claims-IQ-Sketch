@@ -270,7 +270,11 @@ export async function registerRoutes(
             'Expires': '0'
           });
           return res.json({
-            user: { id: user.id, username: user.username },
+            user: { 
+              id: user.id, 
+              username: user.username,
+              currentOrganizationId: user.currentOrganizationId
+            },
             message: 'Login successful'
           });
         });
@@ -307,27 +311,33 @@ export async function registerRoutes(
     // Check session-based auth
     if (req.isAuthenticated() && req.user) {
       try {
-        const { pool } = await import('./db');
-        const result = await pool.query(
-          'SELECT id, username, first_name, last_name, email FROM users WHERE id = $1',
-          [req.user.id]
-        );
-        const user = result.rows[0];
-        const data = {
-          user: {
-            id: user.id,
-            username: user.username,
-            name: user.first_name && user.last_name
-              ? `${user.first_name} ${user.last_name}`
-              : user.username,
-            email: user.email || ''
-          },
-          authenticated: true
-        };
-        res.status(200).send(JSON.stringify(data));
+        const { supabaseAdmin } = await import('./lib/supabaseAdmin');
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id, username, first_name, last_name, email, current_organization_id')
+          .eq('id', req.user.id)
+          .single();
+        
+        if (user) {
+          const data = {
+            user: {
+              id: user.id,
+              username: user.username,
+              name: user.first_name && user.last_name
+                ? `${user.first_name} ${user.last_name}`
+                : user.username,
+              email: user.email || '',
+              currentOrganizationId: user.current_organization_id
+            },
+            authenticated: true
+          };
+          res.status(200).send(JSON.stringify(data));
+          return;
+        }
       } catch (error) {
-        res.status(200).send(JSON.stringify({ user: { id: req.user.id, username: req.user.username }, authenticated: true }));
+        console.error('Error fetching user:', error);
       }
+      res.status(200).send(JSON.stringify({ user: { id: req.user.id, username: req.user.username, currentOrganizationId: req.user.currentOrganizationId }, authenticated: true }));
       return;
     }
 
