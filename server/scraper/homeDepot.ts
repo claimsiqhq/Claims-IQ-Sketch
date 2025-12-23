@@ -1,4 +1,4 @@
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 interface ScrapedProduct {
   sku: string;
@@ -248,68 +248,80 @@ async function updateMaterialPrice(
   price: number,
   source: string
 ): Promise<void> {
-  const client = await pool.connect();
-  try {
-    const materialResult = await client.query(
-      'SELECT id FROM materials WHERE sku = $1',
-      [sku]
-    );
-    
-    if (materialResult.rows.length === 0) {
-      console.warn(`Material ${sku} not found in catalog`);
-      return;
-    }
-    
-    const materialId = materialResult.rows[0].id;
-    
-    await client.query(`
-      INSERT INTO material_regional_prices 
-        (id, material_id, region_id, price, effective_date, source)
-      VALUES (gen_random_uuid(), $1, $2, $3, CURRENT_DATE, $4)
-      ON CONFLICT (material_id, region_id, effective_date) 
-      DO UPDATE SET price = $3, source = $4
-    `, [materialId, regionId, price, source]);
-    
-    console.log(`Updated ${sku} in ${regionId}: $${price.toFixed(2)}`);
-  } finally {
-    client.release();
+  const { data: material, error: materialError } = await supabaseAdmin
+    .from('materials')
+    .select('id')
+    .eq('sku', sku)
+    .single();
+
+  if (materialError || !material) {
+    console.warn(`Material ${sku} not found in catalog`);
+    return;
   }
+
+  const materialId = material.id;
+
+  const { error: upsertError } = await supabaseAdmin
+    .from('material_regional_prices')
+    .upsert(
+      {
+        material_id: materialId,
+        region_id: regionId,
+        price,
+        effective_date: new Date().toISOString().split('T')[0], // CURRENT_DATE equivalent
+        source
+      },
+      { onConflict: 'material_id,region_id,effective_date' }
+    );
+
+  if (upsertError) {
+    throw new Error(`Failed to upsert price for ${sku}: ${upsertError.message}`);
+  }
+
+  console.log(`Updated ${sku} in ${regionId}: $${price.toFixed(2)}`);
 }
 
 async function createJobRecord(): Promise<string> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(`
-      INSERT INTO price_scrape_jobs (id, source, status, started_at, items_processed, items_updated, errors)
-      VALUES (gen_random_uuid(), 'home_depot', 'running', NOW(), 0, 0, '[]'::jsonb)
-      RETURNING id
-    `);
-    return result.rows[0].id;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('price_scrape_jobs')
+    .insert({
+      source: 'home_depot',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      items_processed: 0,
+      items_updated: 0,
+      errors: []
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create job record: ${error?.message}`);
   }
+
+  return data.id;
 }
 
 async function completeJob(
-  jobId: string, 
-  status: string, 
+  jobId: string,
+  status: string,
   itemsProcessed: number,
   itemsUpdated: number,
   error?: string
 ): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      UPDATE price_scrape_jobs 
-      SET status = $2, completed_at = NOW(), 
-          items_processed = $3, items_updated = $4,
-          errors = CASE WHEN $5 IS NOT NULL 
-                   THEN jsonb_build_array($5) 
-                   ELSE '[]'::jsonb END
-      WHERE id = $1
-    `, [jobId, status, itemsProcessed, itemsUpdated, error || null]);
-  } finally {
-    client.release();
+  const { error: updateError } = await supabaseAdmin
+    .from('price_scrape_jobs')
+    .update({
+      status,
+      completed_at: new Date().toISOString(),
+      items_processed: itemsProcessed,
+      items_updated: itemsUpdated,
+      errors: error ? [error] : []
+    })
+    .eq('id', jobId);
+
+  if (updateError) {
+    throw new Error(`Failed to complete job ${jobId}: ${updateError.message}`);
   }
 }
 

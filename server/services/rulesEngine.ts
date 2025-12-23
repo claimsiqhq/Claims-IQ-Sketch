@@ -16,7 +16,7 @@
  * - No silent overrides - everything is explicit
  */
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import type {
   CarrierProfile,
   CarrierRule,
@@ -892,37 +892,42 @@ function generateExplanation(state: LineItemWorkingState): string {
  * Get carrier profile by ID
  */
 async function getCarrierProfile(id: string): Promise<CarrierProfile | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM carrier_profiles WHERE id = $1 AND is_active = true`,
-      [id]
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('carrier_profiles')
+    .select('*')
+    .eq('id', id)
+    .eq('is_active', true)
+    .single();
+
+  if (error) {
+    console.error('Error fetching carrier profile:', error);
+    return null;
   }
+
+  return data;
 }
 
 /**
  * Get carrier rules for a profile
  */
 async function getCarrierRules(carrierProfileId: string): Promise<CarrierRule[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM carrier_rules
-       WHERE carrier_profile_id = $1
-         AND is_active = true
-         AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
-         AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE)
-       ORDER BY priority ASC`,
-      [carrierProfileId]
-    );
-    return result.rows;
-  } finally {
-    client.release();
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data, error } = await supabaseAdmin
+    .from('carrier_rules')
+    .select('*')
+    .eq('carrier_profile_id', carrierProfileId)
+    .eq('is_active', true)
+    .or(`effective_date.is.null,effective_date.lte.${today}`)
+    .or(`expiration_date.is.null,expiration_date.gte.${today}`)
+    .order('priority', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching carrier rules:', error);
+    return [];
   }
+
+  return data || [];
 }
 
 /**
@@ -931,56 +936,63 @@ async function getCarrierRules(carrierProfileId: string): Promise<CarrierRule[]>
 async function getCarrierExclusions(
   carrierProfileId: string
 ): Promise<CarrierExcludedItem[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM carrier_excluded_items
-       WHERE carrier_profile_id = $1
-         AND is_active = true
-         AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
-         AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE)`,
-      [carrierProfileId]
-    );
-    return result.rows;
-  } finally {
-    client.release();
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data, error } = await supabaseAdmin
+    .from('carrier_excluded_items')
+    .select('*')
+    .eq('carrier_profile_id', carrierProfileId)
+    .eq('is_active', true)
+    .or(`effective_date.is.null,effective_date.lte.${today}`)
+    .or(`expiration_date.is.null,expiration_date.gte.${today}`);
+
+  if (error) {
+    console.error('Error fetching carrier exclusions:', error);
+    return [];
   }
+
+  return data || [];
 }
 
 /**
  * Get carrier caps (quick lookup table)
  */
 async function getCarrierCaps(carrierProfileId: string): Promise<CarrierItemCap[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM carrier_item_caps
-       WHERE carrier_profile_id = $1
-         AND is_active = true
-         AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
-         AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE)`,
-      [carrierProfileId]
-    );
-    return result.rows;
-  } finally {
-    client.release();
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data, error } = await supabaseAdmin
+    .from('carrier_item_caps')
+    .select('*')
+    .eq('carrier_profile_id', carrierProfileId)
+    .eq('is_active', true)
+    .or(`effective_date.is.null,effective_date.lte.${today}`)
+    .or(`expiration_date.is.null,expiration_date.gte.${today}`);
+
+  if (error) {
+    console.error('Error fetching carrier caps:', error);
+    return [];
   }
+
+  return data || [];
 }
 
 /**
  * Get jurisdiction by ID
  */
 async function getJurisdiction(id: string): Promise<Jurisdiction | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM jurisdictions WHERE id = $1 AND is_active = true`,
-      [id]
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('jurisdictions')
+    .select('*')
+    .eq('id', id)
+    .eq('is_active', true)
+    .single();
+
+  if (error) {
+    console.error('Error fetching jurisdiction:', error);
+    return null;
   }
+
+  return data;
 }
 
 /**
@@ -989,21 +1001,23 @@ async function getJurisdiction(id: string): Promise<Jurisdiction | null> {
 async function getJurisdictionRules(
   jurisdictionId: string
 ): Promise<JurisdictionRule[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM jurisdiction_rules
-       WHERE jurisdiction_id = $1
-         AND is_active = true
-         AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
-         AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE)
-       ORDER BY priority ASC`,
-      [jurisdictionId]
-    );
-    return result.rows;
-  } finally {
-    client.release();
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data, error } = await supabaseAdmin
+    .from('jurisdiction_rules')
+    .select('*')
+    .eq('jurisdiction_id', jurisdictionId)
+    .eq('is_active', true)
+    .or(`effective_date.is.null,effective_date.lte.${today}`)
+    .or(`expiration_date.is.null,expiration_date.gte.${today}`)
+    .order('priority', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching jurisdiction rules:', error);
+    return [];
   }
+
+  return data || [];
 }
 
 // ============================================
@@ -1014,30 +1028,36 @@ async function getJurisdictionRules(
  * Get all active carrier profiles
  */
 export async function getActiveCarrierProfiles(): Promise<CarrierProfile[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM carrier_profiles WHERE is_active = true ORDER BY name`
-    );
-    return result.rows;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('carrier_profiles')
+    .select('*')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching active carrier profiles:', error);
+    return [];
   }
+
+  return data || [];
 }
 
 /**
  * Get all active jurisdictions
  */
 export async function getActiveJurisdictions(): Promise<Jurisdiction[]> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT * FROM jurisdictions WHERE is_active = true ORDER BY name`
-    );
-    return result.rows;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('jurisdictions')
+    .select('*')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching active jurisdictions:', error);
+    return [];
   }
+
+  return data || [];
 }
 
 /**

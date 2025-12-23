@@ -1,5 +1,5 @@
 import { getSupabase, getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase';
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 export interface AuthUser {
   id: string;
@@ -44,35 +44,38 @@ export async function signUp(
     return { user: null, error: 'Failed to create user' };
   }
 
-  // Create corresponding record in our users table
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `INSERT INTO users (id, username, email, first_name, last_name, role, password)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (id) DO UPDATE SET
-         email = EXCLUDED.email,
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name
-       RETURNING id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId"`,
-      [
-        data.user.id,
-        metadata?.username || email.split('@')[0],
-        email,
-        metadata?.firstName || null,
-        metadata?.lastName || null,
-        'user',
-        'supabase-auth' // Placeholder - password managed by Supabase
-      ]
-    );
+  // Create corresponding record in our users table using Supabase
+  const { data: userData, error: upsertError } = await supabaseAdmin
+    .from('users')
+    .upsert({
+      id: data.user.id,
+      username: metadata?.username || email.split('@')[0],
+      email: email,
+      first_name: metadata?.firstName || null,
+      last_name: metadata?.lastName || null,
+      role: 'user',
+      password: 'supabase-auth' // Placeholder - password managed by Supabase
+    }, { onConflict: 'id' })
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .single();
 
-    return { user: result.rows[0], error: null };
-  } catch (dbError) {
-    console.error('Error creating user record:', dbError);
+  if (upsertError || !userData) {
+    console.error('Error creating user record:', upsertError);
     return { user: null, error: 'Failed to create user record' };
-  } finally {
-    client.release();
   }
+
+  return {
+    user: {
+      id: userData.id,
+      username: userData.username,
+      email: userData.email,
+      firstName: userData.first_name,
+      lastName: userData.last_name,
+      role: userData.role,
+      currentOrganizationId: userData.current_organization_id
+    },
+    error: null
+  };
 }
 
 /**
@@ -96,40 +99,61 @@ export async function signIn(
     return { user: null, session: null, error: 'Authentication failed' };
   }
 
-  // Get user record from our database
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT id, username, email, first_name as "firstName", last_name as "lastName",
-              role, current_organization_id as "currentOrganizationId"
-       FROM users WHERE id = $1`,
-      [data.user.id]
-    );
+  // Get user record from our database using Supabase
+  const { data: userData, error: userError } = await supabaseAdmin
+    .from('users')
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .eq('id', data.user.id)
+    .single();
 
-    if (result.rows.length === 0) {
-      // User exists in Supabase but not in our database - create record
-      const insertResult = await client.query(
-        `INSERT INTO users (id, username, email, first_name, last_name, role, password)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, username, email, first_name as "firstName", last_name as "lastName",
-                   role, current_organization_id as "currentOrganizationId"`,
-        [
-          data.user.id,
-          data.user.user_metadata?.username || email.split('@')[0],
-          email,
-          data.user.user_metadata?.first_name || null,
-          data.user.user_metadata?.last_name || null,
-          'user',
-          'supabase-auth'
-        ]
-      );
-      return { user: insertResult.rows[0], session: data.session, error: null };
+  if (userError || !userData) {
+    // User exists in Supabase Auth but not in our database - create record
+    const { data: newUserData, error: insertError } = await supabaseAdmin
+      .from('users')
+      .insert({
+        id: data.user.id,
+        username: data.user.user_metadata?.username || email.split('@')[0],
+        email: email,
+        first_name: data.user.user_metadata?.first_name || null,
+        last_name: data.user.user_metadata?.last_name || null,
+        role: 'user',
+        password: 'supabase-auth'
+      })
+      .select('id, username, email, first_name, last_name, role, current_organization_id')
+      .single();
+
+    if (insertError || !newUserData) {
+      return { user: null, session: null, error: 'Failed to create user record' };
     }
 
-    return { user: result.rows[0], session: data.session, error: null };
-  } finally {
-    client.release();
+    return {
+      user: {
+        id: newUserData.id,
+        username: newUserData.username,
+        email: newUserData.email,
+        firstName: newUserData.first_name,
+        lastName: newUserData.last_name,
+        role: newUserData.role,
+        currentOrganizationId: newUserData.current_organization_id
+      },
+      session: data.session,
+      error: null
+    };
   }
+
+  return {
+    user: {
+      id: userData.id,
+      username: userData.username,
+      email: userData.email,
+      firstName: userData.first_name,
+      lastName: userData.last_name,
+      role: userData.role,
+      currentOrganizationId: userData.current_organization_id
+    },
+    session: data.session,
+    error: null
+  };
 }
 
 /**
@@ -152,20 +176,24 @@ export async function getCurrentUser(accessToken: string): Promise<AuthUser | nu
     return null;
   }
 
-  // Get user record from our database
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT id, username, email, first_name as "firstName", last_name as "lastName",
-              role, current_organization_id as "currentOrganizationId"
-       FROM users WHERE id = $1`,
-      [user.id]
-    );
+  // Get user record from our database using Supabase
+  const { data: userData } = await supabaseAdmin
+    .from('users')
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .eq('id', user.id)
+    .single();
 
-    return result.rows[0] || null;
-  } finally {
-    client.release();
-  }
+  if (!userData) return null;
+
+  return {
+    id: userData.id,
+    username: userData.username,
+    email: userData.email,
+    firstName: userData.first_name,
+    lastName: userData.last_name,
+    role: userData.role,
+    currentOrganizationId: userData.current_organization_id
+  };
 }
 
 /**
@@ -173,27 +201,31 @@ export async function getCurrentUser(accessToken: string): Promise<AuthUser | nu
  */
 export async function verifyToken(accessToken: string): Promise<AuthUser | null> {
   try {
-    const supabaseAdmin = getSupabaseAdmin();
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
+    const supabaseAdminClient = getSupabaseAdmin();
+    const { data: { user }, error } = await supabaseAdminClient.auth.getUser(accessToken);
 
     if (error || !user) {
       return null;
     }
 
-    // Get user record from our database
-    const client = await pool.connect();
-    try {
-      const result = await client.query(
-        `SELECT id, username, email, first_name as "firstName", last_name as "lastName",
-                role, current_organization_id as "currentOrganizationId"
-         FROM users WHERE id = $1`,
-        [user.id]
-      );
+    // Get user record from our database using Supabase
+    const { data: userData } = await supabaseAdmin
+      .from('users')
+      .select('id, username, email, first_name, last_name, role, current_organization_id')
+      .eq('id', user.id)
+      .single();
 
-      return result.rows[0] || null;
-    } finally {
-      client.release();
-    }
+    if (!userData) return null;
+
+    return {
+      id: userData.id,
+      username: userData.username,
+      email: userData.email,
+      firstName: userData.first_name,
+      lastName: userData.last_name,
+      role: userData.role,
+      currentOrganizationId: userData.current_organization_id
+    };
   } catch (err) {
     console.error('Token verification error:', err);
     return null;
@@ -211,23 +243,29 @@ export async function updateUserProfile(
     email?: string;
   }
 ): Promise<AuthUser | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `UPDATE users
-       SET first_name = COALESCE($2, first_name),
-           last_name = COALESCE($3, last_name),
-           email = COALESCE($4, email),
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, username, email, first_name as "firstName", last_name as "lastName",
-                 role, current_organization_id as "currentOrganizationId"`,
-      [userId, updates.firstName || null, updates.lastName || null, updates.email || null]
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
-  }
+  const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
+  if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
+  if (updates.email !== undefined) updateData.email = updates.email;
+
+  const { data: userData, error } = await supabaseAdmin
+    .from('users')
+    .update(updateData)
+    .eq('id', userId)
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .single();
+
+  if (error || !userData) return null;
+
+  return {
+    id: userData.id,
+    username: userData.username,
+    email: userData.email,
+    firstName: userData.first_name,
+    lastName: userData.last_name,
+    role: userData.role,
+    currentOrganizationId: userData.current_organization_id
+  };
 }
 
 /**
@@ -258,18 +296,23 @@ export async function updatePassword(newPassword: string): Promise<{ error: stri
  * Get user by ID from our database
  */
 export async function findUserById(id: string): Promise<AuthUser | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `SELECT id, username, email, first_name as "firstName", last_name as "lastName",
-              role, current_organization_id as "currentOrganizationId"
-       FROM users WHERE id = $1`,
-      [id]
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
-  }
+  const { data: userData } = await supabaseAdmin
+    .from('users')
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .eq('id', id)
+    .single();
+
+  if (!userData) return null;
+
+  return {
+    id: userData.id,
+    username: userData.username,
+    email: userData.email,
+    firstName: userData.first_name,
+    lastName: userData.last_name,
+    role: userData.role,
+    currentOrganizationId: userData.current_organization_id
+  };
 }
 
 /**
@@ -280,87 +323,100 @@ export async function seedAdminUser(): Promise<void> {
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@claimsiq.com';
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 
-  const client = await pool.connect();
-  try {
-    // Check if admin exists in our database
-    const existingAdmin = await client.query(
-      `SELECT id FROM users WHERE username = 'admin' OR email = $1`,
-      [adminEmail]
-    );
+  // Check if admin exists in our database
+  const { data: existingAdmin } = await supabaseAdmin
+    .from('users')
+    .select('id')
+    .or(`username.eq.admin,email.eq.${adminEmail}`)
+    .limit(1);
 
-    if (existingAdmin.rows.length > 0) {
-      console.log('Admin user already exists');
+  if (existingAdmin && existingAdmin.length > 0) {
+    console.log('Admin user already exists');
 
-      // Ensure admin has super_admin role
-      await client.query(
-        `UPDATE users SET role = 'super_admin' WHERE (username = 'admin' OR email = $1) AND (role IS NULL OR role = 'user')`,
-        [adminEmail]
-      );
-      return;
-    }
+    // Ensure admin has super_admin role
+    await supabaseAdmin
+      .from('users')
+      .update({ role: 'super_admin' })
+      .or(`username.eq.admin,email.eq.${adminEmail}`)
+      .or('role.is.null,role.eq.user');
+    return;
+  }
 
-    // Try to create admin in Supabase Auth
-    const supabaseAdmin = getSupabaseAdmin();
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email: adminEmail,
-      password: adminPassword,
-      email_confirm: true,
-      user_metadata: {
+  // Try to create admin in Supabase Auth
+  const supabaseAdminClient = getSupabaseAdmin();
+  const { data, error } = await supabaseAdminClient.auth.admin.createUser({
+    email: adminEmail,
+    password: adminPassword,
+    email_confirm: true,
+    user_metadata: {
+      username: 'admin',
+      first_name: 'Admin',
+      last_name: 'User',
+    },
+  });
+
+  if (error) {
+    // User might already exist in Supabase - try to get them
+    console.log('Admin may already exist in Supabase:', error.message);
+    return;
+  }
+
+  if (data.user) {
+    // Create record in our users table
+    await supabaseAdmin
+      .from('users')
+      .upsert({
+        id: data.user.id,
         username: 'admin',
+        email: adminEmail,
         first_name: 'Admin',
         last_name: 'User',
-      },
-    });
+        role: 'super_admin',
+        password: 'supabase-auth'
+      }, { onConflict: 'id', ignoreDuplicates: true });
 
-    if (error) {
-      // User might already exist in Supabase - try to get them
-      console.log('Admin may already exist in Supabase:', error.message);
-      return;
+    // Ensure default organization exists
+    const { data: existingOrg } = await supabaseAdmin
+      .from('organizations')
+      .select('id')
+      .eq('slug', 'default')
+      .single();
+
+    let orgId: string;
+    if (!existingOrg) {
+      const { data: newOrg } = await supabaseAdmin
+        .from('organizations')
+        .insert({
+          name: 'Default Organization',
+          slug: 'default',
+          type: 'carrier',
+          status: 'active'
+        })
+        .select('id')
+        .single();
+      orgId = newOrg?.id;
+    } else {
+      orgId = existingOrg.id;
     }
 
-    if (data.user) {
-      // Create record in our users table
-      await client.query(
-        `INSERT INTO users (id, username, email, first_name, last_name, role, password)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (id) DO NOTHING`,
-        [data.user.id, 'admin', adminEmail, 'Admin', 'User', 'super_admin', 'supabase-auth']
-      );
-
-      // Ensure default organization exists
-      const orgResult = await client.query(
-        `SELECT id FROM organizations WHERE slug = 'default'`
-      );
-
-      let orgId: string;
-      if (orgResult.rows.length === 0) {
-        const createOrgResult = await client.query(
-          `INSERT INTO organizations (name, slug, type, status)
-           VALUES ('Default Organization', 'default', 'carrier', 'active')
-           RETURNING id`
-        );
-        orgId = createOrgResult.rows[0].id;
-      } else {
-        orgId = orgResult.rows[0].id;
-      }
-
+    if (orgId) {
       // Add admin to organization
-      await client.query(
-        `INSERT INTO organization_memberships (user_id, organization_id, role, status)
-         VALUES ($1, $2, 'owner', 'active')
-         ON CONFLICT (user_id, organization_id) DO NOTHING`,
-        [data.user.id, orgId]
-      );
+      await supabaseAdmin
+        .from('organization_memberships')
+        .upsert({
+          user_id: data.user.id,
+          organization_id: orgId,
+          role: 'owner',
+          status: 'active'
+        }, { onConflict: 'user_id,organization_id', ignoreDuplicates: true });
 
       // Set admin's current organization
-      await client.query(
-        `UPDATE users SET current_organization_id = $1 WHERE id = $2`,
-        [orgId, data.user.id]
-      );
-
-      console.log('Admin user created successfully');
+      await supabaseAdmin
+        .from('users')
+        .update({ current_organization_id: orgId })
+        .eq('id', data.user.id);
     }
-  } finally {
-    client.release();
+
+    console.log('Admin user created successfully');
   }
 }

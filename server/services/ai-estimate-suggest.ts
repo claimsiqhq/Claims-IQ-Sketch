@@ -2,7 +2,7 @@
 // Uses OpenAI to analyze damage zones and suggest appropriate line items
 
 import OpenAI from 'openai';
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { PromptKey } from '../../shared/schema';
 import { getPromptWithFallback, substituteVariables } from './promptService';
 
@@ -87,24 +87,24 @@ export async function generateEstimateSuggestions(
     categories.forEach(cat => relevantCategories.add(cat));
   }
 
-  const client = await pool.connect();
+  // Get line items for relevant categories using Supabase
+  const categoryArray = Array.from(relevantCategories);
   let availableLineItems: any[] = [];
 
-  try {
-    // Get line items for relevant categories
-    const categoryArray = Array.from(relevantCategories);
-    const result = await client.query(
-      `SELECT code, description, category_id, unit
-       FROM line_items
-       WHERE is_active = true
-         AND (${categoryArray.map((_, i) => `category_id LIKE $${i + 1} || '%'`).join(' OR ')})
-       ORDER BY category_id, code
-       LIMIT 200`,
-      categoryArray
-    );
-    availableLineItems = result.rows;
-  } finally {
-    client.release();
+  // Build OR filter for categories
+  const categoryFilters = categoryArray.map(cat => `category_id.ilike.${cat}%`).join(',');
+
+  const { data: lineItems, error } = await supabaseAdmin
+    .from('line_items')
+    .select('code, description, category_id, unit')
+    .eq('is_active', true)
+    .or(categoryFilters)
+    .order('category_id')
+    .order('code')
+    .limit(200);
+
+  if (!error && lineItems) {
+    availableLineItems = lineItems;
   }
 
   // Build the prompt for OpenAI
@@ -208,24 +208,23 @@ export async function quickSuggestLineItems(
     throw new Error('OpenAI API key not configured');
   }
 
-  // Get relevant line items
+  // Get relevant line items using Supabase
   const categories = DAMAGE_TYPE_CATEGORIES[damageType] || ['GEN'];
-  const client = await pool.connect();
   let availableLineItems: any[] = [];
 
-  try {
-    const result = await client.query(
-      `SELECT code, description, category_id, unit
-       FROM line_items
-       WHERE is_active = true
-         AND (${categories.map((_, i) => `category_id LIKE $${i + 1} || '%'`).join(' OR ')})
-       ORDER BY code
-       LIMIT 100`,
-      categories
-    );
-    availableLineItems = result.rows;
-  } finally {
-    client.release();
+  // Build OR filter for categories
+  const categoryFilters = categories.map(cat => `category_id.ilike.${cat}%`).join(',');
+
+  const { data: lineItems, error } = await supabaseAdmin
+    .from('line_items')
+    .select('code, description, category_id, unit')
+    .eq('is_active', true)
+    .or(categoryFilters)
+    .order('code')
+    .limit(100);
+
+  if (!error && lineItems) {
+    availableLineItems = lineItems;
   }
 
   const lineItemList = availableLineItems.map(li =>
@@ -274,37 +273,18 @@ export async function searchLineItemsByDescription(
   query: string,
   limit: number = 10
 ): Promise<any[]> {
-  const client = await pool.connect();
+  // Try ILIKE search (Supabase doesn't support full-text search directly in the same way)
+  const { data: lineItems, error } = await supabaseAdmin
+    .from('line_items')
+    .select('code, description, category_id, unit')
+    .eq('is_active', true)
+    .or(`description.ilike.%${query}%,code.ilike.%${query}%`)
+    .order('code')
+    .limit(limit);
 
-  try {
-    // Use PostgreSQL full-text search with ranking
-    const result = await client.query(
-      `SELECT code, description, category_id, unit,
-              ts_rank(to_tsvector('english', description), plainto_tsquery('english', $1)) as rank
-       FROM line_items
-       WHERE is_active = true
-         AND to_tsvector('english', description) @@ plainto_tsquery('english', $1)
-       ORDER BY rank DESC
-       LIMIT $2`,
-      [query, limit]
-    );
-
-    // If no full-text results, try ILIKE fallback
-    if (result.rows.length === 0) {
-      const fallbackResult = await client.query(
-        `SELECT code, description, category_id, unit
-         FROM line_items
-         WHERE is_active = true
-           AND (description ILIKE $1 OR code ILIKE $1)
-         ORDER BY code
-         LIMIT $2`,
-        [`%${query}%`, limit]
-      );
-      return fallbackResult.rows;
-    }
-
-    return result.rows;
-  } finally {
-    client.release();
+  if (error || !lineItems) {
+    return [];
   }
+
+  return lineItems;
 }

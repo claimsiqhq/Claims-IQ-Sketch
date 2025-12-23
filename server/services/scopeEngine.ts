@@ -22,7 +22,7 @@
  * }
  */
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   ZoneMetrics,
   ZoneForMetrics,
@@ -727,34 +727,49 @@ function processExclusions(
  * Get catalog items with v2 fields from database
  */
 export async function getCatalogItemsWithV2Fields(): Promise<CatalogLineItem[]> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('line_items')
+    .select(`
+      id,
+      code,
+      description,
+      category_id,
+      unit,
+      quantity_formula,
+      scope_conditions,
+      requires_items,
+      auto_add_items,
+      excludes_items,
+      replaces_items,
+      default_coverage_code,
+      trade_code,
+      carrier_sensitivity_level
+    `)
+    .eq('is_active', true)
+    .order('category_id')
+    .order('code');
 
-  try {
-    const result = await client.query(`
-      SELECT
-        id,
-        code,
-        description,
-        category_id as "categoryId",
-        unit,
-        quantity_formula as "quantityFormula",
-        scope_conditions as "scopeConditions",
-        requires_items as "requiresItems",
-        auto_add_items as "autoAddItems",
-        excludes_items as "excludesItems",
-        replaces_items as "replacesItems",
-        default_coverage_code as "defaultCoverageCode",
-        trade_code as "defaultTrade",
-        carrier_sensitivity_level as "carrierSensitivityLevel"
-      FROM line_items
-      WHERE is_active = true
-      ORDER BY category_id, code
-    `);
-
-    return result.rows;
-  } finally {
-    client.release();
+  if (error) {
+    throw new Error(`Failed to fetch catalog items: ${error.message}`);
   }
+
+  // Map snake_case to camelCase
+  return (data || []).map((item) => ({
+    id: item.id,
+    code: item.code,
+    description: item.description,
+    categoryId: item.category_id,
+    unit: item.unit,
+    quantityFormula: item.quantity_formula,
+    scopeConditions: item.scope_conditions,
+    requiresItems: item.requires_items,
+    autoAddItems: item.auto_add_items,
+    excludesItems: item.excludes_items,
+    replacesItems: item.replaces_items,
+    defaultCoverageCode: item.default_coverage_code,
+    defaultTrade: item.trade_code,
+    carrierSensitivityLevel: item.carrier_sensitivity_level,
+  }));
 }
 
 /**

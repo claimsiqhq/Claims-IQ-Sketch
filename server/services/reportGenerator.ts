@@ -2,7 +2,6 @@
 // Generates PDF reports and Xactimate ESX exports
 
 import { getEstimate, type SavedEstimate, type CalculatedLineItem } from './estimateCalculator';
-import { pool } from '../db';
 
 // ============================================
 // TYPE DEFINITIONS
