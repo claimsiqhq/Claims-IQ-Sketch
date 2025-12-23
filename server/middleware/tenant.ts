@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
-// Extend Express Request to include tenant context
 declare global {
   namespace Express {
     interface User {
@@ -27,90 +26,72 @@ declare global {
   }
 }
 
-/**
- * Middleware that resolves and validates the current organization context.
- * Adds organizationId and organization to req for use in route handlers.
- */
 export async function tenantMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Skip if not authenticated
   if (!req.isAuthenticated() || !req.user) {
     return next();
   }
 
   try {
-    const client = await pool.connect();
-    try {
-      // Check if user has an active organization set
-      let orgId = req.user.currentOrganizationId;
+    let orgId = req.user.currentOrganizationId;
 
-      // If no current org, try to get the first organization the user is a member of
-      if (!orgId) {
-        const membershipResult = await client.query(
-          `SELECT om.organization_id, om.role
-           FROM organization_memberships om
-           WHERE om.user_id = $1 AND om.status = 'active'
-           ORDER BY om.created_at ASC
-           LIMIT 1`,
-          [req.user.id]
-        );
+    if (!orgId) {
+      const { data: membership } = await supabaseAdmin
+        .from('organization_memberships')
+        .select('organization_id, role')
+        .eq('user_id', req.user.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
 
-        if (membershipResult.rows.length > 0) {
-          orgId = membershipResult.rows[0].organization_id;
-          req.membershipRole = membershipResult.rows[0].role;
+      if (membership) {
+        orgId = membership.organization_id;
+        req.membershipRole = membership.role;
 
-          // Update user's current organization
-          await client.query(
-            `UPDATE users SET current_organization_id = $1 WHERE id = $2`,
-            [orgId, req.user.id]
-          );
-        }
+        await supabaseAdmin
+          .from('users')
+          .update({ current_organization_id: orgId })
+          .eq('id', req.user.id);
+      }
+    } else {
+      const { data: membership } = await supabaseAdmin
+        .from('organization_memberships')
+        .select('role')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', orgId)
+        .eq('status', 'active')
+        .single();
+
+      if (membership) {
+        req.membershipRole = membership.role;
       } else {
-        // Verify membership in current org
-        const membershipResult = await client.query(
-          `SELECT role FROM organization_memberships
-           WHERE user_id = $1 AND organization_id = $2 AND status = 'active'`,
-          [req.user.id, orgId]
-        );
-
-        if (membershipResult.rows.length > 0) {
-          req.membershipRole = membershipResult.rows[0].role;
-        } else {
-          // User no longer has access to this org, clear it
-          orgId = undefined;
-          await client.query(
-            `UPDATE users SET current_organization_id = NULL WHERE id = $1`,
-            [req.user.id]
-          );
-        }
+        orgId = undefined;
+        await supabaseAdmin
+          .from('users')
+          .update({ current_organization_id: null })
+          .eq('id', req.user.id);
       }
+    }
 
-      if (orgId) {
-        // Fetch organization details
-        const orgResult = await client.query(
-          `SELECT id, name, slug, type, status FROM organizations WHERE id = $1`,
-          [orgId]
-        );
+    if (orgId) {
+      const { data: org } = await supabaseAdmin
+        .from('organizations')
+        .select('id, name, slug, type, status')
+        .eq('id', orgId)
+        .single();
 
-        if (orgResult.rows.length > 0) {
-          req.organizationId = orgId;
-          req.organization = orgResult.rows[0];
-        }
+      if (org) {
+        req.organizationId = orgId;
+        req.organization = org;
       }
-    } finally {
-      client.release();
     }
   } catch (error) {
     console.error('Tenant middleware error:', error);
-    // Don't fail the request, just log and continue without org context
   }
 
   next();
 }
 
-/**
- * Middleware that requires a valid organization context.
- * Returns 403 if no organization is set.
- */
 export function requireOrganization(req: Request, res: Response, next: NextFunction) {
   if (!req.organizationId) {
     return res.status(403).json({
@@ -120,9 +101,6 @@ export function requireOrganization(req: Request, res: Response, next: NextFunct
   next();
 }
 
-/**
- * Middleware that requires specific roles within the organization.
- */
 export function requireOrgRole(...allowedRoles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.organizationId) {
@@ -131,7 +109,6 @@ export function requireOrgRole(...allowedRoles: string[]) {
       });
     }
 
-    // Super admins can do anything
     if (req.user?.role === 'super_admin') {
       return next();
     }
@@ -146,9 +123,6 @@ export function requireOrgRole(...allowedRoles: string[]) {
   };
 }
 
-/**
- * Middleware that requires super admin access (system-wide admin).
- */
 export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
   if (req.user?.role !== 'super_admin') {
     return res.status(403).json({
