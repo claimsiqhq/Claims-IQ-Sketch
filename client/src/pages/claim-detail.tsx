@@ -20,6 +20,7 @@ import {
   Home,
   PenTool,
   ClipboardList,
+  ClipboardCheck,
   FileText,
   Image as ImageIcon,
   Save,
@@ -114,6 +115,7 @@ import { VoiceScopeController } from "@/features/voice-scope";
 import { PerilBadgeGroup, PerilAdvisoryBanner, PerilHint } from "@/components/peril-badge";
 import { InspectionTipsPanel } from "@/components/inspection-tips-panel";
 import { BriefingPanel } from "@/components/briefing-panel";
+import { WorkflowPanel } from "@/components/workflow-panel";
 import { CarrierGuidancePanel } from "@/components/carrier-guidance-panel";
 import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -871,6 +873,7 @@ export default function ClaimDetail() {
   const tabs = [
     { id: "info", label: "Info", icon: Home },
     { id: "briefing", label: "Briefing", icon: Sparkles },
+    { id: "workflow", label: "Workflow", icon: ClipboardCheck },
     { id: "documents", label: "Documents", icon: File },
     { id: "sketch", label: "Sketch", icon: PenTool },
     { id: "scope", label: "Scope", icon: ClipboardList },
@@ -1358,6 +1361,19 @@ export default function ClaimDetail() {
               <div className="max-w-4xl mx-auto">
                 {apiClaim?.id ? (
                   <BriefingPanel claimId={apiClaim.id} />
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    Loading claim data...
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* TAB: WORKFLOW */}
+            <TabsContent value="workflow" className="h-full p-4 md:p-6 m-0 overflow-auto">
+              <div className="max-w-4xl mx-auto">
+                {apiClaim?.id ? (
+                  <WorkflowPanel claimId={apiClaim.id} />
                 ) : (
                   <div className="text-center text-muted-foreground py-8">
                     Loading claim data...

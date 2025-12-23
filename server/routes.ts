@@ -146,6 +146,18 @@ import {
   updateCarrierOverlays,
 } from "./services/carrierOverlayService";
 import {
+  generateInspectionWorkflow,
+  regenerateWorkflow,
+  expandWorkflowForRooms,
+  validateWorkflowJson,
+  getWorkflow,
+  getClaimWorkflow,
+  updateWorkflowStep,
+  addWorkflowStep,
+  addWorkflowRoom,
+  shouldRegenerateWorkflow,
+} from "./services/inspectionWorkflowService";
+import {
   createStructure,
   getStructure,
   updateStructure,
@@ -3278,6 +3290,273 @@ export async function registerRoutes(
     try {
       const deletedCount = await deleteClaimBriefings(req.params.id, req.organizationId!);
       res.json({ deleted: deletedCount });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // INSPECTION WORKFLOW ROUTES
+  // ============================================
+
+  /**
+   * POST /api/claims/:id/workflow/generate
+   * Generate a new inspection workflow for a claim.
+   * Uses FNOL, policy, endorsements, briefing, and peril rules.
+   */
+  app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { forceRegenerate } = req.body;
+      const result = await generateInspectionWorkflow(
+        req.params.id,
+        req.organizationId!,
+        req.user?.id,
+        forceRegenerate === true
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        workflow: result.workflow,
+        workflowId: result.workflowId,
+        version: result.version,
+        model: result.model,
+        tokenUsage: result.tokenUsage,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/workflow
+   * Get the current inspection workflow for a claim with all steps and rooms.
+   */
+  app.get('/api/claims/:id/workflow', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const workflow = await getClaimWorkflow(req.params.id, req.organizationId!);
+
+      if (!workflow) {
+        return res.status(404).json({ error: 'No workflow found for this claim' });
+      }
+
+      res.json(workflow);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/workflow/status
+   * Check if the workflow should be regenerated due to claim changes.
+   */
+  app.get('/api/claims/:id/workflow/status', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const result = await shouldRegenerateWorkflow(req.params.id, req.organizationId!);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/claims/:id/workflow/regenerate
+   * Regenerate a workflow due to claim changes.
+   * Archives the previous workflow and creates a new version.
+   */
+  app.post('/api/claims/:id/workflow/regenerate', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) {
+        return res.status(400).json({ error: 'reason is required for regeneration' });
+      }
+
+      const result = await regenerateWorkflow(
+        req.params.id,
+        req.organizationId!,
+        reason,
+        req.user?.id
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        workflow: result.workflow,
+        workflowId: result.workflowId,
+        version: result.version,
+        model: result.model,
+        tokenUsage: result.tokenUsage,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/workflow/:id
+   * Get a specific workflow by ID with all steps and rooms.
+   */
+  app.get('/api/workflow/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const workflow = await getWorkflow(req.params.id, req.organizationId!);
+
+      if (!workflow) {
+        return res.status(404).json({ error: 'Workflow not found' });
+      }
+
+      res.json(workflow);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * PATCH /api/workflow/:id/steps/:stepId
+   * Update a workflow step (status, notes, actual minutes, etc.)
+   */
+  app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { status, notes, actualMinutes } = req.body;
+
+      const updates: Parameters<typeof updateWorkflowStep>[1] = {};
+      if (status !== undefined) updates.status = status;
+      if (notes !== undefined) updates.notes = notes;
+      if (actualMinutes !== undefined) updates.actualMinutes = actualMinutes;
+      if (status === 'completed' && req.user?.id) {
+        updates.completedBy = req.user.id;
+      }
+
+      const step = await updateWorkflowStep(req.params.stepId, updates);
+
+      if (!step) {
+        return res.status(404).json({ error: 'Step not found' });
+      }
+
+      res.json({ step });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/steps
+   * Add a new custom step to a workflow.
+   */
+  app.post('/api/workflow/:id/steps', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { phase, stepType, title, instructions, required, estimatedMinutes, roomId, roomName } = req.body;
+
+      if (!phase || !stepType || !title) {
+        return res.status(400).json({ error: 'phase, stepType, and title are required' });
+      }
+
+      const step = await addWorkflowStep(req.params.id, {
+        phase,
+        stepType,
+        title,
+        instructions,
+        required,
+        estimatedMinutes,
+        roomId,
+        roomName,
+      });
+
+      if (!step) {
+        return res.status(400).json({ error: 'Failed to add step' });
+      }
+
+      res.status(201).json({ step });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/rooms
+   * Add a new room to a workflow.
+   */
+  app.post('/api/workflow/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { name, level, roomType, notes } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ error: 'name is required' });
+      }
+
+      const room = await addWorkflowRoom(req.params.id, {
+        name,
+        level,
+        roomType,
+        notes,
+      });
+
+      if (!room) {
+        return res.status(400).json({ error: 'Failed to add room' });
+      }
+
+      res.status(201).json({ room });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/expand-rooms
+   * Expand the workflow by adding room-specific steps for the given rooms.
+   * Uses the room template defined in the workflow JSON.
+   */
+  app.post('/api/workflow/:id/expand-rooms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { roomNames } = req.body;
+
+      if (!roomNames || !Array.isArray(roomNames) || roomNames.length === 0) {
+        return res.status(400).json({ error: 'roomNames array is required' });
+      }
+
+      const result = await expandWorkflowForRooms(
+        req.params.id,
+        roomNames,
+        req.user?.id
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, addedSteps: result.addedSteps });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/validate
+   * Validate a workflow JSON structure.
+   */
+  app.post('/api/workflow/:id/validate', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { workflowJson } = req.body;
+
+      if (!workflowJson) {
+        return res.status(400).json({ error: 'workflowJson is required' });
+      }
+
+      const result = validateWorkflowJson(workflowJson);
+      res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });

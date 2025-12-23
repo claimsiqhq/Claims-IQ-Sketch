@@ -2150,4 +2150,359 @@ export enum PromptKey {
   // Voice agent prompts
   VOICE_ROOM_SKETCH = "voice.room_sketch",
   VOICE_SCOPE = "voice.scope",
+
+  // Inspection workflow prompts
+  INSPECTION_WORKFLOW_GENERATOR = "workflow.inspection_generator",
 }
+
+// ============================================
+// INSPECTION WORKFLOW TYPES
+// ============================================
+
+/**
+ * Workflow status values for inspection workflows
+ */
+export enum InspectionWorkflowStatus {
+  DRAFT = "draft",
+  ACTIVE = "active",
+  COMPLETED = "completed",
+  ARCHIVED = "archived",
+}
+
+/**
+ * Step status values for individual workflow steps
+ */
+export enum InspectionStepStatus {
+  PENDING = "pending",
+  IN_PROGRESS = "in_progress",
+  COMPLETED = "completed",
+  SKIPPED = "skipped",
+  BLOCKED = "blocked",
+}
+
+/**
+ * Step type values for workflow steps
+ */
+export enum InspectionStepType {
+  PHOTO = "photo",
+  MEASUREMENT = "measurement",
+  CHECKLIST = "checklist",
+  OBSERVATION = "observation",
+  DOCUMENTATION = "documentation",
+  SAFETY_CHECK = "safety_check",
+  EQUIPMENT = "equipment",
+  INTERVIEW = "interview",
+}
+
+/**
+ * Phase values for grouping workflow steps
+ */
+export enum InspectionPhase {
+  PRE_INSPECTION = "pre_inspection",
+  INITIAL_WALKTHROUGH = "initial_walkthrough",
+  EXTERIOR = "exterior",
+  INTERIOR = "interior",
+  DOCUMENTATION = "documentation",
+  WRAP_UP = "wrap_up",
+}
+
+/**
+ * Asset type values for workflow assets
+ */
+export enum WorkflowAssetType {
+  PHOTO = "photo",
+  VIDEO = "video",
+  MEASUREMENT = "measurement",
+  DOCUMENT = "document",
+  SIGNATURE = "signature",
+  AUDIO_NOTE = "audio_note",
+}
+
+/**
+ * Structure representing generated_from metadata
+ */
+export interface WorkflowGeneratedFrom {
+  fnol_id?: string;
+  policy_id?: string;
+  endorsement_ids?: string[];
+  briefing_id?: string;
+  peril_rules_version?: string;
+  carrier_overlay_id?: string;
+  generated_at: string;
+  model?: string;
+  prompt_version?: number;
+}
+
+/**
+ * Structure for workflow JSON content
+ */
+export interface InspectionWorkflowJson {
+  metadata: {
+    claim_number: string;
+    primary_peril: string;
+    secondary_perils: string[];
+    property_type?: string;
+    estimated_total_time_minutes: number;
+    generated_at: string;
+  };
+  phases: {
+    phase: InspectionPhase;
+    title: string;
+    description: string;
+    estimated_minutes: number;
+    step_count: number;
+  }[];
+  room_template?: {
+    standard_steps: {
+      step_type: InspectionStepType;
+      title: string;
+      instructions: string;
+      required: boolean;
+      estimated_minutes: number;
+    }[];
+    peril_specific_steps?: Record<string, {
+      step_type: InspectionStepType;
+      title: string;
+      instructions: string;
+      required: boolean;
+      estimated_minutes: number;
+    }[]>;
+  };
+  tools_and_equipment: {
+    category: string;
+    items: {
+      name: string;
+      required: boolean;
+      purpose: string;
+    }[];
+  }[];
+  open_questions?: {
+    question: string;
+    context: string;
+    priority: "high" | "medium" | "low";
+  }[];
+}
+
+// ============================================
+// INSPECTION WORKFLOWS TABLE
+// ============================================
+
+/**
+ * Main inspection workflow table.
+ * Stores step-by-step inspection workflows derived from FNOL, Policy,
+ * Endorsements, AI Claim Briefing, and peril inspection rules.
+ */
+export const inspectionWorkflows = pgTable("inspection_workflows", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id").notNull(),
+
+  // Versioning - increment on regeneration
+  version: integer("version").notNull().default(1),
+
+  // Status tracking
+  status: varchar("status", { length: 30 }).notNull().default("draft"), // draft, active, completed, archived
+
+  // Peril context (copied from claim for quick access)
+  primaryPeril: varchar("primary_peril", { length: 50 }),
+  secondaryPerils: jsonb("secondary_perils").default(sql`'[]'::jsonb`),
+
+  // Reference to the briefing used to generate this workflow
+  sourceBriefingId: uuid("source_briefing_id"),
+
+  // The complete workflow structure (JSON)
+  workflowJson: jsonb("workflow_json").notNull(),
+
+  // Tracking what data was used to generate this workflow
+  generatedFrom: jsonb("generated_from").default(sql`'{}'::jsonb`),
+
+  // Audit trail
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+  completedAt: timestamp("completed_at"),
+  archivedAt: timestamp("archived_at"),
+}, (table) => ({
+  claimIdx: index("inspection_workflows_claim_idx").on(table.claimId),
+  orgIdx: index("inspection_workflows_org_idx").on(table.organizationId),
+  statusIdx: index("inspection_workflows_status_idx").on(table.status),
+  claimVersionIdx: index("inspection_workflows_claim_version_idx").on(table.claimId, table.version),
+}));
+
+export const insertInspectionWorkflowSchema = createInsertSchema(inspectionWorkflows).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+  archivedAt: true,
+});
+
+export type InsertInspectionWorkflow = z.infer<typeof insertInspectionWorkflowSchema>;
+export type InspectionWorkflow = typeof inspectionWorkflows.$inferSelect;
+
+// ============================================
+// INSPECTION WORKFLOW STEPS TABLE
+// ============================================
+
+/**
+ * Individual steps within an inspection workflow.
+ * Each step represents a discrete action the adjuster must take.
+ */
+export const inspectionWorkflowSteps = pgTable("inspection_workflow_steps", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  workflowId: uuid("workflow_id").notNull(),
+
+  // Ordering and grouping
+  stepIndex: integer("step_index").notNull(),
+  phase: varchar("phase", { length: 50 }).notNull(), // pre_inspection, initial_walkthrough, exterior, interior, documentation, wrap_up
+
+  // Step details
+  stepType: varchar("step_type", { length: 50 }).notNull(), // photo, measurement, checklist, observation, documentation, safety_check, equipment, interview
+  title: varchar("title", { length: 255 }).notNull(),
+  instructions: text("instructions"),
+
+  // Requirements
+  required: boolean("required").default(true),
+  tags: jsonb("tags").default(sql`'[]'::jsonb`), // Array of tags for filtering/grouping
+
+  // Dependencies (step IDs that must be completed first)
+  dependencies: jsonb("dependencies").default(sql`'[]'::jsonb`),
+
+  // Time tracking
+  estimatedMinutes: integer("estimated_minutes").default(5),
+  actualMinutes: integer("actual_minutes"),
+
+  // Completion tracking
+  status: varchar("status", { length: 30 }).notNull().default("pending"), // pending, in_progress, completed, skipped, blocked
+  completedBy: varchar("completed_by"),
+  completedAt: timestamp("completed_at"),
+
+  // Notes from adjuster
+  notes: text("notes"),
+
+  // Room association (if this step applies to a specific room)
+  roomId: uuid("room_id"),
+  roomName: varchar("room_name", { length: 100 }),
+
+  // Peril-specific flag
+  perilSpecific: varchar("peril_specific", { length: 50 }), // If set, this step only applies to this peril
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  workflowIdx: index("inspection_steps_workflow_idx").on(table.workflowId),
+  phaseIdx: index("inspection_steps_phase_idx").on(table.workflowId, table.phase),
+  statusIdx: index("inspection_steps_status_idx").on(table.workflowId, table.status),
+  orderIdx: index("inspection_steps_order_idx").on(table.workflowId, table.stepIndex),
+}));
+
+export const insertInspectionWorkflowStepSchema = createInsertSchema(inspectionWorkflowSteps).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertInspectionWorkflowStep = z.infer<typeof insertInspectionWorkflowStepSchema>;
+export type InspectionWorkflowStep = typeof inspectionWorkflowSteps.$inferSelect;
+
+// ============================================
+// INSPECTION WORKFLOW ASSETS TABLE
+// ============================================
+
+/**
+ * Assets associated with workflow steps.
+ * Tracks required/captured photos, measurements, documents, etc.
+ */
+export const inspectionWorkflowAssets = pgTable("inspection_workflow_assets", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  stepId: uuid("step_id").notNull(),
+
+  // Asset details
+  assetType: varchar("asset_type", { length: 30 }).notNull(), // photo, video, measurement, document, signature, audio_note
+  label: varchar("label", { length: 255 }).notNull(),
+  description: text("description"),
+
+  // Requirements
+  required: boolean("required").default(true),
+
+  // Asset-specific metadata
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+
+  // Captured file reference (null until captured)
+  fileId: uuid("file_id"),
+  filePath: text("file_path"),
+  fileUrl: text("file_url"),
+
+  // Status tracking
+  status: varchar("status", { length: 30 }).notNull().default("pending"), // pending, captured, approved, rejected
+
+  // Capture info
+  capturedBy: varchar("captured_by"),
+  capturedAt: timestamp("captured_at"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  stepIdx: index("inspection_assets_step_idx").on(table.stepId),
+  typeIdx: index("inspection_assets_type_idx").on(table.stepId, table.assetType),
+  statusIdx: index("inspection_assets_status_idx").on(table.stepId, table.status),
+}));
+
+export const insertInspectionWorkflowAssetSchema = createInsertSchema(inspectionWorkflowAssets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertInspectionWorkflowAsset = z.infer<typeof insertInspectionWorkflowAssetSchema>;
+export type InspectionWorkflowAsset = typeof inspectionWorkflowAssets.$inferSelect;
+
+// ============================================
+// INSPECTION WORKFLOW ROOMS TABLE
+// ============================================
+
+/**
+ * Rooms added to an inspection workflow.
+ * Allows expanding the workflow with room-specific steps.
+ */
+export const inspectionWorkflowRooms = pgTable("inspection_workflow_rooms", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  workflowId: uuid("workflow_id").notNull(),
+
+  // Room details
+  name: varchar("name", { length: 100 }).notNull(),
+  level: varchar("level", { length: 50 }), // basement, main, upper, attic
+  roomType: varchar("room_type", { length: 50 }), // bedroom, bathroom, kitchen, living, etc.
+
+  // Dimensions (if known)
+  lengthFt: decimal("length_ft", { precision: 8, scale: 2 }),
+  widthFt: decimal("width_ft", { precision: 8, scale: 2 }),
+  heightFt: decimal("height_ft", { precision: 8, scale: 2 }),
+
+  // Notes
+  notes: text("notes"),
+
+  // Link to claim room (if exists)
+  claimRoomId: uuid("claim_room_id"),
+
+  // Ordering
+  sortOrder: integer("sort_order").default(0),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  workflowIdx: index("inspection_rooms_workflow_idx").on(table.workflowId),
+  levelIdx: index("inspection_rooms_level_idx").on(table.workflowId, table.level),
+}));
+
+export const insertInspectionWorkflowRoomSchema = createInsertSchema(inspectionWorkflowRooms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertInspectionWorkflowRoom = z.infer<typeof insertInspectionWorkflowRoomSchema>;
+export type InspectionWorkflowRoom = typeof inspectionWorkflowRooms.$inferSelect;

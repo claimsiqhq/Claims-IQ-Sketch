@@ -1821,3 +1821,304 @@ export async function reanalyzePhoto(id: string): Promise<{ success: boolean; me
   }
   return response.json();
 }
+
+// ============================================
+// INSPECTION WORKFLOW API
+// ============================================
+
+export type InspectionPhase = 'pre_inspection' | 'initial_walkthrough' | 'exterior' | 'interior' | 'documentation' | 'wrap_up';
+export type InspectionStepType = 'photo' | 'measurement' | 'checklist' | 'observation' | 'documentation' | 'safety_check' | 'equipment' | 'interview';
+export type InspectionStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'blocked';
+export type InspectionWorkflowStatus = 'draft' | 'active' | 'completed' | 'archived';
+export type WorkflowAssetType = 'photo' | 'video' | 'measurement' | 'document' | 'signature' | 'audio_note';
+export type WorkflowAssetStatus = 'pending' | 'captured' | 'approved' | 'rejected';
+
+export interface InspectionWorkflowAsset {
+  id: string;
+  stepId: string;
+  assetType: WorkflowAssetType;
+  label: string;
+  description?: string;
+  required: boolean;
+  metadata: Record<string, unknown>;
+  fileId?: string;
+  filePath?: string;
+  fileUrl?: string;
+  status: WorkflowAssetStatus;
+  capturedBy?: string;
+  capturedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InspectionWorkflowStep {
+  id: string;
+  workflowId: string;
+  stepIndex: number;
+  phase: InspectionPhase;
+  stepType: InspectionStepType;
+  title: string;
+  instructions?: string;
+  required: boolean;
+  tags: string[];
+  dependencies: string[];
+  estimatedMinutes: number;
+  actualMinutes?: number;
+  status: InspectionStepStatus;
+  completedBy?: string;
+  completedAt?: string;
+  notes?: string;
+  roomId?: string;
+  roomName?: string;
+  perilSpecific?: string;
+  createdAt: string;
+  updatedAt: string;
+  assets?: InspectionWorkflowAsset[];
+}
+
+export interface InspectionWorkflowRoom {
+  id: string;
+  workflowId: string;
+  name: string;
+  level?: string;
+  roomType?: string;
+  lengthFt?: string;
+  widthFt?: string;
+  heightFt?: string;
+  notes?: string;
+  claimRoomId?: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InspectionWorkflowJson {
+  metadata: {
+    claim_number: string;
+    primary_peril: string;
+    secondary_perils: string[];
+    property_type?: string;
+    estimated_total_time_minutes: number;
+    generated_at: string;
+  };
+  phases: {
+    phase: InspectionPhase;
+    title: string;
+    description: string;
+    estimated_minutes: number;
+    step_count: number;
+  }[];
+  room_template?: {
+    standard_steps: {
+      step_type: InspectionStepType;
+      title: string;
+      instructions: string;
+      required: boolean;
+      estimated_minutes: number;
+    }[];
+    peril_specific_steps?: Record<string, {
+      step_type: InspectionStepType;
+      title: string;
+      instructions: string;
+      required: boolean;
+      estimated_minutes: number;
+    }[]>;
+  };
+  tools_and_equipment: {
+    category: string;
+    items: {
+      name: string;
+      required: boolean;
+      purpose: string;
+    }[];
+  }[];
+  open_questions?: {
+    question: string;
+    context: string;
+    priority: 'high' | 'medium' | 'low';
+  }[];
+}
+
+export interface InspectionWorkflow {
+  id: string;
+  organizationId: string;
+  claimId: string;
+  version: number;
+  status: InspectionWorkflowStatus;
+  primaryPeril?: string;
+  secondaryPerils: string[];
+  sourceBriefingId?: string;
+  workflowJson: InspectionWorkflowJson;
+  generatedFrom: Record<string, unknown>;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archivedAt?: string;
+}
+
+export interface FullWorkflow {
+  workflow: InspectionWorkflow;
+  steps: (InspectionWorkflowStep & { assets: InspectionWorkflowAsset[] })[];
+  rooms: InspectionWorkflowRoom[];
+  stats: {
+    totalSteps: number;
+    completedSteps: number;
+    pendingSteps: number;
+    requiredAssets: number;
+    capturedAssets: number;
+    estimatedMinutes: number;
+    actualMinutes: number;
+  };
+}
+
+export interface GenerateWorkflowResponse {
+  workflow: InspectionWorkflow;
+  workflowId: string;
+  version: number;
+  model?: string;
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}
+
+export async function generateInspectionWorkflow(
+  claimId: string,
+  forceRegenerate: boolean = false
+): Promise<GenerateWorkflowResponse> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/workflow/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ forceRegenerate }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to generate workflow' }));
+    throw new Error(error.error || 'Failed to generate workflow');
+  }
+  return response.json();
+}
+
+export async function getClaimWorkflow(claimId: string): Promise<FullWorkflow | null> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/workflow`, { credentials: 'include' });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error('Failed to fetch workflow');
+  }
+  return response.json();
+}
+
+export async function getWorkflowStatus(claimId: string): Promise<{ shouldRegenerate: boolean; reason?: string }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/workflow/status`, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error('Failed to fetch workflow status');
+  }
+  return response.json();
+}
+
+export async function regenerateWorkflow(
+  claimId: string,
+  reason: string
+): Promise<GenerateWorkflowResponse> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/workflow/regenerate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to regenerate workflow' }));
+    throw new Error(error.error || 'Failed to regenerate workflow');
+  }
+  return response.json();
+}
+
+export async function getWorkflow(workflowId: string): Promise<FullWorkflow> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}`, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error('Failed to fetch workflow');
+  }
+  return response.json();
+}
+
+export async function updateWorkflowStep(
+  workflowId: string,
+  stepId: string,
+  updates: { status?: InspectionStepStatus; notes?: string; actualMinutes?: number }
+): Promise<{ step: InspectionWorkflowStep }> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/steps/${stepId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to update step' }));
+    throw new Error(error.error || 'Failed to update step');
+  }
+  return response.json();
+}
+
+export async function addWorkflowStep(
+  workflowId: string,
+  step: {
+    phase: InspectionPhase;
+    stepType: InspectionStepType;
+    title: string;
+    instructions?: string;
+    required?: boolean;
+    estimatedMinutes?: number;
+    roomId?: string;
+    roomName?: string;
+  }
+): Promise<{ step: InspectionWorkflowStep }> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/steps`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(step),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to add step' }));
+    throw new Error(error.error || 'Failed to add step');
+  }
+  return response.json();
+}
+
+export async function addWorkflowRoom(
+  workflowId: string,
+  room: { name: string; level?: string; roomType?: string; notes?: string }
+): Promise<{ room: InspectionWorkflowRoom }> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(room),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to add room' }));
+    throw new Error(error.error || 'Failed to add room');
+  }
+  return response.json();
+}
+
+export async function expandWorkflowRooms(
+  workflowId: string,
+  roomNames: string[]
+): Promise<{ success: boolean; addedSteps: number }> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/expand-rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomNames }),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to expand rooms' }));
+    throw new Error(error.error || 'Failed to expand rooms');
+  }
+  return response.json();
+}
