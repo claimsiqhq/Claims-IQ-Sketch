@@ -1,13 +1,13 @@
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
-import { pool } from '../db';
 import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { inferPeril, type PerilInferenceInput } from './perilNormalizer';
 import { Peril, PromptKey } from '../../shared/schema';
 import { getSupabaseAdmin } from '../lib/supabase';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getPromptWithFallback, substituteVariables } from './promptService';
 
 const execAsync = promisify(exec);
@@ -699,26 +699,25 @@ export async function processDocument(
   documentId: string,
   organizationId: string
 ): Promise<ExtractedClaimData> {
-  const client = await pool.connect();
+  // Get document info
+  const { data: doc, error: docError } = await supabaseAdmin
+    .from('documents')
+    .select('*')
+    .eq('id', documentId)
+    .eq('organization_id', organizationId)
+    .single();
+
+  if (docError || !doc) {
+    throw new Error('Document not found');
+  }
+
+  // Update status to processing
+  await supabaseAdmin
+    .from('documents')
+    .update({ processing_status: 'processing', updated_at: new Date().toISOString() })
+    .eq('id', documentId);
 
   try {
-    // Get document info
-    const docResult = await client.query(
-      `SELECT * FROM documents WHERE id = $1 AND organization_id = $2`,
-      [documentId, organizationId]
-    );
-
-    if (docResult.rows.length === 0) {
-      throw new Error('Document not found');
-    }
-
-    const doc = docResult.rows[0];
-
-    // Update status to processing
-    await client.query(
-      `UPDATE documents SET processing_status = 'processing', updated_at = NOW() WHERE id = $1`,
-      [documentId]
-    );
 
     let extractedData: ExtractedClaimData = {};
 
@@ -756,21 +755,16 @@ export async function processDocument(
       }
 
       // Update document with extracted data including full text
-      await client.query(
-        `UPDATE documents
-         SET extracted_data = $1,
-             full_text = $2,
-             page_texts = $3,
-             processing_status = 'completed',
-             updated_at = NOW()
-         WHERE id = $4`,
-        [
-          JSON.stringify(extractedData),
-          extractedData.fullText || null,
-          JSON.stringify(extractedData.pageTexts || []),
-          documentId
-        ]
-      );
+      await supabaseAdmin
+        .from('documents')
+        .update({
+          extracted_data: extractedData,
+          full_text: extractedData.fullText || null,
+          page_texts: extractedData.pageTexts || [],
+          processing_status: 'completed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', documentId);
 
       // For policy documents, create/update a policy_forms record if form data was extracted
       if (doc.type === 'policy' && (extractedData.formNumber || extractedData.documentTitle)) {
@@ -782,37 +776,36 @@ export async function processDocument(
         };
 
         // Check if a policy_form already exists for this claim
-        const existingForm = await client.query(
-          `SELECT id FROM policy_forms
-           WHERE organization_id = $1 AND claim_id = $2 AND form_number = $3
-           LIMIT 1`,
-          [organizationId, doc.claim_id, extractedData.formNumber || 'UNKNOWN']
-        );
+        const { data: existingForms } = await supabaseAdmin
+          .from('policy_forms')
+          .select('id')
+          .eq('organization_id', organizationId)
+          .eq('claim_id', doc.claim_id)
+          .eq('form_number', extractedData.formNumber || 'UNKNOWN')
+          .limit(1);
 
-        if (existingForm.rows.length > 0) {
+        if (existingForms && existingForms.length > 0) {
           // Update existing policy form
-          await client.query(
-            `UPDATE policy_forms
-             SET document_title = COALESCE($1, document_title),
-                 key_provisions = $2,
-                 updated_at = NOW()
-             WHERE id = $3`,
-            [extractedData.documentTitle, JSON.stringify(keyProvisions), existingForm.rows[0].id]
-          );
+          await supabaseAdmin
+            .from('policy_forms')
+            .update({
+              document_title: extractedData.documentTitle || null,
+              key_provisions: keyProvisions,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingForms[0].id);
         } else if (doc.claim_id) {
           // Create new policy form record
-          await client.query(
-            `INSERT INTO policy_forms (organization_id, claim_id, form_type, form_number, document_title, key_provisions)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [
-              organizationId,
-              doc.claim_id,
-              extractedData.documentType || 'Policy Form',
-              extractedData.formNumber || 'UNKNOWN',
-              extractedData.documentTitle || null,
-              JSON.stringify(keyProvisions)
-            ]
-          );
+          await supabaseAdmin
+            .from('policy_forms')
+            .insert({
+              organization_id: organizationId,
+              claim_id: doc.claim_id,
+              form_type: extractedData.documentType || 'Policy Form',
+              form_number: extractedData.formNumber || 'UNKNOWN',
+              document_title: extractedData.documentTitle || null,
+              key_provisions: keyProvisions
+            });
         }
       }
 
@@ -820,19 +813,19 @@ export async function processDocument(
 
     } catch (error) {
       // Update status to failed
-      await client.query(
-        `UPDATE documents
-         SET processing_status = 'failed',
-             extracted_data = $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify({ error: (error as Error).message }), documentId]
-      );
+      await supabaseAdmin
+        .from('documents')
+        .update({
+          processing_status: 'failed',
+          extracted_data: { error: (error as Error).message },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', documentId);
       throw error;
     }
-
-  } finally {
-    client.release();
+  } catch (error) {
+    console.error('Document processing error:', error);
+    throw error;
   }
 }
 
@@ -1313,224 +1306,209 @@ export async function createClaimFromDocuments(
   documentIds: string[],
   overrides?: Partial<ExtractedClaimData>
 ): Promise<string> {
-  const client = await pool.connect();
+  // Get all documents and their extracted data
+  const { data: docs, error: docsError } = await supabaseAdmin
+    .from('documents')
+    .select('id, type, extracted_data')
+    .in('id', documentIds)
+    .eq('organization_id', organizationId);
 
-  try {
-    // Get all documents and their extracted data
-    const docResult = await client.query(
-      `SELECT id, type, extracted_data FROM documents
-       WHERE id = ANY($1) AND organization_id = $2`,
-      [documentIds, organizationId]
-    );
+  if (docsError || !docs) {
+    throw new Error(`Failed to fetch documents: ${docsError?.message}`);
+  }
 
-    // Merge extracted data from all documents
-    const extractedDatas = docResult.rows
-      .map(d => d.extracted_data as ExtractedClaimData)
-      .filter(Boolean);
+  // Merge extracted data from all documents
+  const extractedDatas = docs
+    .map(d => d.extracted_data as ExtractedClaimData)
+    .filter(Boolean);
 
-    let claimData = mergeExtractedData(...extractedDatas);
+  let claimData = mergeExtractedData(...extractedDatas);
 
-    // Apply any overrides
-    if (overrides) {
-      claimData = { ...claimData, ...overrides };
-    }
+  // Apply any overrides
+  if (overrides) {
+    claimData = { ...claimData, ...overrides };
+  }
 
-    // Flatten policy details if nested
-    const policyDetails = claimData.policyDetails || {};
-    const policyNumber = claimData.policyNumber || policyDetails.policyNumber || null;
-    const dwellingLimit = claimData.dwellingLimit || policyDetails.dwellingLimit || null;
-    const state = claimData.state || policyDetails.state || null;
-    const yearRoofInstall = claimData.yearRoofInstall || policyDetails.yearRoofInstall || null;
-    const windHailDeductible = claimData.windHailDeductible || policyDetails.windHailDeductible || null;
-    const endorsementsListed = claimData.endorsementsListed || policyDetails.endorsementsListed || [];
+  // Flatten policy details if nested
+  const policyDetails = claimData.policyDetails || {};
+  const policyNumber = claimData.policyNumber || policyDetails.policyNumber || null;
+  const dwellingLimit = claimData.dwellingLimit || policyDetails.dwellingLimit || null;
+  const state = claimData.state || policyDetails.state || null;
+  const yearRoofInstall = claimData.yearRoofInstall || policyDetails.yearRoofInstall || null;
+  const windHailDeductible = claimData.windHailDeductible || policyDetails.windHailDeductible || null;
+  const endorsementsListed = claimData.endorsementsListed || policyDetails.endorsementsListed || [];
 
-    // Generate claim ID if not provided
-    const generatedClaimId = claimData.claimId || await generateClaimId(client, organizationId);
+  // Generate claim ID if not provided
+  const generatedClaimId = claimData.claimId || await generateClaimId(organizationId);
 
-    // ========================================
-    // PERIL NORMALIZATION (Peril Parity)
-    // ========================================
-    // Infer primary peril, secondary perils, and peril-specific metadata
-    // This ensures all perils are treated equally, not just wind/hail
-    const perilInput: PerilInferenceInput = {
-      causeOfLoss: claimData.causeOfLoss,
-      lossDescription: claimData.lossDescription,
-      damageLocation: claimData.damageLocation,
-      dwellingDamageDescription: claimData.dwellingDamageDescription,
-      otherStructureDamageDescription: claimData.otherStructureDamageDescription,
-      fullText: claimData.fullText,
-    };
+  // ========================================
+  // PERIL NORMALIZATION (Peril Parity)
+  // ========================================
+  const perilInput: PerilInferenceInput = {
+    causeOfLoss: claimData.causeOfLoss,
+    lossDescription: claimData.lossDescription,
+    damageLocation: claimData.damageLocation,
+    dwellingDamageDescription: claimData.dwellingDamageDescription,
+    otherStructureDamageDescription: claimData.otherStructureDamageDescription,
+    fullText: claimData.fullText,
+  };
 
-    const perilInference = inferPeril(perilInput);
+  const perilInference = inferPeril(perilInput);
 
-    console.log(`[Peril Normalization] Claim ${generatedClaimId}:`, {
-      primaryPeril: perilInference.primaryPeril,
-      secondaryPerils: perilInference.secondaryPerils,
-      confidence: perilInference.confidence,
-      reasoning: perilInference.inferenceReasoning
-    });
+  console.log(`[Peril Normalization] Claim ${generatedClaimId}:`, {
+    primaryPeril: perilInference.primaryPeril,
+    secondaryPerils: perilInference.secondaryPerils,
+    confidence: perilInference.confidence,
+    reasoning: perilInference.inferenceReasoning
+  });
 
-    // Derive property address from new expanded format or fall back to riskLocation
-    const propertyAddress = claimData.propertyAddress || claimData.propertyStreetAddress || claimData.riskLocation || null;
-    const propertyCity = claimData.propertyCity || null;
-    const propertyState = claimData.propertyState || state || null;
-    const propertyZip = claimData.propertyZipCode || null;
+  // Derive property address from new expanded format or fall back to riskLocation
+  const propertyAddress = claimData.propertyAddress || claimData.propertyStreetAddress || claimData.riskLocation || null;
+  const propertyCity = claimData.propertyCity || null;
+  const propertyState = claimData.propertyState || state || null;
+  const propertyZip = claimData.propertyZipCode || null;
 
-    // Create claim with correct database schema columns
-    const claimResult = await client.query(
-      `INSERT INTO claims (
-        organization_id, claim_number, insured_name,
-        date_of_loss, property_address, property_city, property_state, property_zip,
-        loss_type, loss_description,
-        policy_number, year_roof_install, wind_hail_deductible,
-        dwelling_limit, endorsements_listed,
-        primary_peril, secondary_perils, peril_confidence, peril_metadata,
-        status, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-      RETURNING id`,
-      [
-        organizationId,
-        generatedClaimId,
-        claimData.policyholder || null,
-        claimData.dateOfLoss || null,
-        propertyAddress,
-        propertyCity,
-        propertyState,
-        propertyZip,
-        claimData.causeOfLoss || null,
-        claimData.lossDescription || null,
-        policyNumber,
-        yearRoofInstall,
-        windHailDeductible,
-        dwellingLimit,
-        JSON.stringify(endorsementsListed),
-        perilInference.primaryPeril,
-        JSON.stringify(perilInference.secondaryPerils),
-        perilInference.confidence,
-        JSON.stringify(perilInference.perilMetadata),
-        'fnol',
-        JSON.stringify({
-          extractedFrom: documentIds,
-          riskLocation: claimData.riskLocation,
-          propertyAddress: claimData.propertyAddress,
-          propertyStreetAddress: claimData.propertyStreetAddress,
-          propertyCity: claimData.propertyCity,
-          propertyState: claimData.propertyState,
-          propertyZipCode: claimData.propertyZipCode,
-          policyholderSecondary: claimData.policyholderSecondary,
-          contactPhone: claimData.contactPhone,
-          contactEmail: claimData.contactEmail,
-          yearBuilt: claimData.yearBuilt,
-          carrier: claimData.carrier,
-          claimStatus: claimData.claimStatus,
-          droneEligibleAtFNOL: claimData.droneEligibleAtFNOL,
-          lineOfBusiness: claimData.lineOfBusiness,
-          policyInceptionDate: claimData.policyInceptionDate,
-          policyStatus: claimData.policyStatus,
-          policyDeductible: claimData.policyDeductible,
-          coverages: claimData.coverages,
-          scheduledStructures: claimData.scheduledStructures,
-          additionalCoverages: claimData.additionalCoverages,
-          endorsementDetails: claimData.endorsementDetails,
-          mortgagee: claimData.mortgagee,
-          thirdPartyInterest: claimData.thirdPartyInterest,
-          producer: claimData.producer,
-          producerPhone: claimData.producerPhone,
-          producerEmail: claimData.producerEmail,
-          reportedBy: claimData.reportedBy,
-          roofDamageReported: claimData.roofDamageReported,
-          numberOfStories: claimData.numberOfStories,
-          isWoodRoof: claimData.isWoodRoof,
-          dwellingDamageDescription: claimData.dwellingDamageDescription,
-          damageLocation: claimData.damageLocation,
-          insuredAddress: claimData.insuredAddress,
-          perilInferenceReasoning: perilInference.inferenceReasoning,
-        })
-      ]
-    );
+  // Create claim with Supabase
+  const { data: newClaim, error: claimError } = await supabaseAdmin
+    .from('claims')
+    .insert({
+      organization_id: organizationId,
+      claim_number: generatedClaimId,
+      insured_name: claimData.policyholder || null,
+      date_of_loss: claimData.dateOfLoss || null,
+      property_address: propertyAddress,
+      property_city: propertyCity,
+      property_state: propertyState,
+      property_zip: propertyZip,
+      loss_type: claimData.causeOfLoss || null,
+      loss_description: claimData.lossDescription || null,
+      policy_number: policyNumber,
+      year_roof_install: yearRoofInstall,
+      wind_hail_deductible: windHailDeductible,
+      dwelling_limit: dwellingLimit,
+      endorsements_listed: endorsementsListed,
+      primary_peril: perilInference.primaryPeril,
+      secondary_perils: perilInference.secondaryPerils,
+      peril_confidence: perilInference.confidence,
+      peril_metadata: perilInference.perilMetadata,
+      status: 'fnol',
+      metadata: {
+        extractedFrom: documentIds,
+        riskLocation: claimData.riskLocation,
+        propertyAddress: claimData.propertyAddress,
+        propertyStreetAddress: claimData.propertyStreetAddress,
+        propertyCity: claimData.propertyCity,
+        propertyState: claimData.propertyState,
+        propertyZipCode: claimData.propertyZipCode,
+        policyholderSecondary: claimData.policyholderSecondary,
+        contactPhone: claimData.contactPhone,
+        contactEmail: claimData.contactEmail,
+        yearBuilt: claimData.yearBuilt,
+        carrier: claimData.carrier,
+        claimStatus: claimData.claimStatus,
+        droneEligibleAtFNOL: claimData.droneEligibleAtFNOL,
+        lineOfBusiness: claimData.lineOfBusiness,
+        policyInceptionDate: claimData.policyInceptionDate,
+        policyStatus: claimData.policyStatus,
+        policyDeductible: claimData.policyDeductible,
+        coverages: claimData.coverages,
+        scheduledStructures: claimData.scheduledStructures,
+        additionalCoverages: claimData.additionalCoverages,
+        endorsementDetails: claimData.endorsementDetails,
+        mortgagee: claimData.mortgagee,
+        thirdPartyInterest: claimData.thirdPartyInterest,
+        producer: claimData.producer,
+        producerPhone: claimData.producerPhone,
+        producerEmail: claimData.producerEmail,
+        reportedBy: claimData.reportedBy,
+        roofDamageReported: claimData.roofDamageReported,
+        numberOfStories: claimData.numberOfStories,
+        isWoodRoof: claimData.isWoodRoof,
+        dwellingDamageDescription: claimData.dwellingDamageDescription,
+        damageLocation: claimData.damageLocation,
+        insuredAddress: claimData.insuredAddress,
+        perilInferenceReasoning: perilInference.inferenceReasoning,
+      }
+    })
+    .select('id')
+    .single();
 
-    const claimId = claimResult.rows[0].id;
+  if (claimError || !newClaim) {
+    throw new Error(`Failed to create claim: ${claimError?.message}`);
+  }
 
-    // Associate documents with claim
-    await client.query(
-      `UPDATE documents SET claim_id = $1, updated_at = NOW() WHERE id = ANY($2)`,
-      [claimId, documentIds]
-    );
+  const claimId = newClaim.id;
 
-    // Save endorsement details to endorsements table
-    if (claimData.endorsementDetails && claimData.endorsementDetails.length > 0) {
-      for (const endorsement of claimData.endorsementDetails) {
-        // Build key_changes object with keyAmendments if present
-        const keyChanges: Record<string, any> = {};
-        if (endorsement.keyAmendments) {
-          keyChanges.keyAmendments = endorsement.keyAmendments;
-        }
-        if (endorsement.additionalInfo) {
-          keyChanges.additionalInfo = endorsement.additionalInfo;
-        }
+  // Associate documents with claim
+  for (const docId of documentIds) {
+    await supabaseAdmin
+      .from('documents')
+      .update({ claim_id: claimId, updated_at: new Date().toISOString() })
+      .eq('id', docId);
+  }
 
-        // Check if endorsement already exists for this claim
-        const existingResult = await client.query(
-          `SELECT id FROM endorsements WHERE organization_id = $1 AND claim_id = $2 AND form_number = $3`,
-          [organizationId, claimId, endorsement.formNumber]
-        );
+  // Save endorsement details to endorsements table
+  if (claimData.endorsementDetails && claimData.endorsementDetails.length > 0) {
+    for (const endorsement of claimData.endorsementDetails) {
+      const keyChanges: Record<string, any> = {};
+      if (endorsement.keyAmendments) {
+        keyChanges.keyAmendments = endorsement.keyAmendments;
+      }
+      if (endorsement.additionalInfo) {
+        keyChanges.additionalInfo = endorsement.additionalInfo;
+      }
 
-        if (existingResult.rows.length > 0) {
-          // Update existing endorsement
-          await client.query(
-            `UPDATE endorsements SET
-               document_title = COALESCE($1, document_title),
-               description = COALESCE($2, description),
-               applies_to_state = COALESCE($3, applies_to_state),
-               key_changes = COALESCE($4, key_changes),
-               updated_at = NOW()
-             WHERE id = $5`,
-            [
-              endorsement.documentTitle || endorsement.name || null,
-              endorsement.description || null,
-              endorsement.appliesToState || null,
-              JSON.stringify(keyChanges),
-              existingResult.rows[0].id
-            ]
-          );
-        } else {
-          // Insert new endorsement
-          await client.query(
-            `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, applies_to_state, key_changes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              organizationId,
-              claimId,
-              endorsement.formNumber,
-              endorsement.documentTitle || endorsement.name || null,
-              endorsement.description || null,
-              endorsement.appliesToState || null,
-              JSON.stringify(keyChanges)
-            ]
-          );
-        }
+      // Check if endorsement already exists
+      const { data: existingEndorsements } = await supabaseAdmin
+        .from('endorsements')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('claim_id', claimId)
+        .eq('form_number', endorsement.formNumber);
+
+      if (existingEndorsements && existingEndorsements.length > 0) {
+        await supabaseAdmin
+          .from('endorsements')
+          .update({
+            document_title: endorsement.documentTitle || endorsement.name || null,
+            description: endorsement.description || null,
+            applies_to_state: endorsement.appliesToState || null,
+            key_changes: keyChanges,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingEndorsements[0].id);
+      } else {
+        await supabaseAdmin
+          .from('endorsements')
+          .insert({
+            organization_id: organizationId,
+            claim_id: claimId,
+            form_number: endorsement.formNumber,
+            document_title: endorsement.documentTitle || endorsement.name || null,
+            description: endorsement.description || null,
+            applies_to_state: endorsement.appliesToState || null,
+            key_changes: keyChanges
+          });
       }
     }
-
-    return claimId;
-
-  } finally {
-    client.release();
   }
+
+  return claimId;
 }
 
 /**
  * Generate a unique claim ID in format XX-XXX-XXXXXX
  */
-async function generateClaimId(client: any, organizationId: string): Promise<string> {
+async function generateClaimId(organizationId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const countResult = await client.query(
-    `SELECT COUNT(*) + 1 as next_num FROM claims
-     WHERE organization_id = $1
-     AND EXTRACT(YEAR FROM created_at) = $2`,
-    [organizationId, year]
-  );
-  const seq = String(countResult.rows[0].next_num).padStart(6, '0');
-  // Format: 01-XXX-XXXXXX where XXX is derived from year
+  const startOfYear = `${year}-01-01T00:00:00.000Z`;
+  
+  const { count } = await supabaseAdmin
+    .from('claims')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .gte('created_at', startOfYear);
+
+  const seq = String((count || 0) + 1).padStart(6, '0');
   return `01-${String(year).slice(-3)}-${seq}`;
 }
