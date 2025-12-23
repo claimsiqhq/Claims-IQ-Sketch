@@ -5,6 +5,7 @@ import MemoryStore from 'memorystore';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { validateUser, findUserById, type AuthUser } from '../services/auth';
 import { verifyToken } from '../services/supabaseAuth';
+import { SupabaseSessionStore } from '../lib/supabaseSessionStore';
 
 declare global {
   namespace Express {
@@ -65,10 +66,15 @@ export function setupAuth(app: Express): void {
     app.set('trust proxy', 1);
   }
 
+  // Use Supabase session store for production, MemoryStore for development
+  const sessionStore = isProduction 
+    ? new SupabaseSessionStore()
+    : new MemoryStoreSession({ checkPeriod: 86400000 });
+
+  console.log(`[auth] Using ${isProduction ? 'Supabase' : 'Memory'} session store`);
+
   app.use(session({
-    store: new MemoryStoreSession({
-      checkPeriod: 86400000, // prune expired entries every 24h
-    }),
+    store: sessionStore,
     secret: sessionSecret || 'dev-only-insecure-key-do-not-use-in-production',
     resave: false,
     saveUninitialized: false,
