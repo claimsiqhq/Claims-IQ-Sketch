@@ -80,13 +80,6 @@ export async function getWeatherForLocations(locations: WeatherLocation[]): Prom
 async function fetchNWSWeatherData(location: WeatherLocation): Promise<WeatherData> {
   const { lat, lng, stopId = 'unknown' } = location;
 
-  // Validate coordinates are within reasonable bounds for US coverage
-  // NWS only covers US territories (roughly lat: 18-72, lng: -180 to -65)
-  if (lat < 18 || lat > 72 || lng < -180 || lng > -65) {
-    // Coordinates are outside US - return fallback without logging an error
-    return createFallbackWeather(location, 'Location outside US weather coverage');
-  }
-
   // Round coordinates to 4 decimal places for NWS API
   const roundedLat = Math.round(lat * 10000) / 10000;
   const roundedLng = Math.round(lng * 10000) / 10000;
