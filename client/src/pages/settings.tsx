@@ -36,7 +36,11 @@ import {
   Percent,
   Save,
   User,
-  Lock
+  Lock,
+  Trash2,
+  AlertTriangle,
+  Image,
+  FolderOpen
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store";
@@ -87,10 +91,10 @@ interface SystemStatus {
     error?: string;
   };
   counts?: {
-    materials: number;
-    lineItems: number;
-    regions: number;
-    prices: number;
+    claims: number;
+    estimates: number;
+    documents: number;
+    photos: number;
   };
   regions?: { id: string; name: string }[];
   environment: string;
@@ -177,6 +181,8 @@ export default function Settings() {
   const [approvalThreshold, setApprovalThreshold] = useState(10000);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+  const [isPurgingClaims, setIsPurgingClaims] = useState(false);
+  const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
 
   useEffect(() => {
     setProfileData(prev => ({
@@ -428,6 +434,34 @@ export default function Settings() {
       description: "Password change functionality will be available in a future update.",
     });
     setProfileData(prev => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
+  };
+
+  const handlePurgeAllClaims = async () => {
+    setIsPurgingClaims(true);
+    try {
+      const response = await fetch('/api/claims/purge-all', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to purge claims');
+      }
+      const result = await response.json();
+      toast({
+        title: "Claims Purged",
+        description: result.message || `Deleted ${result.claimsDeleted} claims and ${result.relatedRecordsDeleted} related records`,
+      });
+      setShowPurgeConfirm(false);
+    } catch (error) {
+      toast({
+        title: "Purge Failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPurgingClaims(false);
+    }
   };
 
   const handleTabChange = (value: string) => {
@@ -1038,56 +1072,28 @@ export default function Settings() {
                     {systemStatus.counts && (
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
-                          <Package className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <div className="text-2xl font-bold">{systemStatus.counts.materials}</div>
-                          <div className="text-xs text-muted-foreground">Materials</div>
+                          <FolderOpen className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                          <div className="text-2xl font-bold">{systemStatus.counts.claims}</div>
+                          <div className="text-xs text-muted-foreground">Claims</div>
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
                           <FileText className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <div className="text-2xl font-bold">{systemStatus.counts.lineItems}</div>
-                          <div className="text-xs text-muted-foreground">Line Items</div>
+                          <div className="text-2xl font-bold">{systemStatus.counts.estimates}</div>
+                          <div className="text-xs text-muted-foreground">Estimates</div>
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
-                          <MapPin className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <div className="text-2xl font-bold">{systemStatus.counts.regions}</div>
-                          <div className="text-xs text-muted-foreground">Regions</div>
+                          <Package className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                          <div className="text-2xl font-bold">{systemStatus.counts.documents}</div>
+                          <div className="text-xs text-muted-foreground">Documents</div>
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
-                          <DollarSign className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <div className="text-2xl font-bold">{systemStatus.counts.prices}</div>
-                          <div className="text-xs text-muted-foreground">Price Records</div>
+                          <Image className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                          <div className="text-2xl font-bold">{systemStatus.counts.photos}</div>
+                          <div className="text-xs text-muted-foreground">Photos</div>
                         </div>
                       </div>
                     )}
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="h-5 w-5" />
-                  Configured Regions
-                </CardTitle>
-                <CardDescription>
-                  Geographic regions available for pricing calculations.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {systemStatus?.regions && systemStatus.regions.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {systemStatus.regions.map((region) => (
-                      <Badge key={region.id} variant="outline" className="py-1.5">
-                        <MapPin className="h-3 w-3 mr-1" />
-                        {region.name || region.id}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No regions configured. Click "Refresh Status" to load region data.
-                  </p>
                 )}
               </CardContent>
             </Card>
@@ -1199,6 +1205,70 @@ export default function Settings() {
                       <div>Job ID: <code className="text-xs">{lastScrapeResult.jobId}</code></div>
                       <div>Items Processed: {lastScrapeResult.itemsProcessed}</div>
                       <div>Items Updated: {lastScrapeResult.itemsUpdated}</div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-destructive/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <Trash2 className="h-5 w-5" />
+                  Danger Zone
+                </CardTitle>
+                <CardDescription>
+                  Permanently delete all claims and related data. This action cannot be undone.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!showPurgeConfirm ? (
+                  <Button
+                    variant="destructive"
+                    onClick={() => setShowPurgeConfirm(true)}
+                    data-testid="button-purge-claims"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Purge All Claims
+                  </Button>
+                ) : (
+                  <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg space-y-4">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-destructive">Are you absolutely sure?</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          This will permanently delete ALL claims, documents, photos, estimates, briefings,
+                          and all related data from your organization. This action cannot be undone.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button
+                        variant="destructive"
+                        onClick={handlePurgeAllClaims}
+                        disabled={isPurgingClaims}
+                        data-testid="button-confirm-purge"
+                      >
+                        {isPurgingClaims ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Purging...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Yes, Delete Everything
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowPurgeConfirm(false)}
+                        disabled={isPurgingClaims}
+                      >
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 )}
