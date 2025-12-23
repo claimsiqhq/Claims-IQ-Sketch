@@ -1,19 +1,17 @@
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import session from 'express-session';
-import connectPgSimple from 'connect-pg-simple';
+import MemoryStore from 'memorystore';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { validateUser, findUserById, type AuthUser } from '../services/auth';
 import { verifyToken } from '../services/supabaseAuth';
 
-// Extend Express types for passport and Supabase auth
 declare global {
   namespace Express {
     interface User extends AuthUser {}
   }
 }
 
-// Configure Passport Local Strategy (for legacy auth)
 passport.use(
   new LocalStrategy(async (username, password, done) => {
     try {
@@ -28,12 +26,10 @@ passport.use(
   })
 );
 
-// Serialize user to session
 passport.serializeUser((user: Express.User, done) => {
   done(null, user.id);
 });
 
-// Deserialize user from session
 passport.deserializeUser(async (id: string, done) => {
   try {
     const user = await findUserById(id);
@@ -54,60 +50,50 @@ passport.deserializeUser(async (id: string, done) => {
   }
 });
 
-// Setup auth middleware on Express app
 export function setupAuth(app: Express): void {
-  const PgSession = connectPgSimple(session);
+  const MemoryStoreSession = MemoryStore(session);
 
-  // Determine if we're in production (HTTPS) or Replit environment
   const isProduction = process.env.NODE_ENV === 'production';
   const isReplit = !!process.env.REPL_ID || !!process.env.REPLIT_DEV_DOMAIN;
 
-  // Require SESSION_SECRET in production for security
   const sessionSecret = process.env.SESSION_SECRET;
   if (isProduction && !sessionSecret) {
     throw new Error('SESSION_SECRET environment variable is required in production');
   }
 
-  // Trust proxy for Replit's reverse proxy setup
   if (isReplit) {
     app.set('trust proxy', 1);
   }
 
   app.use(session({
-    store: new PgSession({
-      conString: process.env.DATABASE_URL,
-      tableName: 'session',
-      createTableIfMissing: true,
+    store: new MemoryStoreSession({
+      checkPeriod: 86400000, // prune expired entries every 24h
     }),
     secret: sessionSecret || 'dev-only-insecure-key-do-not-use-in-production',
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: isProduction || isReplit, // Replit uses HTTPS even in dev
+      secure: isProduction || isReplit,
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // Default 24 hours, can be extended for "remember me"
-      sameSite: (isProduction || isReplit) ? 'none' : 'lax', // 'none' for cross-origin iframe in Replit
+      maxAge: 24 * 60 * 60 * 1000,
+      sameSite: (isProduction || isReplit) ? 'none' : 'lax',
     },
   }));
 
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Add Supabase Auth middleware - checks for Authorization header with Bearer token
   app.use(async (req: Request, res: Response, next: NextFunction) => {
-    // Skip if already authenticated via session
     if (req.isAuthenticated()) {
       return next();
     }
 
-    // Check for Supabase JWT token in Authorization header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       try {
         const user = await verifyToken(token);
         if (user) {
-          // Set user on request object for Supabase auth
           (req as any).user = user;
           (req as any).isSupabaseAuth = true;
         }
@@ -120,14 +106,11 @@ export function setupAuth(app: Express): void {
   });
 }
 
-// Middleware to require authentication (supports both session and Supabase auth)
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  // Check session-based auth
   if (req.isAuthenticated()) {
     return next();
   }
 
-  // Check Supabase auth (set by middleware above)
   if ((req as any).user && (req as any).isSupabaseAuth) {
     return next();
   }
@@ -135,5 +118,4 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   res.status(401).json({ error: 'Authentication required' });
 }
 
-// Export passport for route handlers
 export { passport };

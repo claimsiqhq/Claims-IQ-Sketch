@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import type { User } from '../../shared/schema';
 
 const SALT_ROUNDS = 10;
@@ -23,77 +23,83 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export async function findUserByUsername(username: string): Promise<User | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('*')
+    .eq('username', username)
+    .single();
+
+  if (error || !data) {
+    return null;
   }
+  return data as User;
 }
 
 export async function findUserById(id: string): Promise<User | null> {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      'SELECT * FROM users WHERE id = $1',
-      [id]
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) {
+    return null;
   }
+  return data as User;
 }
 
 export async function updateUserProfile(
   userId: string,
   updates: { firstName?: string; lastName?: string; email?: string }
 ): Promise<AuthUser | null> {
-  const client = await pool.connect();
-  try {
-    // Build dynamic SET clauses - only update fields that are explicitly provided
-    const setClauses: string[] = [];
-    const params: (string | null)[] = [userId];
-    let paramIndex = 2;
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
 
-    if (updates.firstName !== undefined) {
-      setClauses.push(`first_name = $${paramIndex++}`);
-      params.push(updates.firstName || null);
-    }
-    if (updates.lastName !== undefined) {
-      setClauses.push(`last_name = $${paramIndex++}`);
-      params.push(updates.lastName || null);
-    }
-    if (updates.email !== undefined) {
-      setClauses.push(`email = $${paramIndex++}`);
-      params.push(updates.email || null);
-    }
-
-    if (setClauses.length === 0) {
-      // Nothing to update, just return current user
-      const result = await client.query(
-        `SELECT id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId" FROM users WHERE id = $1`,
-        [userId]
-      );
-      return result.rows[0] || null;
-    }
-
-    setClauses.push('updated_at = NOW()');
-
-    const result = await client.query(
-      `UPDATE users
-       SET ${setClauses.join(', ')}
-       WHERE id = $1
-       RETURNING id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId"`,
-      params
-    );
-    return result.rows[0] || null;
-  } finally {
-    client.release();
+  if (updates.firstName !== undefined) {
+    updateData.first_name = updates.firstName || null;
   }
+  if (updates.lastName !== undefined) {
+    updateData.last_name = updates.lastName || null;
+  }
+  if (updates.email !== undefined) {
+    updateData.email = updates.email || null;
+  }
+
+  if (Object.keys(updateData).length === 1) {
+    const user = await findUserById(userId);
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      email: (user as any).email || undefined,
+      firstName: (user as any).first_name || undefined,
+      lastName: (user as any).last_name || undefined,
+      role: (user as any).role || 'user',
+      currentOrganizationId: (user as any).current_organization_id || undefined,
+    };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .update(updateData)
+    .eq('id', userId)
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return {
+    id: data.id,
+    username: data.username,
+    email: data.email || undefined,
+    firstName: data.first_name || undefined,
+    lastName: data.last_name || undefined,
+    role: data.role || 'user',
+    currentOrganizationId: data.current_organization_id || undefined,
+  };
 }
 
 export async function changeUserPassword(
@@ -101,32 +107,32 @@ export async function changeUserPassword(
   currentPassword: string,
   newPassword: string
 ): Promise<{ success: boolean; error?: string }> {
-  const client = await pool.connect();
-  try {
-    const userResult = await client.query(
-      'SELECT password FROM users WHERE id = $1',
-      [userId]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return { success: false, error: 'User not found' };
-    }
-    
-    const isValid = await verifyPassword(currentPassword, userResult.rows[0].password);
-    if (!isValid) {
-      return { success: false, error: 'Current password is incorrect' };
-    }
-    
-    const hashedPassword = await hashPassword(newPassword);
-    await client.query(
-      'UPDATE users SET password = $2, updated_at = NOW() WHERE id = $1',
-      [userId, hashedPassword]
-    );
-    
-    return { success: true };
-  } finally {
-    client.release();
+  const { data: userData, error: userError } = await supabaseAdmin
+    .from('users')
+    .select('password')
+    .eq('id', userId)
+    .single();
+
+  if (userError || !userData) {
+    return { success: false, error: 'User not found' };
   }
+
+  const isValid = await verifyPassword(currentPassword, userData.password);
+  if (!isValid) {
+    return { success: false, error: 'Current password is incorrect' };
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+  const { error: updateError } = await supabaseAdmin
+    .from('users')
+    .update({ password: hashedPassword, updated_at: new Date().toISOString() })
+    .eq('id', userId);
+
+  if (updateError) {
+    return { success: false, error: 'Failed to update password' };
+  }
+
+  return { success: true };
 }
 
 export async function createUser(
@@ -140,25 +146,33 @@ export async function createUser(
   }
 ): Promise<AuthUser> {
   const hashedPassword = await hashPassword(password);
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `INSERT INTO users (username, password, email, first_name, last_name, role)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, username, email, first_name as "firstName", last_name as "lastName", role, current_organization_id as "currentOrganizationId"`,
-      [
-        username,
-        hashedPassword,
-        options?.email || null,
-        options?.firstName || null,
-        options?.lastName || null,
-        options?.role || 'user'
-      ]
-    );
-    return result.rows[0];
-  } finally {
-    client.release();
+
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .insert({
+      username,
+      password: hashedPassword,
+      email: options?.email || null,
+      first_name: options?.firstName || null,
+      last_name: options?.lastName || null,
+      role: options?.role || 'user',
+    })
+    .select('id, username, email, first_name, last_name, role, current_organization_id')
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create user: ${error?.message}`);
   }
+
+  return {
+    id: data.id,
+    username: data.username,
+    email: data.email || undefined,
+    firstName: data.first_name || undefined,
+    lastName: data.last_name || undefined,
+    role: data.role || 'user',
+    currentOrganizationId: data.current_organization_id || undefined,
+  };
 }
 
 export async function validateUser(username: string, password: string): Promise<AuthUser | null> {
@@ -167,7 +181,7 @@ export async function validateUser(username: string, password: string): Promise<
     return null;
   }
 
-  const isValid = await verifyPassword(password, user.password);
+  const isValid = await verifyPassword(password, (user as any).password);
   if (!isValid) {
     return null;
   }
@@ -184,73 +198,91 @@ export async function validateUser(username: string, password: string): Promise<
 }
 
 export async function seedAdminUser(): Promise<void> {
-  const client = await pool.connect();
   try {
     let adminUser = await findUserByUsername('admin');
 
     if (adminUser) {
-      // Ensure admin has super_admin role
-      await client.query(
-        "UPDATE users SET role = 'super_admin' WHERE username = 'admin' AND (role IS NULL OR role = 'user')"
-      );
-      console.log('Admin user already exists');
+      await supabaseAdmin
+        .from('users')
+        .update({ role: 'super_admin' })
+        .eq('username', 'admin')
+        .or('role.is.null,role.eq.user');
+      console.log('[auth] Admin user already exists');
     } else {
-      // Create admin user
       const hashedPassword = await hashPassword('admin123');
-      const userResult = await client.query(
-        `INSERT INTO users (username, password, role)
-         VALUES ($1, $2, $3)
-         RETURNING id, username, role`,
-        ['admin', hashedPassword, 'super_admin']
-      );
-      adminUser = userResult.rows[0];
-      console.log('Admin user created successfully');
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .insert({
+          username: 'admin',
+          password: hashedPassword,
+          role: 'super_admin',
+        })
+        .select('id, username, role')
+        .single();
+
+      if (error) {
+        console.log('[auth] Admin user may already exist:', error.message);
+        return;
+      }
+      adminUser = data as any;
+      console.log('[auth] Admin user created successfully');
     }
 
-    // Ensure default organization exists and admin is a member
-    const orgResult = await client.query(
-      `SELECT id FROM organizations WHERE slug = 'default'`
-    );
+    const { data: orgData } = await supabaseAdmin
+      .from('organizations')
+      .select('id')
+      .eq('slug', 'default')
+      .single();
 
     let orgId: string;
-    if (orgResult.rows.length === 0) {
-      // Create default organization
-      const createOrgResult = await client.query(
-        `INSERT INTO organizations (name, slug, type, status)
-         VALUES ('Default Organization', 'default', 'carrier', 'active')
-         RETURNING id`
-      );
-      orgId = createOrgResult.rows[0].id;
-      console.log('Default organization created');
+    if (!orgData) {
+      const { data: newOrg, error: orgError } = await supabaseAdmin
+        .from('organizations')
+        .insert({
+          name: 'Default Organization',
+          slug: 'default',
+          type: 'carrier',
+          status: 'active',
+        })
+        .select('id')
+        .single();
+
+      if (orgError || !newOrg) {
+        console.log('[auth] Could not create default organization');
+        return;
+      }
+      orgId = newOrg.id;
+      console.log('[auth] Default organization created');
     } else {
-      orgId = orgResult.rows[0].id;
+      orgId = orgData.id;
     }
 
-    // Check if admin is already a member
     const adminId = adminUser!.id;
-    const membershipResult = await client.query(
-      `SELECT id FROM organization_memberships
-       WHERE user_id = $1 AND organization_id = $2`,
-      [adminId, orgId]
-    );
+    const { data: membershipData } = await supabaseAdmin
+      .from('organization_memberships')
+      .select('id')
+      .eq('user_id', adminId)
+      .eq('organization_id', orgId)
+      .single();
 
-    if (membershipResult.rows.length === 0) {
-      // Add admin as owner of default organization
-      await client.query(
-        `INSERT INTO organization_memberships (user_id, organization_id, role, status)
-         VALUES ($1, $2, 'owner', 'active')`,
-        [adminId, orgId]
-      );
-      console.log('Admin added to default organization');
+    if (!membershipData) {
+      await supabaseAdmin
+        .from('organization_memberships')
+        .insert({
+          user_id: adminId,
+          organization_id: orgId,
+          role: 'owner',
+          status: 'active',
+        });
+      console.log('[auth] Admin added to default organization');
     }
 
-    // Set admin's current organization if not set
-    await client.query(
-      `UPDATE users SET current_organization_id = $1
-       WHERE id = $2 AND current_organization_id IS NULL`,
-      [orgId, adminId]
-    );
-  } finally {
-    client.release();
+    await supabaseAdmin
+      .from('users')
+      .update({ current_organization_id: orgId })
+      .eq('id', adminId)
+      .is('current_organization_id', null);
+  } catch (error) {
+    console.error('[auth] Error seeding admin user:', error);
   }
 }

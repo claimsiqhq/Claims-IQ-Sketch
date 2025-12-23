@@ -14,6 +14,8 @@ if (!databaseUrl) {
 
 export const pool = new Pool({
   connectionString: databaseUrl,
+  // Supabase pooler requires SSL
+  ssl: { rejectUnauthorized: false },
   // Supabase pooler recommended settings
   max: 20,
   idleTimeoutMillis: 30000,
