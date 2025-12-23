@@ -2944,21 +2944,8 @@ export async function registerRoutes(
     }
   });
 
-  // Delete claim
-  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
-    try {
-      const success = await deleteClaim(req.params.id, req.organizationId!);
-      if (!success) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
-
   // Purge ALL claims - permanently delete all claims and related data
+  // NOTE: Must be defined BEFORE /api/claims/:id to avoid :id matching "purge-all"
   app.delete('/api/claims/purge-all', requireAuth, requireOrganization, requireOrgRole('owner'), async (req, res) => {
     try {
       const result = await purgeAllClaims(req.organizationId!);
@@ -2970,6 +2957,20 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Purge all claims failed:', error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Delete claim
+  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
+    try {
+      const success = await deleteClaim(req.params.id, req.organizationId!);
+      if (!success) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
     }
   });
