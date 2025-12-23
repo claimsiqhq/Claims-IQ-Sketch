@@ -557,6 +557,20 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'User not found' });
       }
 
+      // Update the session with the new user data so subsequent auth checks reflect the changes
+      if (req.user) {
+        req.user.firstName = updatedUser.firstName;
+        req.user.lastName = updatedUser.lastName;
+        if (updatedUser.email) req.user.email = updatedUser.email;
+      }
+
+      // Re-login to persist the updated user in the session
+      req.login(updatedUser, (err) => {
+        if (err) {
+          console.error('Session update error:', err);
+        }
+      });
+
       // Return user with combined name for client compatibility
       const userWithName = {
         ...updatedUser,
