@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Link, useSearch } from 'wouter';
-import { Camera, Filter, Building2, Home, Mic, ArrowRight, Loader2, RefreshCw, FolderOpen, Plus } from 'lucide-react';
+import { Camera, Filter, Building2, Home, Mic, ArrowRight, Loader2, RefreshCw, FolderOpen, Plus, X, SwitchCamera } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '@/components/layout';
 import { PhotoAlbum } from '@/features/voice-sketch/components/PhotoAlbum';
@@ -12,10 +12,167 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getClaims, getClaimPhotos, getAllPhotos, deletePhoto, updatePhoto, uploadPhoto, reanalyzePhoto, type ClaimPhoto } from '@/lib/api';
 import type { SketchPhoto } from '@/features/voice-sketch/types/geometry';
 import { toast } from 'sonner';
+
+interface CameraModalProps {
+  open: boolean;
+  onClose: () => void;
+  onCapture: (file: File) => void;
+}
+
+function CameraModal({ open, onClose, onCapture }: CameraModalProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const startCamera = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+      
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsLoading(false);
+    } catch (err) {
+      console.error('Camera access error:', err);
+      setError('Could not access camera. Please check permissions.');
+      setIsLoading(false);
+    }
+  }, [facingMode]);
+
+  useEffect(() => {
+    if (open) {
+      startCamera();
+    }
+    
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [open, startCamera]);
+
+  const handleCapture = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.drawImage(video, 0, 0);
+    
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        onCapture(file);
+        onClose();
+      }
+    }, 'image/jpeg', 0.9);
+  };
+
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="max-w-2xl p-0 overflow-hidden">
+        <DialogHeader className="p-4 pb-2">
+          <DialogTitle>Take Photo</DialogTitle>
+        </DialogHeader>
+        
+        <div className="relative bg-black aspect-video">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
+              <Loader2 className="h-8 w-8 animate-spin text-white" />
+            </div>
+          )}
+          
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
+              <p className="text-white text-center px-4">{error}</p>
+            </div>
+          )}
+          
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover"
+            onLoadedMetadata={() => setIsLoading(false)}
+          />
+          
+          <canvas ref={canvasRef} className="hidden" />
+        </div>
+        
+        <div className="p-4 flex items-center justify-center gap-4">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleCamera}
+            disabled={isLoading || !!error}
+            data-testid="button-switch-camera"
+          >
+            <SwitchCamera className="h-5 w-5" />
+          </Button>
+          
+          <Button
+            size="lg"
+            className="rounded-full w-16 h-16"
+            onClick={handleCapture}
+            disabled={isLoading || !!error}
+            data-testid="button-capture-shutter"
+          >
+            <Camera className="h-6 w-6" />
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={onClose}
+            data-testid="button-close-camera"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 type FilterMode = 'all' | 'by-structure' | 'damage-only' | 'uncategorized';
 
@@ -58,6 +215,7 @@ export default function PhotosPage() {
   const [selectedClaimId, setSelectedClaimId] = useState(initialClaimId);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [isUploading, setIsUploading] = useState(false);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
@@ -277,6 +435,20 @@ export default function PhotosPage() {
     }
   };
 
+  const handleCameraCapture = async (file: File) => {
+    setIsUploading(true);
+    const loadingToast = toast.loading('Uploading photo...');
+
+    try {
+      await uploadMutation.mutateAsync(file);
+      toast.dismiss(loadingToast);
+    } catch (error) {
+      toast.dismiss(loadingToast);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleRefresh = () => {
     if (selectedClaimId === 'all') {
       refetchAllPhotos();
@@ -344,22 +516,21 @@ export default function PhotosPage() {
               <RefreshCw className={`h-4 w-4 ${photosLoading ? 'animate-spin' : ''}`} />
             </Button>
 
-            {/* Hidden file input for photo capture */}
+            {/* Hidden file input for file uploads */}
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              capture="environment"
               onChange={handlePhotoCapture}
               className="hidden"
               aria-hidden="true"
             />
 
-            {/* Camera button for direct photo capture */}
+            {/* Camera button - opens live camera modal */}
             <Button
               variant="default"
               size="sm"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setCameraModalOpen(true)}
               disabled={isUploading}
               data-testid="button-capture-photo"
             >
@@ -368,7 +539,19 @@ export default function PhotosPage() {
               ) : (
                 <Camera className="h-4 w-4 mr-2" />
               )}
-              {selectedClaimId === 'all' ? 'Take Photo' : 'Add Photo'}
+              Take Photo
+            </Button>
+
+            {/* Upload button for selecting from files */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              data-testid="button-upload-photo"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Upload
             </Button>
 
             <Link href="/voice-sketch">
@@ -532,6 +715,13 @@ export default function PhotosPage() {
           </>
         )}
       </div>
+
+      {/* Camera Modal for live camera capture */}
+      <CameraModal
+        open={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        onCapture={handleCameraCapture}
+      />
     </Layout>
   );
 }
