@@ -835,17 +835,20 @@ export async function registerRoutes(
         };
 
         // Get table counts (handle missing tables gracefully)
-        const [claimsCount, estimatesCount, documentsCount, photosCount] = await Promise.all([
+        const [claimsCount, estimatesCount, lineItemsCount, priceListsCount, regionsCount] = await Promise.all([
           safeCount('claims'),
           safeCount('estimates'),
-          safeCount('documents'),
-          safeCount('claim_photos'),
+          safeCount('xact_line_items'),
+          safeCount('price_lists'),
+          safeCount('regional_multipliers'),
         ]);
 
-        // Try to get regions list (may not exist)
+        // Try to get regions list from regional_multipliers
         let regions: { id: string; name: string }[] = [];
         try {
-          const regionsResult = await client.query(`SELECT id, name FROM regions ORDER BY id`);
+          const regionsResult = await client.query(
+            `SELECT region_code as id, region_name as name FROM regional_multipliers WHERE is_active = true ORDER BY region_code`
+          );
           regions = regionsResult.rows;
         } catch {
           // Table doesn't exist, that's ok
@@ -860,8 +863,9 @@ export async function registerRoutes(
           counts: {
             claims: claimsCount,
             estimates: estimatesCount,
-            documents: documentsCount,
-            photos: photosCount
+            lineItems: lineItemsCount,
+            priceLists: priceListsCount,
+            regions: regionsCount
           },
           regions,
           environment: process.env.NODE_ENV || 'development',

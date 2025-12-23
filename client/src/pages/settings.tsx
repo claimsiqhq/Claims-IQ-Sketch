@@ -93,8 +93,9 @@ interface SystemStatus {
   counts?: {
     claims: number;
     estimates: number;
-    documents: number;
-    photos: number;
+    lineItems: number;
+    priceLists: number;
+    regions: number;
   };
   regions?: { id: string; name: string }[];
   environment: string;
@@ -1070,7 +1071,7 @@ export default function Settings() {
                     </div>
 
                     {systemStatus.counts && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
                           <FolderOpen className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
                           <div className="text-2xl font-bold">{systemStatus.counts.claims}</div>
@@ -1083,17 +1084,50 @@ export default function Settings() {
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
                           <Package className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <div className="text-2xl font-bold">{systemStatus.counts.documents}</div>
-                          <div className="text-xs text-muted-foreground">Documents</div>
+                          <div className="text-2xl font-bold">{systemStatus.counts.lineItems}</div>
+                          <div className="text-xs text-muted-foreground">Line Items</div>
                         </div>
                         <div className="p-3 bg-muted/50 rounded-lg text-center">
-                          <Image className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                          <div className="text-2xl font-bold">{systemStatus.counts.photos}</div>
-                          <div className="text-xs text-muted-foreground">Photos</div>
+                          <DollarSign className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                          <div className="text-2xl font-bold">{systemStatus.counts.priceLists}</div>
+                          <div className="text-xs text-muted-foreground">Price Lists</div>
+                        </div>
+                        <div className="p-3 bg-muted/50 rounded-lg text-center">
+                          <MapPin className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                          <div className="text-2xl font-bold">{systemStatus.counts.regions}</div>
+                          <div className="text-xs text-muted-foreground">Regions</div>
                         </div>
                       </div>
                     )}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5" />
+                  Configured Regions
+                </CardTitle>
+                <CardDescription>
+                  Geographic regions available for pricing calculations.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {systemStatus?.regions && systemStatus.regions.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {systemStatus.regions.map((region) => (
+                      <Badge key={region.id} variant="outline" className="py-1.5">
+                        <MapPin className="h-3 w-3 mr-1" />
+                        {region.name || region.id}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No regions configured. Click "Refresh Status" to load region data.
+                  </p>
                 )}
               </CardContent>
             </Card>
