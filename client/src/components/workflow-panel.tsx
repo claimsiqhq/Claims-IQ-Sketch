@@ -436,14 +436,14 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           </Card>
 
           {/* Action buttons */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setShowAddRoomDialog(true)}>
               <Home className="h-4 w-4 mr-1" />
-              Add Room
+              <span className="hidden xs:inline">Add</span> Room
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowAddStepDialog(true)}>
               <Plus className="h-4 w-4 mr-1" />
-              Add Step
+              <span className="hidden xs:inline">Add</span> Step
             </Button>
           </div>
 
@@ -475,7 +475,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
           {/* Steps for active phase */}
           {activePhase && (
-            <ScrollArea className="h-[calc(100vh-450px)]">
+            <ScrollArea className="h-[calc(100vh-480px)] min-h-[200px] md:h-[calc(100vh-450px)]">
               <div className="space-y-3 pr-4">
                 {(stepsByPhase[activePhase] || []).map((step) => {
                   const statusConfig = STATUS_CONFIG[step.status as InspectionStepStatus];

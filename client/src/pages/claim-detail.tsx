@@ -20,6 +20,7 @@ import {
   Home,
   PenTool,
   ClipboardList,
+  ClipboardCheck,
   FileText,
   Image as ImageIcon,
   Save,
@@ -872,7 +873,7 @@ export default function ClaimDetail() {
   const tabs = [
     { id: "info", label: "Info", icon: Home },
     { id: "briefing", label: "Briefing", icon: Sparkles },
-    { id: "workflow", label: "Workflow", icon: ClipboardList },
+    { id: "workflow", label: "Workflow", icon: ClipboardCheck },
     { id: "documents", label: "Documents", icon: File },
     { id: "sketch", label: "Sketch", icon: PenTool },
     { id: "scope", label: "Scope", icon: ClipboardList },
