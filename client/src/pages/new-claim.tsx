@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout";
 import { Button } from "@/components/ui/button";
@@ -1303,6 +1303,11 @@ export default function NewClaim() {
     }
   };
 
+  // Refs for file inputs
+  const fnolInputRef = useRef<HTMLInputElement>(null);
+  const policyInputRef = useRef<HTMLInputElement>(null);
+  const endorsementInputRef = useRef<HTMLInputElement>(null);
+
   // File drop zone component
   const FileDropZone = ({
     title,
@@ -1313,6 +1318,7 @@ export default function NewClaim() {
     uploadedDoc,
     onRemove,
     multiple = false,
+    inputRef,
   }: {
     title: string;
     description: string;
@@ -1322,25 +1328,32 @@ export default function NewClaim() {
     uploadedDoc?: UploadedDocument | null;
     onRemove?: () => void;
     multiple?: boolean;
+    inputRef?: React.RefObject<HTMLInputElement>;
   }) => {
     const hasFile = uploadedDoc && uploadedDoc.status !== 'error';
     const isUploading = uploadedDoc?.status === 'uploading' || uploadedDoc?.status === 'processing';
 
+    const handleClick = () => {
+      if (!hasFile && !isUploading && inputRef?.current) {
+        inputRef.current.click();
+      }
+    };
+
     return (
       <div
-        className={`relative border-2 border-dashed rounded-lg p-8 transition-colors ${
+        onClick={handleClick}
+        className={`relative border-2 border-dashed rounded-lg p-8 transition-colors cursor-pointer ${
           hasFile ? 'border-green-300 bg-green-50' : 'border-slate-200 hover:border-primary/50 bg-slate-50'
         }`}
       >
-        {!hasFile && !isUploading && (
-          <input
-            type="file"
-            accept={accept}
-            multiple={multiple}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            onChange={onFileSelect}
-          />
-        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          multiple={multiple}
+          className="hidden"
+          onChange={onFileSelect}
+        />
 
         <div className="flex flex-col items-center text-center">
           <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
@@ -1359,7 +1372,7 @@ export default function NewClaim() {
           <p className="text-sm text-slate-500 mb-4">{description}</p>
 
           {uploadedDoc ? (
-            <div className="w-full max-w-md">
+            <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-3 bg-white rounded-lg p-3 shadow-sm">
                 <FileCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
                 <span className="flex-1 truncate text-sm font-medium">{uploadedDoc.file.name}</span>
@@ -1377,7 +1390,7 @@ export default function NewClaim() {
                 )}
                 {onRemove && uploadedDoc.status !== 'uploading' && uploadedDoc.status !== 'processing' && (
                   <button
-                    onClick={onRemove}
+                    onClick={(e) => { e.stopPropagation(); onRemove(); }}
                     className="text-slate-400 hover:text-red-500 p-1"
                   >
                     <X className="w-4 h-4" />
@@ -1390,7 +1403,7 @@ export default function NewClaim() {
             </div>
           ) : (
             <p className="text-xs text-slate-400">
-              Drop file here or click to browse
+              Click to browse or drop file here
             </p>
           )}
         </div>
@@ -1854,6 +1867,7 @@ export default function NewClaim() {
                 onFileSelect={handleFnolSelect}
                 uploadedDoc={fnolDoc}
                 onRemove={() => setFnolDoc(null)}
+                inputRef={fnolInputRef}
               />
 
               {fnolDoc?.status === 'completed' && (
@@ -1901,6 +1915,7 @@ export default function NewClaim() {
                 onFileSelect={handlePolicySelect}
                 uploadedDoc={policyDoc}
                 onRemove={() => setPolicyDoc(null)}
+                inputRef={policyInputRef}
               />
 
               {policyDoc?.status === 'completed' && (
@@ -1951,12 +1966,14 @@ export default function NewClaim() {
             <CardContent className="space-y-6">
               {/* Upload area */}
               <div
-                className="relative border-2 border-dashed rounded-lg p-6 transition-colors border-slate-200 hover:border-primary/50 bg-slate-50"
+                onClick={() => !isProcessing && endorsementInputRef.current?.click()}
+                className="relative border-2 border-dashed rounded-lg p-6 transition-colors border-slate-200 hover:border-primary/50 bg-slate-50 cursor-pointer"
               >
                 <input
+                  ref={endorsementInputRef}
                   type="file"
                   accept=".pdf,image/*"
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  className="hidden"
                   onChange={handleEndorsementSelect}
                   disabled={isProcessing}
                 />
@@ -1972,7 +1989,7 @@ export default function NewClaim() {
                     {isProcessing ? 'Processing...' : 'Add Endorsement'}
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Click or drop an endorsement PDF here
+                    Click to add an endorsement PDF
                   </p>
                 </div>
               </div>
