@@ -18,7 +18,7 @@
  * 5. Completeness checks (missing common companions)
  */
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   ZoneMetrics,
   ZoneForMetrics,
@@ -657,33 +657,36 @@ function validateCoverage(items: LineItemForValidation[]): ValidationIssue[] {
  * Get catalog items from database
  */
 async function getCatalogItems(): Promise<CatalogLineItem[]> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('line_items')
+    .select('*')
+    .eq('is_active', true);
 
-  try {
-    const result = await client.query(`
-      SELECT
-        id,
-        code,
-        description,
-        category_id as "categoryId",
-        unit,
-        quantity_formula as "quantityFormula",
-        scope_conditions as "scopeConditions",
-        requires_items as "requiresItems",
-        auto_add_items as "autoAddItems",
-        excludes_items as "excludesItems",
-        replaces_items as "replacesItems",
-        default_coverage_code as "defaultCoverageCode",
-        trade_code as "defaultTrade",
-        carrier_sensitivity_level as "carrierSensitivityLevel"
-      FROM line_items
-      WHERE is_active = true
-    `);
-
-    return result.rows;
-  } finally {
-    client.release();
+  if (error) {
+    throw new Error(`Failed to get catalog items: ${error.message}`);
   }
+
+  if (!data) {
+    return [];
+  }
+
+  // Map the database columns to the expected format with camelCase
+  return data.map((row: any) => ({
+    id: row.id,
+    code: row.code,
+    description: row.description,
+    categoryId: row.category_id,
+    unit: row.unit,
+    quantityFormula: row.quantity_formula,
+    scopeConditions: row.scope_conditions,
+    requiresItems: row.requires_items,
+    autoAddItems: row.auto_add_items,
+    excludesItems: row.excludes_items,
+    replacesItems: row.replaces_items,
+    defaultCoverageCode: row.default_coverage_code,
+    defaultTrade: row.trade_code,
+    carrierSensitivityLevel: row.carrier_sensitivity_level,
+  }));
 }
 
 // ============================================

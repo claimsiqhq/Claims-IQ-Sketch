@@ -12,8 +12,7 @@
  * - get_sketch_state: Retrieve current sketch state for an estimate
  */
 
-import { pool } from '../db';
-import type { PoolClient } from 'pg';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import type {
   EstimateZone,
   EstimateMissingWall,
@@ -119,46 +118,66 @@ export interface ToolResult<T = unknown> {
 /**
  * Get the default interior area ID for an estimate, creating hierarchy if needed
  */
-async function getOrCreateInteriorArea(client: PoolClient, estimateId: string): Promise<string> {
+async function getOrCreateInteriorArea(estimateId: string): Promise<string> {
   // First, try to find existing interior area
-  const existingArea = await client.query(`
-    SELECT ea.id
-    FROM estimate_areas ea
-    JOIN estimate_structures es ON ea.structure_id = es.id
-    WHERE es.estimate_id = $1 AND ea.area_type = 'interior'
-    LIMIT 1
-  `, [estimateId]);
+  const { data: existingArea, error: areaError } = await supabaseAdmin
+    .from('estimate_areas')
+    .select('id, estimate_structures!inner(estimate_id)')
+    .eq('estimate_structures.estimate_id', estimateId)
+    .eq('area_type', 'interior')
+    .limit(1)
+    .maybeSingle();
 
-  if (existingArea.rows.length > 0) {
-    return existingArea.rows[0].id;
+  if (existingArea) {
+    return existingArea.id;
   }
 
   // Need to create the hierarchy - first check for structure
   let structureId: string;
-  const existingStructure = await client.query(`
-    SELECT id FROM estimate_structures WHERE estimate_id = $1 LIMIT 1
-  `, [estimateId]);
+  const { data: existingStructure, error: structureError } = await supabaseAdmin
+    .from('estimate_structures')
+    .select('id')
+    .eq('estimate_id', estimateId)
+    .limit(1)
+    .maybeSingle();
 
-  if (existingStructure.rows.length > 0) {
-    structureId = existingStructure.rows[0].id;
+  if (existingStructure) {
+    structureId = existingStructure.id;
   } else {
     // Create a default structure
-    const newStructure = await client.query(`
-      INSERT INTO estimate_structures (estimate_id, name, sort_order)
-      VALUES ($1, 'Main Structure', 0)
-      RETURNING id
-    `, [estimateId]);
-    structureId = newStructure.rows[0].id;
+    const { data: newStructure, error: createStructureError } = await supabaseAdmin
+      .from('estimate_structures')
+      .insert({
+        estimate_id: estimateId,
+        name: 'Main Structure',
+        sort_order: 0
+      })
+      .select('id')
+      .single();
+
+    if (createStructureError || !newStructure) {
+      throw new Error(`Failed to create structure: ${createStructureError?.message}`);
+    }
+    structureId = newStructure.id;
   }
 
   // Create the interior area
-  const newArea = await client.query(`
-    INSERT INTO estimate_areas (structure_id, name, area_type, sort_order)
-    VALUES ($1, 'Interior', 'interior', 0)
-    RETURNING id
-  `, [structureId]);
+  const { data: newArea, error: createAreaError } = await supabaseAdmin
+    .from('estimate_areas')
+    .insert({
+      structure_id: structureId,
+      name: 'Interior',
+      area_type: 'interior',
+      sort_order: 0
+    })
+    .select('id')
+    .single();
 
-  return newArea.rows[0].id;
+  if (createAreaError || !newArea) {
+    throw new Error(`Failed to create area: ${createAreaError?.message}`);
+  }
+
+  return newArea.id;
 }
 
 /**
@@ -380,7 +399,6 @@ export async function generateFloorplanData(data: FloorplanData): Promise<ToolRe
  * @returns The created or updated room data
  */
 export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promise<ToolResult<SketchStateRoom>> {
-  const client = await pool.connect();
   try {
     // Validate input
     if (!input.estimate_id) {
@@ -400,16 +418,17 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
     }
 
     // Check if estimate exists and is not locked
-    const estimateCheck = await client.query(
-      'SELECT id, is_locked FROM estimates WHERE id = $1',
-      [input.estimate_id]
-    );
+    const { data: estimate, error: estimateError } = await supabaseAdmin
+      .from('estimates')
+      .select('id, is_locked')
+      .eq('id', input.estimate_id)
+      .maybeSingle();
 
-    if (estimateCheck.rows.length === 0) {
+    if (!estimate) {
       return { success: false, error: `Estimate ${input.estimate_id} not found` };
     }
 
-    if (estimateCheck.rows[0].is_locked) {
+    if (estimate.is_locked) {
       return { success: false, error: 'Cannot modify a locked estimate' };
     }
 
@@ -417,106 +436,104 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
     const dimensions = calculateZoneDimensions(input.length_ft, input.width_ft, heightFt);
 
     // Check if zone with this room_id already exists
-    const existingZone = await client.query(`
-      SELECT ez.id, ez.area_id
-      FROM estimate_zones ez
-      JOIN estimate_areas ea ON ez.area_id = ea.id
-      JOIN estimate_structures es ON ea.structure_id = es.id
-      WHERE es.estimate_id = $1 AND ez.zone_code = $2
-    `, [input.estimate_id, input.room_id]);
+    const { data: existingZone, error: zoneError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('id, area_id, estimate_areas!inner(estimate_structures!inner(estimate_id))')
+      .eq('estimate_areas.estimate_structures.estimate_id', input.estimate_id)
+      .eq('zone_code', input.room_id)
+      .maybeSingle();
 
     let zoneId: string;
 
-    if (existingZone.rows.length > 0) {
+    if (existingZone) {
       // Update existing zone
-      zoneId = existingZone.rows[0].id;
-      await client.query(`
-        UPDATE estimate_zones SET
-          name = $2,
-          length_ft = $3,
-          width_ft = $4,
-          height_ft = $5,
-          dimensions = $6,
-          updated_at = NOW()
-        WHERE id = $1
-      `, [
-        zoneId,
-        input.name,
-        input.length_ft,
-        input.width_ft,
-        heightFt,
-        JSON.stringify(dimensions),
-      ]);
+      zoneId = existingZone.id;
+      const { error: updateError } = await supabaseAdmin
+        .from('estimate_zones')
+        .update({
+          name: input.name,
+          length_ft: input.length_ft,
+          width_ft: input.width_ft,
+          height_ft: heightFt,
+          dimensions: dimensions,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', zoneId);
+
+      if (updateError) {
+        throw new Error(`Failed to update zone: ${updateError.message}`);
+      }
     } else {
       // Create new zone
-      const areaId = await getOrCreateInteriorArea(client, input.estimate_id);
+      const areaId = await getOrCreateInteriorArea(input.estimate_id);
 
       // Get next sort order
-      const orderResult = await client.query(
-        'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM estimate_zones WHERE area_id = $1',
-        [areaId]
-      );
-      const sortOrder = orderResult.rows[0].next_order;
+      const { data: maxOrderData, error: orderError } = await supabaseAdmin
+        .from('estimate_zones')
+        .select('sort_order')
+        .eq('area_id', areaId)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      const insertResult = await client.query(`
-        INSERT INTO estimate_zones (
-          area_id, name, zone_code, zone_type, status,
-          length_ft, width_ft, height_ft, dimensions, sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id
-      `, [
-        areaId,
-        input.name,
-        input.room_id,
-        'room',
-        'measured',
-        input.length_ft,
-        input.width_ft,
-        heightFt,
-        JSON.stringify(dimensions),
-        sortOrder,
-      ]);
-      zoneId = insertResult.rows[0].id;
+      const sortOrder = maxOrderData ? (maxOrderData.sort_order + 1) : 0;
+
+      const { data: insertResult, error: insertError } = await supabaseAdmin
+        .from('estimate_zones')
+        .insert({
+          area_id: areaId,
+          name: input.name,
+          zone_code: input.room_id,
+          zone_type: 'room',
+          status: 'measured',
+          length_ft: input.length_ft,
+          width_ft: input.width_ft,
+          height_ft: heightFt,
+          dimensions: dimensions,
+          sort_order: sortOrder
+        })
+        .select('id')
+        .single();
+
+      if (insertError || !insertResult) {
+        throw new Error(`Failed to insert zone: ${insertError?.message}`);
+      }
+      zoneId = insertResult.id;
     }
 
     // Fetch the complete room state
-    const roomResult = await client.query(`
-      SELECT ez.*,
-        COALESCE(json_agg(DISTINCT jsonb_build_object(
-          'id', emw.id,
-          'type', emw.opening_type,
-          'wall', emw.name,
-          'width_ft', emw.width_ft,
-          'height_ft', emw.height_ft
-        )) FILTER (WHERE emw.id IS NOT NULL), '[]') as openings
-      FROM estimate_zones ez
-      LEFT JOIN estimate_missing_walls emw ON ez.id = emw.zone_id
-      WHERE ez.id = $1
-      GROUP BY ez.id
-    `, [zoneId]);
+    const { data: zone, error: fetchError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('*, estimate_missing_walls(*)')
+      .eq('id', zoneId)
+      .single();
 
-    const row = roomResult.rows[0];
+    if (fetchError || !zone) {
+      throw new Error(`Failed to fetch zone: ${fetchError?.message}`);
+    }
+
+    const openings = zone.estimate_missing_walls || [];
     const room: SketchStateRoom = {
-      id: row.zone_code || row.id,
-      name: row.name,
-      length_ft: parseFloat(row.length_ft) || 0,
-      width_ft: parseFloat(row.width_ft) || 0,
-      height_ft: parseFloat(row.height_ft) || 8,
-      dimensions: row.dimensions || {},
-      openings: row.openings
-        .filter((o: any) => o.id && o.type !== 'missing_wall')
+      id: zone.zone_code || zone.id,
+      name: zone.name,
+      length_ft: parseFloat(zone.length_ft) || 0,
+      width_ft: parseFloat(zone.width_ft) || 0,
+      height_ft: parseFloat(zone.height_ft) || 8,
+      dimensions: zone.dimensions || {},
+      openings: openings
+        .filter((o: any) => o.id && o.opening_type !== 'missing_wall')
         .map((o: any) => ({
           id: o.id,
-          type: o.type,
-          wall: o.wall,
+          type: o.opening_type,
+          wall: o.name,
           width_ft: parseFloat(o.width_ft) || 0,
           height_ft: parseFloat(o.height_ft) || 0,
         })),
-      missing_walls: row.openings
-        .filter((o: any) => o.id && o.type === 'missing_wall')
+      missing_walls: openings
+        .filter((o: any) => o.id && o.opening_type === 'missing_wall')
         .map((o: any) => ({
           id: o.id,
-          wall: o.wall,
+          wall: o.name,
           width_ft: parseFloat(o.width_ft) || 0,
           height_ft: parseFloat(o.height_ft) || 0,
         })),
@@ -528,8 +545,6 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
       success: false,
       error: `Failed to create/update room: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
-  } finally {
-    client.release();
   }
 }
 
@@ -544,7 +559,6 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
  * @returns The created opening data
  */
 export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolResult<SketchStateOpening>> {
-  const client = await pool.connect();
   try {
     // Validate input
     if (!input.room_id) {
@@ -561,25 +575,37 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
       return { success: false, error: `wall must be one of: ${validWalls.join(', ')}` };
     }
 
-    // Find the zone by room_id (zone_code)
-    const zoneResult = await client.query(`
-      SELECT ez.id, es.estimate_id, e.is_locked
-      FROM estimate_zones ez
-      JOIN estimate_areas ea ON ez.area_id = ea.id
-      JOIN estimate_structures es ON ea.structure_id = es.id
-      JOIN estimates e ON es.estimate_id = e.id
-      WHERE ez.zone_code = $1 OR ez.id::text = $1
-    `, [input.room_id]);
+    // Find the zone by room_id (zone_code) - try both zone_code and id
+    const { data: zoneByCode, error: zoneByCodeError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('id, estimate_areas!inner(estimate_structures!inner(estimate_id, estimates!inner(is_locked)))')
+      .eq('zone_code', input.room_id)
+      .maybeSingle();
 
-    if (zoneResult.rows.length === 0) {
+    let zone = zoneByCode;
+
+    if (!zone) {
+      // Try by id if zone_code didn't match
+      const { data: zoneById, error: zoneByIdError } = await supabaseAdmin
+        .from('estimate_zones')
+        .select('id, estimate_areas!inner(estimate_structures!inner(estimate_id, estimates!inner(is_locked)))')
+        .eq('id', input.room_id)
+        .maybeSingle();
+      zone = zoneById;
+    }
+
+    if (!zone) {
       return { success: false, error: `Room ${input.room_id} not found` };
     }
 
-    if (zoneResult.rows[0].is_locked) {
+    const estimateData: any = zone.estimate_areas;
+    const isLocked = estimateData?.estimate_structures?.estimates?.is_locked;
+
+    if (isLocked) {
       return { success: false, error: 'Cannot modify a locked estimate' };
     }
 
-    const zoneId = zoneResult.rows[0].id;
+    const zoneId = zone.id;
 
     // Set default dimensions based on opening type
     let widthFt: number;
@@ -608,12 +634,15 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
     }
 
     // Check for duplicate opening on same wall
-    const existingOpening = await client.query(`
-      SELECT id FROM estimate_missing_walls
-      WHERE zone_id = $1 AND name = $2 AND opening_type = $3
-    `, [zoneId, input.wall, input.type]);
+    const { data: existingOpening, error: checkError } = await supabaseAdmin
+      .from('estimate_missing_walls')
+      .select('id')
+      .eq('zone_id', zoneId)
+      .eq('name', input.wall)
+      .eq('opening_type', input.type)
+      .maybeSingle();
 
-    if (existingOpening.rows.length > 0) {
+    if (existingOpening) {
       return {
         success: false,
         error: `A ${input.type} already exists on the ${input.wall} wall. Use add_missing_wall for multiple openings or update the existing one.`,
@@ -623,41 +652,46 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
     const { opensInto } = getWallMetadata(input.wall);
 
     // Get next sort order
-    const orderResult = await client.query(
-      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM estimate_missing_walls WHERE zone_id = $1',
-      [zoneId]
-    );
-    const sortOrder = orderResult.rows[0].next_order;
+    const { data: maxOrderData, error: orderError } = await supabaseAdmin
+      .from('estimate_missing_walls')
+      .select('sort_order')
+      .eq('zone_id', zoneId)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const sortOrder = maxOrderData ? (maxOrderData.sort_order + 1) : 0;
 
     // Insert the opening
-    const insertResult = await client.query(`
-      INSERT INTO estimate_missing_walls (
-        zone_id, name, opening_type, width_ft, height_ft,
-        quantity, goes_to_floor, goes_to_ceiling, opens_into, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, opening_type as type, name as wall, width_ft, height_ft
-    `, [
-      zoneId,
-      input.wall,
-      input.type,
-      widthFt,
-      heightFt,
-      1,
-      input.type === 'door' || input.type === 'cased_opening',
-      false,
-      opensInto,
-      sortOrder,
-    ]);
+    const { data: insertResult, error: insertError } = await supabaseAdmin
+      .from('estimate_missing_walls')
+      .insert({
+        zone_id: zoneId,
+        name: input.wall,
+        opening_type: input.type,
+        width_ft: widthFt,
+        height_ft: heightFt,
+        quantity: 1,
+        goes_to_floor: input.type === 'door' || input.type === 'cased_opening',
+        goes_to_ceiling: false,
+        opens_into: opensInto,
+        sort_order: sortOrder
+      })
+      .select('id, opening_type, name, width_ft, height_ft')
+      .single();
 
-    const row = insertResult.rows[0];
+    if (insertError || !insertResult) {
+      throw new Error(`Failed to insert opening: ${insertError?.message}`);
+    }
+
     return {
       success: true,
       data: {
-        id: row.id,
-        type: row.type,
-        wall: row.wall,
-        width_ft: parseFloat(row.width_ft),
-        height_ft: parseFloat(row.height_ft),
+        id: insertResult.id,
+        type: insertResult.opening_type,
+        wall: insertResult.name,
+        width_ft: parseFloat(insertResult.width_ft),
+        height_ft: parseFloat(insertResult.height_ft),
       },
     };
   } catch (error) {
@@ -665,8 +699,6 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
       success: false,
       error: `Failed to add opening: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
-  } finally {
-    client.release();
   }
 }
 
@@ -682,7 +714,6 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
  * @returns The created missing wall data
  */
 export async function addMissingWall(input: AddMissingWallInput): Promise<ToolResult<SketchStateMissingWall>> {
-  const client = await pool.connect();
   try {
     // Validate input
     if (!input.room_id) {
@@ -694,25 +725,36 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
       return { success: false, error: `wall must be one of: ${validWalls.join(', ')}` };
     }
 
-    // Find the zone by room_id (zone_code)
-    const zoneResult = await client.query(`
-      SELECT ez.id, ez.length_ft, ez.width_ft, ez.height_ft, es.estimate_id, e.is_locked
-      FROM estimate_zones ez
-      JOIN estimate_areas ea ON ez.area_id = ea.id
-      JOIN estimate_structures es ON ea.structure_id = es.id
-      JOIN estimates e ON es.estimate_id = e.id
-      WHERE ez.zone_code = $1 OR ez.id::text = $1
-    `, [input.room_id]);
+    // Find the zone by room_id (zone_code) - try both zone_code and id
+    const { data: zoneByCode, error: zoneByCodeError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('id, length_ft, width_ft, height_ft, estimate_areas!inner(estimate_structures!inner(estimate_id, estimates!inner(is_locked)))')
+      .eq('zone_code', input.room_id)
+      .maybeSingle();
 
-    if (zoneResult.rows.length === 0) {
+    let zone = zoneByCode;
+
+    if (!zone) {
+      // Try by id if zone_code didn't match
+      const { data: zoneById, error: zoneByIdError } = await supabaseAdmin
+        .from('estimate_zones')
+        .select('id, length_ft, width_ft, height_ft, estimate_areas!inner(estimate_structures!inner(estimate_id, estimates!inner(is_locked)))')
+        .eq('id', input.room_id)
+        .maybeSingle();
+      zone = zoneById;
+    }
+
+    if (!zone) {
       return { success: false, error: `Room ${input.room_id} not found` };
     }
 
-    if (zoneResult.rows[0].is_locked) {
+    const estimateData: any = zone.estimate_areas;
+    const isLocked = estimateData?.estimate_structures?.estimates?.is_locked;
+
+    if (isLocked) {
       return { success: false, error: 'Cannot modify a locked estimate' };
     }
 
-    const zone = zoneResult.rows[0];
     const zoneId = zone.id;
 
     // Calculate wall width based on wall direction
@@ -725,12 +767,15 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
     const wallHeightFt = parseFloat(zone.height_ft) || 8;
 
     // Check for duplicate missing wall
-    const existingWall = await client.query(`
-      SELECT id FROM estimate_missing_walls
-      WHERE zone_id = $1 AND name = $2 AND opening_type = 'missing_wall'
-    `, [zoneId, input.wall]);
+    const { data: existingWall, error: checkError } = await supabaseAdmin
+      .from('estimate_missing_walls')
+      .select('id')
+      .eq('zone_id', zoneId)
+      .eq('name', input.wall)
+      .eq('opening_type', 'missing_wall')
+      .maybeSingle();
 
-    if (existingWall.rows.length > 0) {
+    if (existingWall) {
       return {
         success: false,
         error: `A missing wall already exists on the ${input.wall} wall`,
@@ -738,40 +783,45 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
     }
 
     // Get next sort order
-    const orderResult = await client.query(
-      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM estimate_missing_walls WHERE zone_id = $1',
-      [zoneId]
-    );
-    const sortOrder = orderResult.rows[0].next_order;
+    const { data: maxOrderData, error: orderError } = await supabaseAdmin
+      .from('estimate_missing_walls')
+      .select('sort_order')
+      .eq('zone_id', zoneId)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const sortOrder = maxOrderData ? (maxOrderData.sort_order + 1) : 0;
 
     // Insert the missing wall
-    const insertResult = await client.query(`
-      INSERT INTO estimate_missing_walls (
-        zone_id, name, opening_type, width_ft, height_ft,
-        quantity, goes_to_floor, goes_to_ceiling, opens_into, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, name as wall, width_ft, height_ft
-    `, [
-      zoneId,
-      input.wall,
-      'missing_wall',
-      wallWidthFt,
-      wallHeightFt,
-      1,
-      true,
-      true,
-      'Adjacent Room',
-      sortOrder,
-    ]);
+    const { data: insertResult, error: insertError } = await supabaseAdmin
+      .from('estimate_missing_walls')
+      .insert({
+        zone_id: zoneId,
+        name: input.wall,
+        opening_type: 'missing_wall',
+        width_ft: wallWidthFt,
+        height_ft: wallHeightFt,
+        quantity: 1,
+        goes_to_floor: true,
+        goes_to_ceiling: true,
+        opens_into: 'Adjacent Room',
+        sort_order: sortOrder
+      })
+      .select('id, name, width_ft, height_ft')
+      .single();
 
-    const row = insertResult.rows[0];
+    if (insertError || !insertResult) {
+      throw new Error(`Failed to insert missing wall: ${insertError?.message}`);
+    }
+
     return {
       success: true,
       data: {
-        id: row.id,
-        wall: row.wall,
-        width_ft: parseFloat(row.width_ft),
-        height_ft: parseFloat(row.height_ft),
+        id: insertResult.id,
+        wall: insertResult.name,
+        width_ft: parseFloat(insertResult.width_ft),
+        height_ft: parseFloat(insertResult.height_ft),
       },
     };
   } catch (error) {
@@ -779,8 +829,6 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
       success: false,
       error: `Failed to add missing wall: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
-  } finally {
-    client.release();
   }
 }
 
@@ -796,7 +844,6 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
  * @returns The current sketch state
  */
 export async function getSketchState(estimateId: string): Promise<ToolResult<SketchState>> {
-  const client = await pool.connect();
   try {
     // Validate input
     if (!estimateId) {
@@ -804,51 +851,53 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
     }
 
     // Check if estimate exists
-    const estimateCheck = await client.query(
-      'SELECT id FROM estimates WHERE id = $1',
-      [estimateId]
-    );
+    const { data: estimate, error: estimateError } = await supabaseAdmin
+      .from('estimates')
+      .select('id')
+      .eq('id', estimateId)
+      .maybeSingle();
 
-    if (estimateCheck.rows.length === 0) {
+    if (!estimate) {
       return { success: false, error: `Estimate ${estimateId} not found` };
     }
 
     // Fetch all zones with their openings
-    const zonesResult = await client.query(`
-      SELECT
-        ez.id,
-        ez.zone_code,
-        ez.name,
-        ez.length_ft,
-        ez.width_ft,
-        ez.height_ft,
-        ez.dimensions,
-        ez.updated_at,
-        COALESCE(json_agg(
-          DISTINCT jsonb_build_object(
-            'id', emw.id,
-            'type', emw.opening_type,
-            'wall', emw.name,
-            'width_ft', emw.width_ft,
-            'height_ft', emw.height_ft
+    const { data: zones, error: zonesError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select(`
+        id,
+        zone_code,
+        name,
+        length_ft,
+        width_ft,
+        height_ft,
+        dimensions,
+        updated_at,
+        created_at,
+        sort_order,
+        estimate_areas!inner(
+          estimate_structures!inner(
+            estimate_id
           )
-        ) FILTER (WHERE emw.id IS NOT NULL), '[]') as openings
-      FROM estimate_zones ez
-      JOIN estimate_areas ea ON ez.area_id = ea.id
-      JOIN estimate_structures es ON ea.structure_id = es.id
-      LEFT JOIN estimate_missing_walls emw ON ez.id = emw.zone_id
-      WHERE es.estimate_id = $1 AND ez.zone_type = 'room'
-      GROUP BY ez.id
-      ORDER BY ez.sort_order, ez.created_at
-    `, [estimateId]);
+        ),
+        estimate_missing_walls(*)
+      `)
+      .eq('estimate_areas.estimate_structures.estimate_id', estimateId)
+      .eq('zone_type', 'room')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (zonesError) {
+      throw new Error(`Failed to fetch zones: ${zonesError.message}`);
+    }
 
     let lastUpdated: string | null = null;
-    const rooms: SketchStateRoom[] = zonesResult.rows.map((row: any) => {
+    const rooms: SketchStateRoom[] = (zones || []).map((row: any) => {
       if (row.updated_at && (!lastUpdated || row.updated_at > lastUpdated)) {
         lastUpdated = row.updated_at;
       }
 
-      const openings = row.openings || [];
+      const openings = row.estimate_missing_walls || [];
       return {
         id: row.zone_code || row.id,
         name: row.name,
@@ -857,19 +906,19 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
         height_ft: parseFloat(row.height_ft) || 8,
         dimensions: row.dimensions || {},
         openings: openings
-          .filter((o: any) => o.id && o.type !== 'missing_wall')
+          .filter((o: any) => o.id && o.opening_type !== 'missing_wall')
           .map((o: any) => ({
             id: o.id,
-            type: o.type,
-            wall: o.wall,
+            type: o.opening_type,
+            wall: o.name,
             width_ft: parseFloat(o.width_ft) || 0,
             height_ft: parseFloat(o.height_ft) || 0,
           })),
         missing_walls: openings
-          .filter((o: any) => o.id && o.type === 'missing_wall')
+          .filter((o: any) => o.id && o.opening_type === 'missing_wall')
           .map((o: any) => ({
             id: o.id,
-            wall: o.wall,
+            wall: o.name,
             width_ft: parseFloat(o.width_ft) || 0,
             height_ft: parseFloat(o.height_ft) || 0,
           })),
@@ -890,7 +939,5 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
       success: false,
       error: `Failed to get sketch state: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
-  } finally {
-    client.release();
   }
 }

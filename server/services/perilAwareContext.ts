@@ -12,7 +12,7 @@
  * - Policy and endorsement context is included
  */
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   Peril,
   PerilMetadata,
@@ -182,186 +182,254 @@ export interface MergedInspectionGuidance {
 export async function buildPerilAwareClaimContext(
   claimId: string
 ): Promise<PerilAwareClaimContext | null> {
-  const client = await pool.connect();
+  // Fetch claim data
+  const { data: claimData, error: claimError } = await supabaseAdmin
+    .from('claims')
+    .select('*')
+    .eq('id', claimId)
+    .single();
 
-  try {
-    // Fetch claim data
-    const claimResult = await client.query(
-      `SELECT
-        id, claim_number as "claimNumber",
-        primary_peril as "primaryPeril",
-        secondary_perils as "secondaryPerils",
-        peril_confidence as "perilConfidence",
-        peril_metadata as "perilMetadata",
-        date_of_loss as "dateOfLoss",
-        loss_description as "lossDescription",
-        loss_type as "causeOfLoss",
-        property_address as "propertyAddress",
-        property_city as "propertyCity",
-        property_state as "propertyState",
-        property_zip as "propertyZip",
-        policy_number as "policyNumber",
-        dwelling_limit as "dwellingLimit",
-        wind_hail_deductible as "windHailDeductible",
-        coverage_a as "coverageA",
-        coverage_b as "coverageB",
-        coverage_c as "coverageC",
-        coverage_d as "coverageD",
-        deductible,
-        year_roof_install as "yearRoofInstall",
-        endorsements_listed as "endorsementsListed",
-        created_at as "createdAt",
-        updated_at as "updatedAt"
-      FROM claims
-      WHERE id = $1`,
-      [claimId]
-    );
+  if (claimError || !claimData) {
+    return null;
+  }
 
-    if (claimResult.rows.length === 0) {
-      return null;
+  // Map snake_case to camelCase
+  const claim = {
+    id: claimData.id,
+    claimNumber: claimData.claim_number,
+    primaryPeril: claimData.primary_peril,
+    secondaryPerils: claimData.secondary_perils,
+    perilConfidence: claimData.peril_confidence,
+    perilMetadata: claimData.peril_metadata,
+    dateOfLoss: claimData.date_of_loss,
+    lossDescription: claimData.loss_description,
+    causeOfLoss: claimData.loss_type,
+    propertyAddress: claimData.property_address,
+    propertyCity: claimData.property_city,
+    propertyState: claimData.property_state,
+    propertyZip: claimData.property_zip,
+    policyNumber: claimData.policy_number,
+    dwellingLimit: claimData.dwelling_limit,
+    windHailDeductible: claimData.wind_hail_deductible,
+    coverageA: claimData.coverage_a,
+    coverageB: claimData.coverage_b,
+    coverageC: claimData.coverage_c,
+    coverageD: claimData.coverage_d,
+    deductible: claimData.deductible,
+    yearRoofInstall: claimData.year_roof_install,
+    endorsementsListed: claimData.endorsements_listed,
+    createdAt: claimData.created_at,
+    updatedAt: claimData.updated_at,
+  };
+
+  // Fetch endorsements
+  const { data: endorsementsData, error: endorsementsError } = await supabaseAdmin
+    .from('endorsements')
+    .select('*')
+    .eq('claim_id', claimId);
+
+  const endorsementRows = endorsementsData || [];
+  const endorsementResult = {
+    rows: endorsementRows.map(e => ({
+      id: e.id,
+      formNumber: e.form_number,
+      documentTitle: e.document_title,
+      description: e.description,
+      keyChanges: e.key_changes,
+    }))
+  };
+
+  // Fetch damage zones (from estimate_zones table)
+  // We need to join across multiple tables, so we'll fetch in steps
+  const { data: estimates } = await supabaseAdmin
+    .from('estimates')
+    .select('id')
+    .eq('claim_id', claimId);
+
+  let damageZoneRows: any[] = [];
+
+  if (estimates && estimates.length > 0) {
+    const estimateIds = estimates.map(e => e.id);
+
+    // Get estimate_structures for these estimates
+    const { data: structures } = await supabaseAdmin
+      .from('estimate_structures')
+      .select('id')
+      .in('estimate_id', estimateIds);
+
+    if (structures && structures.length > 0) {
+      const structureIds = structures.map(s => s.id);
+
+      // Get estimate_areas for these structures
+      const { data: areas } = await supabaseAdmin
+        .from('estimate_areas')
+        .select('id')
+        .in('structure_id', structureIds);
+
+      if (areas && areas.length > 0) {
+        const areaIds = areas.map(a => a.id);
+
+        // Get estimate_zones for these areas
+        const { data: zones } = await supabaseAdmin
+          .from('estimate_zones')
+          .select('*')
+          .in('area_id', areaIds);
+
+        if (zones) {
+          damageZoneRows = zones.map(ez => ({
+            id: ez.id,
+            name: ez.name,
+            zoneType: ez.zone_type,
+            damageType: ez.damage_type,
+            damageSeverity: ez.damage_severity,
+            associatedPeril: ez.associated_peril,
+            perilConfidence: ez.peril_confidence,
+            affectedSurfaces: ez.affected_surfaces,
+            waterCategory: ez.water_category,
+            waterClass: ez.water_class,
+          }));
+        }
+      }
+    }
+  }
+
+  const damageZoneResult = { rows: damageZoneRows };
+
+  // Also fetch claim_damage_zones as fallback
+  const { data: claimDamageZones } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .select('*')
+    .eq('claim_id', claimId);
+
+  let claimDamageZoneRows: any[] = [];
+
+  if (claimDamageZones && claimDamageZones.length > 0) {
+    // Get all unique room IDs
+    const roomIds = claimDamageZones
+      .map(cdz => cdz.room_id)
+      .filter((id): id is string => id !== null);
+
+    // Fetch claim_rooms if we have room IDs
+    let roomsMap: Record<string, any> = {};
+    if (roomIds.length > 0) {
+      const { data: rooms } = await supabaseAdmin
+        .from('claim_rooms')
+        .select('*')
+        .in('id', roomIds);
+
+      if (rooms) {
+        roomsMap = rooms.reduce((acc, room) => {
+          acc[room.id] = room;
+          return acc;
+        }, {} as Record<string, any>);
+      }
     }
 
-    const claim = claimResult.rows[0];
+    // Map to result format
+    claimDamageZoneRows = claimDamageZones.map(cdz => {
+      const room = roomsMap[cdz.room_id];
 
-    // Fetch endorsements
-    const endorsementResult = await client.query(
-      `SELECT
-        id, form_number as "formNumber",
-        document_title as "documentTitle",
-        description,
-        key_changes as "keyChanges"
-      FROM endorsements
-      WHERE claim_id = $1`,
-      [claimId]
-    );
+      // Map category to waterCategory number
+      let waterCategory = null;
+      if (cdz.category === 'category_1') waterCategory = 1;
+      else if (cdz.category === 'category_2') waterCategory = 2;
+      else if (cdz.category === 'category_3') waterCategory = 3;
 
-    // Fetch damage zones (from estimate_zones table)
-    const damageZoneResult = await client.query(
-      `SELECT
-        ez.id,
-        ez.name,
-        ez.zone_type as "zoneType",
-        ez.damage_type as "damageType",
-        ez.damage_severity as "damageSeverity",
-        ez.associated_peril as "associatedPeril",
-        ez.peril_confidence as "perilConfidence",
-        ez.affected_surfaces as "affectedSurfaces",
-        ez.water_category as "waterCategory",
-        ez.water_class as "waterClass"
-      FROM estimate_zones ez
-      INNER JOIN estimate_areas ea ON ez.area_id = ea.id
-      INNER JOIN estimate_structures es ON ea.structure_id = es.id
-      INNER JOIN estimates e ON es.estimate_id = e.id
-      WHERE e.claim_id = $1`,
-      [claimId]
-    );
-
-    // Also fetch claim_damage_zones as fallback
-    const claimDamageZoneResult = await client.query(
-      `SELECT
-        cdz.id,
-        cr.name,
-        'room' as "zoneType",
-        cdz.damage_type as "damageType",
-        cdz.severity as "damageSeverity",
-        cdz.associated_peril as "associatedPeril",
-        cdz.peril_confidence as "perilConfidence",
-        cdz.affected_walls as "affectedSurfaces",
-        CASE
-          WHEN cdz.category = 'category_1' THEN 1
-          WHEN cdz.category = 'category_2' THEN 2
-          WHEN cdz.category = 'category_3' THEN 3
-          ELSE NULL
-        END as "waterCategory",
-        NULL as "waterClass"
-      FROM claim_damage_zones cdz
-      LEFT JOIN claim_rooms cr ON cdz.room_id = cr.id
-      WHERE cdz.claim_id = $1`,
-      [claimId]
-    );
-
-    // Combine damage zones
-    const allDamageZones = [
-      ...damageZoneResult.rows,
-      ...claimDamageZoneResult.rows
-    ];
-
-    // Normalize peril data
-    const primaryPeril = claim.primaryPeril || inferPerilFromLegacy(claim.causeOfLoss);
-    const secondaryPerils = claim.secondaryPerils || SECONDARY_PERIL_MAP[primaryPeril as Peril] || [];
-    const perilMetadata = claim.perilMetadata || {};
-
-    // Build endorsement contexts with peril relevance
-    const endorsements = endorsementResult.rows.map(e =>
-      buildEndorsementContext(e, primaryPeril)
-    );
-
-    // Build damage zone contexts
-    const damageZones = allDamageZones.map(dz => ({
-      id: dz.id,
-      name: dz.name || 'Unknown Zone',
-      zoneType: dz.zoneType,
-      damageType: dz.damageType,
-      damageSeverity: dz.damageSeverity,
-      associatedPeril: dz.associatedPeril || primaryPeril,
-      perilConfidence: dz.perilConfidence ? parseFloat(dz.perilConfidence) : null,
-      affectedSurfaces: Array.isArray(dz.affectedSurfaces) ? dz.affectedSurfaces : [],
-      waterCategory: dz.waterCategory,
-      waterClass: dz.waterClass,
-    }));
-
-    // Build coverage advisories
-    const coverageAdvisories = buildCoverageAdvisories(
-      primaryPeril,
-      perilMetadata,
-      endorsements
-    );
-
-    // Build policy context
-    const policyContext: PolicyContext = {
-      policyNumber: claim.policyNumber,
-      state: claim.propertyState,
-      dwellingLimit: claim.dwellingLimit,
-      windHailDeductible: claim.windHailDeductible,
-      coverageA: claim.coverageA,
-      coverageB: claim.coverageB,
-      coverageC: claim.coverageC,
-      coverageD: claim.coverageD,
-      deductible: claim.deductible,
-      yearRoofInstall: claim.yearRoofInstall,
-      endorsementsListed: Array.isArray(claim.endorsementsListed)
-        ? claim.endorsementsListed
-        : [],
-    };
-
-    // Build full context
-    const context: PerilAwareClaimContext = {
-      claimId: claim.id,
-      claimNumber: claim.claimNumber,
-      primaryPeril,
-      secondaryPerils,
-      perilConfidence: claim.perilConfidence ? parseFloat(claim.perilConfidence) : 0.5,
-      perilMetadata,
-      dateOfLoss: claim.dateOfLoss,
-      lossDescription: claim.lossDescription,
-      causeOfLoss: claim.causeOfLoss,
-      propertyAddress: claim.propertyAddress,
-      propertyCity: claim.propertyCity,
-      propertyState: claim.propertyState,
-      propertyZip: claim.propertyZip,
-      policyContext,
-      endorsements,
-      damageZones,
-      coverageAdvisories,
-      createdAt: claim.createdAt,
-      updatedAt: claim.updatedAt,
-    };
-
-    return context;
-
-  } finally {
-    client.release();
+      return {
+        id: cdz.id,
+        name: room?.name || null,
+        zoneType: 'room',
+        damageType: cdz.damage_type,
+        damageSeverity: cdz.severity,
+        associatedPeril: cdz.associated_peril,
+        perilConfidence: cdz.peril_confidence,
+        affectedSurfaces: cdz.affected_walls,
+        waterCategory,
+        waterClass: null,
+      };
+    });
   }
+
+  const claimDamageZoneResult = { rows: claimDamageZoneRows };
+
+  // Combine damage zones
+  const allDamageZones = [
+    ...damageZoneResult.rows,
+    ...claimDamageZoneResult.rows
+  ];
+
+  // Normalize peril data
+  const primaryPeril = claim.primaryPeril || inferPerilFromLegacy(claim.causeOfLoss);
+  const secondaryPerils = claim.secondaryPerils || SECONDARY_PERIL_MAP[primaryPeril as Peril] || [];
+  const perilMetadata = claim.perilMetadata || {};
+
+  // Build endorsement contexts with peril relevance
+  const endorsements = endorsementResult.rows.map(e =>
+    buildEndorsementContext(e, primaryPeril)
+  );
+
+  // Build damage zone contexts
+  const damageZones = allDamageZones.map(dz => ({
+    id: dz.id,
+    name: dz.name || 'Unknown Zone',
+    zoneType: dz.zoneType,
+    damageType: dz.damageType,
+    damageSeverity: dz.damageSeverity,
+    associatedPeril: dz.associatedPeril || primaryPeril,
+    perilConfidence: dz.perilConfidence ? parseFloat(dz.perilConfidence) : null,
+    affectedSurfaces: Array.isArray(dz.affectedSurfaces) ? dz.affectedSurfaces : [],
+    waterCategory: dz.waterCategory,
+    waterClass: dz.waterClass,
+  }));
+
+  // Build coverage advisories
+  const coverageAdvisories = buildCoverageAdvisories(
+    primaryPeril,
+    perilMetadata,
+    endorsements
+  );
+
+  // Build policy context
+  const policyContext: PolicyContext = {
+    policyNumber: claim.policyNumber,
+    state: claim.propertyState,
+    dwellingLimit: claim.dwellingLimit,
+    windHailDeductible: claim.windHailDeductible,
+    coverageA: claim.coverageA,
+    coverageB: claim.coverageB,
+    coverageC: claim.coverageC,
+    coverageD: claim.coverageD,
+    deductible: claim.deductible,
+    yearRoofInstall: claim.yearRoofInstall,
+    endorsementsListed: Array.isArray(claim.endorsementsListed)
+      ? claim.endorsementsListed
+      : [],
+  };
+
+  // Build full context
+  const context: PerilAwareClaimContext = {
+    claimId: claim.id,
+    claimNumber: claim.claimNumber,
+    primaryPeril,
+    secondaryPerils,
+    perilConfidence: claim.perilConfidence ? parseFloat(claim.perilConfidence) : 0.5,
+    perilMetadata,
+    dateOfLoss: claim.dateOfLoss,
+    lossDescription: claim.lossDescription,
+    causeOfLoss: claim.causeOfLoss,
+    propertyAddress: claim.propertyAddress,
+    propertyCity: claim.propertyCity,
+    propertyState: claim.propertyState,
+    propertyZip: claim.propertyZip,
+    policyContext,
+    endorsements,
+    damageZones,
+    coverageAdvisories,
+    createdAt: claim.createdAt,
+    updatedAt: claim.updatedAt,
+  };
+
+  return context;
 }
 
 /**

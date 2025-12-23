@@ -1,7 +1,7 @@
 // Depreciation Engine for Claims IQ Sketch
 // Calculates RCV, ACV, and recoverable depreciation
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -77,120 +77,117 @@ export interface SettlementResult {
 export async function calculateDepreciation(
   input: DepreciationInput
 ): Promise<DepreciationResult> {
-  const client = await pool.connect();
+  // Find matching depreciation schedule
+  let schedule = null;
 
-  try {
-    // Find matching depreciation schedule
-    let schedule = null;
+  if (input.depreciationType) {
+    const { data, error } = await supabaseAdmin
+      .from('depreciation_schedules')
+      .select('*')
+      .eq('category_code', input.categoryCode)
+      .eq('item_type', input.depreciationType)
+      .limit(1)
+      .single();
 
-    if (input.depreciationType) {
-      const scheduleResult = await client.query(`
-        SELECT * FROM depreciation_schedules
-        WHERE category_code = $1 AND item_type = $2
-        LIMIT 1
-      `, [input.categoryCode, input.depreciationType]);
-
-      if (scheduleResult.rows.length > 0) {
-        schedule = scheduleResult.rows[0];
-      }
+    if (data && !error) {
+      schedule = data;
     }
-
-    // If no specific schedule, try category default
-    if (!schedule) {
-      const defaultResult = await client.query(`
-        SELECT * FROM depreciation_schedules
-        WHERE category_code = $1
-        ORDER BY useful_life_years DESC
-        LIMIT 1
-      `, [input.categoryCode]);
-
-      if (defaultResult.rows.length > 0) {
-        schedule = defaultResult.rows[0];
-      }
-    }
-
-    // No depreciation if no schedule found or item is not depreciable
-    if (!schedule || !schedule.is_depreciable || schedule.useful_life_years <= 0) {
-      return {
-        depreciationPct: 0,
-        depreciationAmount: 0,
-        acv: input.rcv,
-        usefulLifeYears: 0,
-        isDepreciable: false,
-        isRecoverable: true
-      };
-    }
-
-    const usefulLifeYears = schedule.useful_life_years;
-    const maxDepPct = parseFloat(schedule.max_depreciation_pct || '80');
-
-    // Calculate base depreciation (straight-line)
-    let basePct = (input.ageYears / usefulLifeYears) * 100;
-
-    // Apply condition adjustment
-    let conditionFactor = 1.0;
-    if (input.condition === 'Good') {
-      conditionFactor = parseFloat(schedule.condition_adjustment_good || '0.85');
-    } else if (input.condition === 'Poor') {
-      conditionFactor = parseFloat(schedule.condition_adjustment_poor || '1.15');
-    }
-
-    let depreciationPct = basePct * conditionFactor;
-
-    // Cap at maximum depreciation
-    depreciationPct = Math.min(depreciationPct, maxDepPct);
-    depreciationPct = Math.max(depreciationPct, 0); // Can't be negative
-
-    // Calculate amounts
-    const depreciationAmount = input.rcv * (depreciationPct / 100);
-    const acv = input.rcv - depreciationAmount;
-
-    return {
-      depreciationPct: round(depreciationPct),
-      depreciationAmount: round(depreciationAmount),
-      acv: round(acv),
-      usefulLifeYears,
-      isDepreciable: true,
-      isRecoverable: true // Most residential items are recoverable
-    };
-  } finally {
-    client.release();
   }
+
+  // If no specific schedule, try category default
+  if (!schedule) {
+    const { data, error } = await supabaseAdmin
+      .from('depreciation_schedules')
+      .select('*')
+      .eq('category_code', input.categoryCode)
+      .order('useful_life_years', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (data && !error) {
+      schedule = data;
+    }
+  }
+
+  // No depreciation if no schedule found or item is not depreciable
+  if (!schedule || !schedule.is_depreciable || schedule.useful_life_years <= 0) {
+    return {
+      depreciationPct: 0,
+      depreciationAmount: 0,
+      acv: input.rcv,
+      usefulLifeYears: 0,
+      isDepreciable: false,
+      isRecoverable: true
+    };
+  }
+
+  const usefulLifeYears = schedule.useful_life_years;
+  const maxDepPct = parseFloat(schedule.max_depreciation_pct || '80');
+
+  // Calculate base depreciation (straight-line)
+  let basePct = (input.ageYears / usefulLifeYears) * 100;
+
+  // Apply condition adjustment
+  let conditionFactor = 1.0;
+  if (input.condition === 'Good') {
+    conditionFactor = parseFloat(schedule.condition_adjustment_good || '0.85');
+  } else if (input.condition === 'Poor') {
+    conditionFactor = parseFloat(schedule.condition_adjustment_poor || '1.15');
+  }
+
+  let depreciationPct = basePct * conditionFactor;
+
+  // Cap at maximum depreciation
+  depreciationPct = Math.min(depreciationPct, maxDepPct);
+  depreciationPct = Math.max(depreciationPct, 0); // Can't be negative
+
+  // Calculate amounts
+  const depreciationAmount = input.rcv * (depreciationPct / 100);
+  const acv = input.rcv - depreciationAmount;
+
+  return {
+    depreciationPct: round(depreciationPct),
+    depreciationAmount: round(depreciationAmount),
+    acv: round(acv),
+    usefulLifeYears,
+    isDepreciable: true,
+    isRecoverable: true // Most residential items are recoverable
+  };
 }
 
 /**
  * Get tax rate for a region
  */
 export async function getTaxRate(regionCode: string): Promise<number> {
-  const client = await pool.connect();
+  // Try exact region match first
+  const { data, error } = await supabaseAdmin
+    .from('tax_rates')
+    .select('rate')
+    .eq('region_code', regionCode)
+    .eq('tax_type', 'material_sales')
+    .eq('is_active', true)
+    .limit(1)
+    .single();
 
-  try {
-    // Try exact region match first
-    let result = await client.query(`
-      SELECT rate FROM tax_rates
-      WHERE region_code = $1 AND tax_type = 'material_sales' AND is_active = true
-      LIMIT 1
-    `, [regionCode]);
-
-    if (result.rows.length > 0) {
-      return parseFloat(result.rows[0].rate);
-    }
-
-    // Fall back to NATIONAL
-    result = await client.query(`
-      SELECT rate FROM tax_rates
-      WHERE region_code = 'NATIONAL' AND tax_type = 'material_sales' AND is_active = true
-      LIMIT 1
-    `);
-
-    if (result.rows.length > 0) {
-      return parseFloat(result.rows[0].rate);
-    }
-
-    return 0.0625; // Default 6.25%
-  } finally {
-    client.release();
+  if (data && !error) {
+    return parseFloat(data.rate);
   }
+
+  // Fall back to NATIONAL
+  const { data: nationalData, error: nationalError } = await supabaseAdmin
+    .from('tax_rates')
+    .select('rate')
+    .eq('region_code', 'NATIONAL')
+    .eq('tax_type', 'material_sales')
+    .eq('is_active', true)
+    .limit(1)
+    .single();
+
+  if (nationalData && !nationalError) {
+    return parseFloat(nationalData.rate);
+  }
+
+  return 0.0625; // Default 6.25%
 }
 
 /**
@@ -201,29 +198,23 @@ export async function getRegionalMultipliers(regionCode: string): Promise<{
   labor: number;
   equipment: number;
 }> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('regional_multipliers')
+    .select('material_multiplier, labor_multiplier, equipment_multiplier')
+    .eq('region_code', regionCode)
+    .eq('is_active', true)
+    .limit(1)
+    .single();
 
-  try {
-    const result = await client.query(`
-      SELECT material_multiplier, labor_multiplier, equipment_multiplier
-      FROM regional_multipliers
-      WHERE region_code = $1 AND is_active = true
-      LIMIT 1
-    `, [regionCode]);
-
-    if (result.rows.length > 0) {
-      const row = result.rows[0];
-      return {
-        material: parseFloat(row.material_multiplier || '1.0'),
-        labor: parseFloat(row.labor_multiplier || '1.0'),
-        equipment: parseFloat(row.equipment_multiplier || '1.0')
-      };
-    }
-
-    return { material: 1.0, labor: 1.0, equipment: 1.0 };
-  } finally {
-    client.release();
+  if (data && !error) {
+    return {
+      material: parseFloat(data.material_multiplier || '1.0'),
+      labor: parseFloat(data.labor_multiplier || '1.0'),
+      equipment: parseFloat(data.equipment_multiplier || '1.0')
+    };
   }
+
+  return { material: 1.0, labor: 1.0, equipment: 1.0 };
 }
 
 /**
@@ -237,56 +228,56 @@ export async function getCarrierOpRules(carrierProfileId: string | null): Promis
   taxOnMaterialsOnly: boolean;
   maxDepreciationPct: number;
 }> {
-  const client = await pool.connect();
+  let data = null;
+  let error = null;
 
-  try {
-    let result;
+  if (carrierProfileId) {
+    const result = await supabaseAdmin
+      .from('carrier_profiles')
+      .select('overhead_pct, profit_pct, op_threshold, op_trade_minimum, tax_on_materials_only, max_depreciation_pct')
+      .eq('id', carrierProfileId)
+      .eq('is_active', true)
+      .limit(1)
+      .single();
 
-    if (carrierProfileId) {
-      result = await client.query(`
-        SELECT overhead_pct, profit_pct, op_threshold, op_trade_minimum,
-               tax_on_materials_only, max_depreciation_pct
-        FROM carrier_profiles
-        WHERE id = $1 AND is_active = true
-        LIMIT 1
-      `, [carrierProfileId]);
-    }
-
-    if (!result || result.rows.length === 0) {
-      // Fall back to DEFAULT profile
-      result = await client.query(`
-        SELECT overhead_pct, profit_pct, op_threshold, op_trade_minimum,
-               tax_on_materials_only, max_depreciation_pct
-        FROM carrier_profiles
-        WHERE code = 'DEFAULT' AND is_active = true
-        LIMIT 1
-      `);
-    }
-
-    if (result.rows.length > 0) {
-      const row = result.rows[0];
-      return {
-        overheadPct: parseFloat(row.overhead_pct || '10'),
-        profitPct: parseFloat(row.profit_pct || '10'),
-        opThreshold: parseFloat(row.op_threshold || '0'),
-        opTradeMinimum: parseInt(row.op_trade_minimum || '3'),
-        taxOnMaterialsOnly: row.tax_on_materials_only !== false,
-        maxDepreciationPct: parseFloat(row.max_depreciation_pct || '80')
-      };
-    }
-
-    // Ultimate fallback
-    return {
-      overheadPct: 10,
-      profitPct: 10,
-      opThreshold: 0,
-      opTradeMinimum: 3,
-      taxOnMaterialsOnly: true,
-      maxDepreciationPct: 80
-    };
-  } finally {
-    client.release();
+    data = result.data;
+    error = result.error;
   }
+
+  if (!data) {
+    // Fall back to DEFAULT profile
+    const result = await supabaseAdmin
+      .from('carrier_profiles')
+      .select('overhead_pct, profit_pct, op_threshold, op_trade_minimum, tax_on_materials_only, max_depreciation_pct')
+      .eq('code', 'DEFAULT')
+      .eq('is_active', true)
+      .limit(1)
+      .single();
+
+    data = result.data;
+    error = result.error;
+  }
+
+  if (data && !error) {
+    return {
+      overheadPct: parseFloat(data.overhead_pct || '10'),
+      profitPct: parseFloat(data.profit_pct || '10'),
+      opThreshold: parseFloat(data.op_threshold || '0'),
+      opTradeMinimum: parseInt(data.op_trade_minimum || '3'),
+      taxOnMaterialsOnly: data.tax_on_materials_only !== false,
+      maxDepreciationPct: parseFloat(data.max_depreciation_pct || '80')
+    };
+  }
+
+  // Ultimate fallback
+  return {
+    overheadPct: 10,
+    profitPct: 10,
+    opThreshold: 0,
+    opTradeMinimum: 3,
+    taxOnMaterialsOnly: true,
+    maxDepreciationPct: 80
+  };
 }
 
 /**

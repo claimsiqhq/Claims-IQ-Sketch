@@ -4,7 +4,8 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { storage } from "./storage";
-import { db, pool } from "./db";
+import { db } from "./db";
+import { supabaseAdmin } from './lib/supabaseAdmin';
 import { xactCategories, xactLineItems, xactComponents } from "@shared/schema";
 import { sql, eq, and } from "drizzle-orm";
 import {
@@ -624,20 +625,20 @@ export async function registerRoutes(
   app.get('/api/users/preferences', requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT preferences FROM users WHERE id = $1',
-          [userId]
-        );
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('preferences')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'User not found' });
         }
-        res.json(result.rows[0].preferences || {});
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data.preferences || {});
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -649,30 +650,36 @@ export async function registerRoutes(
     try {
       const userId = req.user!.id;
       const preferences = req.body;
-      
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const existingResult = await client.query(
-          'SELECT preferences FROM users WHERE id = $1',
-          [userId]
-        );
-        if (existingResult.rows.length === 0) {
+
+      // Get existing preferences
+      const { data: existingData, error: fetchError } = await supabaseAdmin
+        .from('users')
+        .select('preferences')
+        .eq('id', userId)
+        .single();
+
+      if (fetchError) {
+        if (fetchError.code === 'PGRST116') {
           return res.status(404).json({ error: 'User not found' });
         }
-        
-        const existingPrefs = existingResult.rows[0].preferences || {};
-        const mergedPrefs = { ...existingPrefs, ...preferences };
-        
-        await client.query(
-          'UPDATE users SET preferences = $1::jsonb, updated_at = NOW() WHERE id = $2',
-          [mergedPrefs, userId]
-        );
-        
-        res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
-      } finally {
-        client.release();
+        throw fetchError;
       }
+
+      const existingPrefs = existingData.preferences || {};
+      const mergedPrefs = { ...existingPrefs, ...preferences };
+
+      // Update preferences
+      const { error: updateError } = await supabaseAdmin
+        .from('users')
+        .update({
+          preferences: mergedPrefs,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
+
+      res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -788,26 +795,37 @@ export async function registerRoutes(
   // Get scraped prices from database for visualization
   app.get('/api/scrape/prices', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(`
-          SELECT
-            m.sku,
-            m.name as material_name,
-            m.unit,
-            mrp.region_id,
-            mrp.price,
-            mrp.source,
-            mrp.effective_date
-          FROM material_regional_prices mrp
-          JOIN materials m ON m.id = mrp.material_id
-          ORDER BY mrp.effective_date DESC, m.sku, mrp.region_id
-        `);
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('material_regional_prices')
+        .select(`
+          region_id,
+          price,
+          source,
+          effective_date,
+          materials (
+            sku,
+            name,
+            unit
+          )
+        `)
+        .order('effective_date', { ascending: false })
+        .order('materials(sku)', { ascending: true })
+        .order('region_id', { ascending: true });
+
+      if (error) throw error;
+
+      // Transform to match original format
+      const transformed = data.map(item => ({
+        sku: item.materials.sku,
+        material_name: item.materials.name,
+        unit: item.materials.unit,
+        region_id: item.region_id,
+        price: item.price,
+        source: item.source,
+        effective_date: item.effective_date
+      }));
+
+      res.json(transformed);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -817,20 +835,15 @@ export async function registerRoutes(
   // Get scrape job history
   app.get('/api/scrape/jobs', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(`
-          SELECT id, source, status, started_at, completed_at,
-                 items_processed, items_updated, errors
-          FROM price_scrape_jobs
-          ORDER BY started_at DESC
-          LIMIT 10
-        `);
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('price_scrape_jobs')
+        .select('id, source, status, started_at, completed_at, items_processed, items_updated, errors')
+        .order('started_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -840,64 +853,72 @@ export async function registerRoutes(
   // System status endpoint
   app.get('/api/system/status', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        // Test database connection
-        const dbResult = await client.query('SELECT NOW() as time, version() as version');
-        const dbTime = dbResult.rows[0].time;
-        const dbVersion = dbResult.rows[0].version;
+      // Test database connection
+      const { data: timeData, error: timeError } = await supabaseAdmin
+        .rpc('get_current_time');
 
-        // Helper function to safely count table rows
-        const safeCount = async (tableName: string): Promise<number> => {
-          try {
-            const result = await client.query(`SELECT COUNT(*) FROM ${tableName}`);
-            return parseInt(result.rows[0].count);
-          } catch {
-            return 0; // Table doesn't exist
-          }
-        };
+      const dbTime = timeData || new Date().toISOString();
+      const dbVersion = 'PostgreSQL (Supabase)';
 
-        // Get table counts (handle missing tables gracefully)
-        const [claimsCount, estimatesCount, lineItemsCount, priceListsCount, regionsCount] = await Promise.all([
-          safeCount('claims'),
-          safeCount('estimates'),
-          safeCount('xact_line_items'),
-          safeCount('price_lists'),
-          safeCount('regional_multipliers'),
-        ]);
-
-        // Try to get regions list from regional_multipliers
-        let regions: { id: string; name: string }[] = [];
+      // Helper function to safely count table rows
+      const safeCount = async (tableName: string): Promise<number> => {
         try {
-          const regionsResult = await client.query(
-            `SELECT region_code as id, region_name as name FROM regional_multipliers WHERE is_active = true ORDER BY region_code`
-          );
-          regions = regionsResult.rows;
-        } catch {
-          // Table doesn't exist, that's ok
-        }
+          const { count, error } = await supabaseAdmin
+            .from(tableName)
+            .select('*', { count: 'exact', head: true });
 
-        res.json({
-          database: {
-            connected: true,
-            time: dbTime,
-            version: dbVersion.split(' ')[0] + ' ' + dbVersion.split(' ')[1]
-          },
-          counts: {
-            claims: claimsCount,
-            estimates: estimatesCount,
-            lineItems: lineItemsCount,
-            priceLists: priceListsCount,
-            regions: regionsCount
-          },
-          regions,
-          environment: process.env.NODE_ENV || 'development',
-          openaiConfigured: !!process.env.OPENAI_API_KEY
-        });
-      } finally {
-        client.release();
+          if (error) return 0;
+          return count || 0;
+        } catch {
+          return 0; // Table doesn't exist
+        }
+      };
+
+      // Get table counts (handle missing tables gracefully)
+      const [claimsCount, estimatesCount, lineItemsCount, priceListsCount, regionsCount] = await Promise.all([
+        safeCount('claims'),
+        safeCount('estimates'),
+        safeCount('xact_line_items'),
+        safeCount('price_lists'),
+        safeCount('regional_multipliers'),
+      ]);
+
+      // Try to get regions list from regional_multipliers
+      let regions: { id: string; name: string }[] = [];
+      try {
+        const { data: regionsData, error: regionsError } = await supabaseAdmin
+          .from('regional_multipliers')
+          .select('region_code, region_name')
+          .eq('is_active', true)
+          .order('region_code');
+
+        if (!regionsError && regionsData) {
+          regions = regionsData.map(r => ({
+            id: r.region_code,
+            name: r.region_name
+          }));
+        }
+      } catch {
+        // Table doesn't exist, that's ok
       }
+
+      res.json({
+        database: {
+          connected: true,
+          time: dbTime,
+          version: dbVersion
+        },
+        counts: {
+          claims: claimsCount,
+          estimates: estimatesCount,
+          lineItems: lineItemsCount,
+          priceLists: priceListsCount,
+          regions: regionsCount
+        },
+        regions,
+        environment: process.env.NODE_ENV || 'development',
+        openaiConfigured: !!process.env.OPENAI_API_KEY
+      });
     } catch (error) {
       res.json({
         database: {
@@ -1346,50 +1367,46 @@ export async function registerRoutes(
   app.get('/api/estimates/:id/lock-status', requireAuth, async (req, res) => {
     try {
       const id = req.params.id;
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      
-      try {
-        // First try by estimate ID
-        let result = await client.query(
-          `SELECT id, status, finalized_at
-           FROM estimates
-           WHERE id = $1`,
-          [id]
-        );
-        
-        // If not found, try by claim ID
-        if (result.rows.length === 0) {
-          result = await client.query(
-            `SELECT id, status, finalized_at
-             FROM estimates
-             WHERE claim_id = $1
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            [id]
-          );
-        }
-        
-        if (result.rows.length === 0) {
-          // No estimate exists - return default unlocked status
-          return res.json({
-            isLocked: false,
-            status: 'none',
-            submittedAt: null,
-          });
-        }
-        
-        const row = result.rows[0];
-        const isLocked = row.status === 'submitted' || row.status === 'finalized' || row.finalized_at !== null;
-        
-        return res.json({
-          isLocked,
-          status: row.status || 'draft',
-          submittedAt: row.finalized_at ? new Date(row.finalized_at) : null,
-        });
-      } finally {
-        client.release();
+
+      // First try by estimate ID
+      let { data, error } = await supabaseAdmin
+        .from('estimates')
+        .select('id, status, finalized_at')
+        .eq('id', id)
+        .single();
+
+      // If not found, try by claim ID
+      if (error && error.code === 'PGRST116') {
+        const claimResult = await supabaseAdmin
+          .from('estimates')
+          .select('id, status, finalized_at')
+          .eq('claim_id', id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        data = claimResult.data;
+        error = claimResult.error;
       }
+
+      if (error && error.code === 'PGRST116') {
+        // No estimate exists - return default unlocked status
+        return res.json({
+          isLocked: false,
+          status: 'none',
+          submittedAt: null,
+        });
+      }
+
+      if (error) throw error;
+
+      const isLocked = data.status === 'submitted' || data.status === 'finalized' || data.finalized_at !== null;
+
+      return res.json({
+        isLocked,
+        status: data.status || 'draft',
+        submittedAt: data.finalized_at ? new Date(data.finalized_at) : null,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1436,16 +1453,15 @@ export async function registerRoutes(
   // Get carrier profiles
   app.get('/api/carrier-profiles', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM carrier_profiles WHERE is_active = true ORDER BY name'
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('carrier_profiles')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1455,16 +1471,14 @@ export async function registerRoutes(
   // Get regions
   app.get('/api/regions', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM regions ORDER BY id'
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('regions')
+        .select('*')
+        .order('id');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1478,16 +1492,16 @@ export async function registerRoutes(
   // Get all coverage types
   app.get('/api/coverage-types', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM coverage_types WHERE is_active = true ORDER BY sort_order, code'
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('coverage_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order')
+        .order('code');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1497,20 +1511,21 @@ export async function registerRoutes(
   // Get coverage type by code
   app.get('/api/coverage-types/:code', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM coverage_types WHERE code = $1 AND is_active = true',
-          [req.params.code]
-        );
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('coverage_types')
+        .select('*')
+        .eq('code', req.params.code)
+        .eq('is_active', true)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Coverage type not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1524,30 +1539,27 @@ export async function registerRoutes(
   // Get all tax rates
   app.get('/api/tax-rates', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { region_code, tax_type } = req.query;
-        let query = 'SELECT * FROM tax_rates WHERE is_active = true';
-        const params: string[] = [];
-        let paramIndex = 1;
+      const { region_code, tax_type } = req.query;
 
-        if (region_code) {
-          query += ` AND region_code = $${paramIndex}`;
-          params.push(region_code as string);
-          paramIndex++;
-        }
-        if (tax_type) {
-          query += ` AND tax_type = $${paramIndex}`;
-          params.push(tax_type as string);
-        }
+      let query = supabaseAdmin
+        .from('tax_rates')
+        .select('*')
+        .eq('is_active', true);
 
-        query += ' ORDER BY region_code, tax_type';
-        const result = await client.query(query, params);
-        res.json(result.rows);
-      } finally {
-        client.release();
+      if (region_code) {
+        query = query.eq('region_code', region_code as string);
       }
+      if (tax_type) {
+        query = query.eq('tax_type', tax_type as string);
+      }
+
+      const { data, error } = await query
+        .order('region_code')
+        .order('tax_type');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1557,19 +1569,16 @@ export async function registerRoutes(
   // Get tax rate for a specific region
   app.get('/api/tax-rates/region/:regionCode', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM tax_rates
-           WHERE region_code = $1 AND is_active = true
-           ORDER BY tax_type`,
-          [req.params.regionCode]
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('tax_rates')
+        .select('*')
+        .eq('region_code', req.params.regionCode)
+        .eq('is_active', true)
+        .order('tax_type');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1583,30 +1592,26 @@ export async function registerRoutes(
   // Get all depreciation schedules
   app.get('/api/depreciation-schedules', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { category_code, item_type } = req.query;
-        let query = 'SELECT * FROM depreciation_schedules WHERE 1=1';
-        const params: string[] = [];
-        let paramIndex = 1;
+      const { category_code, item_type } = req.query;
 
-        if (category_code) {
-          query += ` AND category_code = $${paramIndex}`;
-          params.push(category_code as string);
-          paramIndex++;
-        }
-        if (item_type) {
-          query += ` AND item_type ILIKE $${paramIndex}`;
-          params.push(`%${item_type}%`);
-        }
+      let query = supabaseAdmin
+        .from('depreciation_schedules')
+        .select('*');
 
-        query += ' ORDER BY category_code, item_type';
-        const result = await client.query(query, params);
-        res.json(result.rows);
-      } finally {
-        client.release();
+      if (category_code) {
+        query = query.eq('category_code', category_code as string);
       }
+      if (item_type) {
+        query = query.ilike('item_type', `%${item_type}%`);
+      }
+
+      const { data, error } = await query
+        .order('category_code')
+        .order('item_type');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1616,19 +1621,15 @@ export async function registerRoutes(
   // Get depreciation schedule by category
   app.get('/api/depreciation-schedules/category/:categoryCode', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM depreciation_schedules
-           WHERE category_code = $1
-           ORDER BY item_type`,
-          [req.params.categoryCode]
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('depreciation_schedules')
+        .select('*')
+        .eq('category_code', req.params.categoryCode)
+        .order('item_type');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1642,16 +1643,15 @@ export async function registerRoutes(
   // Get all regional multipliers
   app.get('/api/regional-multipliers', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM regional_multipliers WHERE is_active = true ORDER BY region_code'
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('regional_multipliers')
+        .select('*')
+        .eq('is_active', true)
+        .order('region_code');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1661,20 +1661,21 @@ export async function registerRoutes(
   // Get regional multiplier by region code
   app.get('/api/regional-multipliers/:regionCode', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM regional_multipliers WHERE region_code = $1 AND is_active = true',
-          [req.params.regionCode]
-        );
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('regional_multipliers')
+        .select('*')
+        .eq('region_code', req.params.regionCode)
+        .eq('is_active', true)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Regional multiplier not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1688,30 +1689,27 @@ export async function registerRoutes(
   // Get all labor rates
   app.get('/api/labor-rates', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { trade_code, region_code } = req.query;
-        let query = 'SELECT * FROM labor_rates_enhanced WHERE is_active = true';
-        const params: string[] = [];
-        let paramIndex = 1;
+      const { trade_code, region_code } = req.query;
 
-        if (trade_code) {
-          query += ` AND trade_code = $${paramIndex}`;
-          params.push(trade_code as string);
-          paramIndex++;
-        }
-        if (region_code) {
-          query += ` AND region_code = $${paramIndex}`;
-          params.push(region_code as string);
-        }
+      let query = supabaseAdmin
+        .from('labor_rates_enhanced')
+        .select('*')
+        .eq('is_active', true);
 
-        query += ' ORDER BY trade_code, region_code';
-        const result = await client.query(query, params);
-        res.json(result.rows);
-      } finally {
-        client.release();
+      if (trade_code) {
+        query = query.eq('trade_code', trade_code as string);
       }
+      if (region_code) {
+        query = query.eq('region_code', region_code as string);
+      }
+
+      const { data, error } = await query
+        .order('trade_code')
+        .order('region_code');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1721,19 +1719,16 @@ export async function registerRoutes(
   // Get labor rate for specific trade
   app.get('/api/labor-rates/trade/:tradeCode', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM labor_rates_enhanced
-           WHERE trade_code = $1 AND is_active = true
-           ORDER BY region_code`,
-          [req.params.tradeCode]
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('labor_rates_enhanced')
+        .select('*')
+        .eq('trade_code', req.params.tradeCode)
+        .eq('is_active', true)
+        .order('region_code');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1747,18 +1742,16 @@ export async function registerRoutes(
   // Get all price lists
   app.get('/api/price-lists', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM price_lists
-           WHERE is_active = true
-           ORDER BY effective_date DESC, region_code`
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('price_lists')
+        .select('*')
+        .eq('is_active', true)
+        .order('effective_date', { ascending: false })
+        .order('region_code');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1768,20 +1761,21 @@ export async function registerRoutes(
   // Get price list by code
   app.get('/api/price-lists/:code', async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'SELECT * FROM price_lists WHERE code = $1 AND is_active = true',
-          [req.params.code]
-        );
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('price_lists')
+        .select('*')
+        .eq('code', req.params.code)
+        .eq('is_active', true)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Price list not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -1960,15 +1954,14 @@ export async function registerRoutes(
       // Check if estimate is locked
       await assertEstimateNotLocked(req.params.id);
 
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        await client.query('SELECT recalculate_estimate_totals($1)', [req.params.id]);
-        const estimate = await getEstimate(req.params.id);
-        res.json(estimate);
-      } finally {
-        client.release();
-      }
+      const { error } = await supabaseAdmin.rpc('recalculate_estimate_totals', {
+        estimate_id: req.params.id
+      });
+
+      if (error) throw error;
+
+      const estimate = await getEstimate(req.params.id);
+      res.json(estimate);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('finalized')) {
@@ -2388,17 +2381,15 @@ export async function registerRoutes(
   // Get zone line items
   app.get('/api/zones/:id/line-items', requireAuth, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM estimate_line_items WHERE zone_id = $1 ORDER BY sort_order`,
-          [req.params.id]
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('estimate_line_items')
+        .select('*')
+        .eq('zone_id', req.params.id)
+        .order('sort_order');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -2442,20 +2433,18 @@ export async function registerRoutes(
         await assertEstimateNotLocked(estimateId);
       }
 
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          'DELETE FROM estimate_line_items WHERE id = $1',
-          [req.params.id]
-        );
-        if (result.rowCount === 0) {
-          return res.status(404).json({ error: 'Line item not found' });
-        }
-        res.json({ success: true });
-      } finally {
-        client.release();
+      const { data, error, count } = await supabaseAdmin
+        .from('estimate_line_items')
+        .delete({ count: 'exact' })
+        .eq('id', req.params.id);
+
+      if (error) throw error;
+
+      if (count === 0) {
+        return res.status(404).json({ error: 'Line item not found' });
       }
+
+      res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('finalized')) {
@@ -2475,65 +2464,61 @@ export async function registerRoutes(
         await assertEstimateNotLocked(estimateId);
       }
 
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const setClauses: string[] = [];
-        const values: any[] = [];
-        let paramIndex = 1;
+      const allowedFields = [
+        'quantity', 'notes', 'is_homeowner', 'is_credit', 'is_non_op',
+        'depreciation_pct', 'depreciation_amount', 'age_years', 'life_expectancy_years',
+        'is_recoverable', 'calc_ref'
+      ];
 
-        const allowedFields = [
-          'quantity', 'notes', 'is_homeowner', 'is_credit', 'is_non_op',
-          'depreciation_pct', 'depreciation_amount', 'age_years', 'life_expectancy_years',
-          'is_recoverable', 'calc_ref'
-        ];
-
-        for (const field of allowedFields) {
-          const camelField = field.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          if (req.body[camelField] !== undefined) {
-            setClauses.push(`${field} = $${paramIndex++}`);
-            values.push(req.body[camelField]);
-          }
+      const updateData: any = {};
+      for (const field of allowedFields) {
+        const camelField = field.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+        if (req.body[camelField] !== undefined) {
+          updateData[field] = req.body[camelField];
         }
+      }
 
-        if (setClauses.length === 0) {
-          const result = await client.query(
-            'SELECT * FROM estimate_line_items WHERE id = $1',
-            [req.params.id]
-          );
-          if (result.rows.length === 0) {
+      if (Object.keys(updateData).length === 0) {
+        const { data, error } = await supabaseAdmin
+          .from('estimate_line_items')
+          .select('*')
+          .eq('id', req.params.id)
+          .single();
+
+        if (error) {
+          if (error.code === 'PGRST116') {
             return res.status(404).json({ error: 'Line item not found' });
           }
-          return res.json(result.rows[0]);
+          throw error;
         }
 
-        setClauses.push('updated_at = NOW()');
-        values.push(req.params.id);
+        return res.json(data);
+      }
 
-        const result = await client.query(
-          `UPDATE estimate_line_items SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-          values
-        );
+      updateData.updated_at = new Date().toISOString();
 
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('estimate_line_items')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .select('*')
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Line item not found' });
         }
-
-        // Recalculate subtotal if quantity changed
-        if (req.body.quantity !== undefined) {
-          await client.query(
-            `UPDATE estimate_line_items
-             SET subtotal = quantity * unit_price,
-                 acv = (quantity * unit_price + COALESCE(tax_amount, 0)) * (1 - COALESCE(depreciation_pct, 0) / 100)
-             WHERE id = $1`,
-            [req.params.id]
-          );
-        }
-
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      // Recalculate subtotal if quantity changed
+      if (req.body.quantity !== undefined) {
+        await supabaseAdmin.rpc('recalculate_line_item_totals', {
+          line_item_id: req.params.id
+        });
+      }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -2819,17 +2804,16 @@ export async function registerRoutes(
       // Associate documents with the claim if documentIds are provided in metadata
       const documentIds = req.body.metadata?.documentIds;
       if (documentIds && Array.isArray(documentIds) && documentIds.length > 0) {
-        const { pool } = await import('./db');
-        const client = await pool.connect();
-        try {
-          await client.query(
-            `UPDATE documents SET claim_id = $1, updated_at = NOW()
-             WHERE id = ANY($2) AND organization_id = $3`,
-            [claim.id, documentIds, req.organizationId]
-          );
-        } finally {
-          client.release();
-        }
+        const { error } = await supabaseAdmin
+          .from('documents')
+          .update({
+            claim_id: claim.id,
+            updated_at: new Date().toISOString()
+          })
+          .in('id', documentIds)
+          .eq('organization_id', req.organizationId);
+
+        if (error) throw error;
       }
 
       // Queue geocoding for the new claim address
@@ -2940,27 +2924,28 @@ export async function registerRoutes(
       if (!claim) {
         return res.status(404).json({ error: 'Claim not found' });
       }
-      
+
       // Associate any documents from metadata.documentIds with the claim
       const documentIds = claim.metadata?.documentIds;
       if (Array.isArray(documentIds) && documentIds.length > 0) {
-        const client = await pool.connect();
-        try {
-          await client.query(
-            `UPDATE documents SET claim_id = $1, updated_at = NOW()
-             WHERE id = ANY($2) AND organization_id = $3 AND claim_id IS NULL`,
-            [claim.id, documentIds, req.organizationId]
-          );
-        } finally {
-          client.release();
-        }
+        const { error } = await supabaseAdmin
+          .from('documents')
+          .update({
+            claim_id: claim.id,
+            updated_at: new Date().toISOString()
+          })
+          .in('id', documentIds)
+          .eq('organization_id', req.organizationId!)
+          .is('claim_id', null);
+
+        if (error) throw error;
       }
-      
+
       // Re-geocode if address fields were updated
       if (req.body.propertyAddress || req.body.propertyCity || req.body.propertyState || req.body.propertyZip) {
         queueGeocoding(claim.id);
       }
-      
+
       res.json(claim);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -3006,15 +2991,16 @@ export async function registerRoutes(
       const { saveClaimHierarchy, saveClaimRoomsAndZones } = await import('./services/rooms');
       
       // Verify claim exists and belongs to organization
-      const { pool } = await import('./db');
-      const claimCheck = await pool.query(
-        `SELECT id FROM claims WHERE id = $1 AND organization_id = $2`,
-        [req.params.id, req.organizationId]
-      );
-      if (claimCheck.rows.length === 0) {
+      const { data: claimCheck, error: claimError } = await supabaseAdmin
+        .from('claims')
+        .select('id')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId)
+        .single();
+      if (claimError || !claimCheck) {
         return res.status(404).json({ error: 'Claim not found' });
       }
-      
+
       // Use new hierarchy save if structures provided
       if (structures && structures.length > 0) {
         const result = await saveClaimHierarchy(
@@ -3061,15 +3047,16 @@ export async function registerRoutes(
       const { getClaimHierarchy } = await import('./services/rooms');
       
       // Verify claim exists and belongs to organization
-      const { pool } = await import('./db');
-      const claimCheck = await pool.query(
-        `SELECT id FROM claims WHERE id = $1 AND organization_id = $2`,
-        [req.params.id, req.organizationId]
-      );
-      if (claimCheck.rows.length === 0) {
+      const { data: claimCheck, error: claimError } = await supabaseAdmin
+        .from('claims')
+        .select('id')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId)
+        .single();
+      if (claimError || !claimCheck) {
         return res.status(404).json({ error: 'Claim not found' });
       }
-      
+
       const result = await getClaimHierarchy(req.params.id);
       res.json(result);
     } catch (error) {
@@ -3159,17 +3146,16 @@ export async function registerRoutes(
   // Get claim policy forms
   app.get('/api/claims/:id/policy-forms', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM policy_forms WHERE claim_id = $1 AND organization_id = $2 ORDER BY created_at`,
-          [req.params.id, req.organizationId]
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('policy_forms')
+        .select('*')
+        .eq('claim_id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .order('created_at');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3179,17 +3165,16 @@ export async function registerRoutes(
   // Get claim endorsements
   app.get('/api/claims/:id/endorsements', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM endorsements WHERE claim_id = $1 AND organization_id = $2 ORDER BY created_at`,
-          [req.params.id, req.organizationId]
-        );
-        res.json(result.rows);
-      } finally {
-        client.release();
-      }
+      const { data, error } = await supabaseAdmin
+        .from('endorsements')
+        .select('*')
+        .eq('claim_id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .order('created_at');
+
+      if (error) throw error;
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3238,27 +3223,27 @@ export async function registerRoutes(
    */
   app.get('/api/claims/:id/inspection-intelligence', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        // Get the claim's peril
-        const claimResult = await client.query(
-          `SELECT primary_peril, secondary_perils FROM claims WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (claimResult.rows.length === 0) {
+      // Get the claim's peril
+      const { data, error } = await supabaseAdmin
+        .from('claims')
+        .select('primary_peril, secondary_perils')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Claim not found' });
         }
-        const { primary_peril, secondary_perils } = claimResult.rows[0];
-        const peril = primary_peril || 'other';
-        const secondaryPerils = Array.isArray(secondary_perils) ? secondary_perils : [];
-
-        // Build inspection intelligence
-        const intelligence = buildInspectionIntelligence(peril, secondaryPerils);
-        res.json(intelligence);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      const peril = data.primary_peril || 'other';
+      const secondaryPerils = Array.isArray(data.secondary_perils) ? data.secondary_perils : [];
+
+      // Build inspection intelligence
+      const intelligence = buildInspectionIntelligence(peril, secondaryPerils);
+      res.json(intelligence);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3669,25 +3654,26 @@ export async function registerRoutes(
    */
   app.get('/api/claims/:id/carrier-guidance', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        // Get the claim's peril
-        const claimResult = await client.query(
-          `SELECT primary_peril FROM claims WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (claimResult.rows.length === 0) {
+      // Get the claim's peril
+      const { data, error } = await supabaseAdmin
+        .from('claims')
+        .select('primary_peril')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Claim not found' });
         }
-        const peril = claimResult.rows[0].primary_peril || 'other';
-
-        // Get merged inspection with carrier overlay
-        const mergedInspection = await getMergedInspectionForClaim(req.params.id, peril);
-        res.json(mergedInspection);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      const peril = data.primary_peril || 'other';
+
+      // Get merged inspection with carrier overlay
+      const mergedInspection = await getMergedInspectionForClaim(req.params.id, peril);
+      res.json(mergedInspection);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3701,23 +3687,27 @@ export async function registerRoutes(
   // Create policy form
   app.post('/api/policy-forms', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { claimId, formNumber, documentTitle, description, keyProvisions } = req.body;
-        if (!formNumber) {
-          return res.status(400).json({ error: 'formNumber required' });
-        }
-        const result = await client.query(
-          `INSERT INTO policy_forms (organization_id, claim_id, form_number, document_title, description, key_provisions)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING *`,
-          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, JSON.stringify(keyProvisions || {})]
-        );
-        res.status(201).json(result.rows[0]);
-      } finally {
-        client.release();
+      const { claimId, formNumber, documentTitle, description, keyProvisions } = req.body;
+      if (!formNumber) {
+        return res.status(400).json({ error: 'formNumber required' });
       }
+
+      const { data, error } = await supabaseAdmin
+        .from('policy_forms')
+        .insert({
+          organization_id: req.organizationId,
+          claim_id: claimId || null,
+          form_number: formNumber,
+          document_title: documentTitle || null,
+          description: description || null,
+          key_provisions: keyProvisions || {}
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      res.status(201).json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3727,20 +3717,21 @@ export async function registerRoutes(
   // Get policy form
   app.get('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM policy_forms WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('policy_forms')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Policy form not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3750,29 +3741,31 @@ export async function registerRoutes(
   // Update policy form
   app.put('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { formNumber, documentTitle, description, keyProvisions, claimId } = req.body;
-        const result = await client.query(
-          `UPDATE policy_forms SET
-             form_number = COALESCE($1, form_number),
-             document_title = COALESCE($2, document_title),
-             description = COALESCE($3, description),
-             key_provisions = COALESCE($4, key_provisions),
-             claim_id = COALESCE($5, claim_id),
-             updated_at = NOW()
-           WHERE id = $6 AND organization_id = $7
-           RETURNING *`,
-          [formNumber, documentTitle, description, keyProvisions ? JSON.stringify(keyProvisions) : null, claimId, req.params.id, req.organizationId]
-        );
-        if (result.rows.length === 0) {
+      const { formNumber, documentTitle, description, keyProvisions, claimId } = req.body;
+
+      const updateData: any = { updated_at: new Date().toISOString() };
+      if (formNumber !== undefined) updateData.form_number = formNumber;
+      if (documentTitle !== undefined) updateData.document_title = documentTitle;
+      if (description !== undefined) updateData.description = description;
+      if (keyProvisions !== undefined) updateData.key_provisions = keyProvisions;
+      if (claimId !== undefined) updateData.claim_id = claimId;
+
+      const { data, error } = await supabaseAdmin
+        .from('policy_forms')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .select('*')
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Policy form not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3782,20 +3775,19 @@ export async function registerRoutes(
   // Delete policy form
   app.delete('/api/policy-forms/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `DELETE FROM policy_forms WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (result.rowCount === 0) {
-          return res.status(404).json({ error: 'Policy form not found' });
-        }
-        res.json({ success: true });
-      } finally {
-        client.release();
+      const { data, error, count } = await supabaseAdmin
+        .from('policy_forms')
+        .delete({ count: 'exact' })
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!);
+
+      if (error) throw error;
+
+      if (count === 0) {
+        return res.status(404).json({ error: 'Policy form not found' });
       }
+
+      res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3809,23 +3801,28 @@ export async function registerRoutes(
   // Create endorsement
   app.post('/api/endorsements', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { claimId, formNumber, documentTitle, description, appliesToState, keyChanges } = req.body;
-        if (!formNumber) {
-          return res.status(400).json({ error: 'formNumber required' });
-        }
-        const result = await client.query(
-          `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, applies_to_state, key_changes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING *`,
-          [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, appliesToState || null, JSON.stringify(keyChanges || {})]
-        );
-        res.status(201).json(result.rows[0]);
-      } finally {
-        client.release();
+      const { claimId, formNumber, documentTitle, description, appliesToState, keyChanges } = req.body;
+      if (!formNumber) {
+        return res.status(400).json({ error: 'formNumber required' });
       }
+
+      const { data, error } = await supabaseAdmin
+        .from('endorsements')
+        .insert({
+          organization_id: req.organizationId,
+          claim_id: claimId || null,
+          form_number: formNumber,
+          document_title: documentTitle || null,
+          description: description || null,
+          applies_to_state: appliesToState || null,
+          key_changes: keyChanges || {}
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      res.status(201).json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3835,46 +3832,51 @@ export async function registerRoutes(
   // Bulk create endorsements
   app.post('/api/endorsements/bulk', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { claimId, endorsements } = req.body;
-        if (!endorsements || !Array.isArray(endorsements) || endorsements.length === 0) {
-          return res.status(400).json({ error: 'endorsements array required' });
-        }
-
-        const results = [];
-        for (const endorsement of endorsements) {
-          const { formNumber, documentTitle, description, appliesToState, keyChanges } = endorsement;
-          if (!formNumber) continue;
-
-          const result = await client.query(
-            `INSERT INTO endorsements (organization_id, claim_id, form_number, document_title, description, applies_to_state, key_changes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING *`,
-            [req.organizationId, claimId || null, formNumber, documentTitle || null, description || null, appliesToState || null, JSON.stringify(keyChanges || {})]
-          );
-          results.push(result.rows[0]);
-        }
-
-        // Also update the documents associated with the endorsements to link to the claim
-        if (claimId) {
-          const docIds = endorsements
-            .filter((e: any) => e.documentId)
-            .map((e: any) => e.documentId);
-
-          if (docIds.length > 0) {
-            await client.query(
-              `UPDATE documents SET claim_id = $1, updated_at = NOW() WHERE id = ANY($2) AND organization_id = $3`,
-              [claimId, docIds, req.organizationId]
-            );
-          }
-        }
-
-        res.status(201).json({ endorsements: results, count: results.length });
-      } finally {
-        client.release();
+      const { claimId, endorsements } = req.body;
+      if (!endorsements || !Array.isArray(endorsements) || endorsements.length === 0) {
+        return res.status(400).json({ error: 'endorsements array required' });
       }
+
+      const endorsementsToInsert = endorsements
+        .filter((e: any) => e.formNumber)
+        .map((endorsement: any) => ({
+          organization_id: req.organizationId,
+          claim_id: claimId || null,
+          form_number: endorsement.formNumber,
+          document_title: endorsement.documentTitle || null,
+          description: endorsement.description || null,
+          applies_to_state: endorsement.appliesToState || null,
+          key_changes: endorsement.keyChanges || {}
+        }));
+
+      const { data, error } = await supabaseAdmin
+        .from('endorsements')
+        .insert(endorsementsToInsert)
+        .select('*');
+
+      if (error) throw error;
+
+      // Also update the documents associated with the endorsements to link to the claim
+      if (claimId) {
+        const docIds = endorsements
+          .filter((e: any) => e.documentId)
+          .map((e: any) => e.documentId);
+
+        if (docIds.length > 0) {
+          const { error: docError } = await supabaseAdmin
+            .from('documents')
+            .update({
+              claim_id: claimId,
+              updated_at: new Date().toISOString()
+            })
+            .in('id', docIds)
+            .eq('organization_id', req.organizationId!);
+
+          if (docError) throw docError;
+        }
+      }
+
+      res.status(201).json({ endorsements: data, count: data.length });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3884,20 +3886,21 @@ export async function registerRoutes(
   // Get endorsement
   app.get('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `SELECT * FROM endorsements WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (result.rows.length === 0) {
+      const { data, error } = await supabaseAdmin
+        .from('endorsements')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Endorsement not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3907,30 +3910,32 @@ export async function registerRoutes(
   // Update endorsement
   app.put('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const { formNumber, documentTitle, description, appliesToState, keyChanges, claimId } = req.body;
-        const result = await client.query(
-          `UPDATE endorsements SET
-             form_number = COALESCE($1, form_number),
-             document_title = COALESCE($2, document_title),
-             description = COALESCE($3, description),
-             applies_to_state = COALESCE($4, applies_to_state),
-             key_changes = COALESCE($5, key_changes),
-             claim_id = COALESCE($6, claim_id),
-             updated_at = NOW()
-           WHERE id = $7 AND organization_id = $8
-           RETURNING *`,
-          [formNumber, documentTitle, description, appliesToState, keyChanges ? JSON.stringify(keyChanges) : null, claimId, req.params.id, req.organizationId]
-        );
-        if (result.rows.length === 0) {
+      const { formNumber, documentTitle, description, appliesToState, keyChanges, claimId } = req.body;
+
+      const updateData: any = { updated_at: new Date().toISOString() };
+      if (formNumber !== undefined) updateData.form_number = formNumber;
+      if (documentTitle !== undefined) updateData.document_title = documentTitle;
+      if (description !== undefined) updateData.description = description;
+      if (appliesToState !== undefined) updateData.applies_to_state = appliesToState;
+      if (keyChanges !== undefined) updateData.key_changes = keyChanges;
+      if (claimId !== undefined) updateData.claim_id = claimId;
+
+      const { data, error } = await supabaseAdmin
+        .from('endorsements')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .select('*')
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           return res.status(404).json({ error: 'Endorsement not found' });
         }
-        res.json(result.rows[0]);
-      } finally {
-        client.release();
+        throw error;
       }
+
+      res.json(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
@@ -3940,20 +3945,19 @@ export async function registerRoutes(
   // Delete endorsement
   app.delete('/api/endorsements/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { pool } = await import('./db');
-      const client = await pool.connect();
-      try {
-        const result = await client.query(
-          `DELETE FROM endorsements WHERE id = $1 AND organization_id = $2`,
-          [req.params.id, req.organizationId]
-        );
-        if (result.rowCount === 0) {
-          return res.status(404).json({ error: 'Endorsement not found' });
-        }
-        res.json({ success: true });
-      } finally {
-        client.release();
+      const { data, error, count } = await supabaseAdmin
+        .from('endorsements')
+        .delete({ count: 'exact' })
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!);
+
+      if (error) throw error;
+
+      if (count === 0) {
+        return res.status(404).json({ error: 'Endorsement not found' });
       }
+
+      res.json({ success: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });

@@ -10,7 +10,7 @@
  * - Overlays are OPTIONAL and transparent to adjusters
  */
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { Peril, CarrierInspectionOverlays, CarrierPerilOverlay } from '../../shared/schema';
 import {
   getInspectionRulesForPeril,
@@ -60,32 +60,25 @@ export async function getCarrierOverlays(carrierId: string): Promise<{
   carrier: { id: string; name: string; code: string } | null;
   overlays: CarrierInspectionOverlays | null;
 }> {
-  const client = await pool.connect();
+  const { data: carrierData, error } = await supabaseAdmin
+    .from('carrier_profiles')
+    .select('id, name, code, carrier_inspection_overlays')
+    .eq('id', carrierId)
+    .eq('is_active', true)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT id, name, code, carrier_inspection_overlays
-       FROM carrier_profiles
-       WHERE id = $1 AND is_active = true`,
-      [carrierId]
-    );
-
-    if (result.rows.length === 0) {
-      return { carrier: null, overlays: null };
-    }
-
-    const row = result.rows[0];
-    return {
-      carrier: {
-        id: row.id,
-        name: row.name,
-        code: row.code,
-      },
-      overlays: row.carrier_inspection_overlays as CarrierInspectionOverlays || {},
-    };
-  } finally {
-    client.release();
+  if (error || !carrierData) {
+    return { carrier: null, overlays: null };
   }
+
+  return {
+    carrier: {
+      id: carrierData.id,
+      name: carrierData.name,
+      code: carrierData.code,
+    },
+    overlays: carrierData.carrier_inspection_overlays as CarrierInspectionOverlays || {},
+  };
 }
 
 /**
@@ -95,26 +88,19 @@ export async function getCarrierOverlaysForClaim(claimId: string): Promise<{
   carrier: { id: string; name: string; code: string } | null;
   overlays: CarrierInspectionOverlays | null;
 }> {
-  const client = await pool.connect();
+  // First get the carrier ID from the claim
+  const { data: claimData, error } = await supabaseAdmin
+    .from('claims')
+    .select('carrier_id')
+    .eq('id', claimId)
+    .single();
 
-  try {
-    // First get the carrier ID from the claim
-    const claimResult = await client.query(
-      `SELECT carrier_id FROM claims WHERE id = $1`,
-      [claimId]
-    );
-
-    if (claimResult.rows.length === 0 || !claimResult.rows[0].carrier_id) {
-      return { carrier: null, overlays: null };
-    }
-
-    const carrierId = claimResult.rows[0].carrier_id;
-
-    // Then get the carrier overlays
-    return await getCarrierOverlays(carrierId);
-  } finally {
-    client.release();
+  if (error || !claimData || !claimData.carrier_id) {
+    return { carrier: null, overlays: null };
   }
+
+  // Then get the carrier overlays
+  return await getCarrierOverlays(claimData.carrier_id);
 }
 
 // ============================================
@@ -325,18 +311,13 @@ export async function updateCarrierOverlays(
   carrierId: string,
   overlays: CarrierInspectionOverlays
 ): Promise<boolean> {
-  const client = await pool.connect();
+  const { error } = await supabaseAdmin
+    .from('carrier_profiles')
+    .update({
+      carrier_inspection_overlays: overlays,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', carrierId);
 
-  try {
-    const result = await client.query(
-      `UPDATE carrier_profiles
-       SET carrier_inspection_overlays = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [JSON.stringify(overlays), carrierId]
-    );
-
-    return (result.rowCount || 0) > 0;
-  } finally {
-    client.release();
-  }
+  return !error;
 }

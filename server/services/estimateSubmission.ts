@@ -8,7 +8,7 @@
  * 4. Update status to pending_review
  */
 
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getEstimate } from './estimateCalculator';
 import { getEstimateHierarchy } from './estimateHierarchy';
 import {
@@ -61,121 +61,110 @@ export interface EstimateLockStatus {
  *    - Sets is_locked to true
  */
 export async function submitEstimate(estimateId: string): Promise<SubmissionResult> {
-  const client = await pool.connect();
+  // Check if estimate exists and is not already locked
+  const lockStatus = await getEstimateLockStatus(estimateId);
 
-  try {
-    // Check if estimate exists and is not already locked
-    const lockStatus = await getEstimateLockStatus(estimateId);
-
-    if (lockStatus.isLocked) {
-      return {
-        success: false,
-        estimateId,
-        status: lockStatus.status,
-        submittedAt: lockStatus.submittedAt,
-        isLocked: true,
-        validation: {
-          isValid: false,
-          errorCount: 1,
-          warningCount: 0,
-          errors: [{
-            code: 'ALREADY_SUBMITTED',
-            severity: 'error',
-            category: 'dependency',
-            message: 'This estimate has already been submitted and is locked',
-            details: `Submitted at: ${lockStatus.submittedAt?.toISOString() || 'unknown'}`,
-          }],
-          warnings: [],
-        },
-        message: 'This estimate has already been finalized and cannot be edited.',
-      };
-    }
-
-    // Load estimate data
-    const estimate = await getEstimate(estimateId);
-    if (!estimate) {
-      throw new Error(`Estimate not found: ${estimateId}`);
-    }
-
-    // Load hierarchy to get zones
-    const hierarchy = await getEstimateHierarchy(estimateId);
-
-    // Prepare data for validation
-    const estimateForValidation = await prepareEstimateForValidation(
+  if (lockStatus.isLocked) {
+    return {
+      success: false,
       estimateId,
-      estimate,
-      hierarchy
-    );
-
-    // Run full validation
-    const validationResult = await validateEstimateWithRules(estimateForValidation);
-
-    // Extract errors and warnings
-    const errors = validationResult.issues.filter(i => i.severity === 'error');
-    const warnings = validationResult.issues.filter(i => i.severity === 'warning' || i.severity === 'info');
-
-    // If there are validation errors, block submission
-    if (errors.length > 0) {
-      return {
-        success: false,
-        estimateId,
-        status: estimate.status || 'draft',
-        isLocked: false,
-        validation: {
-          isValid: false,
-          errorCount: errors.length,
-          warningCount: warnings.length,
-          errors,
-          warnings,
-        },
-        message: `Submission blocked: ${errors.length} validation error(s) must be resolved before submission.`,
-      };
-    }
-
-    // No blocking errors - proceed with submission
-    await client.query('BEGIN');
-
-    try {
-      // Update estimate: status, submitted_at, is_locked
-      const submittedAt = new Date();
-      await client.query(
-        `UPDATE estimates
-         SET status = 'pending_review',
-             submitted_at = $1,
-             is_locked = true,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [submittedAt, estimateId]
-      );
-
-      await client.query('COMMIT');
-
-      console.log(`Estimate ${estimateId} submitted successfully. Warnings: ${warnings.length}`);
-
-      return {
-        success: true,
-        estimateId,
-        status: 'pending_review',
-        submittedAt,
-        isLocked: true,
-        validation: {
-          isValid: true,
-          errorCount: 0,
-          warningCount: warnings.length,
-          errors: [],
-          warnings,
-        },
-        message: warnings.length > 0
-          ? `Estimate submitted successfully with ${warnings.length} warning(s).`
-          : 'Estimate submitted successfully.',
-      };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    }
-  } finally {
-    client.release();
+      status: lockStatus.status,
+      submittedAt: lockStatus.submittedAt,
+      isLocked: true,
+      validation: {
+        isValid: false,
+        errorCount: 1,
+        warningCount: 0,
+        errors: [{
+          code: 'ALREADY_SUBMITTED',
+          severity: 'error',
+          category: 'dependency',
+          message: 'This estimate has already been submitted and is locked',
+          details: `Submitted at: ${lockStatus.submittedAt?.toISOString() || 'unknown'}`,
+        }],
+        warnings: [],
+      },
+      message: 'This estimate has already been finalized and cannot be edited.',
+    };
   }
+
+  // Load estimate data
+  const estimate = await getEstimate(estimateId);
+  if (!estimate) {
+    throw new Error(`Estimate not found: ${estimateId}`);
+  }
+
+  // Load hierarchy to get zones
+  const hierarchy = await getEstimateHierarchy(estimateId);
+
+  // Prepare data for validation
+  const estimateForValidation = await prepareEstimateForValidation(
+    estimateId,
+    estimate,
+    hierarchy
+  );
+
+  // Run full validation
+  const validationResult = await validateEstimateWithRules(estimateForValidation);
+
+  // Extract errors and warnings
+  const errors = validationResult.issues.filter(i => i.severity === 'error');
+  const warnings = validationResult.issues.filter(i => i.severity === 'warning' || i.severity === 'info');
+
+  // If there are validation errors, block submission
+  if (errors.length > 0) {
+    return {
+      success: false,
+      estimateId,
+      status: estimate.status || 'draft',
+      isLocked: false,
+      validation: {
+        isValid: false,
+        errorCount: errors.length,
+        warningCount: warnings.length,
+        errors,
+        warnings,
+      },
+      message: `Submission blocked: ${errors.length} validation error(s) must be resolved before submission.`,
+    };
+  }
+
+  // No blocking errors - proceed with submission
+  // Update estimate: status, submitted_at, is_locked
+  const submittedAt = new Date();
+  const { error: updateError } = await supabaseAdmin
+    .from('estimates')
+    .update({
+      status: 'pending_review',
+      submitted_at: submittedAt.toISOString(),
+      is_locked: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', estimateId);
+
+  if (updateError) {
+    throw new Error(`Failed to update estimate: ${updateError.message}`);
+  }
+
+  console.log(`Estimate ${estimateId} submitted successfully. Warnings: ${warnings.length}`);
+
+  return {
+    success: true,
+    estimateId,
+    status: 'pending_review',
+    submittedAt,
+    isLocked: true,
+    validation: {
+      isValid: true,
+      errorCount: 0,
+      warningCount: warnings.length,
+      errors: [],
+      warnings,
+    },
+    message: warnings.length > 0
+      ? `Estimate submitted successfully with ${warnings.length} warning(s).`
+      : 'Estimate submitted successfully.',
+  };
 }
 
 // ============================================
@@ -186,31 +175,23 @@ export async function submitEstimate(estimateId: string): Promise<SubmissionResu
  * Get the lock status of an estimate
  */
 export async function getEstimateLockStatus(estimateId: string): Promise<EstimateLockStatus> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('estimates')
+    .select('status, finalized_at')
+    .eq('id', estimateId)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT status, finalized_at
-       FROM estimates
-       WHERE id = $1`,
-      [estimateId]
-    );
-
-    if (result.rows.length === 0) {
-      throw new Error(`Estimate not found: ${estimateId}`);
-    }
-
-    const row = result.rows[0];
-    const isLocked = row.status === 'submitted' || row.status === 'finalized' || row.finalized_at !== null;
-    
-    return {
-      isLocked,
-      status: row.status || 'draft',
-      submittedAt: row.finalized_at ? new Date(row.finalized_at) : undefined,
-    };
-  } finally {
-    client.release();
+  if (error || !data) {
+    throw new Error(`Estimate not found: ${estimateId}`);
   }
+
+  const isLocked = data.status === 'submitted' || data.status === 'finalized' || data.finalized_at !== null;
+
+  return {
+    isLocked,
+    status: data.status || 'draft',
+    submittedAt: data.finalized_at ? new Date(data.finalized_at) : undefined,
+  };
 }
 
 /**
@@ -229,97 +210,98 @@ export async function assertEstimateNotLocked(estimateId: string): Promise<void>
  * Get the estimate ID from a zone ID
  */
 export async function getEstimateIdFromZone(zoneId: string): Promise<string | null> {
-  const client = await pool.connect();
+  const { data: zone, error: zoneError } = await supabaseAdmin
+    .from('estimate_zones')
+    .select('area_id')
+    .eq('id', zoneId)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT e.id as estimate_id
-       FROM estimate_zones z
-       JOIN estimate_areas a ON z.area_id = a.id
-       JOIN estimate_structures s ON a.structure_id = s.id
-       JOIN estimates e ON s.estimate_id = e.id
-       WHERE z.id = $1`,
-      [zoneId]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].estimate_id;
-  } finally {
-    client.release();
+  if (zoneError || !zone) {
+    return null;
   }
+
+  const { data: area, error: areaError } = await supabaseAdmin
+    .from('estimate_areas')
+    .select('structure_id')
+    .eq('id', zone.area_id)
+    .single();
+
+  if (areaError || !area) {
+    return null;
+  }
+
+  const { data: structure, error: structureError } = await supabaseAdmin
+    .from('estimate_structures')
+    .select('estimate_id')
+    .eq('id', area.structure_id)
+    .single();
+
+  if (structureError || !structure) {
+    return null;
+  }
+
+  return structure.estimate_id;
 }
 
 /**
  * Get the estimate ID from a line item ID
  */
 export async function getEstimateIdFromLineItem(lineItemId: string): Promise<string | null> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('estimate_line_items')
+    .select('estimate_id')
+    .eq('id', lineItemId)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT estimate_id FROM estimate_line_items WHERE id = $1`,
-      [lineItemId]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].estimate_id;
-  } finally {
-    client.release();
+  if (error || !data) {
+    return null;
   }
+
+  return data.estimate_id;
 }
 
 /**
  * Get the estimate ID from a structure ID
  */
 export async function getEstimateIdFromStructure(structureId: string): Promise<string | null> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('estimate_structures')
+    .select('estimate_id')
+    .eq('id', structureId)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT estimate_id FROM estimate_structures WHERE id = $1`,
-      [structureId]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].estimate_id;
-  } finally {
-    client.release();
+  if (error || !data) {
+    return null;
   }
+
+  return data.estimate_id;
 }
 
 /**
  * Get the estimate ID from an area ID
  */
 export async function getEstimateIdFromArea(areaId: string): Promise<string | null> {
-  const client = await pool.connect();
+  const { data: area, error: areaError } = await supabaseAdmin
+    .from('estimate_areas')
+    .select('structure_id')
+    .eq('id', areaId)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT e.id as estimate_id
-       FROM estimate_areas a
-       JOIN estimate_structures s ON a.structure_id = s.id
-       JOIN estimates e ON s.estimate_id = e.id
-       WHERE a.id = $1`,
-      [areaId]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].estimate_id;
-  } finally {
-    client.release();
+  if (areaError || !area) {
+    return null;
   }
+
+  const { data: structure, error: structureError } = await supabaseAdmin
+    .from('estimate_structures')
+    .select('estimate_id')
+    .eq('id', area.structure_id)
+    .single();
+
+  if (structureError || !structure) {
+    return null;
+  }
+
+  return structure.estimate_id;
 }
 
 // ============================================
@@ -334,77 +316,75 @@ async function prepareEstimateForValidation(
   estimate: any,
   hierarchy: any
 ): Promise<EstimateForExtendedValidation> {
-  const client = await pool.connect();
+  // Get all line items for this estimate with their associated line_items data
+  const { data: estimateLineItems, error: lineItemsError } = await supabaseAdmin
+    .from('estimate_line_items')
+    .select(`
+      id,
+      line_item_code,
+      line_item_description,
+      quantity,
+      unit,
+      category_id,
+      damage_zone_id,
+      room_name,
+      line_items (
+        default_coverage_code
+      )
+    `)
+    .eq('estimate_id', estimateId);
 
-  try {
-    // Get all line items for this estimate
-    const lineItemsResult = await client.query(
-      `SELECT
-        eli.id,
-        eli.line_item_code as code,
-        eli.line_item_description as description,
-        eli.quantity,
-        eli.unit,
-        eli.category_id as "categoryId",
-        eli.damage_zone_id as "zoneId",
-        eli.room_name as "zoneName",
-        li.default_coverage_code as "coverageCode"
-       FROM estimate_line_items eli
-       LEFT JOIN line_items li ON eli.line_item_code = li.code
-       WHERE eli.estimate_id = $1`,
-      [estimateId]
-    );
+  if (lineItemsError) {
+    throw new Error(`Failed to fetch line items: ${lineItemsError.message}`);
+  }
 
-    // Flatten zones from hierarchy
-    const zones: any[] = [];
-    if (hierarchy?.structures) {
-      for (const structure of hierarchy.structures) {
-        if (structure.areas) {
-          for (const area of structure.areas) {
-            if (area.zones) {
-              for (const zone of area.zones) {
-                zones.push({
-                  id: zone.id,
-                  name: zone.name,
-                  zoneType: zone.zoneType || 'room',
-                  roomType: zone.roomType,
-                  lengthFt: zone.lengthFt ? parseFloat(zone.lengthFt) : undefined,
-                  widthFt: zone.widthFt ? parseFloat(zone.widthFt) : undefined,
-                  heightFt: zone.heightFt ? parseFloat(zone.heightFt) : 8,
-                  damageType: zone.damageType,
-                  damageSeverity: zone.damageSeverity,
-                  waterCategory: zone.waterCategory,
-                  missingWalls: zone.missingWalls || [],
-                  subrooms: zone.subrooms || [],
-                });
-              }
+  // Flatten zones from hierarchy
+  const zones: any[] = [];
+  if (hierarchy?.structures) {
+    for (const structure of hierarchy.structures) {
+      if (structure.areas) {
+        for (const area of structure.areas) {
+          if (area.zones) {
+            for (const zone of area.zones) {
+              zones.push({
+                id: zone.id,
+                name: zone.name,
+                zoneType: zone.zoneType || 'room',
+                roomType: zone.roomType,
+                lengthFt: zone.lengthFt ? parseFloat(zone.lengthFt) : undefined,
+                widthFt: zone.widthFt ? parseFloat(zone.widthFt) : undefined,
+                heightFt: zone.heightFt ? parseFloat(zone.heightFt) : 8,
+                damageType: zone.damageType,
+                damageSeverity: zone.damageSeverity,
+                waterCategory: zone.waterCategory,
+                missingWalls: zone.missingWalls || [],
+                subrooms: zone.subrooms || [],
+              });
             }
           }
         }
       }
     }
-
-    return {
-      id: estimateId,
-      carrierProfileId: estimate.carrierProfileId,
-      jurisdictionId: undefined, // Could be derived from property address state
-      claimTotal: estimate.grandTotal,
-      lineItems: lineItemsResult.rows.map(row => ({
-        id: row.id,
-        code: row.code,
-        description: row.description,
-        quantity: parseFloat(row.quantity) || 0,
-        unit: row.unit,
-        categoryId: row.categoryId,
-        zoneId: row.zoneId,
-        zoneName: row.zoneName,
-        coverageCode: row.coverageCode,
-      })),
-      zones,
-    };
-  } finally {
-    client.release();
   }
+
+  return {
+    id: estimateId,
+    carrierProfileId: estimate.carrierProfileId,
+    jurisdictionId: undefined, // Could be derived from property address state
+    claimTotal: estimate.grandTotal,
+    lineItems: (estimateLineItems || []).map(item => ({
+      id: item.id,
+      code: item.line_item_code,
+      description: item.line_item_description,
+      quantity: parseFloat(item.quantity) || 0,
+      unit: item.unit,
+      categoryId: item.category_id,
+      zoneId: item.damage_zone_id,
+      zoneName: item.room_name,
+      coverageCode: (item.line_items as any)?.default_coverage_code,
+    })),
+    zones,
+  };
 }
 
 /**

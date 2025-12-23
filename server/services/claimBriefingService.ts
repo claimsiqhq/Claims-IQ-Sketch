@@ -18,7 +18,7 @@
 
 import OpenAI from 'openai';
 import crypto from 'crypto';
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { ClaimBriefingContent, PromptKey } from '../../shared/schema';
 import {
   buildPerilAwareClaimContext,
@@ -281,8 +281,6 @@ export async function generateClaimBriefing(
   organizationId: string,
   forceRegenerate: boolean = false
 ): Promise<ClaimBriefingResult> {
-  const client = await pool.connect();
-
   try {
     // Step 1: Build the peril-aware claim context
     const context = await buildPerilAwareClaimContext(claimId);
@@ -298,16 +296,19 @@ export async function generateClaimBriefing(
 
     // Step 3: Check for cached briefing (unless force regenerate)
     if (!forceRegenerate) {
-      const cachedResult = await client.query(
-        `SELECT * FROM claim_briefings
-         WHERE claim_id = $1 AND source_hash = $2 AND status = 'generated'
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        [claimId, sourceHash]
-      );
+      const { data: cachedBriefings, error: cachedError } = await supabaseAdmin
+        .from('claim_briefings')
+        .select('*')
+        .eq('claim_id', claimId)
+        .eq('source_hash', sourceHash)
+        .eq('status', 'generated')
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (cachedResult.rows.length > 0) {
-        const cached = cachedResult.rows[0];
+      if (cachedError) {
+        console.error('Error checking cached briefing:', cachedError);
+      } else if (cachedBriefings && cachedBriefings.length > 0) {
+        const cached = cachedBriefings[0];
         return {
           success: true,
           briefing: cached.briefing_json as ClaimBriefingContent,
@@ -332,20 +333,28 @@ export async function generateClaimBriefing(
     }
 
     // Mark as generating
-    const insertResult = await client.query(
-      `INSERT INTO claim_briefings (organization_id, claim_id, peril, secondary_perils, source_hash, briefing_json, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'generating')
-       RETURNING id`,
-      [
-        organizationId,
-        claimId,
-        context.primaryPeril,
-        JSON.stringify(context.secondaryPerils),
-        sourceHash,
-        JSON.stringify({}),
-      ]
-    );
-    const briefingId = insertResult.rows[0].id;
+    const { data: insertResult, error: insertError } = await supabaseAdmin
+      .from('claim_briefings')
+      .insert({
+        organization_id: organizationId,
+        claim_id: claimId,
+        peril: context.primaryPeril,
+        secondary_perils: context.secondaryPerils,
+        source_hash: sourceHash,
+        briefing_json: {},
+        status: 'generating',
+      })
+      .select('id')
+      .single();
+
+    if (insertError || !insertResult) {
+      return {
+        success: false,
+        error: `Failed to create briefing record: ${insertError?.message || 'Unknown error'}`,
+      };
+    }
+
+    const briefingId = insertResult.id;
 
     try {
       // Get prompt configuration from database (falls back to hardcoded if not available)
@@ -386,25 +395,22 @@ export async function generateClaimBriefing(
       }
 
       // Update the briefing record
-      await client.query(
-        `UPDATE claim_briefings SET
-           briefing_json = $1,
-           status = 'generated',
-           model = $2,
-           prompt_tokens = $3,
-           completion_tokens = $4,
-           total_tokens = $5,
-           updated_at = NOW()
-         WHERE id = $6`,
-        [
-          JSON.stringify(briefingContent),
-          completion.model,
-          completion.usage?.prompt_tokens || 0,
-          completion.usage?.completion_tokens || 0,
-          completion.usage?.total_tokens || 0,
-          briefingId,
-        ]
-      );
+      const { error: updateError } = await supabaseAdmin
+        .from('claim_briefings')
+        .update({
+          briefing_json: briefingContent,
+          status: 'generated',
+          model: completion.model,
+          prompt_tokens: completion.usage?.prompt_tokens || 0,
+          completion_tokens: completion.usage?.completion_tokens || 0,
+          total_tokens: completion.usage?.total_tokens || 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', briefingId);
+
+      if (updateError) {
+        console.error('Error updating briefing:', updateError);
+      }
 
       return {
         success: true,
@@ -422,22 +428,29 @@ export async function generateClaimBriefing(
     } catch (aiError) {
       // Update with error status
       const errorMessage = aiError instanceof Error ? aiError.message : 'Unknown AI error';
-      await client.query(
-        `UPDATE claim_briefings SET
-           status = 'error',
-           error_message = $1,
-           updated_at = NOW()
-         WHERE id = $2`,
-        [errorMessage, briefingId]
-      );
+      const { error: errorUpdateError } = await supabaseAdmin
+        .from('claim_briefings')
+        .update({
+          status: 'error',
+          error_message: errorMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', briefingId);
+
+      if (errorUpdateError) {
+        console.error('Error updating briefing error status:', errorUpdateError);
+      }
 
       return {
         success: false,
         error: `AI generation failed: ${errorMessage}`,
       };
     }
-  } finally {
-    client.release();
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }
 
@@ -448,41 +461,34 @@ export async function getClaimBriefing(
   claimId: string,
   organizationId: string
 ): Promise<StoredBriefing | null> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('claim_briefings')
+    .select('id, claim_id, peril, source_hash, briefing_json, status, model, prompt_tokens, completion_tokens, total_tokens, created_at, updated_at')
+    .eq('claim_id', claimId)
+    .eq('organization_id', organizationId)
+    .eq('status', 'generated')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
 
-  try {
-    const result = await client.query(
-      `SELECT id, claim_id, peril, source_hash, briefing_json, status, model,
-              prompt_tokens, completion_tokens, total_tokens, created_at, updated_at
-       FROM claim_briefings
-       WHERE claim_id = $1 AND organization_id = $2 AND status = 'generated'
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [claimId, organizationId]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    const row = result.rows[0];
-    return {
-      id: row.id,
-      claimId: row.claim_id,
-      peril: row.peril,
-      sourceHash: row.source_hash,
-      briefingJson: row.briefing_json as ClaimBriefingContent,
-      status: row.status,
-      model: row.model,
-      promptTokens: row.prompt_tokens,
-      completionTokens: row.completion_tokens,
-      totalTokens: row.total_tokens,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  } finally {
-    client.release();
+  if (error || !data) {
+    return null;
   }
+
+  return {
+    id: data.id,
+    claimId: data.claim_id,
+    peril: data.peril,
+    sourceHash: data.source_hash,
+    briefingJson: data.briefing_json as ClaimBriefingContent,
+    status: data.status,
+    model: data.model,
+    promptTokens: data.prompt_tokens,
+    completionTokens: data.completion_tokens,
+    totalTokens: data.total_tokens,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
 }
 
 /**
@@ -514,17 +520,17 @@ export async function deleteClaimBriefings(
   claimId: string,
   organizationId: string
 ): Promise<number> {
-  const client = await pool.connect();
+  const { data, error } = await supabaseAdmin
+    .from('claim_briefings')
+    .delete()
+    .eq('claim_id', claimId)
+    .eq('organization_id', organizationId)
+    .select();
 
-  try {
-    const result = await client.query(
-      `DELETE FROM claim_briefings
-       WHERE claim_id = $1 AND organization_id = $2`,
-      [claimId, organizationId]
-    );
-
-    return result.rowCount || 0;
-  } finally {
-    client.release();
+  if (error) {
+    console.error('Error deleting claim briefings:', error);
+    return 0;
   }
+
+  return data?.length || 0;
 }

@@ -1,4 +1,4 @@
-import { pool } from '../db';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import type { ClaimRoom, ClaimDamageZone, ClaimStructure, InsertClaimRoom, InsertClaimDamageZone, InsertClaimStructure } from '@shared/schema';
 
 // ============================================
@@ -148,43 +148,51 @@ function mapRowToDamageZone(row: DamageZoneRow): ClaimDamageZone {
 // ============================================
 
 export async function getStructuresByClaimId(claimId: string): Promise<ClaimStructure[]> {
-  const result = await pool.query<StructureRow>(
-    `SELECT * FROM claim_structures WHERE claim_id = $1 ORDER BY sort_order, created_at`,
-    [claimId]
-  );
-  return result.rows.map(mapRowToStructure);
+  const { data, error } = await supabaseAdmin
+    .from('claim_structures')
+    .select('*')
+    .eq('claim_id', claimId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(mapRowToStructure);
 }
 
 export async function createStructure(structure: Omit<InsertClaimStructure, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimStructure> {
-  const result = await pool.query<StructureRow>(
-    `INSERT INTO claim_structures (
-      claim_id, organization_id, name, structure_type, description,
-      address, stories, year_built, construction_type, roof_type,
-      photos, notes, sort_order
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-    RETURNING *`,
-    [
-      structure.claimId,
-      structure.organizationId,
-      structure.name,
-      structure.structureType,
-      structure.description || null,
-      structure.address || null,
-      structure.stories || 1,
-      structure.yearBuilt || null,
-      structure.constructionType || null,
-      structure.roofType || null,
-      JSON.stringify(structure.photos || []),
-      JSON.stringify(structure.notes || []),
-      structure.sortOrder || 0,
-    ]
-  );
-  return mapRowToStructure(result.rows[0]);
+  const { data, error } = await supabaseAdmin
+    .from('claim_structures')
+    .insert({
+      claim_id: structure.claimId,
+      organization_id: structure.organizationId,
+      name: structure.name,
+      structure_type: structure.structureType,
+      description: structure.description || null,
+      address: structure.address || null,
+      stories: structure.stories || 1,
+      year_built: structure.yearBuilt || null,
+      construction_type: structure.constructionType || null,
+      roof_type: structure.roofType || null,
+      photos: structure.photos || [],
+      notes: structure.notes || [],
+      sort_order: structure.sortOrder || 0,
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+  return mapRowToStructure(data);
 }
 
 export async function deleteStructuresByClaimId(claimId: string): Promise<number> {
-  const result = await pool.query(`DELETE FROM claim_structures WHERE claim_id = $1`, [claimId]);
-  return result.rowCount ?? 0;
+  const { data, error } = await supabaseAdmin
+    .from('claim_structures')
+    .delete()
+    .eq('claim_id', claimId)
+    .select();
+
+  if (error) throw error;
+  return data?.length ?? 0;
 }
 
 // ============================================
@@ -192,90 +200,97 @@ export async function deleteStructuresByClaimId(claimId: string): Promise<number
 // ============================================
 
 export async function getRoomsByClaimId(claimId: string): Promise<ClaimRoom[]> {
-  const result = await pool.query<RoomRow>(
-    `SELECT * FROM claim_rooms WHERE claim_id = $1 ORDER BY sort_order, created_at`,
-    [claimId]
-  );
-  return result.rows.map(mapRowToRoom);
+  const { data, error } = await supabaseAdmin
+    .from('claim_rooms')
+    .select('*')
+    .eq('claim_id', claimId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(mapRowToRoom);
 }
 
 export async function getDamageZonesByClaimId(claimId: string): Promise<ClaimDamageZone[]> {
-  const result = await pool.query<DamageZoneRow>(
-    `SELECT * FROM claim_damage_zones WHERE claim_id = $1 ORDER BY sort_order, created_at`,
-    [claimId]
-  );
-  return result.rows.map(mapRowToDamageZone);
+  const { data, error } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .select('*')
+    .eq('claim_id', claimId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(mapRowToDamageZone);
 }
 
 export async function getDamageZonesByRoomId(roomId: string): Promise<ClaimDamageZone[]> {
-  const result = await pool.query<DamageZoneRow>(
-    `SELECT * FROM claim_damage_zones WHERE room_id = $1 ORDER BY sort_order, created_at`,
-    [roomId]
-  );
-  return result.rows.map(mapRowToDamageZone);
+  const { data, error } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(mapRowToDamageZone);
 }
 
 export async function createRoom(room: Omit<InsertClaimRoom, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimRoom> {
-  const result = await pool.query<RoomRow>(
-    `INSERT INTO claim_rooms (
-      claim_id, organization_id, structure_id, name, room_type, floor_level,
-      shape, width_ft, length_ft, ceiling_height_ft,
-      origin_x_ft, origin_y_ft, polygon, l_shape_config, t_shape_config,
-      openings, features, notes, sort_order
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-    RETURNING *`,
-    [
-      room.claimId,
-      room.organizationId,
-      room.structureId || null,
-      room.name,
-      room.roomType || null,
-      room.floorLevel || '1',
-      room.shape || 'rectangular',
-      room.widthFt,
-      room.lengthFt,
-      room.ceilingHeightFt || 8.0,
-      room.originXFt || 0,
-      room.originYFt || 0,
-      JSON.stringify(room.polygon || []),
-      room.lShapeConfig ? JSON.stringify(room.lShapeConfig) : null,
-      room.tShapeConfig ? JSON.stringify(room.tShapeConfig) : null,
-      JSON.stringify(room.openings || []),
-      JSON.stringify(room.features || []),
-      JSON.stringify(room.notes || []),
-      room.sortOrder || 0,
-    ]
-  );
-  return mapRowToRoom(result.rows[0]);
+  const { data, error } = await supabaseAdmin
+    .from('claim_rooms')
+    .insert({
+      claim_id: room.claimId,
+      organization_id: room.organizationId,
+      structure_id: room.structureId || null,
+      name: room.name,
+      room_type: room.roomType || null,
+      floor_level: room.floorLevel || '1',
+      shape: room.shape || 'rectangular',
+      width_ft: room.widthFt,
+      length_ft: room.lengthFt,
+      ceiling_height_ft: room.ceilingHeightFt || 8.0,
+      origin_x_ft: room.originXFt || 0,
+      origin_y_ft: room.originYFt || 0,
+      polygon: room.polygon || [],
+      l_shape_config: room.lShapeConfig || null,
+      t_shape_config: room.tShapeConfig || null,
+      openings: room.openings || [],
+      features: room.features || [],
+      notes: room.notes || [],
+      sort_order: room.sortOrder || 0,
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+  return mapRowToRoom(data);
 }
 
 export async function createDamageZone(zone: Omit<InsertClaimDamageZone, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimDamageZone> {
-  const result = await pool.query<DamageZoneRow>(
-    `INSERT INTO claim_damage_zones (
-      claim_id, room_id, organization_id, damage_type, category,
-      affected_walls, floor_affected, ceiling_affected, extent_ft,
-      severity, source, polygon, is_freeform, notes, sort_order
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-    RETURNING *`,
-    [
-      zone.claimId,
-      zone.roomId || null,
-      zone.organizationId,
-      zone.damageType,
-      zone.category || null,
-      JSON.stringify(zone.affectedWalls || []),
-      zone.floorAffected || false,
-      zone.ceilingAffected || false,
-      zone.extentFt || 0,
-      zone.severity || null,
-      zone.source || null,
-      JSON.stringify(zone.polygon || []),
-      zone.isFreeform || false,
-      zone.notes || null,
-      zone.sortOrder || 0,
-    ]
-  );
-  return mapRowToDamageZone(result.rows[0]);
+  const { data, error } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .insert({
+      claim_id: zone.claimId,
+      room_id: zone.roomId || null,
+      organization_id: zone.organizationId,
+      damage_type: zone.damageType,
+      category: zone.category || null,
+      affected_walls: zone.affectedWalls || [],
+      floor_affected: zone.floorAffected || false,
+      ceiling_affected: zone.ceilingAffected || false,
+      extent_ft: zone.extentFt || 0,
+      severity: zone.severity || null,
+      source: zone.source || null,
+      polygon: zone.polygon || [],
+      is_freeform: zone.isFreeform || false,
+      notes: zone.notes || null,
+      sort_order: zone.sortOrder || 0,
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+  return mapRowToDamageZone(data);
 }
 
 export async function updateRoom(id: string, updates: Partial<InsertClaimRoom>): Promise<ClaimRoom | null> {
@@ -298,27 +313,27 @@ export async function updateRoom(id: string, updates: Partial<InsertClaimRoom>):
     sortOrder: 'sort_order',
   };
 
-  const setClauses: string[] = ['updated_at = NOW()'];
-  const values: unknown[] = [];
-  let paramIndex = 1;
+  const updateData: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(updates)) {
     if (fieldMap[key] && value !== undefined) {
-      setClauses.push(`${fieldMap[key]} = $${paramIndex}`);
-      const jsonFields = ['polygon', 'lShapeConfig', 'tShapeConfig', 'openings', 'features', 'notes'];
-      values.push(jsonFields.includes(key) ? JSON.stringify(value) : value);
-      paramIndex++;
+      updateData[fieldMap[key]] = value;
     }
   }
 
-  values.push(id);
+  if (Object.keys(updateData).length === 0) {
+    return null;
+  }
 
-  const result = await pool.query<RoomRow>(
-    `UPDATE claim_rooms SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-    values
-  );
+  const { data, error } = await supabaseAdmin
+    .from('claim_rooms')
+    .update(updateData)
+    .eq('id', id)
+    .select('*')
+    .single();
 
-  return result.rows.length > 0 ? mapRowToRoom(result.rows[0]) : null;
+  if (error) throw error;
+  return data ? mapRowToRoom(data) : null;
 }
 
 export async function updateDamageZone(id: string, updates: Partial<InsertClaimDamageZone>): Promise<ClaimDamageZone | null> {
@@ -338,44 +353,74 @@ export async function updateDamageZone(id: string, updates: Partial<InsertClaimD
     sortOrder: 'sort_order',
   };
 
-  const setClauses: string[] = ['updated_at = NOW()'];
-  const values: unknown[] = [];
-  let paramIndex = 1;
+  const updateData: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(updates)) {
     if (fieldMap[key] && value !== undefined) {
-      setClauses.push(`${fieldMap[key]} = $${paramIndex}`);
-      const jsonFields = ['affectedWalls', 'polygon'];
-      values.push(jsonFields.includes(key) ? JSON.stringify(value) : value);
-      paramIndex++;
+      updateData[fieldMap[key]] = value;
     }
   }
 
-  values.push(id);
+  if (Object.keys(updateData).length === 0) {
+    return null;
+  }
 
-  const result = await pool.query<DamageZoneRow>(
-    `UPDATE claim_damage_zones SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-    values
-  );
+  const { data, error } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .update(updateData)
+    .eq('id', id)
+    .select('*')
+    .single();
 
-  return result.rows.length > 0 ? mapRowToDamageZone(result.rows[0]) : null;
+  if (error) throw error;
+  return data ? mapRowToDamageZone(data) : null;
 }
 
 export async function deleteRoom(id: string): Promise<boolean> {
-  await pool.query(`DELETE FROM claim_damage_zones WHERE room_id = $1`, [id]);
-  const result = await pool.query(`DELETE FROM claim_rooms WHERE id = $1`, [id]);
-  return (result.rowCount ?? 0) > 0;
+  // Delete related damage zones first
+  await supabaseAdmin
+    .from('claim_damage_zones')
+    .delete()
+    .eq('room_id', id);
+
+  // Then delete the room
+  const { data, error } = await supabaseAdmin
+    .from('claim_rooms')
+    .delete()
+    .eq('id', id)
+    .select();
+
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
 }
 
 export async function deleteDamageZone(id: string): Promise<boolean> {
-  const result = await pool.query(`DELETE FROM claim_damage_zones WHERE id = $1`, [id]);
-  return (result.rowCount ?? 0) > 0;
+  const { data, error } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .delete()
+    .eq('id', id)
+    .select();
+
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
 }
 
 export async function deleteRoomsByClaimId(claimId: string): Promise<number> {
-  await pool.query(`DELETE FROM claim_damage_zones WHERE claim_id = $1`, [claimId]);
-  const result = await pool.query(`DELETE FROM claim_rooms WHERE claim_id = $1`, [claimId]);
-  return result.rowCount ?? 0;
+  // Delete related damage zones first
+  await supabaseAdmin
+    .from('claim_damage_zones')
+    .delete()
+    .eq('claim_id', claimId);
+
+  // Then delete the rooms
+  const { data, error } = await supabaseAdmin
+    .from('claim_rooms')
+    .delete()
+    .eq('claim_id', claimId)
+    .select();
+
+  if (error) throw error;
+  return data?.length ?? 0;
 }
 
 // Input types for hierarchy save
