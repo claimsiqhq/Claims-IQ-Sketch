@@ -336,7 +336,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
             sourceBriefingId: existing.source_briefing_id,
             workflowJson: existing.workflow_json,
             generatedFrom: existing.generated_from,
-            createdBy: existing.created_by,
+            createdBy: existing.created_by || null,
             createdAt: existing.created_at,
             updatedAt: existing.updated_at,
             completedAt: existing.completed_at,
@@ -531,7 +531,6 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
         source_briefing_id: briefing?.id || null,
         workflow_json: workflowJson,
         generated_from: generatedFrom,
-        created_by: userId || null,
       })
       .select('*')
       .single();
@@ -605,7 +604,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
         sourceBriefingId: workflow.source_briefing_id,
         workflowJson: workflow.workflow_json,
         generatedFrom: workflow.generated_from,
-        createdBy: workflow.created_by,
+        createdBy: workflow.created_by || null,
         createdAt: workflow.created_at,
         updatedAt: workflow.updated_at,
         completedAt: workflow.completed_at,
@@ -890,7 +889,7 @@ export async function getWorkflow(
       sourceBriefingId: workflowData.source_briefing_id,
       workflowJson: workflowData.workflow_json,
       generatedFrom: workflowData.generated_from,
-      createdBy: workflowData.created_by,
+      createdBy: workflowData.created_by || null,
       createdAt: workflowData.created_at,
       updatedAt: workflowData.updated_at,
       completedAt: workflowData.completed_at,
