@@ -93,6 +93,9 @@ export async function getUserPreferences(): Promise<UserPreferences> {
     credentials: 'include',
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Session expired. Please refresh the page and log in again.');
+    }
     throw new Error('Failed to fetch user preferences');
   }
   return response.json();
@@ -106,7 +109,10 @@ export async function saveUserPreferences(preferences: Partial<UserPreferences>)
     credentials: 'include',
   });
   if (!response.ok) {
-    const error = await response.json();
+    if (response.status === 401) {
+      throw new Error('Session expired. Please refresh the page and log in again.');
+    }
+    const error = await response.json().catch(() => ({}));
     throw new Error(error.error || 'Failed to save preferences');
   }
   return response.json();
@@ -137,7 +143,10 @@ export async function updateUserProfile(data: UpdateProfileData): Promise<Update
     credentials: 'include',
   });
   if (!response.ok) {
-    const error = await response.json();
+    if (response.status === 401) {
+      throw new Error('Session expired. Please refresh the page and log in again.');
+    }
+    const error = await response.json().catch(() => ({}));
     throw new Error(error.error || 'Failed to update profile');
   }
   return response.json();
@@ -605,6 +614,9 @@ export async function getMyOrganizations(): Promise<{
     credentials: 'include',
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Session expired. Please refresh the page and log in again.');
+    }
     throw new Error('Failed to fetch organizations');
   }
   return response.json();

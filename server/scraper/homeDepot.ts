@@ -281,7 +281,36 @@ async function updateMaterialPrice(
   console.log(`Updated ${sku} in ${regionId}: $${price.toFixed(2)}`);
 }
 
-async function createJobRecord(): Promise<string> {
+// Flag to track if the price_scrape_jobs table exists
+let tableExists: boolean | null = null;
+
+async function checkTableExists(): Promise<boolean> {
+  if (tableExists !== null) return tableExists;
+
+  const { error } = await supabaseAdmin
+    .from('price_scrape_jobs')
+    .select('id')
+    .limit(1);
+
+  // If we get a "relation does not exist" error, table doesn't exist
+  if (error && (error.message.includes('does not exist') || error.code === '42P01')) {
+    console.warn('[Scraper] price_scrape_jobs table does not exist. Run migration 018_price_scraper_and_sessions.sql');
+    tableExists = false;
+  } else {
+    tableExists = true;
+  }
+
+  return tableExists;
+}
+
+async function createJobRecord(): Promise<string | null> {
+  const exists = await checkTableExists();
+  if (!exists) {
+    // Return null to indicate we're running without job tracking
+    console.log('[Scraper] Running without job tracking (table not found)');
+    return null;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('price_scrape_jobs')
     .insert({
@@ -296,19 +325,23 @@ async function createJobRecord(): Promise<string> {
     .single();
 
   if (error || !data) {
-    throw new Error(`Failed to create job record: ${error?.message}`);
+    console.warn(`[Scraper] Failed to create job record: ${error?.message}. Continuing without tracking.`);
+    return null;
   }
 
   return data.id;
 }
 
 async function completeJob(
-  jobId: string,
+  jobId: string | null,
   status: string,
   itemsProcessed: number,
   itemsUpdated: number,
   error?: string
 ): Promise<void> {
+  // Skip if we don't have a job ID (table doesn't exist)
+  if (!jobId) return;
+
   const { error: updateError } = await supabaseAdmin
     .from('price_scrape_jobs')
     .update({
@@ -321,7 +354,7 @@ async function completeJob(
     .eq('id', jobId);
 
   if (updateError) {
-    throw new Error(`Failed to complete job ${jobId}: ${updateError.message}`);
+    console.warn(`[Scraper] Failed to complete job ${jobId}: ${updateError.message}`);
   }
 }
 
@@ -331,6 +364,7 @@ export async function runScrapeJob(): Promise<{
   itemsProcessed: number;
   itemsUpdated: number;
   usedFallback?: boolean;
+  noTracking?: boolean;
 }> {
   const jobId = await createJobRecord();
   let itemsProcessed = 0;
@@ -360,7 +394,14 @@ export async function runScrapeJob(): Promise<{
     }
 
     await completeJob(jobId, 'completed', itemsProcessed, itemsUpdated);
-    return { jobId, status: 'completed', itemsProcessed, itemsUpdated, usedFallback };
+    return {
+      jobId: jobId || 'no-tracking',
+      status: 'completed',
+      itemsProcessed,
+      itemsUpdated,
+      usedFallback,
+      noTracking: !jobId
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await completeJob(jobId, 'failed', itemsProcessed, itemsUpdated, errorMessage);
