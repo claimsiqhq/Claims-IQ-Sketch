@@ -973,16 +973,10 @@ export async function updateLineItemCoverage(
 }
 
 export async function getLineItemsByCoverage(estimateId: string): Promise<Record<string, any[]>> {
+  // Query line items without join (Supabase doesn't have FK relationship)
   const { data, error } = await supabaseAdmin
     .from('estimate_line_items')
-    .select(`
-      *,
-      estimate_coverages (
-        coverage_name,
-        coverage_type,
-        sort_order
-      )
-    `)
+    .select('*')
     .eq('estimate_id', estimateId)
     .order('sort_order');
 
@@ -1583,6 +1577,23 @@ export async function addScopeItemToClaim(
 }
 
 export async function getScopeItemsForClaim(claimId: string): Promise<ClaimScopeItem[]> {
+  // First, get the draft estimate IDs for this claim (Supabase doesn't have FK relationship)
+  const { data: estimates, error: estError } = await supabaseAdmin
+    .from('estimates')
+    .select('id')
+    .eq('claim_id', claimId)
+    .eq('is_locked', false)
+    .eq('status', 'draft');
+
+  if (estError) throw estError;
+
+  if (!estimates || estimates.length === 0) {
+    return [];
+  }
+
+  const estimateIds = estimates.map(e => e.id);
+
+  // Then get line items for those estimates
   const { data, error } = await supabaseAdmin
     .from('estimate_line_items')
     .select(`
@@ -1596,16 +1607,9 @@ export async function getScopeItemsForClaim(claimId: string): Promise<ClaimScope
       subtotal,
       room_name,
       notes,
-      created_at,
-      estimates!inner (
-        claim_id,
-        is_locked,
-        status
-      )
+      created_at
     `)
-    .eq('estimates.claim_id', claimId)
-    .eq('estimates.is_locked', false)
-    .eq('estimates.status', 'draft')
+    .in('estimate_id', estimateIds)
     .order('created_at', { ascending: true });
 
   if (error) throw error;
