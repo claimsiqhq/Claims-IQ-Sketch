@@ -3,11 +3,12 @@
  *
  * Centralized service for managing AI prompts stored in the database.
  * Provides caching, template variable substitution, and usage tracking.
+ * 
+ * Uses Supabase client for all database operations.
  */
 
-import { db } from '../db';
-import { aiPrompts, AiPrompt, PromptKey } from '../../shared/schema';
-import { eq, sql } from 'drizzle-orm';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { AiPrompt, PromptKey } from '../../shared/schema';
 
 // In-memory cache for prompts
 const promptCache = new Map<string, AiPrompt>();
@@ -20,20 +21,56 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  */
 async function initializeCache(): Promise<void> {
   try {
-    const prompts = await db.select().from(aiPrompts).where(eq(aiPrompts.isActive, true));
+    const { data: prompts, error } = await supabaseAdmin
+      .from('ai_prompts')
+      .select('*')
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('[PromptService] Failed to initialize cache:', error.message);
+      return;
+    }
 
     promptCache.clear();
-    for (const prompt of prompts) {
-      promptCache.set(prompt.promptKey, prompt);
+    for (const prompt of prompts || []) {
+      // Convert snake_case from DB to camelCase for internal use
+      const normalizedPrompt = normalizePrompt(prompt);
+      promptCache.set(normalizedPrompt.promptKey, normalizedPrompt);
     }
 
     cacheInitialized = true;
     cacheLastRefresh = Date.now();
-    console.log(`[PromptService] Loaded ${prompts.length} prompts into cache`);
+    console.log(`[PromptService] Loaded ${prompts?.length || 0} prompts into cache`);
   } catch (error) {
     console.error('[PromptService] Failed to initialize cache:', error);
     // Don't throw - allow fallback to hardcoded prompts
   }
+}
+
+/**
+ * Normalize database row (snake_case) to AiPrompt type (camelCase)
+ */
+function normalizePrompt(row: any): AiPrompt {
+  return {
+    id: row.id,
+    promptKey: row.prompt_key,
+    promptName: row.prompt_name,
+    category: row.category,
+    systemPrompt: row.system_prompt,
+    userPromptTemplate: row.user_prompt_template,
+    model: row.model,
+    temperature: row.temperature?.toString() || '0.3',
+    maxTokens: row.max_tokens,
+    responseFormat: row.response_format,
+    description: row.description,
+    isActive: row.is_active ?? true,
+    version: row.version ?? 1,
+    usageCount: row.usage_count ?? 0,
+    avgTokensUsed: row.avg_tokens_used ?? 0,
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at) : null,
+    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
+  };
 }
 
 /**
@@ -61,13 +98,19 @@ export async function getPrompt(key: PromptKey | string): Promise<AiPrompt | nul
 
   // Fallback to database query
   try {
-    const [prompt] = await db
-      .select()
-      .from(aiPrompts)
-      .where(eq(aiPrompts.promptKey, key))
+    const { data: prompts, error } = await supabaseAdmin
+      .from('ai_prompts')
+      .select('*')
+      .eq('prompt_key', key)
       .limit(1);
 
-    if (prompt) {
+    if (error) {
+      console.error(`[PromptService] Failed to fetch prompt ${key}:`, error.message);
+      return null;
+    }
+
+    if (prompts && prompts.length > 0) {
+      const prompt = normalizePrompt(prompts[0]);
       promptCache.set(key, prompt);
       updateUsageCount(key).catch(console.error);
       return prompt;
@@ -115,6 +158,7 @@ export async function getPromptConfig(key: PromptKey | string): Promise<{
   temperature: number;
   maxTokens: number | null;
   responseFormat: string;
+  version?: number;
 } | null> {
   const prompt = await getPrompt(key);
   if (!prompt) return null;
@@ -124,8 +168,9 @@ export async function getPromptConfig(key: PromptKey | string): Promise<{
     userPromptTemplate: prompt.userPromptTemplate,
     model: prompt.model,
     temperature: parseFloat(prompt.temperature || '0.3'),
-    maxTokens: prompt.maxTokens,
+    maxTokens: prompt.maxTokens ?? null,
     responseFormat: prompt.responseFormat || 'text',
+    version: prompt.version,
   };
 }
 
@@ -152,14 +197,32 @@ export function substituteVariables(
  */
 async function updateUsageCount(key: string): Promise<void> {
   try {
-    await db
-      .update(aiPrompts)
-      .set({
-        usageCount: sql`${aiPrompts.usageCount} + 1`,
-        lastUsedAt: new Date(),
-        updatedAt: new Date(),
+    // Get current usage count
+    const { data: current, error: fetchError } = await supabaseAdmin
+      .from('ai_prompts')
+      .select('usage_count')
+      .eq('prompt_key', key)
+      .single();
+
+    if (fetchError) {
+      console.error(`[PromptService] Failed to fetch usage count for ${key}:`, fetchError.message);
+      return;
+    }
+
+    const currentCount = current?.usage_count || 0;
+
+    const { error } = await supabaseAdmin
+      .from('ai_prompts')
+      .update({
+        usage_count: currentCount + 1,
+        last_used_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
-      .where(eq(aiPrompts.promptKey, key));
+      .eq('prompt_key', key);
+
+    if (error) {
+      console.error(`[PromptService] Failed to update usage count for ${key}:`, error.message);
+    }
   } catch (error) {
     // Non-critical - don't fail the request
     console.error(`[PromptService] Failed to update usage count for ${key}:`, error);
@@ -186,7 +249,16 @@ export async function refreshCache(): Promise<void> {
  */
 export async function getAllPrompts(): Promise<AiPrompt[]> {
   try {
-    return await db.select().from(aiPrompts);
+    const { data: prompts, error } = await supabaseAdmin
+      .from('ai_prompts')
+      .select('*');
+
+    if (error) {
+      console.error('[PromptService] Failed to fetch all prompts:', error.message);
+      return [];
+    }
+
+    return (prompts || []).map(normalizePrompt);
   } catch (error) {
     console.error('[PromptService] Failed to fetch all prompts:', error);
     return [];
@@ -201,26 +273,57 @@ export async function updatePrompt(
   updates: Partial<Pick<AiPrompt, 'systemPrompt' | 'userPromptTemplate' | 'model' | 'temperature' | 'maxTokens' | 'responseFormat' | 'description' | 'isActive'>>
 ): Promise<AiPrompt | null> {
   try {
-    const [updated] = await db
-      .update(aiPrompts)
-      .set({
-        ...updates,
-        version: sql`${aiPrompts.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(aiPrompts.promptKey, key))
-      .returning();
+    // Get current version
+    const { data: current, error: fetchError } = await supabaseAdmin
+      .from('ai_prompts')
+      .select('version')
+      .eq('prompt_key', key)
+      .single();
 
-    // Update cache
-    if (updated) {
-      if (updated.isActive) {
-        promptCache.set(key, updated);
-      } else {
-        promptCache.delete(key);
-      }
+    if (fetchError) {
+      console.error(`[PromptService] Failed to fetch prompt ${key}:`, fetchError.message);
+      return null;
     }
 
-    return updated || null;
+    const currentVersion = current?.version || 1;
+
+    // Convert camelCase to snake_case for Supabase
+    const dbUpdates: Record<string, any> = {
+      version: currentVersion + 1,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (updates.systemPrompt !== undefined) dbUpdates.system_prompt = updates.systemPrompt;
+    if (updates.userPromptTemplate !== undefined) dbUpdates.user_prompt_template = updates.userPromptTemplate;
+    if (updates.model !== undefined) dbUpdates.model = updates.model;
+    if (updates.temperature !== undefined) dbUpdates.temperature = updates.temperature;
+    if (updates.maxTokens !== undefined) dbUpdates.max_tokens = updates.maxTokens;
+    if (updates.responseFormat !== undefined) dbUpdates.response_format = updates.responseFormat;
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
+    if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
+
+    const { data: updated, error } = await supabaseAdmin
+      .from('ai_prompts')
+      .update(dbUpdates)
+      .eq('prompt_key', key)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error(`[PromptService] Failed to update prompt ${key}:`, error.message);
+      return null;
+    }
+
+    const normalizedPrompt = normalizePrompt(updated);
+
+    // Update cache
+    if (normalizedPrompt.isActive) {
+      promptCache.set(key, normalizedPrompt);
+    } else {
+      promptCache.delete(key);
+    }
+
+    return normalizedPrompt;
   } catch (error) {
     console.error(`[PromptService] Failed to update prompt ${key}:`, error);
     return null;
@@ -537,6 +640,114 @@ CRITICAL RULES:
     temperature: 0.7,
     responseFormat: 'text',
   },
+
+  [PromptKey.INSPECTION_WORKFLOW_GENERATOR]: {
+    system: `You are an expert property insurance inspection planner.
+
+Your task is to generate a STEP-BY-STEP, EXECUTABLE INSPECTION WORKFLOW for a field adjuster.
+
+This workflow is NOT a narrative.
+It is NOT a summary.
+It is an ordered execution plan.
+
+You MUST:
+- Output structured JSON only
+- Follow the schema exactly
+- Be peril-aware and endorsement-aware
+- Explicitly define required evidence
+- Assume rooms may be added dynamically
+- Optimize for CAT-scale defensibility
+
+You MUST NOT:
+- Make coverage determinations
+- Invent policy language
+- Collapse steps into vague instructions
+- Output prose outside JSON
+
+WORKFLOW REQUIREMENTS (MANDATORY):
+
+1. Workflow MUST be divided into ordered PHASES:
+   - pre_inspection (Preparation)
+   - initial_walkthrough (Safety)
+   - exterior (Exterior)
+   - roof (Roof - if applicable)
+   - interior (Interior - room-based, expandable)
+   - utilities (Utilities/Systems - if applicable)
+   - mitigation (Temporary Repairs/Mitigation - if applicable)
+   - closeout (Closeout)
+
+2. Each phase MUST contain ordered, atomic steps.
+
+3. Each step MUST include:
+   - Clear instructions
+   - Required flag
+   - Estimated time
+   - Explicit evidence requirements
+
+4. Endorsements MUST:
+   - Modify inspection behavior
+   - Add or constrain evidence requirements
+   - Never be mentioned abstractly
+
+5. Interior inspections MUST:
+   - Use a ROOM TEMPLATE
+   - Allow dynamic room creation
+   - Define default steps + evidence
+
+6. The workflow MUST:
+   - Be editable
+   - Preserve human edits
+   - Be auditable and defensible
+
+VALIDATION RULES (NON-NEGOTIABLE):
+- Missing phases → FAIL
+- Missing evidence → FAIL
+- Ignored endorsements → FAIL
+- Non-JSON output → FAIL
+- Vague steps → FAIL
+
+If information is missing:
+- Add a step to collect it
+- OR add an open question
+- Do NOT guess
+
+Return JSON only.`,
+    user: `Generate an INSPECTION WORKFLOW using the inputs below.
+
+### CLAIM CONTEXT
+- Claim Number: {{claim_number}}
+- Primary Peril: {{primary_peril}}
+- Secondary Perils: {{secondary_perils}}
+- Property Address: {{property_address}}
+- Date of Loss: {{date_of_loss}}
+- Loss Description: {{loss_description}}
+
+### POLICY CONTEXT
+- Policy Number: {{policy_number}}
+- Coverage A (Dwelling): {{coverage_a}}
+- Coverage B (Other Structures): {{coverage_b}}
+- Coverage C (Contents): {{coverage_c}}
+- Coverage D (Additional Living Expense): {{coverage_d}}
+- Deductible: {{deductible}}
+
+### ENDORSEMENTS
+{{endorsements_list}}
+
+### AI CLAIM BRIEFING SUMMARY
+{{briefing_summary}}
+
+### PERIL-SPECIFIC INSPECTION RULES
+{{peril_inspection_rules}}
+
+### CARRIER-SPECIFIC REQUIREMENTS
+{{carrier_requirements}}
+
+Generate a comprehensive inspection workflow JSON.`,
+    model: 'gpt-4o',
+    temperature: 0.3,
+    maxTokens: 8000,
+    responseFormat: 'json_object',
+  },
 };
 
 /**
@@ -549,6 +760,7 @@ export async function getPromptWithFallback(key: PromptKey | string): Promise<{
   temperature: number;
   maxTokens: number | null;
   responseFormat: string;
+  version?: number;
 }> {
   // Try database first
   const dbPrompt = await getPromptConfig(key);
