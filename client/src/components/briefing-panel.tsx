@@ -14,7 +14,7 @@
  * All content is read-only. No coverage decisions are made.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -102,6 +102,9 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
     fetchBriefing();
   }, [fetchBriefing]);
 
+  // Ref to track if autostart has been attempted
+  const autoGenerateAttempted = useRef(false);
+
   const handleGenerate = async (force: boolean = false) => {
     if (!claimId) return;
     setGenerating(true);
@@ -138,6 +141,15 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
       setGenerating(false);
     }
   };
+
+  // Autostart: Generate briefing automatically if none exists
+  useEffect(() => {
+    // Only auto-generate once, when initial load completes with no briefing
+    if (!loading && !briefing && !error && !generating && !autoGenerateAttempted.current) {
+      autoGenerateAttempted.current = true;
+      handleGenerate(false);
+    }
+  }, [loading, briefing, error, generating]);
 
   const content = briefing?.briefingJson;
 

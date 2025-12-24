@@ -9,7 +9,7 @@
  * - Mobile-first responsive design
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -157,6 +157,9 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
     fetchWorkflow();
   }, [fetchWorkflow]);
 
+  // Ref to track if autostart has been attempted
+  const autoGenerateAttempted = useRef(false);
+
   const handleGenerate = async (force: boolean = false) => {
     if (!claimId) return;
     setGenerating(true);
@@ -174,6 +177,15 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       setGenerating(false);
     }
   };
+
+  // Autostart: Generate workflow automatically if none exists
+  useEffect(() => {
+    // Only auto-generate once, when initial load completes with no workflow
+    if (!loading && !workflow && !error && !generating && !autoGenerateAttempted.current) {
+      autoGenerateAttempted.current = true;
+      handleGenerate(false);
+    }
+  }, [loading, workflow, error, generating]);
 
   const handleRegenerate = async () => {
     if (!claimId || !staleStatus?.reason) return;
