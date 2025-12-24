@@ -1,7 +1,19 @@
 import { defineConfig } from "drizzle-kit";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
+/**
+ * Drizzle Kit Configuration
+ *
+ * Uses the new Supabase database URL variable format.
+ * Falls back to legacy DATABASE_URL for backwards compatibility.
+ */
+
+const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error(
+    "SUPABASE_DATABASE_URL must be set. " +
+    "Legacy DATABASE_URL is also accepted for backwards compatibility."
+  );
 }
 
 export default defineConfig({
@@ -9,6 +21,6 @@ export default defineConfig({
   schema: "./shared/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    url: databaseUrl,
   },
 });

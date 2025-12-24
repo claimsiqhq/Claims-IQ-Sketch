@@ -185,10 +185,15 @@ Return ONLY valid JSON with this exact structure:
 
 async function seedWorkflowPrompt() {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE;
+  // Use new key format with fallback to legacy
+  const supabaseKey =
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE;
 
   if (!supabaseUrl || !supabaseKey) {
-    console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE');
+    console.error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY');
+    console.error('Set SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY)');
     process.exit(1);
   }
 

@@ -28,8 +28,17 @@ async function validateXactimateIntegration() {
   console.log("║     Claims IQ - Complete System Test                         ║");
   console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
+  // Use new database URL format with fallback to legacy
+  const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    console.error("SUPABASE_DATABASE_URL is required");
+    console.error("Legacy DATABASE_URL is also accepted for backwards compatibility");
+    process.exit(1);
+  }
+
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: databaseUrl,
   });
 
   try {
