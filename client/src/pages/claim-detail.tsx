@@ -117,6 +117,7 @@ import { InspectionTipsPanel } from "@/components/inspection-tips-panel";
 import { BriefingPanel } from "@/components/briefing-panel";
 import { WorkflowPanel } from "@/components/workflow-panel";
 import { CarrierGuidancePanel } from "@/components/carrier-guidance-panel";
+import ClaimChecklistPanel from "@/components/claim-checklist";
 import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DoorOpen } from "lucide-react";
@@ -874,6 +875,7 @@ export default function ClaimDetail() {
     { id: "info", label: "Info", icon: Home },
     { id: "briefing", label: "Briefing", icon: Sparkles },
     { id: "workflow", label: "Workflow", icon: ClipboardCheck },
+    { id: "checklist", label: "Checklist", icon: Check },
     { id: "documents", label: "Documents", icon: File },
     { id: "sketch", label: "Sketch", icon: PenTool },
     { id: "scope", label: "Scope", icon: ClipboardList },
@@ -1374,6 +1376,19 @@ export default function ClaimDetail() {
               <div className="max-w-4xl mx-auto">
                 {apiClaim?.id ? (
                   <WorkflowPanel claimId={apiClaim.id} />
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    Loading claim data...
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* TAB: CHECKLIST */}
+            <TabsContent value="checklist" className="h-full p-4 md:p-6 m-0 overflow-auto">
+              <div className="max-w-4xl mx-auto">
+                {apiClaim?.id ? (
+                  <ClaimChecklistPanel claimId={apiClaim.id} />
                 ) : (
                   <div className="text-center text-muted-foreground py-8">
                     Loading claim data...

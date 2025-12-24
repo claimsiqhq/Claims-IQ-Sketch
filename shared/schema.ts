@@ -2506,3 +2506,166 @@ export const insertInspectionWorkflowRoomSchema = createInsertSchema(inspectionW
 
 export type InsertInspectionWorkflowRoom = z.infer<typeof insertInspectionWorkflowRoomSchema>;
 export type InspectionWorkflowRoom = typeof inspectionWorkflowRooms.$inferSelect;
+
+// ============================================
+// CLAIM CHECKLIST TABLES
+// ============================================
+
+/**
+ * Claim Severity Enum
+ * Used to determine checklist complexity and required items
+ */
+export enum ClaimSeverity {
+  MINOR = "minor",         // Small claims, limited damage
+  MODERATE = "moderate",   // Standard claims
+  SEVERE = "severe",       // Major damage, complex claims
+  CATASTROPHIC = "catastrophic"  // CAT events, total loss potential
+}
+
+export const SEVERITY_LABELS: Record<ClaimSeverity, string> = {
+  [ClaimSeverity.MINOR]: "Minor",
+  [ClaimSeverity.MODERATE]: "Moderate",
+  [ClaimSeverity.SEVERE]: "Severe",
+  [ClaimSeverity.CATASTROPHIC]: "Catastrophic"
+};
+
+/**
+ * Checklist Category Enum
+ * Groups checklist items by processing phase
+ */
+export enum ChecklistCategory {
+  DOCUMENTATION = "documentation",
+  VERIFICATION = "verification",
+  INSPECTION = "inspection",
+  ESTIMATION = "estimation",
+  REVIEW = "review",
+  SETTLEMENT = "settlement"
+}
+
+export const CHECKLIST_CATEGORY_LABELS: Record<ChecklistCategory, string> = {
+  [ChecklistCategory.DOCUMENTATION]: "Documentation",
+  [ChecklistCategory.VERIFICATION]: "Verification",
+  [ChecklistCategory.INSPECTION]: "Inspection",
+  [ChecklistCategory.ESTIMATION]: "Estimation",
+  [ChecklistCategory.REVIEW]: "Review",
+  [ChecklistCategory.SETTLEMENT]: "Settlement"
+};
+
+/**
+ * Claim Checklists Table
+ * Master checklist for a claim, generated based on peril and severity
+ */
+export const claimChecklists = pgTable("claim_checklists", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull(),
+  organizationId: uuid("organization_id").notNull(),
+
+  // Checklist context
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+
+  // Generation context - what triggered this checklist
+  peril: varchar("peril", { length: 50 }).notNull(),
+  severity: varchar("severity", { length: 30 }).notNull().default("moderate"),
+  templateVersion: varchar("template_version", { length: 20 }).default("1.0"),
+
+  // Progress tracking
+  totalItems: integer("total_items").notNull().default(0),
+  completedItems: integer("completed_items").notNull().default(0),
+  status: varchar("status", { length: 30 }).notNull().default("active"), // active, completed, archived
+
+  // Metadata
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  claimIdx: index("claim_checklists_claim_idx").on(table.claimId),
+  orgIdx: index("claim_checklists_org_idx").on(table.organizationId),
+  statusIdx: index("claim_checklists_status_idx").on(table.status),
+  perilIdx: index("claim_checklists_peril_idx").on(table.peril),
+}));
+
+export const insertClaimChecklistSchema = createInsertSchema(claimChecklists).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
+export type InsertClaimChecklist = z.infer<typeof insertClaimChecklistSchema>;
+export type ClaimChecklist = typeof claimChecklists.$inferSelect;
+
+/**
+ * Claim Checklist Items Table
+ * Individual items within a claim checklist
+ */
+export const claimChecklistItems = pgTable("claim_checklist_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  checklistId: uuid("checklist_id").notNull(),
+
+  // Item details
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 50 }).notNull(),
+
+  // Conditions - when this item applies
+  requiredForPerils: jsonb("required_for_perils").default(sql`'[]'::jsonb`), // Empty = all perils
+  requiredForSeverities: jsonb("required_for_severities").default(sql`'[]'::jsonb`), // Empty = all severities
+  conditionalLogic: jsonb("conditional_logic").default(sql`'{}'::jsonb`), // Advanced conditions
+
+  // Item requirements
+  required: boolean("required").default(true),
+  priority: integer("priority").default(1), // 1=high, 2=medium, 3=low
+  sortOrder: integer("sort_order").default(0),
+
+  // Status tracking
+  status: varchar("status", { length: 30 }).notNull().default("pending"), // pending, in_progress, completed, skipped, blocked, na
+  completedBy: varchar("completed_by"),
+  completedAt: timestamp("completed_at"),
+  skippedReason: text("skipped_reason"),
+
+  // Notes and evidence
+  notes: text("notes"),
+  linkedDocumentIds: jsonb("linked_document_ids").default(sql`'[]'::jsonb`),
+
+  // Due date (optional)
+  dueDate: timestamp("due_date"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  checklistIdx: index("checklist_items_checklist_idx").on(table.checklistId),
+  categoryIdx: index("checklist_items_category_idx").on(table.checklistId, table.category),
+  statusIdx: index("checklist_items_status_idx").on(table.checklistId, table.status),
+  orderIdx: index("checklist_items_order_idx").on(table.checklistId, table.sortOrder),
+}));
+
+export const insertClaimChecklistItemSchema = createInsertSchema(claimChecklistItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
+export type InsertClaimChecklistItem = z.infer<typeof insertClaimChecklistItemSchema>;
+export type ClaimChecklistItem = typeof claimChecklistItems.$inferSelect;
+
+/**
+ * Checklist Template Items
+ * Master templates that generate checklist items for claims
+ */
+export interface ChecklistTemplateItem {
+  id: string;
+  title: string;
+  description?: string;
+  category: ChecklistCategory;
+  requiredForPerils: Peril[]; // Empty = all perils
+  requiredForSeverities: ClaimSeverity[]; // Empty = all severities
+  required: boolean;
+  priority: 1 | 2 | 3;
+  sortOrder: number;
+}

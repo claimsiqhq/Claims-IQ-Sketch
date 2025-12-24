@@ -2134,3 +2134,118 @@ export async function expandWorkflowRooms(
   }
   return response.json();
 }
+
+// ============================================
+// CLAIM CHECKLIST API
+// ============================================
+
+export type ChecklistItemStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'blocked' | 'na';
+
+export interface ClaimChecklist {
+  id: string;
+  claimId: string;
+  organizationId: string;
+  name: string;
+  description: string | null;
+  peril: string;
+  severity: string;
+  templateVersion: string | null;
+  totalItems: number;
+  completedItems: number;
+  status: string;
+  metadata: Record<string, any> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface ClaimChecklistItem {
+  id: string;
+  checklistId: string;
+  title: string;
+  description: string | null;
+  category: string;
+  requiredForPerils: string[] | null;
+  requiredForSeverities: string[] | null;
+  conditionalLogic: Record<string, any> | null;
+  required: boolean | null;
+  priority: number | null;
+  sortOrder: number | null;
+  status: ChecklistItemStatus;
+  completedBy: string | null;
+  completedAt: string | null;
+  skippedReason: string | null;
+  notes: string | null;
+  linkedDocumentIds: string[] | null;
+  dueDate: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ChecklistResponse {
+  checklist: ClaimChecklist | null;
+  items: ClaimChecklistItem[];
+  regenerated?: boolean;
+}
+
+export async function getClaimChecklist(claimId: string): Promise<ChecklistResponse> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/checklist`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch checklist' }));
+    throw new Error(error.error || 'Failed to fetch checklist');
+  }
+  return response.json();
+}
+
+export async function generateClaimChecklist(
+  claimId: string,
+  options?: { peril?: string; severity?: string }
+): Promise<ChecklistResponse> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/checklist/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to generate checklist' }));
+    throw new Error(error.error || 'Failed to generate checklist');
+  }
+  return response.json();
+}
+
+export async function updateChecklistItem(
+  itemId: string,
+  updates: { status: ChecklistItemStatus; notes?: string; skippedReason?: string }
+): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/checklists/items/${itemId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to update item' }));
+    throw new Error(error.error || 'Failed to update item');
+  }
+  return response.json();
+}
+
+export async function addChecklistItem(
+  checklistId: string,
+  item: { title: string; category: string; description?: string; required?: boolean; priority?: 1 | 2 | 3 }
+): Promise<{ success: boolean; item: ClaimChecklistItem }> {
+  const response = await fetch(`${API_BASE}/checklists/${checklistId}/items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(item),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to add item' }));
+    throw new Error(error.error || 'Failed to add item');
+  }
+  return response.json();
+}

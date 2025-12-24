@@ -94,6 +94,14 @@ import {
   purgeAllClaims
 } from "./services/claims";
 import {
+  generateChecklistForClaim,
+  getChecklistForClaim,
+  updateChecklistItemStatus,
+  addCustomChecklistItem,
+  inferSeverityFromClaim
+} from "./services/checklistTemplateService";
+import { Peril, ClaimSeverity, ChecklistCategory } from "@shared/schema";
+import {
   createDocument,
   getDocument,
   getDocumentDownloadUrl,
@@ -3333,6 +3341,175 @@ export async function registerRoutes(
     try {
       const deletedCount = await deleteClaimBriefings(req.params.id, req.organizationId!);
       res.json({ deleted: deletedCount });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // CLAIM CHECKLIST ROUTES
+  // ============================================
+
+  /**
+   * GET /api/claims/:id/checklist
+   * Get the dynamic checklist for a claim, auto-generating if needed
+   */
+  app.get('/api/claims/:id/checklist', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const claimId = req.params.id;
+      const organizationId = req.organizationId!;
+
+      let { checklist, items } = await getChecklistForClaim(claimId);
+
+      if (!checklist) {
+        const { data: claim } = await supabaseAdmin
+          .from('claims')
+          .select('id, primary_peril, reserve_amount, metadata')
+          .eq('id', claimId)
+          .eq('organization_id', organizationId)
+          .single();
+
+        if (!claim) {
+          return res.status(404).json({ error: 'Claim not found' });
+        }
+
+        const peril = (claim.primary_peril as Peril) || Peril.OTHER;
+        const severity = inferSeverityFromClaim({
+          reserveAmount: claim.reserve_amount ? parseFloat(claim.reserve_amount) : null,
+          metadata: claim.metadata as Record<string, any> | null,
+        });
+
+        const result = await generateChecklistForClaim(claimId, organizationId, peril, severity);
+
+        if (!result.success) {
+          return res.status(500).json({ error: result.error });
+        }
+
+        const generated = await getChecklistForClaim(claimId);
+        checklist = generated.checklist;
+        items = generated.items;
+      }
+
+      res.json({ checklist, items });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/claims/:id/checklist/generate
+   * Force generate or regenerate a checklist for a claim
+   */
+  app.post('/api/claims/:id/checklist/generate', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const claimId = req.params.id;
+      const organizationId = req.organizationId!;
+      const { peril: overridePeril, severity: overrideSeverity } = req.body;
+
+      const { data: claim } = await supabaseAdmin
+        .from('claims')
+        .select('id, primary_peril, reserve_amount, metadata')
+        .eq('id', claimId)
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (!claim) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+
+      await supabaseAdmin
+        .from('claim_checklists')
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .eq('claim_id', claimId)
+        .eq('status', 'active');
+
+      const peril = (overridePeril as Peril) || (claim.primary_peril as Peril) || Peril.OTHER;
+      const severity = (overrideSeverity as ClaimSeverity) || inferSeverityFromClaim({
+        reserveAmount: claim.reserve_amount ? parseFloat(claim.reserve_amount) : null,
+        metadata: claim.metadata as Record<string, any> | null,
+      });
+
+      const result = await generateChecklistForClaim(claimId, organizationId, peril, severity);
+
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      const { checklist, items } = await getChecklistForClaim(claimId);
+      res.json({ checklist, items, regenerated: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * PUT /api/checklists/items/:itemId
+   * Update a checklist item status
+   */
+  app.put('/api/checklists/items/:itemId', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { status, notes, skippedReason } = req.body;
+
+      if (!status) {
+        return res.status(400).json({ error: 'Status is required' });
+      }
+
+      const validStatuses = ['pending', 'in_progress', 'completed', 'skipped', 'blocked', 'na'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      }
+
+      const result = await updateChecklistItemStatus(
+        req.params.itemId,
+        status,
+        req.user?.id,
+        notes,
+        skippedReason
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/checklists/:checklistId/items
+   * Add a custom item to a checklist
+   */
+  app.post('/api/checklists/:checklistId/items', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { title, category, description, required, priority } = req.body;
+
+      if (!title || !category) {
+        return res.status(400).json({ error: 'Title and category are required' });
+      }
+
+      const validCategories = Object.values(ChecklistCategory);
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` });
+      }
+
+      const result = await addCustomChecklistItem(
+        req.params.checklistId,
+        title,
+        category as ChecklistCategory,
+        { description, required, priority }
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, item: result.item });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
