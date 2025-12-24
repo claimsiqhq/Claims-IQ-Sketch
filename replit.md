@@ -223,6 +223,25 @@ npm run db:push  # Push schema changes to database
 3. Add to navigation in `client/src/components/layout.tsx`
 
 ### Environment Variables
-- `DATABASE_URL` - PostgreSQL connection string (required)
-- `SESSION_SECRET` - Session encryption key (defaults to dev key)
+
+**Supabase Configuration (Required):**
+- `SUPABASE_URL` - Supabase project URL (https://xxx.supabase.co)
+- `SUPABASE_PUBLISHABLE_API_KEY` - Publishable key (sb_publishable_xxx) for client-side use
+- `SUPABASE_SECRET_KEY` - Secret key (sb_secret_xxx) for server-side admin operations
+- `SUPABASE_DATABASE_URL` - PostgreSQL connection string for direct database access
+
+**Client-Side Variables (Vite):**
+- `VITE_SUPABASE_URL` - Supabase URL for frontend
+- `VITE_SUPABASE_PUBLISHABLE_API_KEY` - Publishable key for frontend
+
+**Application Configuration:**
+- `SESSION_SECRET` - Session encryption key (required in production)
 - `OPENAI_API_KEY` - For AI features (optional)
+- `APP_URL` - Application URL for redirects
+
+**Legacy Variables (Deprecated - backwards compatible):**
+- `DATABASE_URL` - Use SUPABASE_DATABASE_URL instead
+- `SUPABASE_ANON_KEY` - Use SUPABASE_PUBLISHABLE_API_KEY instead
+- `SUPABASE_SERVICE_ROLE_KEY` - Use SUPABASE_SECRET_KEY instead
+
+See `.env.example` for complete configuration reference.

@@ -3,13 +3,24 @@
  * Supabase Connection Validation Script
  *
  * This script validates:
- * 1. Environment variable configuration
+ * 1. Environment variable configuration (new and legacy keys)
  * 2. Database connectivity via PostgreSQL pool
  * 3. Supabase API connectivity
  * 4. Storage bucket configuration
  * 5. Data population status
  *
  * Usage: npx tsx scripts/validate-supabase.ts
+ *
+ * Environment Variables (New Format - Recommended):
+ * - SUPABASE_URL - Project URL
+ * - SUPABASE_PUBLISHABLE_API_KEY - Publishable key (sb_publishable_...)
+ * - SUPABASE_SECRET_KEY - Secret key (sb_secret_...)
+ * - SUPABASE_DATABASE_URL - PostgreSQL connection string
+ *
+ * Legacy Variables (Deprecated):
+ * - SUPABASE_ANON_KEY - Legacy anon key
+ * - SUPABASE_SERVICE_ROLE_KEY - Legacy service role key
+ * - DATABASE_URL - Legacy database URL
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -34,39 +45,117 @@ function log(result: ValidationResult) {
   results.push(result);
 }
 
+/**
+ * Detect API key type
+ */
+function detectKeyType(key: string | undefined): 'new' | 'legacy' | 'unknown' {
+  if (!key) return 'unknown';
+  if (key.startsWith('sb_publishable_') || key.startsWith('sb_secret_')) {
+    return 'new';
+  }
+  if (key.startsWith('eyJ')) {
+    return 'legacy';
+  }
+  return 'unknown';
+}
+
 async function validateEnvironmentVariables() {
   console.log('\n📋 Checking Environment Variables...\n');
 
-  const requiredVars = [
-    'DATABASE_URL',
-    'SUPABASE_URL',
-    'SUPABASE_ANON_KEY',
-  ];
+  // Get key values with fallbacks
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_API_KEY || process.env.SUPABASE_ANON_KEY;
+  const secretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
 
+  // Check SUPABASE_URL
+  if (supabaseUrl) {
+    log({
+      name: 'SUPABASE_URL',
+      status: 'pass',
+      message: 'Configured',
+      details: `${supabaseUrl.substring(0, 40)}...`
+    });
+  } else {
+    log({
+      name: 'SUPABASE_URL',
+      status: 'fail',
+      message: 'Not configured - this is required!'
+    });
+  }
+
+  // Check Publishable Key (new or legacy)
+  if (publishableKey) {
+    const keyType = detectKeyType(publishableKey);
+    const varName = process.env.SUPABASE_PUBLISHABLE_API_KEY
+      ? 'SUPABASE_PUBLISHABLE_API_KEY'
+      : 'SUPABASE_ANON_KEY (legacy)';
+
+    log({
+      name: varName,
+      status: keyType === 'legacy' ? 'warn' : 'pass',
+      message: keyType === 'legacy'
+        ? 'Using legacy anon key - consider migrating to SUPABASE_PUBLISHABLE_API_KEY'
+        : 'Configured with new API key format',
+      details: `${publishableKey.substring(0, 30)}... (${keyType} format)`
+    });
+  } else {
+    log({
+      name: 'Publishable/Anon Key',
+      status: 'fail',
+      message: 'Not configured - set SUPABASE_PUBLISHABLE_API_KEY or SUPABASE_ANON_KEY'
+    });
+  }
+
+  // Check Secret Key (new or legacy)
+  if (secretKey) {
+    const keyType = detectKeyType(secretKey);
+    const varName = process.env.SUPABASE_SECRET_KEY
+      ? 'SUPABASE_SECRET_KEY'
+      : (process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SUPABASE_SERVICE_ROLE_KEY (legacy)' : 'SUPABASE_SERVICE_ROLE (legacy)');
+
+    log({
+      name: varName,
+      status: keyType === 'legacy' ? 'warn' : 'pass',
+      message: keyType === 'legacy'
+        ? 'Using legacy service role key - consider migrating to SUPABASE_SECRET_KEY'
+        : 'Configured with new API key format'
+    });
+  } else {
+    log({
+      name: 'Secret/Service Role Key',
+      status: 'warn',
+      message: 'Not configured - set SUPABASE_SECRET_KEY for admin features'
+    });
+  }
+
+  // Check Database URL (new or legacy)
+  if (databaseUrl) {
+    const varName = process.env.SUPABASE_DATABASE_URL
+      ? 'SUPABASE_DATABASE_URL'
+      : 'DATABASE_URL (legacy)';
+
+    log({
+      name: varName,
+      status: process.env.SUPABASE_DATABASE_URL ? 'pass' : 'warn',
+      message: process.env.SUPABASE_DATABASE_URL
+        ? 'Configured'
+        : 'Using legacy DATABASE_URL - consider renaming to SUPABASE_DATABASE_URL',
+      details: `${databaseUrl.substring(0, 50)}...`
+    });
+  } else {
+    log({
+      name: 'Database URL',
+      status: 'fail',
+      message: 'Not configured - set SUPABASE_DATABASE_URL'
+    });
+  }
+
+  // Optional variables
   const optionalVars = [
-    'SUPABASE_SERVICE_ROLE_KEY',
     'SESSION_SECRET',
     'OPENAI_API_KEY',
   ];
-
-  for (const varName of requiredVars) {
-    if (process.env[varName]) {
-      log({
-        name: varName,
-        status: 'pass',
-        message: 'Configured',
-        details: varName.includes('KEY') || varName.includes('URL')
-          ? `${process.env[varName]!.substring(0, 30)}...`
-          : undefined
-      });
-    } else {
-      log({
-        name: varName,
-        status: 'fail',
-        message: 'Not configured - this is required!'
-      });
-    }
-  }
 
   for (const varName of optionalVars) {
     if (process.env[varName]) {
@@ -88,17 +177,19 @@ async function validateEnvironmentVariables() {
 async function validateDatabaseConnection() {
   console.log('\n🗄️  Testing Database Connection...\n');
 
-  if (!process.env.DATABASE_URL) {
+  const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
     log({
       name: 'Database Connection',
       status: 'fail',
-      message: 'DATABASE_URL not set - cannot test connection'
+      message: 'SUPABASE_DATABASE_URL not set - cannot test connection'
     });
     return null;
   }
 
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: databaseUrl,
     max: 5,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000,
@@ -197,20 +288,33 @@ async function validateSupabaseAPI() {
   console.log('\n🔌 Testing Supabase API Connection...\n');
 
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_API_KEY || process.env.SUPABASE_ANON_KEY;
+  const secretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !publishableKey) {
     log({
       name: 'Supabase API',
       status: 'fail',
-      message: 'SUPABASE_URL or SUPABASE_ANON_KEY not configured'
+      message: 'SUPABASE_URL or publishable key not configured'
     });
     return;
   }
 
+  // Detect key types
+  const publishableKeyType = detectKeyType(publishableKey);
+  const secretKeyType = detectKeyType(secretKey);
+
+  log({
+    name: 'API Key Types',
+    status: (publishableKeyType === 'new' || secretKeyType === 'new') ? 'pass' : 'warn',
+    message: `Publishable: ${publishableKeyType}, Secret: ${secretKeyType}`,
+    details: publishableKeyType === 'legacy'
+      ? 'Consider migrating to new sb_publishable_/sb_secret_ key format'
+      : undefined
+  });
+
   // Test public client
-  const publicClient = createClient(supabaseUrl, supabaseAnonKey);
+  const publicClient = createClient(supabaseUrl, publishableKey);
 
   try {
     // Test auth health
@@ -229,8 +333,8 @@ async function validateSupabaseAPI() {
   }
 
   // Test admin client if service key is available
-  if (supabaseServiceKey) {
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+  if (secretKey) {
+    const adminClient = createClient(supabaseUrl, secretKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
@@ -279,7 +383,7 @@ async function validateSupabaseAPI() {
     log({
       name: 'Supabase Admin Features',
       status: 'warn',
-      message: 'SUPABASE_SERVICE_ROLE_KEY not configured - admin features unavailable'
+      message: 'SUPABASE_SECRET_KEY not configured - admin features unavailable'
     });
   }
 }
@@ -315,6 +419,18 @@ async function printSummary() {
     });
   }
 
+  // Migration guidance
+  const legacyWarnings = results.filter(r =>
+    r.status === 'warn' &&
+    (r.name.includes('legacy') || r.message.includes('legacy'))
+  );
+
+  if (legacyWarnings.length > 0) {
+    console.log('\n📚 API Key Migration Guide:');
+    console.log('   https://supabase.com/docs/guides/api/api-keys');
+    console.log('   New key format: sb_publishable_xxx / sb_secret_xxx');
+  }
+
   console.log('\n');
 }
 
@@ -322,6 +438,7 @@ async function main() {
   console.log('='.repeat(60));
   console.log('🔍 SUPABASE CONNECTION VALIDATION');
   console.log('   Claims-IQ Sketch');
+  console.log('   Supports new API key format (June 2025+)');
   console.log('='.repeat(60));
 
   await validateEnvironmentVariables();

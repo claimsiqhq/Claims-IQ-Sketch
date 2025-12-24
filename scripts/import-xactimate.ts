@@ -9,9 +9,18 @@ const BATCH_SIZE = 500;
 
 async function importXactimate() {
   console.log("Starting COMPLETE Xactimate import...");
-  
+
+  // Use new database URL format with fallback to legacy
+  const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    console.error("SUPABASE_DATABASE_URL is required");
+    console.error("Legacy DATABASE_URL is also accepted for backwards compatibility");
+    process.exit(1);
+  }
+
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: databaseUrl,
   });
 
   try {
@@ -25,7 +34,7 @@ async function importXactimate() {
       attributeNamePrefix: "@_",
       textNodeName: "_text",
     });
-    
+
     const result = parser.parse(xmlContent);
     console.log("XML parsed successfully");
 
@@ -80,12 +89,12 @@ async function importXactimate() {
     const equipComps = components.EQU_COMPONENTS?.ECMP || [];
     const equipArray = Array.isArray(equipComps) ? equipComps : (equipComps ? [equipComps] : []);
     console.log(`  Equipment components: ${equipArray.length}`);
-    
+
     for (const comp of equipArray) {
       await pool.query(
         `INSERT INTO xact_components (component_type, code, description, unit, amount, xact_id)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        ['equipment', comp["@_code"] || "", comp["@_dsc"] || "", comp["@_unt"] || "DAY", 
+        ['equipment', comp["@_code"] || "", comp["@_dsc"] || "", comp["@_unt"] || "DAY",
          parseFloat(comp["@_amt"] || "0"), comp["@_id"] || ""]
       );
       compCount++;
@@ -95,18 +104,18 @@ async function importXactimate() {
     const matComps = components.MAT_COMPONENTS?.CMP || [];
     const matArray = Array.isArray(matComps) ? matComps : (matComps ? [matComps] : []);
     console.log(`  Material components: ${matArray.length}`);
-    
+
     let matBatch: any[] = [];
     for (const comp of matArray) {
       matBatch.push([
-        'material', 
-        comp["@_code"] || "", 
-        comp["@_dsc"] || "", 
-        comp["@_unt"] || "EA", 
-        parseFloat(comp["@_amt"] || "0"), 
+        'material',
+        comp["@_code"] || "",
+        comp["@_dsc"] || "",
+        comp["@_unt"] || "EA",
+        parseFloat(comp["@_amt"] || "0"),
         comp["@_id"] || ""
       ]);
-      
+
       if (matBatch.length >= BATCH_SIZE) {
         await insertComponentBatch(pool, matBatch);
         compCount += matBatch.length;
@@ -123,12 +132,12 @@ async function importXactimate() {
     const labComps = components.LAB_COMPONENTS?.LCMP || [];
     const labArray = Array.isArray(labComps) ? labComps : (labComps ? [labComps] : []);
     console.log(`\n  Labor components: ${labArray.length}`);
-    
+
     for (const comp of labArray) {
       await pool.query(
         `INSERT INTO xact_components (component_type, code, description, unit, amount, xact_id)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        ['labor', comp["@_code"] || "", comp["@_dsc"] || "", comp["@_unt"] || "HR", 
+        ['labor', comp["@_code"] || "", comp["@_dsc"] || "", comp["@_unt"] || "HR",
          parseFloat(comp["@_amt"] || "0"), comp["@_id"] || ""]
       );
       compCount++;
@@ -214,7 +223,7 @@ async function importXactimate() {
     const catResult = await pool.query("SELECT COUNT(*) FROM xact_categories");
     const compResult = await pool.query("SELECT COUNT(*) FROM xact_components");
     const itemResult = await pool.query("SELECT COUNT(*) FROM xact_line_items");
-    
+
     console.log(`\nDatabase totals:`);
     console.log(`  Categories:  ${catResult.rows[0].count}`);
     console.log(`  Components:  ${compResult.rows[0].count} (with pricing!)`);
@@ -265,7 +274,7 @@ async function insertItemBatch(pool: pg.Pool, batch: any[]) {
   }).join(", ");
 
   await pool.query(
-    `INSERT INTO xact_line_items 
+    `INSERT INTO xact_line_items
      (item_id, xact_id, category_code, selector_code, full_code, description, unit, op_eligible, taxable, labor_efficiency, material_dist_pct, search_group, search_category, activities, metadata)
      VALUES ${placeholders}`,
     batch.flat()
