@@ -554,6 +554,7 @@ export default function NewClaim() {
 
   // Current organization ID for claim creation
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
+  const [isLoadingOrg, setIsLoadingOrg] = useState(true);
 
   // Check for resume parameter to load an existing draft claim
   const resumeClaimId = new URLSearchParams(window.location.search).get('resume');
@@ -652,6 +653,7 @@ export default function NewClaim() {
   // Fetch current organization on mount
   useEffect(() => {
     const fetchOrg = async () => {
+      setIsLoadingOrg(true);
       try {
         const result = await getMyOrganizations();
         if (result.currentOrganizationId) {
@@ -661,6 +663,8 @@ export default function NewClaim() {
         }
       } catch (err) {
         console.error('Failed to fetch organization:', err);
+      } finally {
+        setIsLoadingOrg(false);
       }
     };
     fetchOrg();
@@ -976,6 +980,18 @@ export default function NewClaim() {
   // Handle FNOL file selection and create draft claim
   const handleFnolSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
+
+    // Ensure we have an organization ID before proceeding
+    if (!currentOrgId && !draftClaim) {
+      if (isLoadingOrg) {
+        setError('Please wait while we load your organization details...');
+      } else {
+        setError('Unable to determine your organization. Please refresh and try again.');
+      }
+      // Reset the input so user can try again
+      e.target.value = '';
+      return;
+    }
 
     const file = e.target.files[0];
     setError(null);
@@ -1368,7 +1384,7 @@ export default function NewClaim() {
     uploadedDoc?: UploadedDocument | null;
     onRemove?: () => void;
     multiple?: boolean;
-    inputRef?: React.RefObject<HTMLInputElement>;
+    inputRef?: React.RefObject<HTMLInputElement | null>;
   }) => {
     const hasFile = uploadedDoc && uploadedDoc.status !== 'error';
     const isUploading = uploadedDoc?.status === 'uploading' || uploadedDoc?.status === 'processing';
