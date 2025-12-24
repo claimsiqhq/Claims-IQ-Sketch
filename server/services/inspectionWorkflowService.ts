@@ -335,7 +335,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
             secondaryPerils: existing.secondary_perils,
             sourceBriefingId: existing.source_briefing_id,
             workflowJson: existing.workflow_json,
-            generatedFrom: existing.generated_from,
+            generatedFrom: existing.generated_from || null,
             createdBy: existing.created_by || null,
             createdAt: existing.created_at,
             updatedAt: existing.updated_at,
@@ -519,6 +519,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     };
 
     // Step 8: Insert the workflow
+    // Note: generated_from and created_by columns may not exist in Supabase yet
     const { data: workflow, error: workflowError } = await supabaseAdmin
       .from('inspection_workflows')
       .insert({
@@ -530,7 +531,6 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
         secondary_perils: context.secondaryPerils,
         source_briefing_id: briefing?.id || null,
         workflow_json: workflowJson,
-        generated_from: generatedFrom,
       })
       .select('*')
       .single();
@@ -603,7 +603,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
         secondaryPerils: workflow.secondary_perils,
         sourceBriefingId: workflow.source_briefing_id,
         workflowJson: workflow.workflow_json,
-        generatedFrom: workflow.generated_from,
+        generatedFrom: workflow.generated_from || null,
         createdBy: workflow.created_by || null,
         createdAt: workflow.created_at,
         updatedAt: workflow.updated_at,
@@ -888,7 +888,7 @@ export async function getWorkflow(
       secondaryPerils: workflowData.secondary_perils,
       sourceBriefingId: workflowData.source_briefing_id,
       workflowJson: workflowData.workflow_json,
-      generatedFrom: workflowData.generated_from,
+      generatedFrom: workflowData.generated_from || null,
       createdBy: workflowData.created_by || null,
       createdAt: workflowData.created_at,
       updatedAt: workflowData.updated_at,
