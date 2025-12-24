@@ -142,6 +142,11 @@ interface ExtractedData {
   reportedDate?: string;
   // New drone eligibility field
   droneEligibleAtFNOL?: string;
+  // Weather data from FNOL
+  weatherData?: string;
+  // Insured address (policyholder mailing address)
+  insuredAddress?: string;
+  policyholderAddress?: string;
   policyDetails?: {
     policyNumber?: string;
     state?: string;
@@ -726,12 +731,24 @@ export default function NewClaim() {
       if (extracted.contactPhone && !merged.contactPhone) merged.contactPhone = extracted.contactPhone;
       if (extracted.contactEmail && !merged.contactEmail) merged.contactEmail = extracted.contactEmail;
       if (extracted.dateOfLoss && !merged.dateOfLoss) merged.dateOfLoss = extracted.dateOfLoss;
-      if (extracted.riskLocation && !merged.riskLocation) merged.riskLocation = extracted.riskLocation;
+
+      // Property Address - handle both new component fields and legacy riskLocation
+      if (extracted.propertyAddress && !merged.propertyAddress) merged.propertyAddress = extracted.propertyAddress;
+      if (extracted.propertyStreetAddress && !merged.propertyStreetAddress) merged.propertyStreetAddress = extracted.propertyStreetAddress;
+      if (extracted.propertyCity && !merged.propertyCity) merged.propertyCity = extracted.propertyCity;
+      if (extracted.propertyState && !merged.propertyState) merged.propertyState = extracted.propertyState;
+      if (extracted.propertyZipCode && !merged.propertyZipCode) merged.propertyZipCode = extracted.propertyZipCode;
+      // Use propertyAddress or riskLocation for legacy field
+      if ((extracted.riskLocation || extracted.propertyAddress) && !merged.riskLocation) {
+        merged.riskLocation = extracted.riskLocation || extracted.propertyAddress;
+      }
+
       if (extracted.causeOfLoss && extracted.causeOfLoss !== 'Hail') merged.causeOfLoss = extracted.causeOfLoss;
       if (extracted.lossDescription && !merged.lossDescription) merged.lossDescription = extracted.lossDescription;
       if (extracted.dwellingDamageDescription && !merged.dwellingDamageDescription) merged.dwellingDamageDescription = extracted.dwellingDamageDescription;
       if (extracted.otherStructureDamageDescription && !merged.otherStructureDamageDescription) merged.otherStructureDamageDescription = extracted.otherStructureDamageDescription;
       if (extracted.damageLocation && !merged.damageLocation) merged.damageLocation = extracted.damageLocation;
+      if (extracted.weatherData && !merged.weatherData) merged.weatherData = extracted.weatherData;
 
       // Property details
       if (extracted.yearBuilt && !merged.yearBuilt) merged.yearBuilt = extracted.yearBuilt;
@@ -855,15 +872,20 @@ export default function NewClaim() {
       claimId: currentClaimData.claimId,
       policyholder: currentClaimData.policyholder,
       dateOfLoss: currentClaimData.dateOfLoss,
-      riskLocation: currentClaimData.riskLocation,
+      riskLocation: currentClaimData.riskLocation || currentClaimData.propertyAddress,
       causeOfLoss: currentClaimData.causeOfLoss,
       lossDescription: currentClaimData.lossDescription,
       policyNumber: currentClaimData.policyNumber,
-      state: currentClaimData.state,
+      state: currentClaimData.state || currentClaimData.propertyState,
       yearRoofInstall: currentClaimData.yearRoofInstall,
       windHailDeductible: currentClaimData.windHailDeductible,
       dwellingLimit: currentClaimData.dwellingLimit,
       endorsementsListed: currentClaimData.endorsementsListed,
+      // Property address component fields (for direct database mapping)
+      propertyAddress: currentClaimData.propertyStreetAddress || currentClaimData.propertyAddress,
+      propertyCity: currentClaimData.propertyCity,
+      propertyState: currentClaimData.propertyState || currentClaimData.state,
+      propertyZip: currentClaimData.propertyZipCode,
       metadata: {
         documentIds,
         policyholderSecondary: currentClaimData.policyholderSecondary,
@@ -871,6 +893,13 @@ export default function NewClaim() {
         contactEmail: currentClaimData.contactEmail,
         yearBuilt: currentClaimData.yearBuilt,
         isWoodRoof: currentClaimData.isWoodRoof,
+        // Property address fields (full address)
+        propertyAddress: currentClaimData.propertyAddress,
+        propertyStreetAddress: currentClaimData.propertyStreetAddress,
+        propertyCity: currentClaimData.propertyCity,
+        propertyState: currentClaimData.propertyState,
+        propertyZipCode: currentClaimData.propertyZipCode,
+        insuredAddress: currentClaimData.insuredAddress,
         // New property damage fields
         roofDamageReported: currentClaimData.roofDamageReported,
         numberOfStories: currentClaimData.numberOfStories,
@@ -883,6 +912,7 @@ export default function NewClaim() {
         // New claim status fields
         claimStatus: currentClaimData.claimStatus,
         droneEligibleAtFNOL: currentClaimData.droneEligibleAtFNOL,
+        weatherData: currentClaimData.weatherData,
         policyDeductible: currentClaimData.policyDeductible,
         windHailDeductiblePercent: currentClaimData.windHailDeductiblePercent,
         otherStructuresLimit: currentClaimData.otherStructuresLimit,
@@ -970,7 +1000,17 @@ export default function NewClaim() {
         if (extracted.contactPhone) mergedData.contactPhone = extracted.contactPhone;
         if (extracted.contactEmail) mergedData.contactEmail = extracted.contactEmail;
         if (extracted.dateOfLoss) mergedData.dateOfLoss = extracted.dateOfLoss;
-        if (extracted.riskLocation) mergedData.riskLocation = extracted.riskLocation;
+
+        // Property Address - handle both new component fields and legacy riskLocation
+        if (extracted.propertyAddress) mergedData.propertyAddress = extracted.propertyAddress;
+        if (extracted.propertyStreetAddress) mergedData.propertyStreetAddress = extracted.propertyStreetAddress;
+        if (extracted.propertyCity) mergedData.propertyCity = extracted.propertyCity;
+        if (extracted.propertyState) mergedData.propertyState = extracted.propertyState;
+        if (extracted.propertyZipCode) mergedData.propertyZipCode = extracted.propertyZipCode;
+        if (extracted.riskLocation || extracted.propertyAddress) {
+          mergedData.riskLocation = extracted.riskLocation || extracted.propertyAddress;
+        }
+
         if (extracted.causeOfLoss && extracted.causeOfLoss !== 'Hail') mergedData.causeOfLoss = extracted.causeOfLoss;
         if (extracted.lossDescription) mergedData.lossDescription = extracted.lossDescription;
         if (extracted.policyNumber || pd.policyNumber) mergedData.policyNumber = extracted.policyNumber || pd.policyNumber;
@@ -1333,15 +1373,48 @@ export default function NewClaim() {
     const hasFile = uploadedDoc && uploadedDoc.status !== 'error';
     const isUploading = uploadedDoc?.status === 'uploading' || uploadedDoc?.status === 'processing';
 
-    const handleClick = () => {
+    const handleClick = (e: React.MouseEvent) => {
+      // Prevent any default behavior and stop propagation
+      e.preventDefault();
+      e.stopPropagation();
+
       if (!hasFile && !isUploading && inputRef?.current) {
-        inputRef.current.click();
+        // Reset the input value to allow re-selecting the same file
+        inputRef.current.value = '';
+        // Use setTimeout to ensure the click happens after any state updates
+        setTimeout(() => {
+          inputRef.current?.click();
+        }, 0);
+      }
+    };
+
+    // Handle drag and drop
+    const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (hasFile || isUploading) return;
+
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        // Create a synthetic event to pass to onFileSelect
+        const syntheticEvent = {
+          target: { files, value: '' }
+        } as unknown as React.ChangeEvent<HTMLInputElement>;
+        onFileSelect(syntheticEvent);
       }
     };
 
     return (
       <div
         onClick={handleClick}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         className={`relative border-2 border-dashed rounded-lg p-8 transition-colors cursor-pointer ${
           hasFile ? 'border-green-300 bg-green-50' : 'border-slate-200 hover:border-primary/50 bg-slate-50'
         }`}
@@ -1353,6 +1426,7 @@ export default function NewClaim() {
           multiple={multiple}
           className="hidden"
           onChange={onFileSelect}
+          onClick={(e) => e.stopPropagation()}
         />
 
         <div className="flex flex-col items-center text-center">
@@ -1435,6 +1509,7 @@ export default function NewClaim() {
       { label: 'Cause of Loss', value: data.causeOfLoss },
       { label: 'Damage Location', value: data.damageLocation },
       { label: 'Drone Eligible at FNOL', value: data.droneEligibleAtFNOL },
+      { label: 'Weather Data', value: data.weatherData },
     ].filter(f => f.value) : [];
 
     // Policyholder info
@@ -1443,7 +1518,16 @@ export default function NewClaim() {
       { label: 'Second Insured', value: data.policyholderSecondary },
       { label: 'Phone', value: data.contactPhone },
       { label: 'Email', value: data.contactEmail },
-      { label: 'Property Address', value: data.propertyAddress || data.riskLocation },
+      { label: 'Mailing Address', value: data.insuredAddress || data.policyholderAddress },
+    ].filter(f => f.value) : [];
+
+    // Property address fields (parsed components)
+    const propertyAddressFields = data ? [
+      { label: 'Street Address', value: data.propertyStreetAddress },
+      { label: 'City', value: data.propertyCity },
+      { label: 'State', value: data.propertyState },
+      { label: 'ZIP Code', value: data.propertyZipCode },
+      { label: 'Full Address', value: data.propertyAddress || data.riskLocation },
     ].filter(f => f.value) : [];
 
     // Policy info
@@ -1518,8 +1602,8 @@ export default function NewClaim() {
       { label: 'Unoccupied Exclusion Period', value: policyProvisionSummary?.unoccupiedExclusionPeriod },
     ].filter(f => f.value) : [];
 
-    const hasData = claimFields.length > 0 || policyholderFields.length > 0 || policyFields.length > 0 ||
-      propertyFields.length > 0 || deductibleFields.length > 0 || coverageFields.length > 0 ||
+    const hasData = claimFields.length > 0 || policyholderFields.length > 0 || propertyAddressFields.length > 0 ||
+      policyFields.length > 0 || propertyFields.length > 0 || deductibleFields.length > 0 || coverageFields.length > 0 ||
       coverages.length > 0 || scheduledStructures.length > 0 || additionalCoverages.length > 0 ||
       thirdPartyFields.length > 0 || endorsements.length > 0 || endorsementDetails.length > 0 ||
       formIdentificationFields.length > 0 || sectionHeadings.length > 0 || definitionOfACV || provisionFields.length > 0;
@@ -1614,6 +1698,12 @@ export default function NewClaim() {
           {policyholderFields.length > 0 && (
             <CollapsibleSection title="Policyholder" defaultOpen={true}>
               <FieldGrid fields={policyholderFields} />
+            </CollapsibleSection>
+          )}
+
+          {propertyAddressFields.length > 0 && (
+            <CollapsibleSection title="Property Address" defaultOpen={true}>
+              <FieldGrid fields={propertyAddressFields} />
             </CollapsibleSection>
           )}
 

@@ -225,12 +225,20 @@ export interface FNOLClaimExtraction {
   // New expanded structure from updated prompt
   claimInformation?: {
     claimNumber?: string;
+    catastrophe?: {
+      isCat?: boolean;
+      catCode?: string;
+    };
     dateOfLoss?: string;
     claimStatus?: string;
     operatingCompany?: string;
     causeOfLoss?: string;
     lossDescription?: string;
-    droneEligibleAtFNOL?: string;
+    weatherData?: {
+      status?: string;
+      message?: string;
+    };
+    droneEligibleAtFNOL?: boolean | string;
   };
   propertyAddress?: AddressComponents;
   insuredInformation?: {
@@ -241,14 +249,29 @@ export interface FNOLClaimExtraction {
     contactPhone?: string;
     contactMobilePhone?: string;
     contactEmail?: string;
+    preferredContactMethod?: string;
     reportedBy?: string;
     reportedByPhone?: string;
     reportedDate?: string;
   };
+  propertyDetails?: {
+    yearBuilt?: string;
+    numberOfStories?: string;
+    roof?: {
+      roofDamageReported?: string;
+      damageScope?: string;
+      roofMaterial?: string;
+      woodRoof?: boolean;
+      yearRoofInstall?: string;
+    };
+  };
   propertyDamageDetails?: {
     dwellingDamageDescription?: string;
-    roofDamageReported?: string;
+    otherStructuresDamageDescription?: string;
+    personalPropertyDamageDescription?: string;
     damagesLocation?: string;
+    // Legacy fields for backward compatibility
+    roofDamageReported?: string;
     numberOfStories?: string;
     woodRoof?: string;
     yearBuilt?: string;
@@ -258,16 +281,20 @@ export interface FNOLClaimExtraction {
     policyNumber?: string;
     policyStatus?: string;
     policyType?: string;
+    lineOfBusiness?: string;
     inceptionDate?: string;
+    legalDescription?: string;
     producer?: {
       name?: string;
       address?: string;
       phone?: string;
       email?: string;
     };
-    legalDescription?: string;
-    thirdPartyInterest?: string;
-    lineOfBusiness?: string;
+    thirdPartyInterests?: Array<{
+      name?: string;
+      type?: string;
+    }>;
+    thirdPartyInterest?: string; // Legacy single field
     deductibles?: {
       policyDeductible?: string;
       windHailDeductible?: string;
@@ -349,17 +376,42 @@ export interface FNOLClaimExtraction {
  */
 export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): ExtractedClaimData {
   // Check if this is the new expanded format or legacy format
-  const isNewFormat = !!(extraction.claimInformation || extraction.insuredInformation || extraction.propertyDamageDetails || extraction.policyDetails);
-  
+  const isNewFormat = !!(extraction.claimInformation || extraction.insuredInformation || extraction.propertyDamageDetails || extraction.propertyDetails || extraction.policyDetails);
+
   if (isNewFormat) {
     // New expanded format
     const claimInfo = extraction.claimInformation || {};
     const propAddr = extraction.propertyAddress || {};
     const insuredInfo = extraction.insuredInformation || {};
+    const propDetails = extraction.propertyDetails || {};
+    const roofDetails = propDetails.roof || {};
     const propDmg = extraction.propertyDamageDetails || {};
     const polDetails = extraction.policyDetails || {};
     const ded = polDetails.deductibles || {};
     const assign = extraction.assignment || {};
+
+    // Build full address from components if not provided
+    const buildFullAddress = (addr: AddressComponents | undefined): string | undefined => {
+      if (!addr) return undefined;
+      if (addr.fullAddress) return addr.fullAddress;
+      const parts = [addr.streetAddress, addr.city, addr.state, addr.zipCode].filter(Boolean);
+      return parts.length > 0 ? parts.join(', ') : undefined;
+    };
+
+    // Extract third party interests as a formatted string
+    const thirdPartyInterestStr = polDetails.thirdPartyInterests && polDetails.thirdPartyInterests.length > 0
+      ? polDetails.thirdPartyInterests.map(tp => tp.name + (tp.type ? ` (${tp.type})` : '')).join('; ')
+      : polDetails.thirdPartyInterest || undefined;
+
+    // Handle droneEligibleAtFNOL as either boolean or string
+    const droneEligible = typeof claimInfo.droneEligibleAtFNOL === 'boolean'
+      ? (claimInfo.droneEligibleAtFNOL ? 'Yes' : 'No')
+      : claimInfo.droneEligibleAtFNOL || undefined;
+
+    // Handle woodRoof from either propertyDetails.roof or propertyDamageDetails
+    const woodRoofValue = roofDetails.woodRoof !== undefined
+      ? roofDetails.woodRoof
+      : (propDmg.woodRoof ? (propDmg.woodRoof.toLowerCase() === 'yes' || propDmg.woodRoof.toLowerCase() === 'true') : undefined);
 
     const result: ExtractedClaimData = {
       // Claim Information
@@ -369,34 +421,40 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
       carrier: claimInfo.operatingCompany || undefined,
       causeOfLoss: claimInfo.causeOfLoss || undefined,
       lossDescription: claimInfo.lossDescription || undefined,
-      droneEligibleAtFNOL: claimInfo.droneEligibleAtFNOL || undefined,
+      droneEligibleAtFNOL: droneEligible,
+      weatherData: claimInfo.weatherData?.message || claimInfo.weatherData?.status || undefined,
 
-      // Property Address (expanded)
-      propertyAddress: propAddr.fullAddress || undefined,
+      // Property Address (expanded) - support both full address and components
+      propertyAddress: propAddr.fullAddress || buildFullAddress(propAddr) || undefined,
       propertyStreetAddress: propAddr.streetAddress || undefined,
       propertyCity: propAddr.city || undefined,
       propertyState: propAddr.state || undefined,
       propertyZipCode: propAddr.zipCode || undefined,
       state: propAddr.state || undefined, // Also set top-level state
+      riskLocation: propAddr.fullAddress || buildFullAddress(propAddr) || undefined, // Legacy field
 
       // Insured Information
       policyholder: insuredInfo.policyholderName1 || undefined,
       policyholderSecondary: insuredInfo.policyholderName2 || undefined,
       contactPhone: insuredInfo.contactPhone || insuredInfo.contactMobilePhone || undefined,
       contactEmail: insuredInfo.contactEmail || undefined,
-      insuredAddress: insuredInfo.policyholderAddress1?.fullAddress || 
-        (insuredInfo.policyholderAddress1 ? 
-          `${insuredInfo.policyholderAddress1.streetAddress || ''}, ${insuredInfo.policyholderAddress1.city || ''}, ${insuredInfo.policyholderAddress1.state || ''} ${insuredInfo.policyholderAddress1.zipCode || ''}`.trim() : 
-          undefined),
+      insuredAddress: insuredInfo.policyholderAddress1?.fullAddress || buildFullAddress(insuredInfo.policyholderAddress1),
+      policyholderAddress: insuredInfo.policyholderAddress1?.fullAddress || buildFullAddress(insuredInfo.policyholderAddress1),
       reportedBy: insuredInfo.reportedBy || undefined,
+      reportedDate: insuredInfo.reportedDate || undefined,
+
+      // Property Details (from new propertyDetails section)
+      yearBuilt: propDetails.yearBuilt || propDmg.yearBuilt || undefined,
+      numberOfStories: propDetails.numberOfStories || propDmg.numberOfStories || undefined,
+
+      // Roof Details (from propertyDetails.roof or legacy propertyDamageDetails)
+      yearRoofInstall: roofDetails.yearRoofInstall || propDmg.yearRoofInstall || undefined,
+      roofDamageReported: roofDetails.roofDamageReported || propDmg.roofDamageReported || undefined,
+      isWoodRoof: woodRoofValue,
 
       // Property Damage Details
-      yearBuilt: propDmg.yearBuilt || undefined,
-      yearRoofInstall: propDmg.yearRoofInstall || undefined,
-      roofDamageReported: propDmg.roofDamageReported || undefined,
-      numberOfStories: propDmg.numberOfStories || undefined,
-      isWoodRoof: propDmg.woodRoof ? (propDmg.woodRoof.toLowerCase() === 'yes' || propDmg.woodRoof.toLowerCase() === 'true') : undefined,
       dwellingDamageDescription: propDmg.dwellingDamageDescription || undefined,
+      otherStructureDamageDescription: propDmg.otherStructuresDamageDescription || undefined,
       damageLocation: propDmg.damagesLocation || undefined,
 
       // Policy Details
@@ -407,8 +465,8 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
       producer: polDetails.producer?.name || undefined,
       producerPhone: polDetails.producer?.phone || undefined,
       producerEmail: polDetails.producer?.email || undefined,
-      thirdPartyInterest: polDetails.thirdPartyInterest || undefined,
-      mortgagee: polDetails.thirdPartyInterest || undefined,
+      thirdPartyInterest: thirdPartyInterestStr,
+      mortgagee: thirdPartyInterestStr,
 
       // Deductibles
       policyDeductible: ded.policyDeductible || undefined,
@@ -429,11 +487,29 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
         (c.coverageName || '').toLowerCase().includes('coverage a')
       )?.limit || undefined,
 
+      // Extract other structure limit from coverages
+      otherStructuresLimit: extraction.coverages?.find(c =>
+        (c.coverageName || '').toLowerCase().includes('other structure') ||
+        (c.coverageName || '').toLowerCase().includes('coverage b')
+      )?.limit || undefined,
+
+      // Extract personal property limit from coverages
+      personalPropertyLimit: extraction.coverages?.find(c =>
+        (c.coverageName || '').toLowerCase().includes('personal property') ||
+        (c.coverageName || '').toLowerCase().includes('coverage c')
+      )?.limit || undefined,
+
+      // Extract loss of use limit from coverages
+      lossOfUseLimit: extraction.coverages?.find(c =>
+        (c.coverageName || '').toLowerCase().includes('loss of use') ||
+        (c.coverageName || '').toLowerCase().includes('coverage d')
+      )?.limit || undefined,
+
       // Endorsements (handle both object and string formats)
-      endorsementsListed: extraction.endorsementsListed?.map(e => 
+      endorsementsListed: extraction.endorsementsListed?.map(e =>
         typeof e === 'string' ? e : (e.formNumber || e.title || '')
       ).filter(Boolean) || undefined,
-      
+
       endorsementDetails: extraction.endorsementsListed?.filter(e => typeof e !== 'string').map(e => {
         if (typeof e === 'string') return { formNumber: e };
         return {
