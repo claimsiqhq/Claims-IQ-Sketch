@@ -519,7 +519,6 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     };
 
     // Step 8: Insert the workflow
-    // Note: generated_from and created_by columns may not exist in Supabase yet
     const { data: workflow, error: workflowError } = await supabaseAdmin
       .from('inspection_workflows')
       .insert({
@@ -531,6 +530,8 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
         secondary_perils: context.secondaryPerils,
         source_briefing_id: briefing?.id || null,
         workflow_json: workflowJson,
+        generated_from: generatedFrom,
+        created_by: userId || null,
       })
       .select('*')
       .single();
