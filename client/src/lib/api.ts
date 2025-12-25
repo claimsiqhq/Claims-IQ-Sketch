@@ -1299,6 +1299,122 @@ export async function createEndorsement(data: {
 }
 
 // ============================================
+// POLICY EXTRACTION API (Comprehensive Format)
+// ============================================
+
+export interface PolicyDefinition {
+  term: string;
+  definition: string;
+  subClauses?: string[];
+  exceptions?: string[];
+}
+
+export interface PolicyCoverage {
+  name?: string;
+  covers?: string[];
+  excludes?: string[];
+  specialConditions?: string[];
+  scope?: string;
+  specialLimits?: { propertyType: string; limit: string; conditions?: string }[];
+  notCovered?: string[];
+  subCoverages?: string[];
+  timeLimits?: string;
+}
+
+export interface PolicySectionI {
+  propertyCoverage?: {
+    coverageA?: PolicyCoverage;
+    coverageB?: PolicyCoverage;
+    coverageC?: PolicyCoverage;
+    coverageD?: PolicyCoverage;
+  };
+  perils?: {
+    coverageA_B?: string;
+    coverageC?: string[];
+  };
+  exclusions?: {
+    global?: string[];
+    coverageA_B_specific?: string[];
+  };
+  additionalCoverages?: { name: string; description?: string; limit?: string; conditions?: string }[];
+  conditions?: string[];
+  lossSettlement?: {
+    dwellingAndStructures?: {
+      basis?: string;
+      repairRequirements?: string;
+      timeLimit?: string;
+      matchingRules?: string;
+    };
+    roofingSystem?: {
+      definition?: string;
+      hailSettlement?: string;
+      metalRestrictions?: string;
+    };
+    personalProperty?: {
+      settlementBasis?: string[];
+      specialHandling?: string;
+    };
+  };
+}
+
+export interface PolicySectionII {
+  liabilityCoverages?: {
+    coverageE?: { name?: string; insuringAgreement?: string; dutyToDefend?: boolean };
+    coverageF?: { name?: string; insuringAgreement?: string; timeLimit?: string };
+  };
+  exclusions?: string[];
+  additionalCoverages?: { name: string; description?: string; limit?: string }[];
+  conditions?: string[];
+}
+
+export interface PolicyFormExtraction {
+  id: string;
+  organization_id: string;
+  claim_id?: string;
+  document_id?: string;
+  document_type: string;
+  policy_form_code?: string;
+  policy_form_name?: string;
+  edition_date?: string;
+  page_count?: number;
+  policy_structure?: {
+    tableOfContents?: string[];
+    policyStatement?: string;
+    agreement?: string;
+  };
+  definitions?: PolicyDefinition[];
+  section_i?: PolicySectionI;
+  section_ii?: PolicySectionII;
+  general_conditions?: string[];
+  raw_page_text?: string;
+  extraction_model?: string;
+  extraction_version?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getClaimPolicyExtractions(claimId: string): Promise<PolicyFormExtraction[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/policy-extractions`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch policy extractions');
+  }
+  return response.json();
+}
+
+export async function getPolicyExtraction(id: string): Promise<PolicyFormExtraction> {
+  const response = await fetch(`${API_BASE}/policy-extractions/${id}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch policy extraction');
+  }
+  return response.json();
+}
+
+// ============================================
 // INSPECTION INTELLIGENCE API
 // ============================================
 
