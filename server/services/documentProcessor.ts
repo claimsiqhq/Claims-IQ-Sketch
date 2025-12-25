@@ -882,8 +882,20 @@ function transformPolicyExtractionToFlat(response: any): ExtractedClaimData {
  * Transform OpenAI response to flat ExtractedClaimData
  */
 export function transformOpenAIResponse(response: any): ExtractedClaimData {
+  // Handle claims array wrapper (new FNOL prompt returns { "claims": [{ claimInformation, ... }] })
+  if (response.claims && Array.isArray(response.claims) && response.claims.length > 0) {
+    const claim = response.claims[0];
+    // Recursively transform the unwrapped claim
+    const transformed = transformOpenAIResponse(claim);
+    // Preserve pageText if it exists at root level (for PageExtractionResult)
+    if (response.pageText) {
+      (transformed as any).pageText = response.pageText;
+    }
+    return transformed;
+  }
+
   // New expanded prompt structure: claimInformation/propertyAddress/insuredInformation/etc (FNOL)
-  if (response.claimInformation || response.insuredInformation || response.propertyDamageDetails || response.policyDetails) {
+  if (response.claimInformation || response.insuredInformation || response.propertyDamageDetails || response.propertyDetails) {
     return transformFNOLExtractionToFlat(response as FNOLClaimExtraction);
   }
   
