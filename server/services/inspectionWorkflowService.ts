@@ -19,8 +19,7 @@
 
 import OpenAI from 'openai';
 import crypto from 'crypto';
-import { db } from '../db';
-import { eq, and, desc, inArray, ne, gt, sql as drizzleSql } from 'drizzle-orm';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   PromptKey,
   InspectionWorkflowJson,
@@ -33,13 +32,6 @@ import {
   InspectionWorkflowStep,
   InspectionWorkflowRoom,
   InspectionWorkflowAsset,
-  inspectionWorkflows,
-  inspectionWorkflowSteps,
-  inspectionWorkflowAssets,
-  inspectionWorkflowRooms,
-  claims,
-  endorsements as endorsementsTable,
-  policyForms,
 } from '../../shared/schema';
 import {
   buildPerilAwareClaimContext,
@@ -163,6 +155,90 @@ interface AIWorkflowResponse {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+
+function mapWorkflowFromDb(data: any): InspectionWorkflow {
+  return {
+    id: data.id,
+    organizationId: data.organization_id,
+    claimId: data.claim_id,
+    version: data.version,
+    status: data.status,
+    primaryPeril: data.primary_peril,
+    secondaryPerils: data.secondary_perils,
+    sourceBriefingId: data.source_briefing_id,
+    workflowJson: data.workflow_json,
+    generatedFrom: data.generated_from,
+    createdBy: data.created_by,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    completedAt: data.completed_at,
+    archivedAt: data.archived_at,
+  };
+}
+
+function mapStepFromDb(data: any): InspectionWorkflowStep {
+  return {
+    id: data.id,
+    workflowId: data.workflow_id,
+    stepIndex: data.step_index,
+    phase: data.phase,
+    stepType: data.step_type,
+    title: data.title,
+    instructions: data.instructions,
+    required: data.required,
+    tags: data.tags,
+    dependencies: data.dependencies,
+    estimatedMinutes: data.estimated_minutes,
+    actualMinutes: data.actual_minutes,
+    status: data.status,
+    completedBy: data.completed_by,
+    completedAt: data.completed_at,
+    notes: data.notes,
+    roomId: data.room_id,
+    roomName: data.room_name,
+    perilSpecific: data.peril_specific,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
+
+function mapRoomFromDb(data: any): InspectionWorkflowRoom {
+  return {
+    id: data.id,
+    workflowId: data.workflow_id,
+    name: data.name,
+    level: data.level,
+    roomType: data.room_type,
+    lengthFt: data.length_ft,
+    widthFt: data.width_ft,
+    heightFt: data.height_ft,
+    notes: data.notes,
+    claimRoomId: data.claim_room_id,
+    sortOrder: data.sort_order,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
+
+function mapAssetFromDb(data: any): InspectionWorkflowAsset {
+  return {
+    id: data.id,
+    stepId: data.step_id,
+    assetType: data.asset_type,
+    label: data.label,
+    description: data.description,
+    required: data.required,
+    metadata: data.metadata,
+    fileId: data.file_id,
+    filePath: data.file_path,
+    fileUrl: data.file_url,
+    status: data.status,
+    capturedBy: data.captured_by,
+    capturedAt: data.captured_at,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
 
 /**
  * Generate a hash of the inputs used to generate the workflow
@@ -510,21 +586,17 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     // Step 3: Check for existing active workflow (unless force regenerate)
     if (!forceRegenerate) {
       try {
-        const existingWorkflows = await db
-          .select()
-          .from(inspectionWorkflows)
-          .where(
-            and(
-              eq(inspectionWorkflows.claimId, claimId),
-              eq(inspectionWorkflows.organizationId, organizationId),
-              inArray(inspectionWorkflows.status, ['draft', 'active'])
-            )
-          )
-          .orderBy(desc(inspectionWorkflows.version))
+        const { data: existingWorkflows, error: existingError } = await supabaseAdmin
+          .from('inspection_workflows')
+          .select('*')
+          .eq('claim_id', claimId)
+          .eq('organization_id', organizationId)
+          .in('status', ['draft', 'active'])
+          .order('version', { ascending: false })
           .limit(1);
 
-        if (existingWorkflows.length > 0) {
-          const existing = existingWorkflows[0];
+        if (!existingError && existingWorkflows && existingWorkflows.length > 0) {
+          const existing = mapWorkflowFromDb(existingWorkflows[0]);
           return {
             success: true,
             workflow: existing,
@@ -540,14 +612,14 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     // Step 4: Get the next version number
     let nextVersion = 1;
     try {
-      const versionData = await db
-        .select({ version: inspectionWorkflows.version })
-        .from(inspectionWorkflows)
-        .where(eq(inspectionWorkflows.claimId, claimId))
-        .orderBy(desc(inspectionWorkflows.version))
+      const { data: versionData, error: versionError } = await supabaseAdmin
+        .from('inspection_workflows')
+        .select('version')
+        .eq('claim_id', claimId)
+        .order('version', { ascending: false })
         .limit(1);
 
-      if (versionData.length > 0) {
+      if (!versionError && versionData && versionData.length > 0) {
         nextVersion = versionData[0].version + 1;
       }
     } catch (err) {
@@ -557,20 +629,16 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     // Step 5: Archive previous active workflows
     if (forceRegenerate) {
       try {
-        await db
-          .update(inspectionWorkflows)
-          .set({
+        await supabaseAdmin
+          .from('inspection_workflows')
+          .update({
             status: 'archived',
-            archivedAt: new Date(),
-            updatedAt: new Date(),
+            archived_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
-          .where(
-            and(
-              eq(inspectionWorkflows.claimId, claimId),
-              eq(inspectionWorkflows.organizationId, organizationId),
-              inArray(inspectionWorkflows.status, ['draft', 'active'])
-            )
-          );
+          .eq('claim_id', claimId)
+          .eq('organization_id', organizationId)
+          .in('status', ['draft', 'active']);
       } catch (err) {
         console.error('Error archiving previous workflows:', err);
       }
@@ -727,60 +795,66 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     };
 
     // Step 8: Insert the workflow
-    const [workflow] = await db
-      .insert(inspectionWorkflows)
-      .values({
-        organizationId,
-        claimId,
+    const { data: workflowData, error: workflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .insert({
+        organization_id: organizationId,
+        claim_id: claimId,
         version: nextVersion,
         status: InspectionWorkflowStatus.DRAFT,
-        primaryPeril: context.primaryPeril,
-        secondaryPerils: context.secondaryPerils,
-        sourceBriefingId: briefing?.id || null,
-        workflowJson,
-        generatedFrom,
-        createdBy: userId || null,
+        primary_peril: context.primaryPeril,
+        secondary_perils: context.secondaryPerils,
+        source_briefing_id: briefing?.id || null,
+        workflow_json: workflowJson,
+        generated_from: generatedFrom,
+        created_by: userId || null,
       })
-      .returning();
+      .select()
+      .single();
 
-    if (!workflow) {
+    if (workflowError || !workflowData) {
       return {
         success: false,
-        error: 'Failed to create workflow',
+        error: `Failed to create workflow: ${workflowError?.message}`,
       };
     }
+
+    const workflow = mapWorkflowFromDb(workflowData);
 
     // Step 9: Insert the steps
     let stepIndex = 0;
     for (const step of aiResponse.steps) {
       try {
-        const [insertedStep] = await db
-          .insert(inspectionWorkflowSteps)
-          .values({
-            workflowId: workflow.id,
-            stepIndex: stepIndex++,
+        const { data: insertedStepData, error: stepError } = await supabaseAdmin
+          .from('inspection_workflow_steps')
+          .insert({
+            workflow_id: workflow.id,
+            step_index: stepIndex++,
             phase: step.phase,
-            stepType: step.step_type,
+            step_type: step.step_type,
             title: step.title,
             instructions: step.instructions,
             required: step.required,
             tags: step.tags || [],
-            estimatedMinutes: step.estimated_minutes,
-            perilSpecific: step.peril_specific || null,
+            estimated_minutes: step.estimated_minutes,
+            peril_specific: step.peril_specific || null,
             status: InspectionStepStatus.PENDING,
           })
-          .returning();
+          .select()
+          .single();
 
-        if (!insertedStep) {
-          console.error('Error inserting step: no result returned');
+        if (stepError || !insertedStepData) {
+          console.error('Error inserting step:', stepError?.message);
           continue;
         }
+
+        const insertedStep = mapStepFromDb(insertedStepData);
 
         // Insert assets for this step
         if (step.assets && step.assets.length > 0) {
           const assetInserts = step.assets.map(asset => ({
-            stepId: insertedStep.id,
-            assetType: asset.asset_type,
+            step_id: insertedStep.id,
+            asset_type: asset.asset_type,
             label: asset.label,
             required: asset.required,
             metadata: asset.metadata || {},
@@ -788,7 +862,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
           }));
 
           try {
-            await db.insert(inspectionWorkflowAssets).values(assetInserts);
+            await supabaseAdmin.from('inspection_workflow_assets').insert(assetInserts);
           } catch (assetsError) {
             console.error('Error inserting assets:', assetsError);
           }
@@ -831,34 +905,30 @@ export async function regenerateWorkflow(
 ): Promise<GenerateWorkflowResult> {
   try {
     // First, get current workflows to merge archived_reason into generated_from
-    const currentWorkflows = await db
-      .select({ id: inspectionWorkflows.id, generatedFrom: inspectionWorkflows.generatedFrom })
-      .from(inspectionWorkflows)
-      .where(
-        and(
-          eq(inspectionWorkflows.claimId, claimId),
-          eq(inspectionWorkflows.organizationId, organizationId),
-          inArray(inspectionWorkflows.status, ['draft', 'active'])
-        )
-      );
+    const { data: currentWorkflows, error: currentError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('id, generated_from')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .in('status', ['draft', 'active']);
 
     // Archive the current workflow with the reason
-    if (currentWorkflows && currentWorkflows.length > 0) {
+    if (!currentError && currentWorkflows && currentWorkflows.length > 0) {
       for (const wf of currentWorkflows) {
         const updatedGeneratedFrom = {
-          ...(wf.generatedFrom as Record<string, unknown> || {}),
+          ...(wf.generated_from as Record<string, unknown> || {}),
           archived_reason: reason,
         };
 
-        await db
-          .update(inspectionWorkflows)
-          .set({
+        await supabaseAdmin
+          .from('inspection_workflows')
+          .update({
             status: 'archived',
-            archivedAt: new Date(),
-            updatedAt: new Date(),
-            generatedFrom: updatedGeneratedFrom,
+            archived_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            generated_from: updatedGeneratedFrom,
           })
-          .where(eq(inspectionWorkflows.id, wf.id));
+          .eq('id', wf.id);
       }
     }
 
@@ -883,16 +953,18 @@ export async function expandWorkflowForRooms(
 ): Promise<{ success: boolean; addedSteps: number; error?: string }> {
   try {
     // Get the workflow
-    const [workflow] = await db
-      .select()
-      .from(inspectionWorkflows)
-      .where(eq(inspectionWorkflows.id, workflowId))
-      .limit(1);
+    const { data: workflowData, error: workflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('*')
+      .eq('id', workflowId)
+      .limit(1)
+      .single();
 
-    if (!workflow) {
+    if (workflowError || !workflowData) {
       return { success: false, addedSteps: 0, error: 'Workflow not found' };
     }
 
+    const workflow = mapWorkflowFromDb(workflowData);
     const workflowJson = workflow.workflowJson as InspectionWorkflowJson;
 
     if (!workflowJson.room_template) {
@@ -900,53 +972,55 @@ export async function expandWorkflowForRooms(
     }
 
     // Get the current max step index
-    const maxIndexData = await db
-      .select({ stepIndex: inspectionWorkflowSteps.stepIndex })
-      .from(inspectionWorkflowSteps)
-      .where(eq(inspectionWorkflowSteps.workflowId, workflowId))
-      .orderBy(desc(inspectionWorkflowSteps.stepIndex))
+    const { data: maxIndexData, error: maxIndexError } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .select('step_index')
+      .eq('workflow_id', workflowId)
+      .order('step_index', { ascending: false })
       .limit(1);
 
-    let nextIndex = maxIndexData.length > 0 ? maxIndexData[0].stepIndex + 1 : 0;
+    let nextIndex = (!maxIndexError && maxIndexData && maxIndexData.length > 0) ? maxIndexData[0].step_index + 1 : 0;
 
     let addedSteps = 0;
 
     for (const roomName of roomNames) {
       // Create the room record
-      const [room] = await db
-        .insert(inspectionWorkflowRooms)
-        .values({
-          workflowId,
+      const { data: roomData, error: roomError } = await supabaseAdmin
+        .from('inspection_workflow_rooms')
+        .insert({
+          workflow_id: workflowId,
           name: roomName,
-          sortOrder: addedSteps,
+          sort_order: addedSteps,
         })
-        .returning();
+        .select()
+        .single();
 
-      if (!room) {
-        console.error('Error creating room');
+      if (roomError || !roomData) {
+        console.error('Error creating room:', roomError?.message);
         continue;
       }
 
+      const room = mapRoomFromDb(roomData);
       const roomId = room.id;
 
       // Add standard room steps
       const standardSteps = workflowJson.room_template.standard_steps.map(step => ({
-        workflowId,
-        stepIndex: nextIndex++,
+        workflow_id: workflowId,
+        step_index: nextIndex++,
         phase: 'interior',
-        stepType: step.step_type,
+        step_type: step.step_type,
         title: `${roomName}: ${step.title}`,
         instructions: step.instructions.replace('{room}', roomName),
         required: step.required,
-        estimatedMinutes: step.estimated_minutes,
-        roomId,
-        roomName,
+        estimated_minutes: step.estimated_minutes,
+        room_id: roomId,
+        room_name: roomName,
         status: 'pending',
       }));
 
       if (standardSteps.length > 0) {
         try {
-          await db.insert(inspectionWorkflowSteps).values(standardSteps);
+          await supabaseAdmin.from('inspection_workflow_steps').insert(standardSteps);
           addedSteps += standardSteps.length;
         } catch (stepsError) {
           console.error('Error inserting standard steps:', stepsError);
@@ -959,22 +1033,22 @@ export async function expandWorkflowForRooms(
 
       if (perilSteps && perilSteps.length > 0) {
         const perilSpecificSteps = perilSteps.map(step => ({
-          workflowId,
-          stepIndex: nextIndex++,
+          workflow_id: workflowId,
+          step_index: nextIndex++,
           phase: 'interior',
-          stepType: step.step_type,
+          step_type: step.step_type,
           title: `${roomName}: ${step.title}`,
           instructions: step.instructions.replace('{room}', roomName),
           required: step.required,
-          estimatedMinutes: step.estimated_minutes,
-          roomId,
-          roomName,
-          perilSpecific: primaryPeril,
+          estimated_minutes: step.estimated_minutes,
+          room_id: roomId,
+          room_name: roomName,
+          peril_specific: primaryPeril,
           status: 'pending',
         }));
 
         try {
-          await db.insert(inspectionWorkflowSteps).values(perilSpecificSteps);
+          await supabaseAdmin.from('inspection_workflow_steps').insert(perilSpecificSteps);
           addedSteps += perilSpecificSteps.length;
         } catch (perilStepsError) {
           console.error('Error inserting peril-specific steps:', perilStepsError);
@@ -984,10 +1058,10 @@ export async function expandWorkflowForRooms(
 
     // Update the workflow updated_at
     try {
-      await db
-        .update(inspectionWorkflows)
-        .set({ updatedAt: new Date() })
-        .where(eq(inspectionWorkflows.id, workflowId));
+      await supabaseAdmin
+        .from('inspection_workflows')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', workflowId);
     } catch (updateError) {
       console.error('Error updating workflow timestamp:', updateError);
     }
@@ -1055,62 +1129,68 @@ export async function getWorkflow(
 ): Promise<FullWorkflow | null> {
   try {
     // Get the workflow
-    const [workflowData] = await db
-      .select()
-      .from(inspectionWorkflows)
-      .where(
-        and(
-          eq(inspectionWorkflows.id, workflowId),
-          eq(inspectionWorkflows.organizationId, organizationId)
-        )
-      )
-      .limit(1);
+    const { data: workflowData, error: workflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('*')
+      .eq('id', workflowId)
+      .eq('organization_id', organizationId)
+      .limit(1)
+      .single();
 
-    if (!workflowData) {
+    if (workflowError || !workflowData) {
       return null;
     }
 
-    const workflow: InspectionWorkflow = workflowData;
+    const workflow = mapWorkflowFromDb(workflowData);
 
     // Get steps
-    const stepsData = await db
-      .select()
-      .from(inspectionWorkflowSteps)
-      .where(eq(inspectionWorkflowSteps.workflowId, workflowId))
-      .orderBy(inspectionWorkflowSteps.stepIndex);
+    const { data: stepsData, error: stepsError } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .order('step_index', { ascending: true });
+
+    if (stepsError || !stepsData) {
+      return null;
+    }
 
     // Get all assets for these steps
     const stepIds = stepsData.map(s => s.id);
-    let assetsData: InspectionWorkflowAsset[] = [];
+    let assetsData: any[] = [];
     if (stepIds.length > 0) {
-      assetsData = await db
-        .select()
-        .from(inspectionWorkflowAssets)
-        .where(inArray(inspectionWorkflowAssets.stepId, stepIds));
+      const { data: assetsResult, error: assetsError } = await supabaseAdmin
+        .from('inspection_workflow_assets')
+        .select('*')
+        .in('step_id', stepIds);
+
+      if (!assetsError && assetsResult) {
+        assetsData = assetsResult;
+      }
     }
 
     // Map assets to their steps
     const assetsByStepId = new Map<string, InspectionWorkflowAsset[]>();
     for (const asset of assetsData) {
-      if (!assetsByStepId.has(asset.stepId)) {
-        assetsByStepId.set(asset.stepId, []);
+      const mappedAsset = mapAssetFromDb(asset);
+      if (!assetsByStepId.has(mappedAsset.stepId)) {
+        assetsByStepId.set(mappedAsset.stepId, []);
       }
-      assetsByStepId.get(asset.stepId)!.push(asset);
+      assetsByStepId.get(mappedAsset.stepId)!.push(mappedAsset);
     }
 
     const steps: StepWithAssets[] = stepsData.map(r => ({
-      ...r,
+      ...mapStepFromDb(r),
       assets: assetsByStepId.get(r.id) || [],
     }));
 
     // Get rooms
-    const roomsData = await db
-      .select()
-      .from(inspectionWorkflowRooms)
-      .where(eq(inspectionWorkflowRooms.workflowId, workflowId))
-      .orderBy(inspectionWorkflowRooms.sortOrder);
+    const { data: roomsData, error: roomsError } = await supabaseAdmin
+      .from('inspection_workflow_rooms')
+      .select('*')
+      .eq('workflow_id', workflowId)
+      .order('sort_order', { ascending: true });
 
-    const rooms: InspectionWorkflowRoom[] = roomsData;
+    const rooms: InspectionWorkflowRoom[] = (roomsData || []).map(mapRoomFromDb);
 
     // Calculate stats
     const totalSteps = steps.length;
@@ -1151,24 +1231,20 @@ export async function getClaimWorkflow(
 ): Promise<FullWorkflow | null> {
   try {
     // Get the latest non-archived workflow
-    const [data] = await db
-      .select({ id: inspectionWorkflows.id })
-      .from(inspectionWorkflows)
-      .where(
-        and(
-          eq(inspectionWorkflows.claimId, claimId),
-          eq(inspectionWorkflows.organizationId, organizationId),
-          ne(inspectionWorkflows.status, 'archived')
-        )
-      )
-      .orderBy(desc(inspectionWorkflows.version))
+    const { data, error } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('id')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .neq('status', 'archived')
+      .order('version', { ascending: false })
       .limit(1);
 
-    if (!data) {
+    if (error || !data || data.length === 0) {
       return null;
     }
 
-    return await getWorkflow(data.id, organizationId);
+    return await getWorkflow(data[0].id, organizationId);
   } catch (error) {
     console.error('Error fetching claim workflow:', error);
     return null;
@@ -1189,13 +1265,13 @@ export async function updateWorkflowStep(
 ): Promise<InspectionWorkflowStep | null> {
   try {
     const updateData: Record<string, any> = {
-      updatedAt: new Date(),
+      updated_at: new Date().toISOString(),
     };
 
     if (updates.status !== undefined) {
       updateData.status = updates.status;
       if (updates.status === InspectionStepStatus.COMPLETED) {
-        updateData.completedAt = new Date();
+        updateData.completed_at = new Date().toISOString();
       }
     }
 
@@ -1204,25 +1280,26 @@ export async function updateWorkflowStep(
     }
 
     if (updates.actualMinutes !== undefined) {
-      updateData.actualMinutes = updates.actualMinutes;
+      updateData.actual_minutes = updates.actualMinutes;
     }
 
     if (updates.completedBy !== undefined) {
-      updateData.completedBy = updates.completedBy;
+      updateData.completed_by = updates.completedBy;
     }
 
-    const [data] = await db
-      .update(inspectionWorkflowSteps)
-      .set(updateData)
-      .where(eq(inspectionWorkflowSteps.id, stepId))
-      .returning();
+    const { data, error } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .update(updateData)
+      .eq('id', stepId)
+      .select()
+      .single();
 
-    if (!data) {
-      console.error('Error updating workflow step: no result returned');
+    if (error || !data) {
+      console.error('Error updating workflow step:', error?.message);
       return null;
     }
 
-    return data;
+    return mapStepFromDb(data);
   } catch (error) {
     console.error('Error updating workflow step:', error);
     return null;
@@ -1247,38 +1324,39 @@ export async function addWorkflowStep(
 ): Promise<InspectionWorkflowStep | null> {
   try {
     // Get the next step index
-    const maxIndexData = await db
-      .select({ stepIndex: inspectionWorkflowSteps.stepIndex })
-      .from(inspectionWorkflowSteps)
-      .where(eq(inspectionWorkflowSteps.workflowId, workflowId))
-      .orderBy(desc(inspectionWorkflowSteps.stepIndex))
+    const { data: maxIndexData, error: maxIndexError } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .select('step_index')
+      .eq('workflow_id', workflowId)
+      .order('step_index', { ascending: false })
       .limit(1);
 
-    const nextIndex = maxIndexData.length > 0 ? maxIndexData[0].stepIndex + 1 : 0;
+    const nextIndex = (!maxIndexError && maxIndexData && maxIndexData.length > 0) ? maxIndexData[0].step_index + 1 : 0;
 
-    const [data] = await db
-      .insert(inspectionWorkflowSteps)
-      .values({
-        workflowId,
-        stepIndex: nextIndex,
+    const { data, error } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .insert({
+        workflow_id: workflowId,
+        step_index: nextIndex,
         phase: step.phase,
-        stepType: step.stepType,
+        step_type: step.stepType,
         title: step.title,
         instructions: step.instructions || null,
         required: step.required ?? true,
-        estimatedMinutes: step.estimatedMinutes ?? 5,
-        roomId: step.roomId || null,
-        roomName: step.roomName || null,
+        estimated_minutes: step.estimatedMinutes ?? 5,
+        room_id: step.roomId || null,
+        room_name: step.roomName || null,
         status: 'pending',
       })
-      .returning();
+      .select()
+      .single();
 
-    if (!data) {
-      console.error('Error adding workflow step: no result returned');
+    if (error || !data) {
+      console.error('Error adding workflow step:', error?.message);
       return null;
     }
 
-    return data;
+    return mapStepFromDb(data);
   } catch (error) {
     console.error('Error adding workflow step:', error);
     return null;
@@ -1299,33 +1377,34 @@ export async function addWorkflowRoom(
 ): Promise<InspectionWorkflowRoom | null> {
   try {
     // Get the next sort order
-    const maxOrderData = await db
-      .select({ sortOrder: inspectionWorkflowRooms.sortOrder })
-      .from(inspectionWorkflowRooms)
-      .where(eq(inspectionWorkflowRooms.workflowId, workflowId))
-      .orderBy(desc(inspectionWorkflowRooms.sortOrder))
+    const { data: maxOrderData, error: maxOrderError } = await supabaseAdmin
+      .from('inspection_workflow_rooms')
+      .select('sort_order')
+      .eq('workflow_id', workflowId)
+      .order('sort_order', { ascending: false })
       .limit(1);
 
-    const nextOrder = maxOrderData.length > 0 ? (maxOrderData[0].sortOrder || 0) + 1 : 0;
+    const nextOrder = (!maxOrderError && maxOrderData && maxOrderData.length > 0) ? (maxOrderData[0].sort_order || 0) + 1 : 0;
 
-    const [data] = await db
-      .insert(inspectionWorkflowRooms)
-      .values({
-        workflowId,
+    const { data, error } = await supabaseAdmin
+      .from('inspection_workflow_rooms')
+      .insert({
+        workflow_id: workflowId,
         name: room.name,
         level: room.level || null,
-        roomType: room.roomType || null,
+        room_type: room.roomType || null,
         notes: room.notes || null,
-        sortOrder: nextOrder,
+        sort_order: nextOrder,
       })
-      .returning();
+      .select()
+      .single();
 
-    if (!data) {
-      console.error('Error adding workflow room: no result returned');
+    if (error || !data) {
+      console.error('Error adding workflow room:', error?.message);
       return null;
     }
 
-    return data;
+    return mapRoomFromDb(data);
   } catch (error) {
     console.error('Error adding workflow room:', error);
     return null;
@@ -1341,52 +1420,47 @@ export async function shouldRegenerateWorkflow(
 ): Promise<{ shouldRegenerate: boolean; reason?: string }> {
   try {
     // Get the current workflow
-    const [workflow] = await db
-      .select()
-      .from(inspectionWorkflows)
-      .where(
-        and(
-          eq(inspectionWorkflows.claimId, claimId),
-          eq(inspectionWorkflows.organizationId, organizationId),
-          inArray(inspectionWorkflows.status, ['draft', 'active'])
-        )
-      )
-      .orderBy(desc(inspectionWorkflows.version))
+    const { data: workflowData, error: workflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('*')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .in('status', ['draft', 'active'])
+      .order('version', { ascending: false })
       .limit(1);
 
-    if (!workflow) {
+    if (workflowError || !workflowData || workflowData.length === 0) {
       return { shouldRegenerate: false };
     }
 
+    const workflow = mapWorkflowFromDb(workflowData[0]);
+
     // Get the current claim to check for peril changes
-    const [claim] = await db
-      .select({ primaryPeril: claims.primaryPeril })
-      .from(claims)
-      .where(eq(claims.id, claimId))
-      .limit(1);
+    const { data: claimData, error: claimError } = await supabaseAdmin
+      .from('claims')
+      .select('primary_peril')
+      .eq('id', claimId)
+      .limit(1)
+      .single();
 
     // Check if peril has changed
-    if (claim && workflow.primaryPeril !== claim.primaryPeril) {
+    if (!claimError && claimData && workflow.primaryPeril !== claimData.primary_peril) {
       return {
         shouldRegenerate: true,
-        reason: `Primary peril changed from ${workflow.primaryPeril} to ${claim.primaryPeril}`,
+        reason: `Primary peril changed from ${workflow.primaryPeril} to ${claimData.primary_peril}`,
       };
     }
 
     // Check if endorsements have changed since workflow was generated
     if (workflow.createdAt) {
-      const newEndorsements = await db
-        .select({ id: endorsementsTable.id })
-        .from(endorsementsTable)
-        .where(
-          and(
-            eq(endorsementsTable.claimId, claimId),
-            gt(endorsementsTable.createdAt, workflow.createdAt)
-          )
-        )
+      const { data: newEndorsements, error: endorsementsError } = await supabaseAdmin
+        .from('endorsements')
+        .select('id')
+        .eq('claim_id', claimId)
+        .gt('created_at', workflow.createdAt)
         .limit(1);
 
-      if (newEndorsements.length > 0) {
+      if (!endorsementsError && newEndorsements && newEndorsements.length > 0) {
         return {
           shouldRegenerate: true,
           reason: 'New endorsements added since workflow generation',
@@ -1394,18 +1468,14 @@ export async function shouldRegenerateWorkflow(
       }
 
       // Check if policy forms have changed
-      const newPolicyForms = await db
-        .select({ id: policyForms.id })
-        .from(policyForms)
-        .where(
-          and(
-            eq(policyForms.claimId, claimId),
-            gt(policyForms.createdAt, workflow.createdAt)
-          )
-        )
+      const { data: newPolicyForms, error: policyFormsError } = await supabaseAdmin
+        .from('policy_forms')
+        .select('id')
+        .eq('claim_id', claimId)
+        .gt('created_at', workflow.createdAt)
         .limit(1);
 
-      if (newPolicyForms.length > 0) {
+      if (!policyFormsError && newPolicyForms && newPolicyForms.length > 0) {
         return {
           shouldRegenerate: true,
           reason: 'New policy forms added since workflow generation',

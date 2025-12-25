@@ -1,17 +1,59 @@
-import { db } from '../db';
-import { eq, and, desc } from 'drizzle-orm';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   Peril,
   ClaimSeverity,
   ChecklistCategory,
   ChecklistTemplateItem,
-  claimChecklists,
-  claimChecklistItems,
   type ClaimChecklist,
   type ClaimChecklistItem,
 } from '../../shared/schema';
 
 const TEMPLATE_VERSION = '1.0';
+
+function mapChecklistFromDb(row: any): ClaimChecklist {
+  return {
+    id: row.id,
+    claimId: row.claim_id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description,
+    peril: row.peril,
+    severity: row.severity,
+    templateVersion: row.template_version,
+    totalItems: row.total_items,
+    completedItems: row.completed_items,
+    status: row.status,
+    metadata: row.metadata || null,
+    completedAt: row.completed_at ? new Date(row.completed_at) : null,
+    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
+  };
+}
+
+function mapChecklistItemFromDb(row: any): ClaimChecklistItem {
+  return {
+    id: row.id,
+    checklistId: row.checklist_id,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    requiredForPerils: row.required_for_perils || [],
+    requiredForSeverities: row.required_for_severities || [],
+    required: row.required,
+    priority: row.priority,
+    sortOrder: row.sort_order,
+    status: row.status,
+    completedBy: row.completed_by,
+    completedAt: row.completed_at ? new Date(row.completed_at) : null,
+    notes: row.notes,
+    skippedReason: row.skipped_reason,
+    conditionalLogic: row.conditional_logic || null,
+    linkedDocumentIds: row.linked_document_ids || [],
+    dueDate: row.due_date ? new Date(row.due_date) : null,
+    createdAt: row.created_at ? new Date(row.created_at) : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at) : null,
+  };
+}
 
 const CHECKLIST_TEMPLATES: ChecklistTemplateItem[] = [
   {
@@ -443,58 +485,60 @@ export async function generateChecklistForClaim(
   severity: ClaimSeverity
 ): Promise<{ success: boolean; checklist?: ClaimChecklist; error?: string }> {
   try {
-    const existingChecklists = await db
-      .select()
-      .from(claimChecklists)
-      .where(and(eq(claimChecklists.claimId, claimId), eq(claimChecklists.status, 'active')))
+    const { data: existingChecklists } = await supabaseAdmin
+      .from('claim_checklists')
+      .select('*')
+      .eq('claim_id', claimId)
+      .eq('status', 'active')
       .limit(1);
 
-    if (existingChecklists.length > 0) {
-      return { success: true, checklist: existingChecklists[0] };
+    if (existingChecklists && existingChecklists.length > 0) {
+      return { success: true, checklist: mapChecklistFromDb(existingChecklists[0]) };
     }
 
     const applicableItems = getApplicableTemplateItems(peril, severity);
     const perilLabel = peril.charAt(0).toUpperCase() + peril.slice(1).replace('_', ' ');
     const severityLabel = severity.charAt(0).toUpperCase() + severity.slice(1);
 
-    const insertedChecklists = await db
-      .insert(claimChecklists)
-      .values({
-        claimId,
-        organizationId,
+    const { data: insertedChecklist, error: insertError } = await supabaseAdmin
+      .from('claim_checklists')
+      .insert({
+        claim_id: claimId,
+        organization_id: organizationId,
         name: `${perilLabel} Claim Checklist`,
         description: `Processing checklist for ${severityLabel.toLowerCase()} ${perilLabel.toLowerCase()} claim`,
         peril,
         severity,
-        templateVersion: TEMPLATE_VERSION,
-        totalItems: applicableItems.length,
-        completedItems: 0,
+        template_version: TEMPLATE_VERSION,
+        total_items: applicableItems.length,
+        completed_items: 0,
         status: 'active',
       })
-      .returning();
+      .select()
+      .single();
 
-    if (!insertedChecklists.length) {
-      return { success: false, error: 'Failed to create checklist' };
+    if (insertError || !insertedChecklist) {
+      return { success: false, error: insertError?.message || 'Failed to create checklist' };
     }
 
-    const checklist = insertedChecklists[0];
+    const checklist = insertedChecklist;
 
     const itemsToInsert = applicableItems.map((item, index) => ({
-      checklistId: checklist.id,
+      checklist_id: checklist.id,
       title: item.title,
       description: item.description || null,
       category: item.category,
-      requiredForPerils: item.requiredForPerils,
-      requiredForSeverities: item.requiredForSeverities,
+      required_for_perils: item.requiredForPerils,
+      required_for_severities: item.requiredForSeverities,
       required: item.required,
       priority: item.priority,
-      sortOrder: index,
+      sort_order: index,
       status: 'pending',
     }));
 
-    await db.insert(claimChecklistItems).values(itemsToInsert);
+    await supabaseAdmin.from('claim_checklist_items').insert(itemsToInsert);
 
-    return { success: true, checklist };
+    return { success: true, checklist: mapChecklistFromDb(checklist) };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -503,25 +547,29 @@ export async function generateChecklistForClaim(
 export async function getChecklistForClaim(
   claimId: string
 ): Promise<{ checklist: ClaimChecklist | null; items: ClaimChecklistItem[] }> {
-  const checklists = await db
-    .select()
-    .from(claimChecklists)
-    .where(and(eq(claimChecklists.claimId, claimId), eq(claimChecklists.status, 'active')))
+  const { data: checklists } = await supabaseAdmin
+    .from('claim_checklists')
+    .select('*')
+    .eq('claim_id', claimId)
+    .eq('status', 'active')
     .limit(1);
 
-  if (checklists.length === 0) {
+  if (!checklists || checklists.length === 0) {
     return { checklist: null, items: [] };
   }
 
   const checklist = checklists[0];
 
-  const items = await db
-    .select()
-    .from(claimChecklistItems)
-    .where(eq(claimChecklistItems.checklistId, checklist.id))
-    .orderBy(claimChecklistItems.sortOrder);
+  const { data: items } = await supabaseAdmin
+    .from('claim_checklist_items')
+    .select('*')
+    .eq('checklist_id', checklist.id)
+    .order('sort_order');
 
-  return { checklist, items };
+  return { 
+    checklist: mapChecklistFromDb(checklist), 
+    items: (items || []).map(mapChecklistItemFromDb) 
+  };
 }
 
 export async function updateChecklistItemStatus(
@@ -532,52 +580,51 @@ export async function updateChecklistItemStatus(
   skippedReason?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const updateData: Partial<ClaimChecklistItem> = {
+    const updateData: Record<string, any> = {
       status,
-      updatedAt: new Date(),
+      updated_at: new Date().toISOString(),
     };
 
     if (status === 'completed') {
-      updateData.completedBy = userId || null;
-      updateData.completedAt = new Date();
+      updateData.completed_by = userId || null;
+      updateData.completed_at = new Date().toISOString();
     } else if (status === 'skipped' && skippedReason) {
-      updateData.skippedReason = skippedReason;
+      updateData.skipped_reason = skippedReason;
     }
 
     if (notes !== undefined) {
       updateData.notes = notes;
     }
 
-    const updated = await db
-      .update(claimChecklistItems)
-      .set(updateData)
-      .where(eq(claimChecklistItems.id, itemId))
-      .returning();
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('claim_checklist_items')
+      .update(updateData)
+      .eq('id', itemId)
+      .select()
+      .single();
 
-    if (!updated.length) {
+    if (updateError || !updated) {
       return { success: false, error: 'Item not found' };
     }
 
-    const item = updated[0];
+    const { data: allItems } = await supabaseAdmin
+      .from('claim_checklist_items')
+      .select('status')
+      .eq('checklist_id', updated.checklist_id);
 
-    const allItems = await db
-      .select({ status: claimChecklistItems.status })
-      .from(claimChecklistItems)
-      .where(eq(claimChecklistItems.checklistId, item.checklistId));
-
-    const completedCount = allItems.filter(s => s.status === 'completed').length;
-    const totalCount = allItems.length;
+    const completedCount = (allItems || []).filter((s: any) => s.status === 'completed').length;
+    const totalCount = (allItems || []).length;
     const allComplete = completedCount === totalCount;
 
-    await db
-      .update(claimChecklists)
-      .set({
-        completedItems: completedCount,
+    await supabaseAdmin
+      .from('claim_checklists')
+      .update({
+        completed_items: completedCount,
         status: allComplete ? 'completed' : 'active',
-        completedAt: allComplete ? new Date() : null,
-        updatedAt: new Date(),
+        completed_at: allComplete ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
       })
-      .where(eq(claimChecklists.id, item.checklistId));
+      .eq('id', updated.checklist_id);
 
     return { success: true };
   } catch (error: any) {
@@ -596,49 +643,50 @@ export async function addCustomChecklistItem(
   }
 ): Promise<{ success: boolean; item?: ClaimChecklistItem; error?: string }> {
   try {
-    const maxOrderResult = await db
-      .select({ sortOrder: claimChecklistItems.sortOrder })
-      .from(claimChecklistItems)
-      .where(eq(claimChecklistItems.checklistId, checklistId))
-      .orderBy(desc(claimChecklistItems.sortOrder))
+    const { data: maxOrderResult } = await supabaseAdmin
+      .from('claim_checklist_items')
+      .select('sort_order')
+      .eq('checklist_id', checklistId)
+      .order('sort_order', { ascending: false })
       .limit(1);
 
-    const nextOrder = (maxOrderResult[0]?.sortOrder || 0) + 1;
+    const nextOrder = ((maxOrderResult?.[0] as any)?.sort_order || 0) + 1;
 
-    const inserted = await db
-      .insert(claimChecklistItems)
-      .values({
-        checklistId,
+    const { data: inserted, error: insertError } = await supabaseAdmin
+      .from('claim_checklist_items')
+      .insert({
+        checklist_id: checklistId,
         title,
         description: options?.description || null,
         category,
         required: options?.required ?? false,
         priority: options?.priority || 2,
-        sortOrder: nextOrder,
+        sort_order: nextOrder,
         status: 'pending',
       })
-      .returning();
+      .select()
+      .single();
 
-    if (!inserted.length) {
-      return { success: false, error: 'Failed to create item' };
+    if (insertError || !inserted) {
+      return { success: false, error: insertError?.message || 'Failed to create item' };
     }
 
-    const itemCount = await db
-      .select({ count: claimChecklistItems.id })
-      .from(claimChecklistItems)
-      .where(eq(claimChecklistItems.checklistId, checklistId));
+    const { count } = await supabaseAdmin
+      .from('claim_checklist_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('checklist_id', checklistId);
 
-    const newTotalItems = itemCount.length;
+    const newTotalItems = count || 0;
 
-    await db
-      .update(claimChecklists)
-      .set({
-        totalItems: newTotalItems,
-        updatedAt: new Date(),
+    await supabaseAdmin
+      .from('claim_checklists')
+      .update({
+        total_items: newTotalItems,
+        updated_at: new Date().toISOString(),
       })
-      .where(eq(claimChecklists.id, checklistId));
+      .eq('id', checklistId);
 
-    return { success: true, item: inserted[0] };
+    return { success: true, item: mapChecklistItemFromDb(inserted) };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

@@ -1,6 +1,4 @@
-import { db } from "../db";
-import { xactLineItems, xactComponents, xactCategories } from "@shared/schema";
-import { eq, sql, and, ilike, or } from "drizzle-orm";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 
 interface ComponentPrice {
   code: string;
@@ -53,10 +51,18 @@ const componentByShortId = new Map<string, { type: string; amount: number; descr
 async function loadComponentCache(): Promise<void> {
   if (componentCache.size > 0) return;
   
-  const components = await db.select().from(xactComponents);
-  for (const comp of components) {
+  const { data: components, error } = await supabaseAdmin
+    .from('xact_components')
+    .select('*');
+    
+  if (error) {
+    console.error('Failed to load component cache:', error.message);
+    return;
+  }
+  
+  for (const comp of components || []) {
     const entry = {
-      type: comp.componentType,
+      type: comp.component_type,
       amount: parseFloat(comp.amount || "0"),
       description: comp.description,
       unit: comp.unit || "EA",
@@ -64,8 +70,8 @@ async function loadComponentCache(): Promise<void> {
     };
     componentCache.set(comp.code.toUpperCase(), entry);
     
-    if (comp.xactId) {
-      const match = comp.xactId.match(/^(\d+)(.+)$/);
+    if (comp.xact_id) {
+      const match = comp.xact_id.match(/^(\d+)(.+)$/);
       if (match) {
         const shortId = match[2];
         if (!componentByShortId.has(shortId.toUpperCase())) {
@@ -105,13 +111,13 @@ function calculatePerUnitPrice(aggregate: number): number {
 export async function calculateXactPrice(lineItemCode: string): Promise<XactPriceBreakdown | null> {
   await loadComponentCache();
   
-  const items = await db
-    .select()
-    .from(xactLineItems)
-    .where(eq(xactLineItems.fullCode, lineItemCode.toUpperCase()))
+  const { data: items, error } = await supabaseAdmin
+    .from('xact_line_items')
+    .select('*')
+    .eq('full_code', lineItemCode.toUpperCase())
     .limit(1);
   
-  if (items.length === 0) return null;
+  if (error || !items || items.length === 0) return null;
   
   const item = items[0];
   const activities = (item.activities as any[]) || [];
@@ -167,7 +173,7 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
     }
   }
   
-  const laborEffMin = item.laborEfficiency || 0;
+  const laborEffMin = item.labor_efficiency || 0;
   const perUnitLabor = (laborEffMin / 60 / BASE_UNIT_QUANTITY) * DEFAULT_LABOR_RATE;
   
   if (laborEffMin > 0) {
@@ -187,10 +193,10 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
   const unitPrice = perUnitMaterial + perUnitLabor + perUnitEquipment;
   
   return {
-    lineItemCode: item.fullCode,
+    lineItemCode: item.full_code,
     description: item.description,
     unit: item.unit,
-    categoryCode: item.categoryCode,
+    categoryCode: item.category_code,
     
     materialTotal: Math.round(perUnitMaterial * 100) / 100,
     laborTotal: Math.round(perUnitLabor * 100) / 100,
@@ -201,9 +207,9 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
     laborComponents,
     equipmentComponents,
     
-    laborEfficiencyMinutes: item.laborEfficiency,
-    materialDistributionPct: item.materialDistPct,
-    opEligible: item.opEligible ?? true,
+    laborEfficiencyMinutes: item.labor_efficiency,
+    materialDistributionPct: item.material_dist_pct,
+    opEligible: item.op_eligible ?? true,
     taxable: item.taxable ?? true,
   };
 }
@@ -219,67 +225,60 @@ export async function searchXactItemsWithPricing(
   await loadComponentCache();
   
   const { category, limit = 50, offset = 0 } = options;
-  const searchTerm = `%${query.toLowerCase()}%`;
+  const searchTerm = query.toLowerCase();
   
-  const conditions: any[] = [];
+  let itemQuery = supabaseAdmin
+    .from('xact_line_items')
+    .select('*', { count: 'exact' });
   
   if (query) {
-    conditions.push(
-      or(
-        sql`LOWER(${xactLineItems.description}) LIKE ${searchTerm}`,
-        sql`LOWER(${xactLineItems.fullCode}) LIKE ${searchTerm}`
-      )
-    );
+    itemQuery = itemQuery.or(`description.ilike.%${searchTerm}%,full_code.ilike.%${searchTerm}%`);
   }
   
   if (category) {
-    conditions.push(eq(xactLineItems.categoryCode, category.toUpperCase()));
+    itemQuery = itemQuery.eq('category_code', category.toUpperCase());
   }
   
-  let itemQuery = db.select().from(xactLineItems);
-  if (conditions.length > 0) {
-    itemQuery = itemQuery.where(and(...conditions)) as any;
+  const { data: items, error, count } = await itemQuery
+    .order('full_code')
+    .range(offset, offset + limit - 1);
+  
+  if (error) {
+    console.error('Error searching xact items:', error.message);
+    return { items: [], total: 0 };
   }
-  
-  const items = await itemQuery
-    .orderBy(xactLineItems.fullCode)
-    .limit(limit)
-    .offset(offset);
-  
-  const countResult = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(xactLineItems)
-    .where(conditions.length > 0 ? and(...conditions) : undefined);
   
   const categoryMap = new Map<string, string>();
-  const categories = await db.select().from(xactCategories);
-  for (const cat of categories) {
+  const { data: categories } = await supabaseAdmin
+    .from('xact_categories')
+    .select('code, description');
+  for (const cat of categories || []) {
     categoryMap.set(cat.code, cat.description);
   }
   
   const results: XactSearchResult[] = [];
   
-  for (const item of items) {
-    const price = await calculateXactPrice(item.fullCode);
+  for (const item of items || []) {
+    const price = await calculateXactPrice(item.full_code);
     
     results.push({
       id: item.id,
-      fullCode: item.fullCode,
+      fullCode: item.full_code,
       description: item.description,
       unit: item.unit,
-      categoryCode: item.categoryCode,
-      categoryDescription: categoryMap.get(item.categoryCode) || item.categoryCode,
+      categoryCode: item.category_code,
+      categoryDescription: categoryMap.get(item.category_code) || item.category_code,
       unitPrice: price?.unitPrice || 0,
       materialCost: price?.materialTotal || 0,
       laborCost: price?.laborTotal || 0,
-      opEligible: item.opEligible ?? true,
+      opEligible: item.op_eligible ?? true,
       taxable: item.taxable ?? true,
     });
   }
   
   return {
     items: results,
-    total: Number(countResult[0]?.count || 0),
+    total: count || 0,
   };
 }
 
