@@ -555,6 +555,9 @@ export default function NewClaim() {
   // Current organization ID for claim creation
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
   const [isLoadingOrg, setIsLoadingOrg] = useState(true);
+  
+  // Pending file to process once org loads
+  const [pendingFnolFile, setPendingFnolFile] = useState<File | null>(null);
 
   // Check for resume parameter to load an existing draft claim
   const resumeClaimId = new URLSearchParams(window.location.search).get('resume');
@@ -669,6 +672,17 @@ export default function NewClaim() {
     };
     fetchOrg();
   }, []);
+  
+  // Process pending FNOL file once organization loads
+  useEffect(() => {
+    if (pendingFnolFile && currentOrgId && !isLoadingOrg) {
+      // Clear the pending file first to prevent re-processing
+      const file = pendingFnolFile;
+      setPendingFnolFile(null);
+      // Now process it
+      processAndUploadFnol(file);
+    }
+  }, [currentOrgId, isLoadingOrg, pendingFnolFile]);
 
   // Creating claim state
   const [isCreating, setIsCreating] = useState(false);
@@ -981,19 +995,28 @@ export default function NewClaim() {
   const handleFnolSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
 
-    // Ensure we have an organization ID before proceeding
+    const file = e.target.files[0];
+    
+    // If org is still loading, queue the file for processing once org loads
     if (!currentOrgId && !draftClaim) {
       if (isLoadingOrg) {
-        setError('Please wait while we load your organization details...');
+        // Store the file and show uploading state - will process when org loads
+        setPendingFnolFile(file);
+        setFnolDoc({ file, type: 'fnol', status: 'uploading' });
+        return;
       } else {
         setError('Unable to determine your organization. Please refresh and try again.');
+        e.target.value = '';
+        return;
       }
-      // Reset the input so user can try again
-      e.target.value = '';
-      return;
     }
 
-    const file = e.target.files[0];
+    // Process the file immediately
+    await processAndUploadFnol(file);
+  };
+  
+  // Process FNOL file (called directly or after org loads)
+  const processAndUploadFnol = async (file: File) => {
     setError(null);
     setIsProcessing(true);
     setFnolDoc({ file, type: 'fnol', status: 'uploading' });
@@ -1047,7 +1070,10 @@ export default function NewClaim() {
       setFnolDoc(prev => prev ? { ...prev, status: 'error', error: (err as Error).message } : null);
     } finally {
       setIsProcessing(false);
-      e.target.value = '';
+      // Reset file input to allow re-selecting the same file
+      if (fnolInputRef.current) {
+        fnolInputRef.current.value = '';
+      }
     }
   };
 
