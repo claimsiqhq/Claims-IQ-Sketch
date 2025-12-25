@@ -1,5 +1,6 @@
 import * as esbuild from "esbuild";
 import { execSync } from "child_process";
+import fs from "fs";
 
 async function build() {
   console.log("Building client...");
@@ -11,7 +12,7 @@ async function build() {
     bundle: true,
     platform: "node",
     target: "node20",
-    outfile: "dist/index.js",
+    outfile: "dist/index.mjs",
     format: "esm",
     banner: {
       js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
@@ -19,9 +20,25 @@ async function build() {
     external: [
       "pg-native",
       "puppeteer",
-      "@supabase/supabase-js"
+      "@supabase/supabase-js",
+      "./vite",
+      "./vite.ts",
+      "../vite.config",
+      "../vite.config.ts",
+      "vite"
     ],
   });
+  
+  // Create both .cjs (for npm start) and .js wrappers
+  // Dynamic import() works in both CJS and ESM contexts in Node.js
+  const wrapper = `// Dynamic import wrapper for ESM module
+import("./index.mjs").catch(err => {
+  console.error("Failed to load ESM module:", err);
+  process.exit(1);
+});
+`;
+  fs.writeFileSync("dist/index.cjs", wrapper);
+  fs.writeFileSync("dist/index.js", wrapper);
   
   console.log("Build complete!");
 }
