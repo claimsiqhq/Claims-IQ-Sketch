@@ -2,339 +2,381 @@
 
 ## Overview
 
-Claims IQ is a modern, mobile-first web application for property insurance claims estimation. It enables field adjusters to capture property data, document damage, and generate estimates through voice-driven interfaces and comprehensive estimation tools. The platform features Voice Sketch (voice-driven room sketching), Voice Scope (damage documentation), My Day (AI-powered claim optimization), document processing, and hierarchical estimate building.
+Claims IQ is a modern, mobile-first web application for property insurance claims estimation. It enables field adjusters to capture property data, document damage, and generate estimates through voice-driven interfaces and comprehensive estimation tools.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
 
-## Branding
+---
 
-### Logo Assets
-- **Wordmark Logo**: `client/src/assets/logo-wordmark.png` - Full logo with text
-- **Icon Logo**: `client/src/assets/logo-icon.png` - Square icon only
+# User Guide
 
-### Brand Colors
-- **Primary Purple**: `#7763B7` (Tailwind: `primary`)
-- **Accent Gold**: `#C6A54E` (Tailwind: `accent`)
+## Getting Started
 
-### Brand Fonts
-- **Headings**: Work Sans (font-display class)
-- **Body**: Source Sans 3 (font-body class)
-- **Monospace**: Space Mono (font-mono class)
+### Logging In
+1. Navigate to the Claims IQ application
+2. Enter your username and password
+3. Check "Remember me" for extended sessions (30 days)
+4. Click "Sign In"
+
+### Navigation
+- **My Day** (Home) - Your daily dashboard with assigned claims and AI insights
+- **Claims** - View and manage all claims
+- **Map** - Geographic view of claim locations
+- **Photos** - Photo gallery for inspections
+- **Settings** - Application preferences
+- **Profile** - Your account settings
+
+---
+
+## My Day Dashboard
+
+Your personalized daily command center showing:
+
+**Today's Inspections**
+- Claims assigned to you for the day
+- Weather conditions at each location
+- Estimated travel times between stops
+- AI-generated priority recommendations
+
+**AI Insights**
+- Priority alerts - Which claims need immediate attention
+- Weather warnings - Locations with adverse conditions
+- SLA tracking - Claims approaching deadlines
+- Efficiency tips - Route optimization suggestions
+
+**Weather Integration**
+Real-time weather data for each inspection location including temperature, wind speed, precipitation probability, and impact score.
+
+---
+
+## Voice Sketch - Property Documentation
+
+Voice Sketch allows you to document property layout using voice commands.
+
+**How to Use:**
+1. Open a claim and tap "Voice Sketch"
+2. Tap the microphone to start
+3. Speak naturally to describe rooms
+
+**Example Commands:**
+- "Create a living room, 15 by 20 feet"
+- "Add a kitchen next to the living room, 12 by 14"
+- "Add a door between living room and kitchen"
+- "Create the main roof section, 30 by 40 feet"
+- "Add the front elevation, 40 feet wide by 12 feet tall"
+
+**Supported Areas:**
+- Interior Rooms: Living room, bedroom, kitchen, bathroom, etc.
+- Roof Sections: Main roof, garage roof, porch roof
+- Elevations: Front, back, left, right exterior walls
+- Exterior: Siding, gutters, deck, patio, fence, driveway
+
+**Structure Types:** Main Dwelling, Detached Garage, Shed, Barn, Carport, Pool House, Guest House
+
+---
+
+## Voice Scope - Damage Documentation
+
+Voice Scope helps you document damage and create line items by voice.
+
+**How to Use:**
+1. Open a claim and navigate to the scope section
+2. Tap the microphone
+3. Describe the damage you observe
+
+**Example Commands:**
+- "The living room ceiling has water stains, about 4 by 6 feet"
+- "Replace drywall on the north wall, 8 feet by 10 feet"
+- "The kitchen floor has fire damage, need to replace 120 square feet of laminate"
+
+The system will match your description to appropriate line items and calculate quantities.
+
+---
+
+## Claims Management
+
+**Creating a New Claim:**
+1. Click "New Claim" button
+2. Upload FNOL document (system extracts data automatically)
+3. Upload policy documents and endorsements
+4. Review extracted information
+5. Click "Finalize Claim"
+
+**Claim Statuses:**
+- Draft - Claim being created
+- FNOL - First Notice of Loss received
+- Open - Claim assigned and ready for work
+- In Progress - Active inspection/estimation
+- Review - Submitted for supervisor review
+- Approved - Estimate approved
+- Closed - Claim completed
+
+---
+
+## Document Processing
+
+Upload documents and let AI extract information:
+
+**FNOL Extraction:** Claim number, policyholder info, property address, date of loss, loss description
+
+**Policy Extraction:** Coverage limits, deductibles, exclusions, special conditions
+
+**Endorsement Processing:** Modifications to base policy, added/removed coverages
+
+---
+
+## Estimate Builder
+
+Build detailed estimates with the hierarchical system:
+
+**Structure:** Estimate > Structure > Area > Zone > Line Items
+
+**Adding Line Items:**
+1. Select a zone
+2. Search for line items or use AI suggestions
+3. Enter quantity and dimensions
+4. System calculates pricing automatically
+
+**Export Options:** PDF report, ESX file (Xactimate), CSV spreadsheet
+
+---
+
+## Peril Types
+
+| Peril | Description |
+|-------|-------------|
+| Wind/Hail | Storm damage, roof impacts |
+| Fire | Structure fires, electrical |
+| Water | Pipe bursts, appliance leaks |
+| Flood | External water intrusion |
+| Smoke | Fire-related damage |
+| Mold | Water damage aftermath |
+| Impact | Vehicle, tree, debris |
+
+---
+
+# Developer Guide
 
 ## Tech Stack
 
 ### Frontend
-- **Framework**: React 19 with TypeScript
-- **Routing**: Wouter for lightweight client-side routing
-- **State Management**: Zustand for global state
-- **Data Fetching**: TanStack React Query v5
-- **Styling**: Tailwind CSS v4 with shadcn/ui components (New York variant)
-- **Build Tool**: Vite 7
-- **Voice AI**: OpenAI Agents SDK (@openai/agents, @openai/agents-realtime)
-- **Maps**: Leaflet with react-leaflet
-- **Forms**: React Hook Form with Zod validation
-- **Animations**: Framer Motion
+- React 19 with TypeScript
+- Wouter for routing
+- Zustand for global state
+- TanStack React Query v5 for server state
+- Tailwind CSS v4 with shadcn/ui components
+- Vite 7 for build
+- OpenAI Agents SDK for voice features
+- Leaflet for maps
+- Framer Motion for animations
 
 ### Backend
-- **Framework**: Express.js with TypeScript
-- **Database**: PostgreSQL via Supabase
-- **ORM**: Drizzle ORM with drizzle-zod
-- **Authentication**: Passport.js (local strategy) + Supabase Auth
-- **File Storage**: Supabase Storage
-- **AI Services**: OpenAI GPT-4.1 for document analysis, GPT-4o Realtime for voice
-- **PDF Generation**: Puppeteer
+- Express.js with TypeScript
+- Drizzle ORM with PostgreSQL (Supabase)
+- Passport.js for authentication
+- Supabase Storage for files
+- OpenAI GPT-4.1 for document extraction
+- Puppeteer for PDF generation
 
-### Development
-- **TypeScript Execution**: tsx
-- **Build**: esbuild (server), Vite (client)
-- **Package Manager**: npm
+---
 
 ## Project Structure
 
 ```
-├── client/                     # React frontend
-│   ├── src/
-│   │   ├── features/           # Feature modules
-│   │   │   ├── voice-sketch/   # Voice-driven room sketching
-│   │   │   └── voice-scope/    # Voice damage documentation
-│   │   ├── pages/              # Route pages
-│   │   ├── components/         # Shared components
-│   │   │   ├── ui/             # shadcn/ui primitives
-│   │   │   ├── layouts/        # Desktop/Mobile layouts
-│   │   │   └── workflow/       # Inspection workflow components
-│   │   ├── hooks/              # Custom React hooks
-│   │   ├── lib/                # Utilities, API, store
-│   │   └── contexts/           # React contexts
-│   └── index.html
-├── server/                     # Express backend
-│   ├── services/               # Business logic
-│   ├── middleware/             # Auth, tenant middleware
-│   ├── lib/                    # Supabase clients
-│   ├── config/                 # Inspection rules config
-│   ├── scraper/                # Price scraping (demo)
-│   └── routes.ts               # API endpoints
-├── shared/                     # Shared types
-│   └── schema.ts               # Drizzle schema + Zod types
-├── db/
-│   ├── migrations/             # Supabase SQL migrations
-│   └── seeds/                  # Database seed data
-├── script/
-│   └── build.ts                # Production build script
-└── uploads/                    # Local file uploads
+client/                     # React frontend
+  src/
+    features/               # Feature modules
+      voice-sketch/         # Voice room sketching
+      voice-scope/          # Voice damage docs
+    pages/                  # Route pages
+    components/             # Shared components
+      ui/                   # shadcn/ui primitives
+      layouts/              # Desktop/Mobile
+      workflow/             # Inspection workflow
+    hooks/                  # Custom hooks
+    lib/                    # Utilities, API, store
+server/                     # Express backend
+  services/                 # Business logic
+  middleware/               # Auth, tenant
+  lib/                      # Supabase clients
+  config/                   # Inspection rules
+  routes.ts                 # API endpoints
+shared/
+  schema.ts                 # Drizzle schema + types
+db/
+  migrations/               # SQL migrations
+  seeds/                    # Seed data
+script/
+  build.ts                  # Production build
 ```
 
-## Core Features
-
-### 1. Voice Sketch
-Voice-driven room sketching for field adjusters using OpenAI Realtime API.
-
-**Location**: `client/src/features/voice-sketch/`
-
-**Key Components**:
-- `VoiceSketchController.tsx` - Main voice interface
-- `room-sketch-agent.ts` - OpenAI agent with tool definitions
-- `geometry-engine.ts` - Room geometry calculations
-- `FloorPlanPreview.tsx` - Visual floor plan rendering
-
-**Capabilities**:
-- Create rooms with dimensions via voice commands
-- Add doors, windows, openings between rooms
-- Support for exterior zones (roof, elevations, siding, gutters, deck, patio, fence)
-- Auto-calculate square footage and perimeter
-- Generate floor plan visualizations
-
-**Structure Types**: `main_dwelling`, `detached_garage`, `shed`, `barn`, `carport`, `pool_house`, `guest_house`
-
-### 2. Voice Scope
-Voice-driven damage documentation for line item creation.
-
-**Location**: `client/src/features/voice-scope/`
-
-**Key Components**:
-- `VoiceScopeController.tsx` - Voice UI
-- `scope-agent.ts` - Damage documentation agent
-- `scope-engine.ts` - Line item management
-
-**Capabilities**:
-- Document damage via voice
-- Auto-suggest line items based on damage description
-- Link to rooms/zones from Voice Sketch
-- Calculate quantities from dimensions
-
-### 3. My Day
-AI-powered daily claim optimization and route planning.
-
-**Location**: `client/src/pages/my-day.tsx`, `server/services/myDayAnalysis.ts`
-
-**Capabilities**:
-- View assigned claims for the day
-- Weather-aware scheduling with NWS API integration
-- AI-generated insights (priority, efficiency, risk, SLA)
-- Route optimization suggestions
-- Claim briefing summaries
-
-### 4. Claims Management
-Full FNOL processing and claim lifecycle management.
-
-**Key Services**:
-- `server/services/claims.ts` - CRUD operations
-- `server/services/documentProcessor.ts` - AI document extraction
-- `server/services/claimBriefingService.ts` - AI briefings
-
-**Claim Statuses**: `draft` → `fnol` → `open` → `in_progress` → `review` → `approved` → `closed`
-
-### 5. Document Processing
-AI-powered extraction from insurance documents using GPT-4.1 Vision.
-
-**Extraction Types**:
-- **FNOL Documents**: Claim details, policyholder info, loss description
-- **Policy Forms**: Full coverage details, exclusions, conditions
-- **Endorsements**: Delta modifications to base policy
-
-**Tables**:
-- `policy_form_extractions` - Full policy content
-- `endorsement_extractions` - Endorsement modifications
-
-### 6. Estimate Builder
-Hierarchical estimate system with Xactimate compatibility.
-
-**Hierarchy**: Estimate → Structure → Area → Zone → Line Items
-
-**Key Services**:
-- `server/services/estimateHierarchy.ts` - CRUD for estimate hierarchy
-- `server/services/estimateCalculator.ts` - Price calculations
-- `server/services/xactPricing.ts` - Xactimate price list integration
-- `server/services/depreciationEngine.ts` - ACV calculations
-
-**Export Formats**: PDF, ESX (Xactimate), CSV
-
-### 7. Inspection Workflows
-AI-generated inspection checklists based on peril type.
-
-**Services**:
-- `server/services/inspectionWorkflowService.ts` - Workflow generation
-- `server/services/checklistTemplateService.ts` - Checklist templates
-- `server/config/perilInspectionRules.ts` - Per-peril rules
-
-## API Structure
-
-### Authentication
-- `POST /api/auth/login` - Login with username/password
-- `POST /api/auth/logout` - Logout and destroy session
-- `GET /api/auth/me` - Get current user
-- `POST /api/auth/signup` - Create new account
-
-### Claims
-- `GET /api/claims` - List claims
-- `GET /api/claims/:id` - Get claim details
-- `POST /api/claims` - Create claim
-- `PUT /api/claims/:id` - Update claim
-- `DELETE /api/claims/:id` - Delete claim
-- `GET /api/claims/:id/briefing` - Get AI briefing
-- `GET /api/claims/:id/documents` - Get claim documents
-- `GET /api/claims/:id/workflow` - Get inspection workflow
-
-### Estimates
-- `GET /api/estimates/:id` - Get estimate
-- `POST /api/estimates` - Create estimate
-- `GET /api/estimates/:id/hierarchy` - Get full hierarchy
-- `POST /api/estimates/:id/structures` - Add structure
-- `POST /api/estimates/:id/zones` - Add zone
-- `POST /api/zones/:id/line-items` - Add line item
-
-### Documents
-- `POST /api/documents/upload` - Upload document
-- `POST /api/documents/:id/process` - AI extraction
-- `GET /api/documents/:id/preview` - Get previews
-- `GET /api/documents/:id/download` - Download file
-
-### Voice
-- `POST /api/voice/session` - Create ephemeral key for Realtime API
-
-### Weather
-- `POST /api/weather/locations` - Fetch weather for locations
-- `POST /api/my-day/analyze` - AI analysis with weather
-
-### Pricing & Line Items
-- `GET /api/line-items` - Search line items
-- `GET /api/line-items/categories` - Get category hierarchy
-- `POST /api/pricing/calculate` - Calculate prices with regional adjustments
-- `GET /api/regions` - Get all pricing regions
-- `GET /api/xact/search` - Search Xactimate items
-- `GET /api/xact/price/:code` - Get full price breakdown
-
-### Geocoding & Maps
-- `GET /api/claims/map` - Get geocoded claims for map view
-- `GET /api/map/stats` - Get map statistics
-- `POST /api/geocode` - Geocode pending claims
-
-### Organizations
-- `GET /api/organizations` - List organizations
-- `POST /api/organizations` - Create organization
-- `GET /api/organizations/:id/members` - Get members
-- `POST /api/organizations/:id/members` - Add member
-
-### Admin
-- `GET /api/system/status` - Database status
-- `GET /api/prompts` - List AI prompts
-- `PUT /api/prompts/:key` - Update AI prompt
+---
 
 ## Environment Variables
 
 ### Required
-- `SUPABASE_URL` - Supabase project URL
-- `SUPABASE_PUBLISHABLE_API_KEY` - Client-side key
-- `SUPABASE_SECRET_KEY` - Server admin key
-- `SUPABASE_DATABASE_URL` - PostgreSQL connection string
-- `SESSION_SECRET` - Session encryption key
-- `OPENAI_API_KEY` - OpenAI API key for voice features
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_API_KEY=your-key
+SUPABASE_SECRET_KEY=your-secret
+SUPABASE_DATABASE_URL=postgresql://...
+SESSION_SECRET=your-session-secret
+OPENAI_API_KEY=your-openai-key
+```
 
 ### Client-Side (Vite)
-- `VITE_SUPABASE_URL` - Supabase URL for frontend
-- `VITE_SUPABASE_PUBLISHABLE_API_KEY` - Publishable key
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_API_KEY=your-key
+```
 
-### Optional
-- `APP_URL` - Application URL for redirects
+---
+
+## Development Commands
+
+```bash
+npm install      # Install dependencies
+npm run dev      # Start development server
+npm run build    # Production build
+npm run start    # Run production
+npm run db:push  # Push schema to database
+npm run check    # Type checking
+```
+
+---
+
+## API Reference
+
+### Authentication
+- POST `/api/auth/login` - Login
+- POST `/api/auth/logout` - Logout
+- GET `/api/auth/me` - Get current user
+- POST `/api/auth/signup` - Create account
+- POST `/api/auth/supabase/login` - Supabase login
+- POST `/api/auth/supabase/register` - Supabase register
+
+### Claims
+- GET `/api/claims` - List claims
+- GET `/api/claims/:id` - Get claim
+- POST `/api/claims` - Create claim
+- PUT `/api/claims/:id` - Update claim
+- DELETE `/api/claims/:id` - Delete claim
+- GET `/api/claims/:id/briefing` - AI briefing
+- GET `/api/claims/:id/documents` - Get documents
+- GET `/api/claims/:id/workflow` - Inspection workflow
+
+### Documents
+- POST `/api/documents/upload` - Upload document
+- POST `/api/documents/:id/process` - AI extraction
+- GET `/api/documents/:id/preview` - Preview URLs
+- GET `/api/documents/:id/download` - Download file
+
+### Estimates
+- POST `/api/estimates` - Create estimate
+- GET `/api/estimates/:id` - Get estimate
+- GET `/api/estimates/:id/hierarchy` - Full hierarchy
+- POST `/api/estimates/:id/structures` - Add structure
+- POST `/api/estimates/:id/zones` - Add zone
+- POST `/api/zones/:id/line-items` - Add line item
+
+### Pricing
+- GET `/api/line-items` - Search line items
+- GET `/api/line-items/categories` - Categories
+- POST `/api/pricing/calculate` - Calculate price
+- GET `/api/xact/search` - Search Xactimate
+- GET `/api/xact/price/:code` - Price breakdown
+
+### Voice
+- POST `/api/voice/session` - Create ephemeral key
+
+### Weather
+- POST `/api/weather/locations` - Weather data
+- POST `/api/my-day/analyze` - AI analysis
+
+### Organizations
+- GET `/api/organizations` - List orgs
+- POST `/api/organizations` - Create org
+- GET `/api/organizations/:id/members` - Members
+
+### Maps
+- GET `/api/claims/map` - Geocoded claims
+- GET `/api/map/stats` - Map statistics
+
+### Admin
+- GET `/api/system/status` - System status
+- GET `/api/prompts` - List AI prompts
+- PUT `/api/prompts/:key` - Update prompt
+
+---
+
+## Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| organizations | Multi-tenant orgs |
+| users | User accounts |
+| claims | FNOL and claim data |
+| documents | Uploaded files |
+| estimates | Estimate headers |
+| estimate_structures | Buildings |
+| estimate_areas | Rooms/areas |
+| estimate_zones | Damage zones |
+| estimate_line_items | Line items |
+| xact_line_items | Xactimate catalog |
+| policy_form_extractions | Policy data |
+| endorsement_extractions | Endorsements |
+| ai_prompts | AI prompts |
+| claim_checklists | Checklists |
+
+---
 
 ## Authentication
 
-Uses session-based auth with Passport.js for local strategy and optional Supabase Auth.
-
-**Cookie Configuration (Replit)**:
+### Session-Based (Passport.js)
+- Local strategy with username/password
+- Sessions stored in PostgreSQL
+- Cookie config for Replit:
 ```typescript
 cookie: {
-  secure: true,           // Required for HTTPS
+  secure: true,
   httpOnly: true,
-  maxAge: 24 * 60 * 60 * 1000,  // 24 hours
-  sameSite: 'none',       // Required for Replit iframe
+  maxAge: 24 * 60 * 60 * 1000,
+  sameSite: 'none',
 }
 ```
 
-**Note**: Create users via the signup endpoint or Supabase Auth dashboard.
+### Supabase Auth
+- JWT tokens in Authorization header
+- Email/password support
 
-## Peril Types
-
-The platform supports comprehensive peril tracking with type-specific metadata:
-
-| Peril | Description |
-|-------|-------------|
-| `wind_hail` | Wind and hail damage |
-| `fire` | Fire damage |
-| `water` | Non-flood water damage |
-| `flood` | External water intrusion |
-| `smoke` | Smoke damage |
-| `mold` | Mold damage |
-| `impact` | Vehicle/tree/debris impact |
-
-## Development
-
-### Commands
-```bash
-npm run dev        # Start development server
-npm run build      # Production build
-npm run start      # Run production
-npm run db:push    # Push schema to database
-```
-
-### Adding New Pages
-1. Create component in `client/src/pages/`
-2. Register route in `client/src/App.tsx`
-3. Add navigation in layouts
-
-### Adding AI Prompts
-Prompts are stored in `ai_prompts` table and cached in memory. Update via API or directly in database.
-
-## Database
-
-### Key Tables
-- `organizations` - Multi-tenant support
-- `users` - User accounts
-- `claims` - FNOL and claim data
-- `documents` - Uploaded files
-- `estimates` - Estimate headers
-- `estimate_structures` - Buildings/structures
-- `estimate_areas` - Rooms/areas
-- `estimate_zones` - Damage zones
-- `estimate_line_items` - Individual line items
-- `xact_line_items` - Xactimate price catalog
-- `ai_prompts` - Configurable AI prompts
-- `claim_checklists` - Inspection checklists
-
-### Migrations
-SQL migrations are stored in `db/migrations/` and run via Supabase.
+---
 
 ## External Services
 
-### Weather
-Uses free National Weather Service API (no key required):
-- Two-step flow: `/points/{lat},{lon}` → forecast
-- Returns temperature, wind, precipitation, alerts
-- Calculates inspection impact score
+### Weather API
+- National Weather Service (free, no key)
+- Provides forecasts, alerts, conditions
 
 ### Xactimate Integration
-Full price list with 122 categories, 20,000+ line items:
-- Material/labor/equipment components
-- Formula-based pricing
-- ESX export for Xactimate import
+- 122 categories, 20,000+ line items
+- Material/labor/equipment pricing
+- ESX export compatibility
+
+---
+
+## Branding
+
+### Logo Assets
+- Wordmark: `client/src/assets/logo-wordmark.png`
+- Icon: `client/src/assets/logo-icon.png`
+
+### Colors
+- Primary Purple: `#7763B7`
+- Accent Gold: `#C6A54E`
+
+### Fonts
+- Headings: Work Sans
+- Body: Source Sans 3
+- Monospace: Space Mono
