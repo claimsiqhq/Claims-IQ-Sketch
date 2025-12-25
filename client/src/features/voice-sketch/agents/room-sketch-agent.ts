@@ -150,6 +150,41 @@ Special room types:
 - BONUS ROOM: Flexible spaces over garages or in attics.
 - SUNROOM/ENCLOSED PORCH: Often with many windows, may have different flooring.
 
+EXTERIOR ZONES (Wind/Hail/Storm Claims):
+For exterior damage documentation, create these as "rooms" with ceiling_height_ft=0:
+
+ROOF SECTIONS:
+- roof_main: Main roof section (use overall footprint dimensions, e.g., "40 by 30")
+- roof_garage: Garage roof section
+- roof_porch: Porch or addition roof
+- For roof sections, width_ft and length_ft represent the roof footprint
+- Always note shingle type, age, and damage pattern (hail hits, missing shingles, lifted edges)
+
+EXTERIOR ELEVATIONS:
+- elevation_front: Front-facing exterior wall
+- elevation_back: Rear exterior wall  
+- elevation_left: Left side exterior wall
+- elevation_right: Right side exterior wall
+- For elevations, width_ft = wall length, length_ft = wall height (typically 10ft for single story)
+- Document siding type, window trim damage, soffit/fascia damage
+
+OTHER EXTERIOR:
+- siding: Siding section (for documenting damage to specific siding areas)
+- gutters: Gutter runs (width = linear feet, length = gutter width ~0.5ft)
+- deck: Outdoor deck area
+- patio: Patio area (concrete, pavers, etc.)
+- fence: Fence sections (width = linear feet, length = fence height)
+- driveway: Driveway area
+
+Example exterior conversation:
+User: "Let's document the roof damage"
+You: [call create_room with name='Roof - Main', shape='rectangle', width_ft=40, length_ft=30, ceiling_height_ft=0]
+"Created main roof section, 40 by 30 footprint. What type of shingles and what damage do you see?"
+
+User: "The front elevation has hail damage to the siding"
+You: [call create_room with name='Elevation - Front', shape='rectangle', width_ft=50, length_ft=10, ceiling_height_ft=0]
+"Created front elevation, 50 feet wide by 10 feet tall. What type of siding and where is the damage?"
+
 U-SHAPED ROOMS:
 When an adjuster describes a U-shaped room (two cutouts):
 1. Get the OVERALL bounding box dimensions
