@@ -1996,14 +1996,74 @@ export interface GenerateWorkflowResponse {
   };
 }
 
+// Wizard context for interactive workflow generation
+export interface WizardContext {
+  propertyInfo?: {
+    propertyType: string;
+    stories: number;
+    hasBasement: boolean;
+    hasAttic: boolean;
+    hasGarage: boolean;
+    hasPool: boolean;
+    hasOutbuildings: boolean;
+    roofType: string;
+    sidingType: string;
+  };
+  affectedAreas?: {
+    roof: boolean;
+    roofDetails?: string;
+    exteriorNorth: boolean;
+    exteriorSouth: boolean;
+    exteriorEast: boolean;
+    exteriorWest: boolean;
+    exteriorDetails?: string;
+    interior: boolean;
+    basement: boolean;
+    attic: boolean;
+    garage: boolean;
+    otherStructures: boolean;
+    otherStructuresDetails?: string;
+    landscaping: boolean;
+  };
+  rooms?: Array<{
+    name: string;
+    level: string;
+    hasDamage: boolean;
+    damageType?: string;
+  }>;
+  safetyInfo?: {
+    activeLeaks: boolean;
+    standingWater: boolean;
+    electricalHazard: boolean;
+    structuralConcern: boolean;
+    moldVisible: boolean;
+    gasSmell: boolean;
+    animalsConcern: boolean;
+    accessIssues: boolean;
+    safetyNotes?: string;
+    powerStatus: string;
+    waterStatus: string;
+  };
+  homeownerInput?: {
+    primaryConcern?: string;
+    previousDamage: boolean;
+    previousDamageDetails?: string;
+    temporaryRepairs: boolean;
+    temporaryRepairsDetails?: string;
+    contentsDamage: boolean;
+    additionalNotes?: string;
+  };
+}
+
 export async function generateInspectionWorkflow(
   claimId: string,
-  forceRegenerate: boolean = false
+  forceRegenerate: boolean = false,
+  wizardContext?: WizardContext
 ): Promise<GenerateWorkflowResponse> {
   const response = await fetch(`${API_BASE}/claims/${claimId}/workflow/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ forceRegenerate }),
+    body: JSON.stringify({ forceRegenerate, wizardContext }),
     credentials: 'include',
   });
   if (!response.ok) {

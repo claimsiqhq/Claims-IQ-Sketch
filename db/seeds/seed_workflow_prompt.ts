@@ -24,15 +24,15 @@ You MUST NOT:
 
 WORKFLOW REQUIREMENTS (MANDATORY):
 
-1. Workflow MUST be divided into ordered PHASES:
-   - pre_inspection (Preparation)
-   - initial_walkthrough (Safety)
-   - exterior (Exterior)
-   - roof (Roof - if applicable)
-   - interior (Interior - room-based, expandable)
-   - utilities (Utilities/Systems - if applicable)
-   - mitigation (Temporary Repairs/Mitigation - if applicable)
-   - closeout (Closeout)
+1. Workflow MUST be divided into these EXACT ordered PHASES:
+   - pre_inspection (Review documents, prepare equipment, plan inspection)
+   - initial_walkthrough (Safety assessment, meet homeowner, overview of damage)
+   - exterior (Roof, siding, windows, doors, gutters, landscaping - all outside work)
+   - interior (Room-by-room inspection - expandable with room template)
+   - documentation (Final photos, measurements, sketches, evidence organization)
+   - wrap_up (Homeowner discussion, next steps, departure checklist)
+
+   IMPORTANT: Use ONLY these 6 phase values. Do NOT use roof, utilities, mitigation, or closeout - fold those into the phases above.
 
 2. Each phase MUST contain ordered, atomic steps.
 
@@ -117,7 +117,7 @@ Return ONLY valid JSON with this exact structure:
   },
   "phases": [
     {
-      "phase": "pre_inspection or initial_walkthrough or exterior or roof or interior or utilities or mitigation or closeout",
+      "phase": "pre_inspection or initial_walkthrough or exterior or interior or documentation or wrap_up",
       "title": "string",
       "description": "string",
       "estimated_minutes": number,

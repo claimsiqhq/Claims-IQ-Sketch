@@ -311,6 +311,164 @@ function validateWorkflowSchema(response: unknown): response is AIWorkflowRespon
 }
 
 // ============================================
+// WIZARD CONTEXT TYPES
+// ============================================
+
+export interface WizardContext {
+  propertyInfo?: {
+    propertyType: string;
+    stories: number;
+    hasBasement: boolean;
+    hasAttic: boolean;
+    hasGarage: boolean;
+    hasPool: boolean;
+    hasOutbuildings: boolean;
+    roofType: string;
+    sidingType: string;
+  };
+  affectedAreas?: {
+    roof: boolean;
+    roofDetails?: string;
+    exteriorNorth: boolean;
+    exteriorSouth: boolean;
+    exteriorEast: boolean;
+    exteriorWest: boolean;
+    exteriorDetails?: string;
+    interior: boolean;
+    basement: boolean;
+    attic: boolean;
+    garage: boolean;
+    otherStructures: boolean;
+    otherStructuresDetails?: string;
+    landscaping: boolean;
+  };
+  rooms?: Array<{
+    name: string;
+    level: string;
+    hasDamage: boolean;
+    damageType?: string;
+  }>;
+  safetyInfo?: {
+    activeLeaks: boolean;
+    standingWater: boolean;
+    electricalHazard: boolean;
+    structuralConcern: boolean;
+    moldVisible: boolean;
+    gasSmell: boolean;
+    animalsConcern: boolean;
+    accessIssues: boolean;
+    safetyNotes?: string;
+    powerStatus: string;
+    waterStatus: string;
+  };
+  homeownerInput?: {
+    primaryConcern?: string;
+    previousDamage: boolean;
+    previousDamageDetails?: string;
+    temporaryRepairs: boolean;
+    temporaryRepairsDetails?: string;
+    contentsDamage: boolean;
+    additionalNotes?: string;
+  };
+}
+
+/**
+ * Format wizard context for inclusion in the AI prompt
+ */
+function formatWizardContext(wizard: WizardContext): string {
+  const sections: string[] = [];
+
+  // Property information
+  if (wizard.propertyInfo) {
+    const p = wizard.propertyInfo;
+    sections.push(`### PROPERTY DETAILS (from field inspection)
+- Type: ${p.propertyType.replace('_', ' ')}
+- Stories: ${p.stories}
+- Features: ${[
+      p.hasBasement && 'Basement',
+      p.hasAttic && 'Attic',
+      p.hasGarage && 'Garage',
+      p.hasPool && 'Pool',
+      p.hasOutbuildings && 'Outbuildings'
+    ].filter(Boolean).join(', ') || 'None noted'}
+- Roof Type: ${p.roofType}
+- Siding Type: ${p.sidingType}`);
+  }
+
+  // Affected areas
+  if (wizard.affectedAreas) {
+    const a = wizard.affectedAreas;
+    const affected: string[] = [];
+    if (a.roof) affected.push(`Roof${a.roofDetails ? ` (${a.roofDetails})` : ''}`);
+    if (a.exteriorNorth) affected.push('Exterior - North');
+    if (a.exteriorSouth) affected.push('Exterior - South');
+    if (a.exteriorEast) affected.push('Exterior - East');
+    if (a.exteriorWest) affected.push('Exterior - West');
+    if (a.exteriorDetails) affected.push(`Exterior notes: ${a.exteriorDetails}`);
+    if (a.interior) affected.push('Interior');
+    if (a.basement) affected.push('Basement');
+    if (a.attic) affected.push('Attic');
+    if (a.garage) affected.push('Garage');
+    if (a.otherStructures) affected.push(`Other Structures${a.otherStructuresDetails ? ` (${a.otherStructuresDetails})` : ''}`);
+    if (a.landscaping) affected.push('Landscaping');
+
+    if (affected.length > 0) {
+      sections.push(`### AFFECTED AREAS (confirmed by adjuster)
+${affected.map(a => `- ${a}`).join('\n')}`);
+    }
+  }
+
+  // Rooms needing inspection
+  if (wizard.rooms && wizard.rooms.length > 0) {
+    const damagedRooms = wizard.rooms.filter(r => r.hasDamage);
+    if (damagedRooms.length > 0) {
+      sections.push(`### ROOMS REQUIRING INSPECTION
+${damagedRooms.map(r => `- ${r.name} (${r.level} floor)${r.damageType ? `: ${r.damageType}` : ''}`).join('\n')}`);
+    }
+  }
+
+  // Safety concerns
+  if (wizard.safetyInfo) {
+    const s = wizard.safetyInfo;
+    const hazards: string[] = [];
+    if (s.electricalHazard) hazards.push('ELECTRICAL HAZARD - exercise extreme caution');
+    if (s.gasSmell) hazards.push('GAS SMELL DETECTED - verify utility status');
+    if (s.structuralConcern) hazards.push('STRUCTURAL CONCERN - assess stability before entry');
+    if (s.activeLeaks) hazards.push('Active water leaks present');
+    if (s.standingWater) hazards.push('Standing water present');
+    if (s.moldVisible) hazards.push('Visible mold growth');
+    if (s.animalsConcern) hazards.push('Animals on property - use caution');
+    if (s.accessIssues) hazards.push('Access issues reported');
+
+    if (hazards.length > 0 || s.safetyNotes) {
+      sections.push(`### SAFETY CONCERNS (CRITICAL)
+${hazards.map(h => `- ${h}`).join('\n')}
+${s.safetyNotes ? `\nNotes: ${s.safetyNotes}` : ''}
+- Power Status: ${s.powerStatus}
+- Water Status: ${s.waterStatus}`);
+    }
+  }
+
+  // Homeowner input
+  if (wizard.homeownerInput) {
+    const h = wizard.homeownerInput;
+    const notes: string[] = [];
+    if (h.primaryConcern) notes.push(`Primary Concern: "${h.primaryConcern}"`);
+    if (h.previousDamage) notes.push(`Previous Damage: Yes${h.previousDamageDetails ? ` - ${h.previousDamageDetails}` : ''}`);
+    if (h.temporaryRepairs) notes.push(`Temporary Repairs Made: Yes${h.temporaryRepairsDetails ? ` - ${h.temporaryRepairsDetails}` : ''}`);
+    if (h.contentsDamage) notes.push('Contents damage reported');
+    if (h.additionalNotes) notes.push(`Additional Notes: ${h.additionalNotes}`);
+
+    if (notes.length > 0) {
+      sections.push(`### HOMEOWNER INPUT
+${notes.join('\n')}`);
+    }
+  }
+
+  return sections.join('\n\n');
+}
+
+// ============================================
 // MAIN SERVICE FUNCTIONS
 // ============================================
 
@@ -321,13 +479,15 @@ function validateWorkflowSchema(response: unknown): response is AIWorkflowRespon
  * @param organizationId - The organization ID
  * @param userId - The user generating the workflow
  * @param forceRegenerate - Skip cache and regenerate
+ * @param wizardContext - Optional context from the pre-generation wizard
  * @returns GenerateWorkflowResult
  */
 export async function generateInspectionWorkflow(
   claimId: string,
   organizationId: string,
   userId?: string,
-  forceRegenerate: boolean = false
+  forceRegenerate: boolean = false,
+  wizardContext?: WizardContext
 ): Promise<GenerateWorkflowResult> {
   try {
     // Step 1: Build the peril-aware claim context
@@ -435,6 +595,9 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     const carrierRequirements = await formatCarrierRequirements(organizationId);
 
     // Build the prompt variables
+    // Build wizard context section if available
+    const wizardContextText = wizardContext ? formatWizardContext(wizardContext) : '';
+
     const variables = {
       claim_number: context.claimNumber,
       primary_peril: context.primaryPeril,
@@ -452,12 +615,18 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       briefing_summary: briefingSummary,
       peril_inspection_rules: formatPerilRules(context.primaryPeril, context.secondaryPerils),
       carrier_requirements: carrierRequirements,
+      wizard_context: wizardContextText,
     };
 
     // Substitute variables in the prompt template
-    const userPrompt = promptConfig.userPromptTemplate
+    let userPrompt = promptConfig.userPromptTemplate
       ? substituteVariables(promptConfig.userPromptTemplate, variables)
       : buildFallbackPrompt(variables);
+
+    // Append wizard context if available (for more specific workflow generation)
+    if (wizardContextText) {
+      userPrompt += `\n\n## FIELD ADJUSTER INPUT (HIGH PRIORITY)\nThe following information was gathered by the field adjuster during their initial assessment. Use this to create a more targeted workflow:\n\n${wizardContextText}`;
+    }
 
     // Call OpenAI
     const completion = await openai.chat.completions.create({

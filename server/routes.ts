@@ -3525,16 +3525,17 @@ export async function registerRoutes(
   /**
    * POST /api/claims/:id/workflow/generate
    * Generate a new inspection workflow for a claim.
-   * Uses FNOL, policy, endorsements, briefing, and peril rules.
+   * Uses FNOL, policy, endorsements, briefing, peril rules, and optional wizard context.
    */
   app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { forceRegenerate } = req.body;
+      const { forceRegenerate, wizardContext } = req.body;
       const result = await generateInspectionWorkflow(
         req.params.id,
         req.organizationId!,
         req.user?.id,
-        forceRegenerate === true
+        forceRegenerate === true,
+        wizardContext
       );
 
       if (!result.success) {
