@@ -97,9 +97,7 @@ import {
   addCustomChecklistItem,
   inferSeverityFromClaim
 } from "./services/checklistTemplateService";
-import { Peril, ClaimSeverity, ChecklistCategory, claimChecklists, claims } from "@shared/schema";
-import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { Peril, ClaimSeverity, ChecklistCategory } from "@shared/schema";
 import {
   createDocument,
   getDocument,
@@ -3472,26 +3470,26 @@ export async function registerRoutes(
       const organizationId = req.organizationId!;
       const { peril: overridePeril, severity: overrideSeverity } = req.body;
 
-      const [claim] = await db
-        .select({
-          id: claims.id,
-          primaryPeril: claims.primaryPeril,
-          metadata: claims.metadata,
-        })
-        .from(claims)
-        .where(and(eq(claims.id, claimId), eq(claims.organizationId, organizationId)))
-        .limit(1);
+      // Use Supabase consistently with the rest of the codebase
+      const { data: claim, error: claimError } = await supabaseAdmin
+        .from('claims')
+        .select('id, primary_peril, metadata')
+        .eq('id', claimId)
+        .eq('organization_id', organizationId)
+        .single();
 
-      if (!claim) {
+      if (claimError || !claim) {
         return res.status(404).json({ error: 'Claim not found' });
       }
 
-      await db
-        .update(claimChecklists)
-        .set({ status: 'archived', updatedAt: new Date() })
-        .where(and(eq(claimChecklists.claimId, claimId), eq(claimChecklists.status, 'active')));
+      // Archive existing active checklists
+      await supabaseAdmin
+        .from('claim_checklists')
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .eq('claim_id', claimId)
+        .eq('status', 'active');
 
-      const peril = (overridePeril as Peril) || (claim.primaryPeril as Peril) || Peril.OTHER;
+      const peril = (overridePeril as Peril) || (claim.primary_peril as Peril) || Peril.OTHER;
       const severity = (overrideSeverity as ClaimSeverity) || inferSeverityFromClaim({
         reserveAmount: null,
         metadata: claim.metadata as Record<string, any> | null,
