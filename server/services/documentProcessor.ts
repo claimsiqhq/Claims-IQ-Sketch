@@ -67,7 +67,7 @@ export interface ScheduledStructure {
   valuationMethod?: string;
 }
 
-// Key amendment structure for endorsements
+// Key amendment structure for endorsements (legacy format)
 export interface KeyAmendment {
   provisionAmended: string;
   summaryOfChange: string;
@@ -83,6 +83,60 @@ export interface EndorsementDetail {
   keyAmendments?: KeyAmendment[];
   additionalInfo?: string;
   description?: string; // For backward compatibility
+}
+
+// Comprehensive endorsement extraction types (new format)
+export interface EndorsementMetadata {
+  formCode: string;
+  title: string;
+  editionDate?: string | null;
+  jurisdiction?: string | null;
+  pageCount?: number;
+  appliesToPolicyForms?: string[];
+}
+
+export interface EndorsementModifications {
+  definitions?: {
+    added?: { term: string; definition: string }[];
+    deleted?: string[];
+    replaced?: { term: string; newDefinition: string }[];
+  };
+  coverages?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: { coverage: string; changeType: string; details: string }[];
+  };
+  perils?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  exclusions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  conditions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  lossSettlement?: {
+    replacedSections?: { policySection: string; newRule: string }[];
+  };
+}
+
+export interface EndorsementTable {
+  tableType: string;
+  appliesWhen?: { coverage?: string[]; peril?: string[] };
+  data?: Record<string, any>;
+}
+
+export interface ComprehensiveEndorsement {
+  endorsementMetadata: EndorsementMetadata;
+  modifications: EndorsementModifications;
+  tables?: EndorsementTable[];
+  rawText: string;
 }
 
 // Document type definitions - matches FNOL JSON format
@@ -159,6 +213,7 @@ export interface ExtractedClaimData {
   endorsementsListed?: string[]; // Simple list of endorsement codes
   endorsementDetails?: EndorsementDetail[]; // Detailed endorsement info
   endorsements?: EndorsementDetail[]; // Raw endorsements array from new prompt (will be merged into endorsementDetails)
+  comprehensiveEndorsements?: ComprehensiveEndorsement[]; // New comprehensive format with delta changes
 
   // Third parties
   mortgagee?: string;
@@ -666,31 +721,70 @@ export function transformFNOLExtractionToFlat(extraction: FNOLClaimExtraction): 
 
 /**
  * Transform endorsement extraction to flat ExtractedClaimData
+ * Supports both legacy format and new comprehensive delta format
  */
 function transformEndorsementExtractionToFlat(response: any): ExtractedClaimData {
   const result: ExtractedClaimData = {
     policyNumber: response.policyNumber || undefined,
     endorsementsListed: response.endorsementsListed || [],
     endorsementDetails: [],
+    comprehensiveEndorsements: [],
   };
 
   // Map endorsements array to endorsementDetails
   if (response.endorsements && Array.isArray(response.endorsements)) {
-    result.endorsementDetails = response.endorsements.map((e: any) => ({
-      formNumber: e.formNumber || '',
-      name: e.documentTitle || e.name || e.title || '',
-      documentTitle: e.documentTitle || e.title || '',
-      description: e.description || '',
-      appliesToState: e.appliesToState || undefined,
-      keyAmendments: e.keyAmendments || [],
-      additionalInfo: e.additionalInfo || e.notes || '',
-    }));
+    // Check if this is the new comprehensive format (has endorsementMetadata)
+    const isComprehensiveFormat = response.endorsements.some((e: any) => e.endorsementMetadata);
     
-    // Also populate endorsementsListed from endorsements if not already set
-    if (!result.endorsementsListed || result.endorsementsListed.length === 0) {
+    if (isComprehensiveFormat) {
+      // New comprehensive format with delta changes
+      result.comprehensiveEndorsements = response.endorsements.map((e: any) => ({
+        endorsementMetadata: {
+          formCode: e.endorsementMetadata?.formCode || '',
+          title: e.endorsementMetadata?.title || '',
+          editionDate: e.endorsementMetadata?.editionDate || null,
+          jurisdiction: e.endorsementMetadata?.jurisdiction || null,
+          pageCount: e.endorsementMetadata?.pageCount || 1,
+          appliesToPolicyForms: e.endorsementMetadata?.appliesToPolicyForms || [],
+        },
+        modifications: e.modifications || {},
+        tables: e.tables || [],
+        rawText: e.rawText || '',
+      }));
+      
+      // Also populate legacy format for backward compatibility
+      result.endorsementDetails = response.endorsements.map((e: any) => ({
+        formNumber: e.endorsementMetadata?.formCode || '',
+        name: e.endorsementMetadata?.title || '',
+        documentTitle: e.endorsementMetadata?.title || '',
+        description: '',
+        appliesToState: e.endorsementMetadata?.jurisdiction || undefined,
+        keyAmendments: [],
+        additionalInfo: '',
+      }));
+      
+      // Populate endorsementsListed
       result.endorsementsListed = response.endorsements
-        .map((e: any) => e.formNumber)
+        .map((e: any) => e.endorsementMetadata?.formCode)
         .filter(Boolean);
+    } else {
+      // Legacy format
+      result.endorsementDetails = response.endorsements.map((e: any) => ({
+        formNumber: e.formNumber || '',
+        name: e.documentTitle || e.name || e.title || '',
+        documentTitle: e.documentTitle || e.title || '',
+        description: e.description || '',
+        appliesToState: e.appliesToState || undefined,
+        keyAmendments: e.keyAmendments || [],
+        additionalInfo: e.additionalInfo || e.notes || '',
+      }));
+      
+      // Also populate endorsementsListed from endorsements if not already set
+      if (!result.endorsementsListed || result.endorsementsListed.length === 0) {
+        result.endorsementsListed = response.endorsements
+          .map((e: any) => e.formNumber)
+          .filter(Boolean);
+      }
     }
   }
 
@@ -1622,7 +1716,7 @@ export async function createClaimFromDocuments(
       .eq('id', docId);
   }
 
-  // Save endorsement details to endorsements table
+  // Save endorsement details to endorsements table (legacy format)
   if (claimData.endorsementDetails && claimData.endorsementDetails.length > 0) {
     for (const endorsement of claimData.endorsementDetails) {
       const keyChanges: Record<string, any> = {};
@@ -1665,6 +1759,52 @@ export async function createClaimFromDocuments(
             key_changes: keyChanges
           });
       }
+    }
+  }
+
+  // Save comprehensive endorsement extractions to endorsement_extractions table (new format)
+  if (claimData.comprehensiveEndorsements && claimData.comprehensiveEndorsements.length > 0) {
+    for (const endorsement of claimData.comprehensiveEndorsements) {
+      const formCode = endorsement.endorsementMetadata?.formCode || '';
+      
+      // Check if extraction already exists for this claim and form code
+      const { data: existingExtractions } = await supabaseAdmin
+        .from('endorsement_extractions')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('claim_id', claimId)
+        .eq('form_code', formCode)
+        .limit(1);
+
+      const extractionData = {
+        organization_id: organizationId,
+        claim_id: claimId,
+        form_code: formCode,
+        title: endorsement.endorsementMetadata?.title || null,
+        edition_date: endorsement.endorsementMetadata?.editionDate || null,
+        jurisdiction: endorsement.endorsementMetadata?.jurisdiction || null,
+        page_count: endorsement.endorsementMetadata?.pageCount || null,
+        applies_to_policy_forms: endorsement.endorsementMetadata?.appliesToPolicyForms || [],
+        modifications: endorsement.modifications || {},
+        tables: endorsement.tables || [],
+        raw_text: endorsement.rawText || null,
+        extraction_model: 'gpt-4.1-2025-04-14',
+        extraction_version: '2.0',
+        status: 'completed'
+      };
+
+      if (existingExtractions && existingExtractions.length > 0) {
+        await supabaseAdmin
+          .from('endorsement_extractions')
+          .update({ ...extractionData, updated_at: new Date().toISOString() })
+          .eq('id', existingExtractions[0].id);
+      } else {
+        await supabaseAdmin
+          .from('endorsement_extractions')
+          .insert(extractionData);
+      }
+
+      console.log(`[EndorsementExtraction] Saved comprehensive extraction for ${formCode}`);
     }
   }
 
