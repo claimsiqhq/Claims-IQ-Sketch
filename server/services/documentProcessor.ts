@@ -1666,7 +1666,7 @@ export async function createClaimFromDocuments(
     .from('claims')
     .insert({
       organization_id: organizationId,
-      claim_number: generatedClaimId,
+      claim_id: generatedClaimId,
       insured_name: claimData.policyholder || null,
       date_of_loss: claimData.dateOfLoss || null,
       property_address: propertyAddress,

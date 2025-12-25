@@ -196,7 +196,7 @@ export async function buildPerilAwareClaimContext(
   // Map snake_case to camelCase
   const claim = {
     id: claimData.id,
-    claimNumber: claimData.claim_number,
+    claimNumber: claimData.claim_id,
     primaryPeril: claimData.primary_peril,
     secondaryPerils: claimData.secondary_perils,
     perilConfidence: claimData.peril_confidence,

@@ -351,7 +351,6 @@ export async function saveEstimate(
     .from('estimates')
     .insert({
       claim_id: input.claimId || null,
-      claim_number: input.claimNumber || null,
       property_address: input.propertyAddress || null,
       status: 'draft',
       version: 1,
@@ -447,7 +446,7 @@ export async function saveEstimate(
   return {
     id: estimate.id,
     claimId: estimate.claim_id,
-    claimNumber: estimate.claim_number,
+    claimNumber: estimate.claim_id,
     propertyAddress: estimate.property_address,
     status: estimate.status,
     version: estimate.version,
@@ -598,7 +597,7 @@ export async function getEstimate(estimateId: string): Promise<SavedEstimate | n
   return {
     id: estimate.id,
     claimId: estimate.claim_id,
-    claimNumber: estimate.claim_number,
+    claimNumber: estimate.claim_id,
     propertyAddress: estimate.property_address,
     status: estimate.status,
     version: estimate.version,
@@ -661,7 +660,6 @@ export async function updateEstimate(
     .from('estimates')
     .update({
       claim_id: input.claimId || null,
-      claim_number: input.claimNumber || null,
       property_address: input.propertyAddress || null,
       version: newVersion,
       updated_at: new Date().toISOString(),
