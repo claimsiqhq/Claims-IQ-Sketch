@@ -236,7 +236,8 @@ export type VoiceCommandType =
   | 'delete_opening'
   | 'delete_feature'
   | 'edit_damage_zone'
-  | 'capture_photo';
+  | 'capture_photo'
+  | 'load_claim';
 
 // Structure command params
 export interface CreateStructureParams {

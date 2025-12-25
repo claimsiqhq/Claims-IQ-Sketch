@@ -33,7 +33,7 @@ Before starting room sketching, ALWAYS establish which structure you're document
 - Rooms created while a structure is selected are automatically associated with that structure
 
 Common structures:
-- Main House / Primary Residence → type: single_family
+- Main House / Primary Residence → type: main_dwelling
 - Detached Garage → type: detached_garage
 - Guest House / In-Law Suite → type: guest_house
 - Storage Shed / Workshop → type: shed
@@ -371,7 +371,7 @@ const createStructureTool = tool({
 Structures help organize rooms hierarchically - rooms added after creating a structure will automatically be associated with it.
 
 Common structure types:
-- single_family: Main house, primary residence
+- main_dwelling: Main house, primary residence
 - detached_garage: Standalone garage building
 - shed: Storage shed, workshop
 - guest_house: Separate living quarters
@@ -380,7 +380,7 @@ Common structure types:
 - other: Any other detached structure`,
   parameters: z.object({
     name: z.string().describe('Name for the structure, e.g., "Main House", "Detached Garage", "Guest House"'),
-    type: z.enum(['single_family', 'detached_garage', 'shed', 'guest_house', 'pool_house', 'barn', 'other']).describe('Type of structure'),
+    type: z.enum(['main_dwelling', 'detached_garage', 'attached_garage', 'shed', 'guest_house', 'pool_house', 'barn', 'other']).describe('Type of structure'),
     description: z.string().optional().describe('Optional description of the structure'),
     stories: z.number().optional().describe('Number of stories (floors)'),
     yearBuilt: z.number().optional().describe('Year the structure was built'),

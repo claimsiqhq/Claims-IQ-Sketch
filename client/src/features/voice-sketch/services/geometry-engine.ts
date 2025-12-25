@@ -1420,7 +1420,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       photos: [],
       commandHistory: [{
         id: generateId(),
-        action: 'load_claim',
+        type: 'load_claim',
         params: { structureCount: structures.length, roomCount: rooms.length },
         timestamp: new Date().toISOString(),
         result: `Loaded ${structures.length} structure(s) and ${rooms.length} room(s) from saved claim`,
