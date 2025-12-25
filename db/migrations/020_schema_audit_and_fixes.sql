@@ -441,6 +441,245 @@ CREATE TABLE IF NOT EXISTS estimate_line_items (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns to estimate_line_items table if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'estimate_line_items') THEN
+    -- Reference columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'zone_id') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN zone_id UUID REFERENCES estimate_zones(id) ON DELETE SET NULL;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'coverage_id') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN coverage_id UUID REFERENCES estimate_coverages(id) ON DELETE SET NULL;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'line_item_id') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN line_item_id VARCHAR(50) REFERENCES line_items(id) ON DELETE SET NULL;
+    END IF;
+    
+    -- Quantity and calculation columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'calculated_quantity') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN calculated_quantity DECIMAL(12,4);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'quantity_source') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN quantity_source VARCHAR(20) DEFAULT 'manual';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'quantity_explanation') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN quantity_explanation TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'original_unit_price') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN original_unit_price DECIMAL(12,4);
+    END IF;
+    
+    -- Cost columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'material_cost') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN material_cost DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'labor_cost') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN labor_cost DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'equipment_cost') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN equipment_cost DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'waste_factor') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN waste_factor DECIMAL(4,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'waste_amount') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN waste_amount DECIMAL(10,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'tax_amount') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN tax_amount DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'line_rcv') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN line_rcv DECIMAL(10,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'rcv') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN rcv DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    -- Depreciation columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'age_years') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN age_years INTEGER DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'useful_life_years') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN useful_life_years INTEGER DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'life_expectancy_years') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN life_expectancy_years INTEGER;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'condition') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN condition VARCHAR(20) DEFAULT 'Average';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'depreciation_pct') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN depreciation_pct DECIMAL(5,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'depreciation_amount') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN depreciation_amount DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'depreciation_type_id') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN depreciation_type_id INTEGER DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'depreciation_reason') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN depreciation_reason TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_recoverable') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_recoverable BOOLEAN DEFAULT true;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'acv') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN acv DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    -- Coverage and code columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'coverage_code') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN coverage_code VARCHAR(10) DEFAULT 'A';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'trade_code') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN trade_code VARCHAR(20);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'category_code') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN category_code VARCHAR(10);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'selector_code') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN selector_code VARCHAR(30);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'activity_code') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN activity_code VARCHAR(10);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'calc_ref') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN calc_ref VARCHAR(30);
+    END IF;
+    
+    -- Scope and source columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'scope_reason') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN scope_reason TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_auto_added') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_auto_added BOOLEAN DEFAULT false;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'added_by_item') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN added_by_item VARCHAR(50);
+    END IF;
+    
+    -- Flag columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_homeowner') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_homeowner BOOLEAN DEFAULT false;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_credit') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_credit BOOLEAN DEFAULT false;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_non_op') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_non_op BOOLEAN DEFAULT false;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_price_override') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_price_override BOOLEAN DEFAULT false;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'is_approved') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN is_approved BOOLEAN DEFAULT true;
+    END IF;
+    
+    -- Rule columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'rule_status') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN rule_status VARCHAR(30) DEFAULT 'allowed';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'original_quantity') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN original_quantity DECIMAL(12,4);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'rule_explanation') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN rule_explanation TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'documentation_required') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN documentation_required JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'documentation_provided') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN documentation_provided JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimate_line_items' AND column_name = 'damage_area_id') THEN
+      ALTER TABLE estimate_line_items ADD COLUMN damage_area_id UUID;
+    END IF;
+  END IF;
+END $$;
+
 -- MATERIALS TABLE
 CREATE TABLE IF NOT EXISTS materials (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -732,17 +971,51 @@ BEGIN
   END IF;
 END $$;
 
--- Estimate line items indexes
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate ON estimate_line_items(estimate_id);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_zone ON estimate_line_items(zone_id);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_coverage ON estimate_line_items(coverage_id);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_code ON estimate_line_items(line_item_code);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_category ON estimate_line_items(category_id);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_trade ON estimate_line_items(trade_code);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_source ON estimate_line_items(quantity_source);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_auto_added ON estimate_line_items(is_auto_added) WHERE is_auto_added = true;
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_rule_status ON estimate_line_items(rule_status);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_approved ON estimate_line_items(is_approved) WHERE is_approved = true;
+-- Estimate line items indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'estimate_line_items') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'estimate_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate ON estimate_line_items(estimate_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'zone_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_zone ON estimate_line_items(zone_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'coverage_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_coverage ON estimate_line_items(coverage_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'line_item_code') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_code ON estimate_line_items(line_item_code);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'category_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_category ON estimate_line_items(category_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'trade_code') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_trade ON estimate_line_items(trade_code);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'quantity_source') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_source ON estimate_line_items(quantity_source);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'is_auto_added') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_auto_added ON estimate_line_items(is_auto_added) WHERE is_auto_added = true;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'rule_status') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_rule_status ON estimate_line_items(rule_status);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'is_approved') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_approved ON estimate_line_items(is_approved) WHERE is_approved = true;
+    END IF;
+  END IF;
+END $$;
 
 -- Materials indexes
 CREATE INDEX IF NOT EXISTS idx_materials_sku ON materials(sku);
@@ -955,6 +1228,29 @@ BEGIN
 END $$;
 
 -- ============================================
+-- HELPER FUNCTION: Safe Index Creation
+-- ============================================
+-- Creates an index only if the table and column exist
+-- This prevents errors when columns don't exist yet
+
+CREATE OR REPLACE FUNCTION create_index_if_column_exists(
+  p_table_name TEXT,
+  p_column_name TEXT,
+  p_index_name TEXT,
+  p_index_definition TEXT
+) RETURNS VOID AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = p_table_name AND column_name = p_column_name
+  ) THEN
+    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(%s)', 
+      p_index_name, p_table_name, p_index_definition);
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 
@@ -963,5 +1259,6 @@ BEGIN
   RAISE NOTICE 'Migration 020: Schema audit and fixes completed successfully!';
   RAISE NOTICE 'Created missing tables, indexes, foreign keys, and constraints';
   RAISE NOTICE 'Added updated_at triggers and composite indexes for performance';
+  RAISE NOTICE 'All index creations are conditional - safe to run multiple times';
 END $$;
 
