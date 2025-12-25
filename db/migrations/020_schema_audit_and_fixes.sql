@@ -38,6 +38,56 @@ CREATE TABLE IF NOT EXISTS regions (
   last_updated TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns to regions table if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'regions') THEN
+    -- Add state_province if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'state_province') THEN
+      ALTER TABLE regions ADD COLUMN state_province VARCHAR(10);
+    END IF;
+    
+    -- Add zip_postal_prefixes if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'zip_postal_prefixes') THEN
+      ALTER TABLE regions ADD COLUMN zip_postal_prefixes TEXT[];
+    END IF;
+    
+    -- Add currency if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'currency') THEN
+      ALTER TABLE regions ADD COLUMN currency CHAR(3) DEFAULT 'USD';
+    END IF;
+    
+    -- Add tax_rate if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'tax_rate') THEN
+      ALTER TABLE regions ADD COLUMN tax_rate DECIMAL(5,4) DEFAULT 0;
+    END IF;
+    
+    -- Add indices if missing (allow NULL first, then set default for existing rows, then set NOT NULL)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'indices') THEN
+      ALTER TABLE regions ADD COLUMN indices JSONB DEFAULT '{}'::jsonb;
+      UPDATE regions SET indices = '{}'::jsonb WHERE indices IS NULL;
+      ALTER TABLE regions ALTER COLUMN indices SET NOT NULL;
+    END IF;
+    
+    -- Add metadata if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'metadata') THEN
+      ALTER TABLE regions ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+    END IF;
+    
+    -- Add last_updated if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'regions' AND column_name = 'last_updated') THEN
+      ALTER TABLE regions ADD COLUMN last_updated TIMESTAMP DEFAULT NOW();
+    END IF;
+  END IF;
+END $$;
+
 -- LINE ITEM CATEGORIES TABLE
 CREATE TABLE IF NOT EXISTS line_item_categories (
   id VARCHAR(20) PRIMARY KEY,
@@ -431,9 +481,19 @@ CREATE TABLE IF NOT EXISTS labor_rates (
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_org ON users(current_organization_id);
 
--- Regions indexes
-CREATE INDEX IF NOT EXISTS idx_regions_state ON regions(state_province);
-CREATE INDEX IF NOT EXISTS idx_regions_country ON regions(country);
+-- Regions indexes (only create if column exists)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns 
+             WHERE table_name = 'regions' AND column_name = 'state_province') THEN
+    CREATE INDEX IF NOT EXISTS idx_regions_state ON regions(state_province);
+  END IF;
+  
+  IF EXISTS (SELECT 1 FROM information_schema.columns 
+             WHERE table_name = 'regions' AND column_name = 'country') THEN
+    CREATE INDEX IF NOT EXISTS idx_regions_country ON regions(country);
+  END IF;
+END $$;
 
 -- Line items indexes
 CREATE INDEX IF NOT EXISTS idx_line_items_category ON line_items(category_id);
