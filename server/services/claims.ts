@@ -221,7 +221,8 @@ export async function listClaims(
   let query = supabaseAdmin
     .from('claims')
     .select('*', { count: 'exact' })
-    .eq('organization_id', organizationId);
+    .eq('organization_id', organizationId)
+    .neq('status', 'deleted'); // Always exclude deleted claims
 
   if (!options?.includeClosed && !options?.status) {
     query = query.neq('status', 'closed');
