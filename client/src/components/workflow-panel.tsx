@@ -1,15 +1,15 @@
 /**
  * Inspection Workflow Panel Component
  *
- * Displays AI-generated inspection workflows with the following features:
- * - Phase navigation (pre-inspection, walkthrough, exterior, interior, documentation, wrap-up)
- * - Step cards with status, instructions, and required assets
+ * Mobile-first, interactive inspection workflow management with:
+ * - Pre-generation wizard for gathering context
+ * - Phase-based step navigation
+ * - Photo capture and findings documentation
  * - Progress tracking and statistics
- * - Add rooms to expand workflow with room-specific steps
- * - Mobile-first responsive design
+ * - Room management and custom step addition
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { useSwipe } from "@/hooks/use-swipe";
 import {
   ClipboardCheck,
   RefreshCw,
@@ -44,11 +45,13 @@ import {
   Home,
   Layers,
   MapPin,
-  ArrowRight,
   Package,
   HelpCircle,
   SkipForward,
   Ban,
+  Sparkles,
+  Wand2,
+  X,
 } from "lucide-react";
 import {
   getClaimWorkflow,
@@ -59,6 +62,7 @@ import {
   addWorkflowRoom,
   expandWorkflowRooms,
   addWorkflowStep,
+  getClaim,
   type FullWorkflow,
   type InspectionWorkflowStep,
   type InspectionPhase,
@@ -68,6 +72,11 @@ import {
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
+// Import new workflow components
+import { WorkflowWizard, type WizardData } from "./workflow/workflow-wizard";
+import { StepCompletionDialog, type StepData, type StepCompletionData } from "./workflow/step-completion-dialog";
+import { CompactSyncIndicator } from "./workflow/sync-status";
+
 interface WorkflowPanelProps {
   claimId: string;
   className?: string;
@@ -76,7 +85,7 @@ interface WorkflowPanelProps {
 // Phase labels and icons
 const PHASE_CONFIG: Record<InspectionPhase, { label: string; icon: React.ReactNode; color: string }> = {
   pre_inspection: { label: "Pre-Inspection", icon: <ClipboardCheck className="h-4 w-4" />, color: "text-blue-600" },
-  initial_walkthrough: { label: "Initial Walkthrough", icon: <MapPin className="h-4 w-4" />, color: "text-purple-600" },
+  initial_walkthrough: { label: "Walkthrough", icon: <MapPin className="h-4 w-4" />, color: "text-purple-600" },
   exterior: { label: "Exterior", icon: <Home className="h-4 w-4" />, color: "text-green-600" },
   interior: { label: "Interior", icon: <Layers className="h-4 w-4" />, color: "text-orange-600" },
   documentation: { label: "Documentation", icon: <FileText className="h-4 w-4" />, color: "text-cyan-600" },
@@ -98,10 +107,10 @@ const STEP_TYPE_ICONS: Record<InspectionStepType, React.ReactNode> = {
 // Status icons and colors
 const STATUS_CONFIG: Record<InspectionStepStatus, { icon: React.ReactNode; color: string; bg: string }> = {
   pending: { icon: <Circle className="h-4 w-4" />, color: "text-muted-foreground", bg: "bg-muted" },
-  in_progress: { icon: <PlayCircle className="h-4 w-4" />, color: "text-blue-600", bg: "bg-blue-100" },
-  completed: { icon: <CheckCircle2 className="h-4 w-4" />, color: "text-green-600", bg: "bg-green-100" },
-  skipped: { icon: <SkipForward className="h-4 w-4" />, color: "text-amber-600", bg: "bg-amber-100" },
-  blocked: { icon: <Ban className="h-4 w-4" />, color: "text-red-600", bg: "bg-red-100" },
+  in_progress: { icon: <PlayCircle className="h-4 w-4" />, color: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-950" },
+  completed: { icon: <CheckCircle2 className="h-4 w-4" />, color: "text-green-600", bg: "bg-green-100 dark:bg-green-950" },
+  skipped: { icon: <SkipForward className="h-4 w-4" />, color: "text-amber-600", bg: "bg-amber-100 dark:bg-amber-950" },
+  blocked: { icon: <Ban className="h-4 w-4" />, color: "text-red-600", bg: "bg-red-100 dark:bg-red-950" },
 };
 
 export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
@@ -112,6 +121,19 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   const [activePhase, setActivePhase] = useState<InspectionPhase | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const [staleStatus, setStaleStatus] = useState<{ shouldRegenerate: boolean; reason?: string } | null>(null);
+
+  // Wizard state
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardData, setWizardData] = useState<WizardData | null>(null);
+  const [claimInfo, setClaimInfo] = useState<{
+    claimNumber: string;
+    primaryPeril: string;
+    propertyAddress?: string;
+  } | null>(null);
+
+  // Step completion dialog state
+  const [completingStep, setCompletingStep] = useState<StepData | null>(null);
+  const [isSubmittingStep, setIsSubmittingStep] = useState(false);
 
   // Dialog states
   const [showAddRoomDialog, setShowAddRoomDialog] = useState(false);
@@ -124,6 +146,65 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   const [newStepInstructions, setNewStepInstructions] = useState("");
   const [addingRoom, setAddingRoom] = useState(false);
   const [addingStep, setAddingStep] = useState(false);
+
+  // Sync status tracking
+  const [pendingUpdates, setPendingUpdates] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Track online status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Phase order for swipe navigation
+  const phaseOrder = useMemo(() =>
+    workflow?.workflow.workflowJson.phases.map(p => p.phase) || [],
+    [workflow]
+  );
+
+  // Navigate to next/previous phase
+  const navigatePhase = useCallback((direction: 'next' | 'prev') => {
+    if (!activePhase || phaseOrder.length === 0) return;
+    const currentIndex = phaseOrder.indexOf(activePhase);
+    const newIndex = direction === 'next'
+      ? Math.min(currentIndex + 1, phaseOrder.length - 1)
+      : Math.max(currentIndex - 1, 0);
+    if (newIndex !== currentIndex) {
+      setActivePhase(phaseOrder[newIndex]);
+    }
+  }, [activePhase, phaseOrder]);
+
+  // Swipe handlers for phase navigation
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: () => navigatePhase('next'),
+    onSwipeRight: () => navigatePhase('prev'),
+    threshold: 75,
+    maxTime: 400,
+  });
+
+  // Fetch claim info for wizard
+  const fetchClaimInfo = useCallback(async () => {
+    try {
+      const claim = await getClaim(claimId);
+      if (claim) {
+        setClaimInfo({
+          claimNumber: claim.claimNumber,
+          primaryPeril: claim.primaryPeril || "unknown",
+          propertyAddress: [claim.propertyAddress, claim.propertyCity, claim.propertyState].filter(Boolean).join(", "),
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch claim info:", err);
+    }
+  }, [claimId]);
 
   const fetchWorkflow = useCallback(async () => {
     if (!claimId) return;
@@ -155,19 +236,21 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
   useEffect(() => {
     fetchWorkflow();
-  }, [fetchWorkflow]);
+    fetchClaimInfo();
+  }, [fetchWorkflow, fetchClaimInfo]);
 
-  // Ref to track if autostart has been attempted
-  const autoGenerateAttempted = useRef(false);
-
-  const handleGenerate = async (force: boolean = false) => {
-    if (!claimId) return;
+  // Handle wizard completion - generate workflow with context
+  const handleWizardComplete = async (data: WizardData) => {
+    setWizardData(data);
     setGenerating(true);
     setError(null);
 
     try {
-      await generateInspectionWorkflow(claimId, force);
+      // Generate workflow with wizard context
+      // The backend will use this context to create a more tailored workflow
+      await generateInspectionWorkflow(claimId, false, data);
       await fetchWorkflow();
+      setShowWizard(false);
       toast.success('Workflow generated successfully');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate workflow';
@@ -177,15 +260,6 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       setGenerating(false);
     }
   };
-
-  // Autostart: Generate workflow automatically if none exists
-  useEffect(() => {
-    // Only auto-generate once, when initial load completes with no workflow
-    if (!loading && !workflow && !error && !generating && !autoGenerateAttempted.current) {
-      autoGenerateAttempted.current = true;
-      handleGenerate(false);
-    }
-  }, [loading, workflow, error, generating]);
 
   const handleRegenerate = async () => {
     if (!claimId || !staleStatus?.reason) return;
@@ -205,8 +279,112 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
     }
   };
 
-  const handleStepStatusChange = async (step: InspectionWorkflowStep, newStatus: InspectionStepStatus) => {
+  // Handle step completion with findings
+  const handleStepComplete = async (data: StepCompletionData) => {
     if (!workflow) return;
+    setIsSubmittingStep(true);
+
+    try {
+      await updateWorkflowStep(workflow.workflow.id, data.stepId, {
+        status: data.status,
+        notes: data.findings,
+        actualMinutes: data.actualMinutes,
+      });
+
+      // Update local state
+      setWorkflow(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: prev.steps.map(s =>
+            s.id === data.stepId
+              ? { ...s, status: data.status, notes: data.findings, actualMinutes: data.actualMinutes }
+              : s
+          ),
+          stats: {
+            ...prev.stats,
+            completedSteps: data.status === 'completed'
+              ? prev.stats.completedSteps + 1
+              : prev.stats.completedSteps,
+            pendingSteps: prev.steps.find(s => s.id === data.stepId)?.status === 'pending'
+              ? prev.stats.pendingSteps - 1
+              : prev.stats.pendingSteps,
+          },
+        };
+      });
+
+      setCompletingStep(null);
+      toast.success(`Step completed: ${data.findings ? 'with findings' : 'successfully'}`);
+
+      // Auto-advance to next pending step in same phase
+      if (activePhase && workflow) {
+        const phaseSteps = workflow.steps.filter(s => s.phase === activePhase);
+        const currentIdx = phaseSteps.findIndex(s => s.id === data.stepId);
+        const nextPending = phaseSteps.slice(currentIdx + 1).find(s => s.status === 'pending');
+        if (nextPending) {
+          setExpandedSteps(new Set([nextPending.id]));
+        }
+      }
+    } catch (err) {
+      toast.error('Failed to complete step');
+    } finally {
+      setIsSubmittingStep(false);
+    }
+  };
+
+  // Handle step skip
+  const handleStepSkip = async (stepId: string, reason: string) => {
+    if (!workflow) return;
+    setIsSubmittingStep(true);
+
+    try {
+      await updateWorkflowStep(workflow.workflow.id, stepId, {
+        status: 'skipped',
+        notes: `Skipped: ${reason}`,
+      });
+
+      // Update local state
+      setWorkflow(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: prev.steps.map(s =>
+            s.id === stepId ? { ...s, status: 'skipped', notes: `Skipped: ${reason}` } : s
+          ),
+        };
+      });
+
+      setCompletingStep(null);
+      toast.success('Step skipped');
+    } catch (err) {
+      toast.error('Failed to skip step');
+    } finally {
+      setIsSubmittingStep(false);
+    }
+  };
+
+  // Quick status change (for non-required steps)
+  const handleQuickStatusChange = async (step: InspectionWorkflowStep, newStatus: InspectionStepStatus) => {
+    if (!workflow) return;
+
+    // For completing required steps, open the completion dialog
+    if (newStatus === 'completed' && step.required) {
+      setCompletingStep({
+        id: step.id,
+        title: step.title,
+        instructions: step.instructions || undefined,
+        stepType: step.stepType,
+        estimatedMinutes: step.estimatedMinutes || 5,
+        required: step.required,
+        roomName: step.roomName || undefined,
+        assets: step.assets?.map(a => ({
+          assetType: a.assetType,
+          label: a.label,
+          required: a.required,
+        })),
+      });
+      return;
+    }
 
     try {
       await updateWorkflowStep(workflow.workflow.id, step.id, { status: newStatus });
@@ -293,6 +471,24 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
     });
   };
 
+  // Start step (open completion dialog)
+  const startStep = (step: InspectionWorkflowStep) => {
+    setCompletingStep({
+      id: step.id,
+      title: step.title,
+      instructions: step.instructions || undefined,
+      stepType: step.stepType,
+      estimatedMinutes: step.estimatedMinutes || 5,
+      required: step.required,
+      roomName: step.roomName || undefined,
+      assets: step.assets?.map(a => ({
+        assetType: a.assetType,
+        label: a.label,
+        required: a.required,
+      })),
+    });
+  };
+
   // Group steps by phase
   const stepsByPhase = workflow?.steps.reduce((acc, step) => {
     const phase = step.phase as InspectionPhase;
@@ -304,6 +500,21 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   const progressPercent = workflow
     ? Math.round((workflow.stats.completedSteps / workflow.stats.totalSteps) * 100)
     : 0;
+
+  // Show wizard for new workflow
+  if (showWizard && claimInfo) {
+    return (
+      <WorkflowWizard
+        claimId={claimId}
+        claimNumber={claimInfo.claimNumber}
+        primaryPeril={claimInfo.primaryPeril}
+        propertyAddress={claimInfo.propertyAddress}
+        onComplete={handleWizardComplete}
+        onCancel={() => setShowWizard(false)}
+        isGenerating={generating}
+      />
+    );
+  }
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -317,34 +528,37 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <CompactSyncIndicator
+            isOnline={isOnline}
+            isSyncing={isSyncing}
+            pendingCount={pendingUpdates}
+          />
           {workflow && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground hidden sm:inline">
               {formatDistanceToNow(new Date(workflow.workflow.updatedAt), { addSuffix: true })}
             </span>
           )}
-          <Button
-            size="sm"
-            variant={workflow ? "outline" : "default"}
-            onClick={() => handleGenerate(workflow !== null)}
-            disabled={generating}
-          >
-            {generating ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                Generating...
-              </>
-            ) : workflow ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Regenerate
-              </>
-            ) : (
-              <>
-                <ClipboardCheck className="h-4 w-4 mr-1" />
-                Generate Workflow
-              </>
-            )}
-          </Button>
+          {!workflow && !loading && (
+            <Button
+              size="sm"
+              onClick={() => setShowWizard(true)}
+              disabled={generating || !claimInfo}
+            >
+              <Wand2 className="h-4 w-4 mr-1" />
+              Start Workflow
+            </Button>
+          )}
+          {workflow && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowWizard(true)}
+              disabled={generating}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Regenerate
+            </Button>
+          )}
         </div>
       </div>
 
@@ -366,17 +580,26 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         </Card>
       )}
 
-      {/* No workflow state */}
+      {/* No workflow - Welcome state */}
       {!loading && !workflow && !error && (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <ClipboardCheck className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-muted-foreground mb-4">
-              No workflow generated yet. Click "Generate Workflow" to create an AI-powered inspection checklist.
+        <Card className="border-dashed border-2">
+          <CardContent className="py-12 text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+              <Sparkles className="h-8 w-8 text-primary" />
+            </div>
+            <h4 className="text-lg font-semibold mb-2">Create Your Inspection Workflow</h4>
+            <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+              Answer a few questions about the property and damage, and we'll generate
+              a tailored inspection checklist for your field work.
             </p>
-            <Button onClick={() => handleGenerate(false)} disabled={generating}>
-              <ClipboardCheck className="h-4 w-4 mr-2" />
-              Generate Workflow
+            <Button
+              size="lg"
+              onClick={() => setShowWizard(true)}
+              disabled={!claimInfo}
+              className="gap-2"
+            >
+              <Wand2 className="h-5 w-5" />
+              Start Workflow Wizard
             </Button>
           </CardContent>
         </Card>
@@ -387,14 +610,14 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         <>
           {/* Stale Workflow Alert */}
           {staleStatus?.shouldRegenerate && (
-            <Card className="border-amber-300 bg-amber-50">
+            <Card className="border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
               <CardContent className="py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-5 w-5 text-amber-600" />
                     <div>
-                      <p className="font-medium text-amber-800">Workflow Update Recommended</p>
-                      <p className="text-sm text-amber-700">{staleStatus.reason}</p>
+                      <p className="font-medium text-amber-800 dark:text-amber-200">Workflow Update Recommended</p>
+                      <p className="text-sm text-amber-700 dark:text-amber-300">{staleStatus.reason}</p>
                     </div>
                   </div>
                   <Button
@@ -409,7 +632,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                     ) : (
                       <RefreshCw className="h-4 w-4 mr-1" />
                     )}
-                    Update Workflow
+                    Update
                   </Button>
                 </div>
               </CardContent>
@@ -426,22 +649,20 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                     {workflow.stats.completedSteps} / {workflow.stats.totalSteps} steps
                   </span>
                 </div>
-                <Progress value={progressPercent} className="h-2" />
+                <Progress value={progressPercent} className="h-3" />
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {workflow.stats.estimatedMinutes} min estimated
+                      {workflow.stats.estimatedMinutes} min est.
                     </span>
                     {workflow.stats.actualMinutes > 0 && (
                       <span>{workflow.stats.actualMinutes} min actual</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-xs">
-                      {workflow.workflow.primaryPeril || 'Unknown Peril'}
-                    </Badge>
-                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {workflow.workflow.primaryPeril || 'Unknown Peril'}
+                  </Badge>
                 </div>
               </div>
             </CardContent>
@@ -451,18 +672,19 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setShowAddRoomDialog(true)}>
               <Home className="h-4 w-4 mr-1" />
-              <span className="hidden xs:inline">Add</span> Room
+              Add Room
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowAddStepDialog(true)}>
               <Plus className="h-4 w-4 mr-1" />
-              <span className="hidden xs:inline">Add</span> Step
+              Add Step
             </Button>
           </div>
 
           {/* Phase Navigation */}
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
             {workflow.workflow.workflowJson.phases.map((phase) => {
               const config = PHASE_CONFIG[phase.phase];
+              if (!config) return null;
               const phaseSteps = stepsByPhase[phase.phase] || [];
               const completedInPhase = phaseSteps.filter(s => s.status === 'completed').length;
               const isActive = activePhase === phase.phase;
@@ -487,77 +709,95 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
           {/* Steps for active phase */}
           {activePhase && (
-            <ScrollArea className="h-[calc(100vh-480px)] min-h-[200px] md:h-[calc(100vh-450px)]">
+            <ScrollArea
+              className="h-[calc(100vh-500px)] min-h-[250px] md:h-[calc(100vh-450px)]"
+              {...swipeHandlers}
+            >
               <div className="space-y-3 pr-4">
-                {(stepsByPhase[activePhase] || []).map((step) => {
+                {(stepsByPhase[activePhase] || []).map((step, index) => {
                   const statusConfig = STATUS_CONFIG[step.status as InspectionStepStatus];
                   const typeIcon = STEP_TYPE_ICONS[step.stepType as InspectionStepType];
                   const isExpanded = expandedSteps.has(step.id);
 
                   return (
-                    <Card key={step.id} className={cn("transition-all", statusConfig.bg)}>
+                    <Card
+                      key={step.id}
+                      className={cn(
+                        "transition-all overflow-hidden",
+                        statusConfig?.bg,
+                        step.status === 'pending' && "border-l-4 border-l-primary"
+                      )}
+                    >
                       <CardHeader
-                        className="py-3 cursor-pointer hover:bg-muted/50"
+                        className="py-3 cursor-pointer hover:bg-muted/50 transition-colors"
                         onClick={() => toggleStepExpanded(step.id)}
                       >
                         <div className="flex items-start gap-3">
-                          {/* Status indicator */}
-                          <div className={cn("mt-0.5", statusConfig.color)}>
-                            {statusConfig.icon}
+                          {/* Step number & Status */}
+                          <div className={cn(
+                            "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium",
+                            step.status === 'completed'
+                              ? "bg-green-500 text-white"
+                              : step.status === 'skipped'
+                              ? "bg-amber-500 text-white"
+                              : "bg-muted text-muted-foreground"
+                          )}>
+                            {step.status === 'completed' ? (
+                              <CheckCircle2 className="h-5 w-5" />
+                            ) : step.status === 'skipped' ? (
+                              <SkipForward className="h-4 w-4" />
+                            ) : (
+                              index + 1
+                            )}
                           </div>
 
                           {/* Step info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-muted-foreground">{typeIcon}</span>
-                              <CardTitle className="text-sm font-medium">
+                              <CardTitle className="text-sm font-medium line-clamp-1">
                                 {step.title}
                               </CardTitle>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
                               {step.required && (
                                 <Badge variant="destructive" className="text-xs">Required</Badge>
                               )}
                               {step.roomName && (
                                 <Badge variant="secondary" className="text-xs">
-                                  <Home className="h-3 w-3 mr-1" />
                                   {step.roomName}
                                 </Badge>
                               )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
                                 {step.estimatedMinutes} min
                               </span>
-                              {step.assets && step.assets.length > 0 && (
-                                <span className="flex items-center gap-1">
-                                  <Camera className="h-3 w-3" />
-                                  {step.assets.length} asset{step.assets.length !== 1 ? 's' : ''}
-                                </span>
-                              )}
                             </div>
                           </div>
 
                           {/* Expand indicator */}
-                          <div className="text-muted-foreground">
+                          <div className="text-muted-foreground flex-shrink-0">
                             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           </div>
                         </div>
                       </CardHeader>
 
                       {isExpanded && (
-                        <CardContent className="pt-0 pb-3">
+                        <CardContent className="pt-0 pb-4 border-t">
                           {/* Instructions */}
                           {step.instructions && (
-                            <div className="mb-3 text-sm text-muted-foreground">
-                              {step.instructions}
+                            <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+                              <p className="text-sm text-muted-foreground">{step.instructions}</p>
                             </div>
                           )}
 
                           {/* Required assets */}
                           {step.assets && step.assets.length > 0 && (
-                            <div className="mb-3">
-                              <h5 className="text-xs font-medium mb-1">Required Assets:</h5>
-                              <div className="flex flex-wrap gap-1">
+                            <div className="mb-4">
+                              <h5 className="text-xs font-medium mb-2 text-muted-foreground uppercase tracking-wide">
+                                Evidence Required
+                              </h5>
+                              <div className="flex flex-wrap gap-2">
                                 {step.assets.map((asset, i) => (
                                   <Badge
                                     key={i}
@@ -576,32 +816,42 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                             </div>
                           )}
 
-                          {/* Status actions */}
+                          {/* Notes if completed */}
+                          {step.notes && step.status === 'completed' && (
+                            <div className="mb-4 p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+                              <h5 className="text-xs font-medium mb-1 text-green-700 dark:text-green-400">
+                                Findings
+                              </h5>
+                              <p className="text-sm text-green-800 dark:text-green-300">{step.notes}</p>
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
                           <div className="flex flex-wrap gap-2">
-                            {step.status !== 'completed' && (
-                              <Button
-                                size="sm"
-                                variant="default"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStepStatusChange(step, 'completed');
-                                }}
-                              >
-                                <CheckCircle2 className="h-4 w-4 mr-1" />
-                                Complete
-                              </Button>
-                            )}
                             {step.status === 'pending' && (
                               <Button
                                 size="sm"
-                                variant="outline"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleStepStatusChange(step, 'in_progress');
+                                  startStep(step);
                                 }}
+                                className="flex-1 sm:flex-none"
                               >
                                 <PlayCircle className="h-4 w-4 mr-1" />
-                                Start
+                                Start & Complete
+                              </Button>
+                            )}
+                            {step.status === 'in_progress' && (
+                              <Button
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startStep(step);
+                                }}
+                                className="flex-1 sm:flex-none"
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1" />
+                                Complete Step
                               </Button>
                             )}
                             {step.status !== 'skipped' && step.status !== 'completed' && !step.required && (
@@ -610,7 +860,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                                 variant="ghost"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleStepStatusChange(step, 'skipped');
+                                  handleQuickStatusChange(step, 'skipped');
                                 }}
                               >
                                 <SkipForward className="h-4 w-4 mr-1" />
@@ -623,20 +873,13 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                                 variant="ghost"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleStepStatusChange(step, 'pending');
+                                  handleQuickStatusChange(step, 'pending');
                                 }}
                               >
                                 Undo
                               </Button>
                             )}
                           </div>
-
-                          {/* Notes */}
-                          {step.notes && (
-                            <div className="mt-3 p-2 bg-muted rounded text-sm">
-                              <strong>Notes:</strong> {step.notes}
-                            </div>
-                          )}
                         </CardContent>
                       )}
                     </Card>
@@ -656,7 +899,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           {workflow.workflow.workflowJson.tools_and_equipment?.length > 0 && (
             <Collapsible>
               <CollapsibleTrigger asChild>
-                <Card className="cursor-pointer hover:bg-muted/50">
+                <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
                   <CardHeader className="py-3">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
                       <Package className="h-4 w-4" />
@@ -677,9 +920,9 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                             {category.items.map((item, j) => (
                               <li key={j} className="text-sm flex items-center gap-2">
                                 {item.required ? (
-                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                  <CheckCircle2 className="h-3 w-3 text-green-600 flex-shrink-0" />
                                 ) : (
-                                  <Circle className="h-3 w-3 text-muted-foreground" />
+                                  <Circle className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                                 )}
                                 <span>{item.name}</span>
                                 {item.purpose && (
@@ -699,11 +942,11 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
           {/* Open Questions */}
           {workflow.workflow.workflowJson.open_questions && workflow.workflow.workflowJson.open_questions.length > 0 && (
-            <Card className="border-amber-200 bg-amber-50">
+            <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
               <CardHeader className="py-3">
-                <CardTitle className="text-sm font-medium flex items-center gap-2 text-amber-700">
+                <CardTitle className="text-sm font-medium flex items-center gap-2 text-amber-700 dark:text-amber-300">
                   <HelpCircle className="h-4 w-4" />
-                  Open Questions
+                  Questions to Address
                   <Badge variant="secondary">{workflow.workflow.workflowJson.open_questions.length}</Badge>
                 </CardTitle>
               </CardHeader>
@@ -713,7 +956,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                     <li key={i} className="text-sm flex items-start gap-2">
                       <Badge
                         variant={q.priority === 'high' ? 'destructive' : q.priority === 'medium' ? 'secondary' : 'outline'}
-                        className="text-xs mt-0.5"
+                        className="text-xs mt-0.5 flex-shrink-0"
                       >
                         {q.priority}
                       </Badge>
@@ -731,6 +974,16 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           )}
         </>
       )}
+
+      {/* Step Completion Dialog */}
+      <StepCompletionDialog
+        step={completingStep}
+        open={!!completingStep}
+        onOpenChange={(open) => !open && setCompletingStep(null)}
+        onComplete={handleStepComplete}
+        onSkip={handleStepSkip}
+        isSubmitting={isSubmittingStep}
+      />
 
       {/* Add Room Dialog */}
       <Dialog open={showAddRoomDialog} onOpenChange={setShowAddRoomDialog}>
