@@ -1276,41 +1276,41 @@ export default function ClaimDetail() {
                               });
 
                               return (
-                                <div key={endorsement.id} className="bg-muted/50 rounded-lg p-4 border border-muted">
+                                <div key={endorsement.id} className="bg-muted/50 rounded-lg p-4 border border-muted" data-testid={`endorsement-card-${endorsement.id}`}>
                                   <div className="flex items-start gap-3">
                                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                                       <FileText className="w-4 h-4 text-primary" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 flex-wrap">
-                                        <p className="font-mono font-semibold text-sm">{endorsement.form_code}</p>
+                                        <p className="font-mono font-semibold text-sm" data-testid={`endorsement-form-code-${endorsement.id}`}>{endorsement.form_code}</p>
                                         {endorsement.jurisdiction && (
-                                          <Badge variant="outline" className="text-xs">
+                                          <Badge variant="outline" className="text-xs" data-testid={`endorsement-jurisdiction-${endorsement.id}`}>
                                             {endorsement.jurisdiction}
                                           </Badge>
                                         )}
                                         {endorsement.edition_date && (
-                                          <Badge variant="secondary" className="text-xs">
+                                          <Badge variant="secondary" className="text-xs" data-testid={`endorsement-edition-${endorsement.id}`}>
                                             {endorsement.edition_date}
                                           </Badge>
                                         )}
                                       </div>
-                                      <p className="text-sm text-muted-foreground">
+                                      <p className="text-sm text-muted-foreground" data-testid={`endorsement-title-${endorsement.id}`}>
                                         {endorsement.title || 'No title'}
                                       </p>
 
                                       {/* Modifications Section */}
                                       {hasModifications && (
-                                        <div className="mt-3 space-y-2">
+                                        <div className="mt-3 space-y-2" data-testid={`endorsement-modifications-${endorsement.id}`}>
                                           <p className="text-xs font-medium text-muted-foreground uppercase">Policy Modifications</p>
                                           
                                           {/* Definitions */}
                                           {mods.definitions?.added && mods.definitions.added.length > 0 && (
-                                            <div className="bg-green-50 rounded-md p-2 border border-green-200">
+                                            <div className="bg-green-50 rounded-md p-2 border border-green-200" data-testid={`endorsement-definitions-added-${endorsement.id}`}>
                                               <p className="text-xs font-medium text-green-700">Added Definitions</p>
                                               {mods.definitions.added.map((def, idx) => (
                                                 <p key={idx} className="text-xs text-green-600 mt-1">
-                                                  <span className="font-medium">{def.term}:</span> {def.definition.substring(0, 100)}...
+                                                  <span className="font-medium">{def.term}:</span> {def.definition?.substring(0, 100) || ''}...
                                                 </p>
                                               ))}
                                             </div>
@@ -1318,10 +1318,10 @@ export default function ClaimDetail() {
                                           
                                           {/* Exclusions */}
                                           {mods.exclusions?.added && mods.exclusions.added.length > 0 && (
-                                            <div className="bg-red-50 rounded-md p-2 border border-red-200">
+                                            <div className="bg-red-50 rounded-md p-2 border border-red-200" data-testid={`endorsement-exclusions-added-${endorsement.id}`}>
                                               <p className="text-xs font-medium text-red-700">Added Exclusions</p>
                                               {mods.exclusions.added.slice(0, 3).map((exc, idx) => (
-                                                <p key={idx} className="text-xs text-red-600 mt-1">• {exc.substring(0, 80)}...</p>
+                                                <p key={idx} className="text-xs text-red-600 mt-1">• {(exc as string)?.substring?.(0, 80) || String(exc).substring(0, 80)}...</p>
                                               ))}
                                               {mods.exclusions.added.length > 3 && (
                                                 <p className="text-xs text-red-500 mt-1">+{mods.exclusions.added.length - 3} more</p>
@@ -1331,11 +1331,11 @@ export default function ClaimDetail() {
                                           
                                           {/* Coverages */}
                                           {mods.coverages?.modified && mods.coverages.modified.length > 0 && (
-                                            <div className="bg-amber-50 rounded-md p-2 border border-amber-200">
+                                            <div className="bg-amber-50 rounded-md p-2 border border-amber-200" data-testid={`endorsement-coverages-modified-${endorsement.id}`}>
                                               <p className="text-xs font-medium text-amber-700">Coverage Modifications</p>
                                               {mods.coverages.modified.slice(0, 3).map((cov, idx) => (
                                                 <p key={idx} className="text-xs text-amber-600 mt-1">
-                                                  <span className="font-medium">{cov.coverage}:</span> {cov.details.substring(0, 60)}...
+                                                  <span className="font-medium">{cov.coverage}:</span> {cov.details?.substring?.(0, 60) || ''}...
                                                 </p>
                                               ))}
                                             </div>
@@ -1343,11 +1343,11 @@ export default function ClaimDetail() {
                                           
                                           {/* Loss Settlement */}
                                           {mods.lossSettlement?.replacedSections && mods.lossSettlement.replacedSections.length > 0 && (
-                                            <div className="bg-blue-50 rounded-md p-2 border border-blue-200">
+                                            <div className="bg-blue-50 rounded-md p-2 border border-blue-200" data-testid={`endorsement-loss-settlement-${endorsement.id}`}>
                                               <p className="text-xs font-medium text-blue-700">Loss Settlement Changes</p>
                                               {mods.lossSettlement.replacedSections.map((sec, idx) => (
                                                 <p key={idx} className="text-xs text-blue-600 mt-1">
-                                                  <span className="font-medium">{sec.policySection}:</span> {sec.newRule.substring(0, 80)}...
+                                                  <span className="font-medium">{sec.policySection}:</span> {sec.newRule?.substring?.(0, 80) || ''}...
                                                 </p>
                                               ))}
                                             </div>
