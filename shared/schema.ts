@@ -345,6 +345,170 @@ export type InsertPolicyForm = z.infer<typeof insertPolicyFormSchema>;
 export type PolicyForm = typeof policyForms.$inferSelect;
 
 // ============================================
+// POLICY FORM EXTRACTIONS TABLE (Comprehensive)
+// ============================================
+
+/**
+ * Comprehensive policy extraction with full lossless content
+ * Stores complete policy structure including sections, definitions, coverages
+ */
+export const policyFormExtractions = pgTable("policy_form_extractions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id"),
+  documentId: uuid("document_id"), // Link to source document
+
+  // Document metadata
+  documentType: varchar("document_type", { length: 100 }),
+  policyFormCode: varchar("policy_form_code", { length: 100 }),
+  policyFormName: varchar("policy_form_name", { length: 255 }),
+  editionDate: varchar("edition_date", { length: 50 }),
+  pageCount: integer("page_count"),
+
+  // Policy structure {tableOfContents: [], policyStatement: "", agreement: ""}
+  policyStructure: jsonb("policy_structure").default(sql`'{}'::jsonb`),
+
+  // Definitions [{term, definition, subClauses: [], exceptions: []}]
+  definitions: jsonb("definitions").default(sql`'[]'::jsonb`),
+
+  // Section I - Property Coverage
+  // {propertyCoverage, perils, exclusions, additionalCoverages, conditions, lossSettlement}
+  sectionI: jsonb("section_i").default(sql`'{}'::jsonb`),
+
+  // Section II - Liability Coverage
+  // {liabilityCoverages, exclusions, additionalCoverages, conditions}
+  sectionII: jsonb("section_ii").default(sql`'{}'::jsonb`),
+
+  // General conditions array
+  generalConditions: jsonb("general_conditions").default(sql`'[]'::jsonb`),
+
+  // Raw page text (full verbatim)
+  rawPageText: text("raw_page_text"),
+
+  // Processing metadata
+  extractionModel: varchar("extraction_model", { length: 100 }),
+  extractionVersion: varchar("extraction_version", { length: 20 }),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  totalTokens: integer("total_tokens"),
+
+  // Status
+  status: varchar("status", { length: 30 }).default("completed"),
+  errorMessage: text("error_message"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("pfe_org_idx").on(table.organizationId),
+  claimIdx: index("pfe_claim_idx").on(table.claimId),
+  documentIdx: index("pfe_document_idx").on(table.documentId),
+  formCodeIdx: index("pfe_form_code_idx").on(table.policyFormCode),
+}));
+
+export const insertPolicyFormExtractionSchema = createInsertSchema(policyFormExtractions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPolicyFormExtraction = z.infer<typeof insertPolicyFormExtractionSchema>;
+export type PolicyFormExtraction = typeof policyFormExtractions.$inferSelect;
+
+// TypeScript interfaces for the JSONB structure
+export interface PolicyDefinition {
+  term: string;
+  definition: string;
+  subClauses?: string[];
+  exceptions?: string[];
+}
+
+export interface PolicyCoverage {
+  name: string;
+  covers?: string[];
+  excludes?: string[];
+  specialConditions?: string[];
+  scope?: string;
+  specialLimits?: {
+    propertyType: string;
+    limit: string;
+    conditions?: string;
+  }[];
+  notCovered?: string[];
+  subCoverages?: string[];
+  timeLimits?: string;
+}
+
+export interface PolicySectionI {
+  propertyCoverage?: {
+    coverageA?: PolicyCoverage;
+    coverageB?: PolicyCoverage;
+    coverageC?: PolicyCoverage;
+    coverageD?: PolicyCoverage;
+  };
+  perils?: {
+    coverageA_B?: string;
+    coverageC?: string[];
+  };
+  exclusions?: {
+    global?: string[];
+    coverageA_B_specific?: string[];
+  };
+  additionalCoverages?: {
+    name: string;
+    description?: string;
+    limit?: string;
+    conditions?: string;
+  }[];
+  conditions?: string[];
+  lossSettlement?: {
+    dwellingAndStructures?: {
+      basis?: string;
+      repairRequirements?: string;
+      timeLimit?: string;
+      matchingRules?: string;
+    };
+    roofingSystem?: {
+      definition?: string;
+      hailSettlement?: string;
+      metalRestrictions?: string;
+    };
+    personalProperty?: {
+      settlementBasis?: string[];
+      specialHandling?: string;
+    };
+  };
+}
+
+export interface PolicySectionII {
+  liabilityCoverages?: {
+    coverageE?: {
+      name: string;
+      insuringAgreement?: string;
+      dutyToDefend?: boolean;
+    };
+    coverageF?: {
+      name: string;
+      insuringAgreement?: string;
+      timeLimit?: string;
+    };
+  };
+  exclusions?: string[];
+  additionalCoverages?: {
+    name: string;
+    description?: string;
+    limit?: string;
+  }[];
+  conditions?: string[];
+}
+
+export interface PolicyStructure {
+  tableOfContents?: string[];
+  policyStatement?: string;
+  agreement?: string;
+}
+
+// ============================================
 // ENDORSEMENTS TABLE
 // ============================================
 
