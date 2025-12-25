@@ -9,6 +9,7 @@ import { Peril, PromptKey } from '../../shared/schema';
 import { getSupabaseAdmin } from '../lib/supabase';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getPromptWithFallback, substituteVariables } from './promptService';
+import { recomputeEffectivePolicyIfNeeded } from './effectivePolicyService';
 
 const execAsync = promisify(exec);
 
@@ -1076,6 +1077,17 @@ export async function processDocument(
               });
           }
         }
+
+        // Trigger effective policy recomputation when policy forms change
+        if (doc.claim_id && organizationId) {
+          try {
+            await recomputeEffectivePolicyIfNeeded(doc.claim_id, organizationId);
+            console.log(`[EffectivePolicy] Triggered recomputation for claim ${doc.claim_id} after policy form extraction`);
+          } catch (recomputeError) {
+            console.error('[EffectivePolicy] Error triggering recomputation:', recomputeError);
+            // Don't fail document processing if policy recomputation fails
+          }
+        }
       }
 
       return extractedData;
@@ -1759,6 +1771,18 @@ export async function createClaimFromDocuments(
       }
 
       console.log(`[EndorsementExtraction] Saved comprehensive extraction for ${formCode}`);
+    }
+
+    // Trigger effective policy recomputation when endorsements change
+    // This ensures the effective policy reflects all endorsement modifications
+    if (claimId && organizationId) {
+      try {
+        await recomputeEffectivePolicyIfNeeded(claimId, organizationId);
+        console.log(`[EffectivePolicy] Triggered recomputation for claim ${claimId} after endorsement extraction`);
+      } catch (recomputeError) {
+        console.error('[EffectivePolicy] Error triggering recomputation:', recomputeError);
+        // Don't fail document processing if policy recomputation fails
+      }
     }
   }
 

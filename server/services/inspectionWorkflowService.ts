@@ -45,6 +45,11 @@ import {
 import { getPromptWithFallback, substituteVariables } from './promptService';
 import { getClaimBriefing } from './claimBriefingService';
 import { getCarrierOverlays } from './carrierOverlayService';
+import {
+  getEffectivePolicyForClaim,
+  getEffectivePolicyFlags,
+} from './effectivePolicyService';
+import { EffectivePolicy } from '../../shared/schema';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -352,6 +357,183 @@ async function formatCarrierRequirements(organizationId: string): Promise<string
   }
 }
 
+// ============================================
+// EFFECTIVE POLICY INSPECTION REQUIREMENTS
+// ============================================
+
+/**
+ * Policy-based inspection step to inject
+ */
+interface PolicyInspectionStep {
+  phase: string;
+  step_type: string;
+  title: string;
+  instructions: string;
+  required: boolean;
+  tags: string[];
+  estimated_minutes: number;
+  peril_specific?: string;
+  policySource: string;  // Endorsement form code or "base_policy"
+}
+
+/**
+ * Generate deterministic inspection requirements based on effective policy
+ *
+ * This function injects policy-driven inspection steps that are NOT based on
+ * AI inference. Requirements are derived programmatically from the resolved
+ * effective policy.
+ *
+ * IMPORTANT: AI may phrase steps, but requirements MUST be injected programmatically.
+ */
+function generatePolicyBasedInspectionSteps(
+  effectivePolicy: EffectivePolicy
+): PolicyInspectionStep[] {
+  const steps: PolicyInspectionStep[] = [];
+  const roofingSystem = effectivePolicy.lossSettlement?.roofingSystem;
+
+  // Rule: If roofing is on scheduled basis, require specific documentation
+  // Precedence: This is deterministic from endorsement, not AI-inferred
+  if (roofingSystem?.applies && roofingSystem.basis === 'SCHEDULED') {
+    // Require roof material confirmation
+    steps.push({
+      phase: 'exterior',
+      step_type: 'observation',
+      title: 'Confirm Roof Material Type',
+      instructions: `POLICY REQUIREMENT: This claim has a roofing schedule endorsement (${roofingSystem.sourceEndorsement || 'see policy'}). Document the exact roof material type as it affects settlement percentage. Common materials: asphalt shingle, wood shake, metal, tile, slate.`,
+      required: true,
+      tags: ['policy_requirement', 'roof_schedule', 'material_confirmation'],
+      estimated_minutes: 5,
+      policySource: roofingSystem.sourceEndorsement || 'roofing_schedule',
+    });
+
+    // Require roof age indicators
+    steps.push({
+      phase: 'exterior',
+      step_type: 'documentation',
+      title: 'Document Roof Age Indicators',
+      instructions: `POLICY REQUIREMENT: Roofing schedule requires age verification. Document: 1) Any visible installation date markers, 2) Condition indicators suggesting age, 3) Roof vents and flashing age, 4) Photos of granule loss or wear patterns. Check declarations page for Year Roof Install if available.`,
+      required: true,
+      tags: ['policy_requirement', 'roof_schedule', 'age_verification'],
+      estimated_minutes: 10,
+      policySource: roofingSystem.sourceEndorsement || 'roofing_schedule',
+    });
+
+    // Require roof plane segmentation
+    steps.push({
+      phase: 'exterior',
+      step_type: 'photo',
+      title: 'Photograph All Roof Planes',
+      instructions: `POLICY REQUIREMENT: For scheduled roofing settlement, document each roof plane separately. Capture: 1) Front slope, 2) Back slope, 3) All side slopes, 4) Any dormers or additional planes. This enables accurate square footage calculation for schedule application.`,
+      required: true,
+      tags: ['policy_requirement', 'roof_schedule', 'plane_segmentation'],
+      estimated_minutes: 15,
+      policySource: roofingSystem.sourceEndorsement || 'roofing_schedule',
+    });
+
+    // Require roof and metal component photos
+    steps.push({
+      phase: 'exterior',
+      step_type: 'photo',
+      title: 'Document Metal Components Separately',
+      instructions: `POLICY REQUIREMENT: Metal components may have different settlement rules under the roofing schedule. Photograph separately: 1) Gutters, 2) Downspouts, 3) Metal flashing, 4) Metal vents, 5) Any other metal roof components. Note any damage to each.`,
+      required: true,
+      tags: ['policy_requirement', 'roof_schedule', 'metal_components'],
+      estimated_minutes: 10,
+      policySource: roofingSystem.sourceEndorsement || 'roofing_schedule',
+    });
+  }
+
+  // Rule: Metal components with special coverage conditions
+  if (roofingSystem?.metalComponentRule?.coveredOnlyIf) {
+    const condition = roofingSystem.metalComponentRule.coveredOnlyIf;
+
+    steps.push({
+      phase: 'exterior',
+      step_type: 'observation',
+      title: 'Verify Metal Component Coverage Condition',
+      instructions: `POLICY REQUIREMENT: Metal components (gutters, downspouts, metal trim) are only covered if: "${condition}". Document evidence of this condition: 1) Water stains inside, 2) Water entry points, 3) Interior damage related to metal component failure. Photos required.`,
+      required: true,
+      tags: ['policy_requirement', 'metal_exclusion', 'water_intrusion'],
+      estimated_minutes: 10,
+      policySource: roofingSystem.sourceEndorsement || 'metal_component_rule',
+    });
+
+    steps.push({
+      phase: 'interior',
+      step_type: 'photo',
+      title: 'Document Interior Water Intrusion Evidence',
+      instructions: `POLICY REQUIREMENT: If claiming metal component damage, document interior water intrusion evidence: 1) Water stains on walls/ceilings near roof edge, 2) Moisture meter readings if available, 3) Any mold or mildew growth, 4) Damaged contents from water entry.`,
+      required: true,
+      tags: ['policy_requirement', 'metal_exclusion', 'interior_evidence'],
+      estimated_minutes: 10,
+      policySource: roofingSystem.sourceEndorsement || 'metal_component_rule',
+    });
+  }
+
+  // Rule: ACV roofing requires depreciation documentation
+  if (roofingSystem?.applies && roofingSystem.basis === 'ACV') {
+    steps.push({
+      phase: 'exterior',
+      step_type: 'observation',
+      title: 'Document Roof Condition for Depreciation',
+      instructions: `POLICY REQUIREMENT: Roof is settled on Actual Cash Value (ACV) basis. Document condition factors affecting depreciation: 1) Overall wear and condition, 2) Missing or damaged shingles (pre-existing vs. new), 3) Moss, algae, or debris accumulation, 4) Flashing condition, 5) Estimated remaining useful life.`,
+      required: true,
+      tags: ['policy_requirement', 'acv_settlement', 'depreciation'],
+      estimated_minutes: 10,
+      policySource: roofingSystem.sourceEndorsement || 'acv_roofing',
+    });
+  }
+
+  return steps;
+}
+
+/**
+ * Format effective policy context for the AI prompt
+ * Provides policy information to AI without duplicating deterministic requirements
+ */
+function formatEffectivePolicyContext(effectivePolicy: EffectivePolicy | null): string {
+  if (!effectivePolicy) {
+    return 'No effective policy resolved - standard inspection procedures apply.';
+  }
+
+  const sections: string[] = ['### EFFECTIVE POLICY CONTEXT'];
+
+  // Jurisdiction
+  if (effectivePolicy.jurisdiction) {
+    sections.push(`Jurisdiction: ${effectivePolicy.jurisdiction}`);
+  }
+
+  // Loss settlement info
+  const ls = effectivePolicy.lossSettlement;
+  if (ls.roofingSystem?.applies) {
+    sections.push(`\nRoofing Settlement: ${ls.roofingSystem.basis}`);
+    if (ls.roofingSystem.sourceEndorsement) {
+      sections.push(`  Source: ${ls.roofingSystem.sourceEndorsement}`);
+    }
+    if (ls.roofingSystem.ageBasedSchedule && ls.roofingSystem.ageBasedSchedule.length > 0) {
+      sections.push(`  Schedule: Age-based depreciation applies`);
+    }
+    if (ls.roofingSystem.metalComponentRule) {
+      sections.push(`  Metal Components: Special conditions apply`);
+    }
+  }
+
+  // Key exclusions
+  if (effectivePolicy.exclusions.length > 0) {
+    sections.push(`\nKey Exclusions (${effectivePolicy.exclusions.length} total):`);
+    sections.push(effectivePolicy.exclusions.slice(0, 5).map(e => `  - ${e.substring(0, 80)}...`).join('\n'));
+  }
+
+  // Deductibles
+  if (effectivePolicy.deductibles.windHail) {
+    sections.push(`\nWind/Hail Deductible: ${effectivePolicy.deductibles.windHail}`);
+  }
+
+  sections.push('\nNOTE: Deterministic policy requirements are injected automatically. Focus on peril-specific and property-specific inspection steps.');
+
+  return sections.join('\n');
+}
+
 /**
  * Validate the AI response matches the expected schema
  */
@@ -583,6 +765,27 @@ Overview: ${briefing.briefingJson?.claim_summary?.overview?.join('; ') || 'No ov
 Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.join('; ') || 'No priorities'}`
       : 'No briefing available - generate a comprehensive workflow based on FNOL and peril rules';
 
+    // Step 2.5: Load effective policy if feature is enabled
+    // The effective policy provides deterministic inspection requirements based on endorsements
+    const policyFlags = await getEffectivePolicyFlags(organizationId);
+    let effectivePolicy: EffectivePolicy | null = null;
+    let policyBasedSteps: PolicyInspectionStep[] = [];
+
+    if (policyFlags.enabled && policyFlags.enableInspectionIntegration) {
+      try {
+        effectivePolicy = await getEffectivePolicyForClaim(claimId, organizationId);
+        if (effectivePolicy) {
+          // Generate deterministic policy-based inspection steps
+          // These are injected PROGRAMMATICALLY, not AI-inferred
+          policyBasedSteps = generatePolicyBasedInspectionSteps(effectivePolicy);
+          console.log(`[InspectionWorkflow] Generated ${policyBasedSteps.length} policy-based inspection steps for claim ${claimId}`);
+        }
+      } catch (err) {
+        console.error('[InspectionWorkflow] Error loading effective policy:', err);
+        // Continue without effective policy - not a fatal error
+      }
+    }
+
     // Step 3: Check for existing active workflow (unless force regenerate)
     if (!forceRegenerate) {
       try {
@@ -666,6 +869,9 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     // Build wizard context section if available
     const wizardContextText = wizardContext ? formatWizardContext(wizardContext) : '';
 
+    // Build effective policy context for AI prompt
+    const effectivePolicyContext = formatEffectivePolicyContext(effectivePolicy);
+
     const variables = {
       claim_number: context.claimNumber,
       primary_peril: context.primaryPeril,
@@ -684,6 +890,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       peril_inspection_rules: formatPerilRules(context.primaryPeril, context.secondaryPerils),
       carrier_requirements: carrierRequirements,
       wizard_context: wizardContextText,
+      effective_policy_context: effectivePolicyContext,
     };
 
     // Substitute variables in the prompt template
@@ -694,6 +901,11 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     // Append wizard context if available (for more specific workflow generation)
     if (wizardContextText) {
       userPrompt += `\n\n## FIELD ADJUSTER INPUT (HIGH PRIORITY)\nThe following information was gathered by the field adjuster during their initial assessment. Use this to create a more targeted workflow:\n\n${wizardContextText}`;
+    }
+
+    // Append effective policy context if available
+    if (effectivePolicy) {
+      userPrompt += `\n\n## EFFECTIVE POLICY (RESOLVED)\n${effectivePolicyContext}`;
     }
 
     // Call OpenAI
@@ -870,6 +1082,39 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       } catch (stepError) {
         console.error('Error inserting step:', stepError);
         continue;
+      }
+    }
+
+    // Step 10: Inject policy-based inspection steps (DETERMINISTIC, not AI-inferred)
+    // These steps are derived programmatically from the effective policy
+    // and are added AFTER the AI-generated steps
+    if (policyBasedSteps.length > 0) {
+      console.log(`[InspectionWorkflow] Injecting ${policyBasedSteps.length} policy-based steps for claim ${claimId}`);
+
+      for (const policyStep of policyBasedSteps) {
+        try {
+          const { error: policyStepError } = await supabaseAdmin
+            .from('inspection_workflow_steps')
+            .insert({
+              workflow_id: workflow.id,
+              step_index: stepIndex++,
+              phase: policyStep.phase,
+              step_type: policyStep.step_type,
+              title: policyStep.title,
+              instructions: policyStep.instructions,
+              required: policyStep.required,
+              tags: [...policyStep.tags, 'policy_injected'],  // Mark as policy-injected
+              estimated_minutes: policyStep.estimated_minutes,
+              peril_specific: policyStep.peril_specific || null,
+              status: InspectionStepStatus.PENDING,
+            });
+
+          if (policyStepError) {
+            console.error('[InspectionWorkflow] Error inserting policy step:', policyStepError.message);
+          }
+        } catch (policyStepErr) {
+          console.error('[InspectionWorkflow] Error inserting policy step:', policyStepErr);
+        }
       }
     }
 
