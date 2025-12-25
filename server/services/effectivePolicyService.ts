@@ -1,0 +1,985 @@
+/**
+ * Effective Policy Resolution Service
+ *
+ * Resolves FNOL + Policy + Endorsements into a deterministic, claim-specific
+ * Effective Policy JSON. This service merges base policy provisions with
+ * endorsement modifications according to precedence rules.
+ *
+ * Precedence order (highest to lowest):
+ * 1. Loss settlement / schedule endorsements (priority 1-10)
+ * 2. Coverage-specific endorsements (priority 11-30)
+ * 3. State amendatory endorsements (priority 31-50)
+ * 4. Base policy form (priority 51-100)
+ *
+ * Conflicts resolved using "most specific rule wins"
+ *
+ * IMPORTANT:
+ * - This service does NOT mutate or delete existing policy/endorsement records
+ * - All changes are additive and auditable
+ * - No automated coverage approvals or denials are made
+ */
+
+import { supabaseAdmin } from '../lib/supabaseAdmin';
+import {
+  EffectivePolicy,
+  CoverageRules,
+  RoofingSystemLossSettlement,
+  LossSettlementBasis,
+  PolicySectionI,
+  EffectivePolicyFeatureFlags,
+} from '../../shared/schema';
+
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
+
+/**
+ * Endorsement extraction row from database
+ */
+interface EndorsementExtractionRow {
+  id: string;
+  claim_id: string;
+  organization_id: string;
+  document_id?: string;
+  form_code: string;
+  title?: string;
+  edition_date?: string;
+  jurisdiction?: string;
+  page_count?: number;
+  applies_to_policy_forms?: string[];
+  modifications?: EndorsementModifications;
+  tables?: EndorsementTable[];
+  raw_text?: string;
+  precedence_priority?: number;
+  endorsement_type?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Endorsement modifications structure
+ */
+interface EndorsementModifications {
+  definitions?: {
+    added?: { term: string; definition: string }[];
+    deleted?: string[];
+    replaced?: { term: string; newDefinition: string }[];
+  };
+  coverages?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: { coverage: string; changeType: string; details: string }[];
+  };
+  perils?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  exclusions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  conditions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  lossSettlement?: {
+    replacedSections?: { policySection: string; newRule: string }[];
+  };
+}
+
+/**
+ * Endorsement table structure
+ */
+interface EndorsementTable {
+  tableType: string;
+  appliesWhen?: { coverage?: string[]; peril?: string[] };
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Policy form extraction row from database
+ */
+interface PolicyFormExtractionRow {
+  id: string;
+  claim_id: string;
+  organization_id: string;
+  document_id?: string;
+  document_type?: string;
+  policy_form_code?: string;
+  policy_form_name?: string;
+  edition_date?: string;
+  page_count?: number;
+  policy_structure?: {
+    tableOfContents?: string[];
+    policyStatement?: string;
+    agreement?: string;
+  };
+  definitions?: Array<{
+    term: string;
+    definition: string;
+    subClauses?: string[];
+    exceptions?: string[];
+  }>;
+  section_i?: PolicySectionI;
+  section_ii?: Record<string, unknown>;
+  general_conditions?: string[];
+  raw_page_text?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Claim row from database
+ */
+interface ClaimRow {
+  id: string;
+  organization_id: string;
+  claim_number: string;
+  policy_number?: string;
+  property_state?: string;
+  coverage_a?: string;
+  coverage_b?: string;
+  coverage_c?: string;
+  coverage_d?: string;
+  deductible?: string;
+  wind_hail_deductible?: string;
+  dwelling_limit?: string;
+  year_roof_install?: string;
+}
+
+/**
+ * Result of policy resolution
+ */
+export interface ResolveEffectivePolicyResult {
+  success: boolean;
+  effectivePolicy?: EffectivePolicy;
+  error?: string;
+  sourceCounts?: {
+    basePolicies: number;
+    endorsements: number;
+  };
+}
+
+// ============================================
+// FEATURE FLAG HELPER
+// ============================================
+
+/**
+ * Check if effective policy resolution is enabled for an organization
+ */
+export async function isEffectivePolicyEnabled(
+  organizationId: string
+): Promise<boolean> {
+  const { data: org, error } = await supabaseAdmin
+    .from('organizations')
+    .select('settings')
+    .eq('id', organizationId)
+    .single();
+
+  if (error || !org) {
+    return false;
+  }
+
+  const settings = org.settings as Record<string, unknown> | null;
+  if (!settings) {
+    return false;
+  }
+
+  const effectivePolicySettings = settings.effectivePolicy as EffectivePolicyFeatureFlags | undefined;
+  return effectivePolicySettings?.enabled === true;
+}
+
+/**
+ * Get effective policy feature flags for an organization
+ */
+export async function getEffectivePolicyFlags(
+  organizationId: string
+): Promise<EffectivePolicyFeatureFlags> {
+  const { data: org } = await supabaseAdmin
+    .from('organizations')
+    .select('settings')
+    .eq('id', organizationId)
+    .single();
+
+  const settings = org?.settings as Record<string, unknown> | null;
+  const effectivePolicySettings = settings?.effectivePolicy as EffectivePolicyFeatureFlags | undefined;
+
+  // Default flags if not configured
+  return {
+    enabled: effectivePolicySettings?.enabled ?? false,
+    version: effectivePolicySettings?.version ?? 1,
+    enableInspectionIntegration: effectivePolicySettings?.enableInspectionIntegration ?? false,
+    enableEstimateValidation: effectivePolicySettings?.enableEstimateValidation ?? false,
+  };
+}
+
+// ============================================
+// MAIN RESOLUTION FUNCTION
+// ============================================
+
+/**
+ * Resolve the effective policy for a claim
+ *
+ * This function:
+ * 1. Loads the base policy form extraction for the claim
+ * 2. Loads ALL endorsement extractions for the claim
+ * 3. Applies rules in precedence order
+ * 4. Resolves conflicts using "most specific rule wins"
+ * 5. Returns ONE resolved policy object
+ *
+ * Does NOT mutate or delete existing records
+ */
+export async function resolveEffectivePolicyForClaim(
+  claimId: string,
+  organizationId: string
+): Promise<ResolveEffectivePolicyResult> {
+  try {
+    // Check if feature is enabled (but still allow resolution if called directly)
+    const flags = await getEffectivePolicyFlags(organizationId);
+
+    // Load claim data for coverage limits and deductibles
+    const { data: claimData, error: claimError } = await supabaseAdmin
+      .from('claims')
+      .select('*')
+      .eq('id', claimId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (claimError || !claimData) {
+      return {
+        success: false,
+        error: `Claim not found: ${claimId}`,
+      };
+    }
+
+    const claim = claimData as ClaimRow;
+
+    // Load base policy form extractions
+    const { data: policyExtractions, error: policyError } = await supabaseAdmin
+      .from('policy_form_extractions')
+      .select('*')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false });
+
+    if (policyError) {
+      console.error('[EffectivePolicy] Error loading policy extractions:', policyError);
+    }
+
+    const basePolicies = (policyExtractions || []) as PolicyFormExtractionRow[];
+
+    // Load endorsement extractions (sorted by precedence priority)
+    const { data: endorsementData, error: endorsementError } = await supabaseAdmin
+      .from('endorsement_extractions')
+      .select('*')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .eq('status', 'completed')
+      .order('precedence_priority', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (endorsementError) {
+      console.error('[EffectivePolicy] Error loading endorsement extractions:', endorsementError);
+    }
+
+    const endorsements = (endorsementData || []) as EndorsementExtractionRow[];
+
+    // Sort endorsements by precedence
+    // Priority 1-10: Loss settlement/schedule endorsements
+    // Priority 11-30: Coverage-specific endorsements
+    // Priority 31-50: State amendatory endorsements
+    // Priority 51-100: General/other endorsements
+    const sortedEndorsements = sortEndorsementsByPrecedence(endorsements);
+
+    // Build the effective policy
+    const effectivePolicy = buildEffectivePolicy(
+      claimId,
+      claim,
+      basePolicies,
+      sortedEndorsements
+    );
+
+    // Save to claims table
+    const { error: updateError } = await supabaseAdmin
+      .from('claims')
+      .update({
+        effective_policy_json: effectivePolicy,
+        effective_policy_resolved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', claimId)
+      .eq('organization_id', organizationId);
+
+    if (updateError) {
+      console.error('[EffectivePolicy] Error saving effective policy:', updateError);
+      return {
+        success: false,
+        error: `Failed to save effective policy: ${updateError.message}`,
+      };
+    }
+
+    console.log(`[EffectivePolicy] Resolved effective policy for claim ${claimId} from ${basePolicies.length} policies and ${endorsements.length} endorsements`);
+
+    return {
+      success: true,
+      effectivePolicy,
+      sourceCounts: {
+        basePolicies: basePolicies.length,
+        endorsements: endorsements.length,
+      },
+    };
+  } catch (error) {
+    console.error('[EffectivePolicy] Error resolving effective policy:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// ============================================
+// ENDORSEMENT PRECEDENCE SORTING
+// ============================================
+
+/**
+ * Determine endorsement type from form code and title
+ * Used when endorsement_type is not explicitly set
+ */
+function classifyEndorsementType(endorsement: EndorsementExtractionRow): string {
+  const formCode = (endorsement.form_code || '').toUpperCase();
+  const title = (endorsement.title || '').toUpperCase();
+
+  // Loss settlement / schedule endorsements (highest priority)
+  if (
+    title.includes('LOSS SETTLEMENT') ||
+    title.includes('SCHEDULE') ||
+    title.includes('ROOF') ||
+    title.includes('ACV') ||
+    formCode.includes('88 02') // Common roof schedule form
+  ) {
+    return 'loss_settlement';
+  }
+
+  // State amendatory endorsements
+  if (
+    title.includes('AMENDATORY') ||
+    title.includes('STATE') ||
+    endorsement.jurisdiction
+  ) {
+    return 'state_amendatory';
+  }
+
+  // Coverage-specific endorsements
+  if (
+    title.includes('COVERAGE') ||
+    title.includes('EXTENSION') ||
+    title.includes('ADDITIONAL')
+  ) {
+    return 'coverage_specific';
+  }
+
+  return 'general';
+}
+
+/**
+ * Get precedence priority for endorsement type
+ */
+function getPrecedencePriority(endorsementType: string): number {
+  // Precedence priority (lower = higher precedence)
+  // Priority 1-10: Loss settlement/schedule endorsements
+  // Priority 11-30: Coverage-specific endorsements
+  // Priority 31-50: State amendatory endorsements
+  // Priority 51-100: General/other endorsements
+  switch (endorsementType) {
+    case 'loss_settlement':
+    case 'schedule':
+      return 5;
+    case 'coverage_specific':
+      return 20;
+    case 'state_amendatory':
+      return 40;
+    default:
+      return 75;
+  }
+}
+
+/**
+ * Sort endorsements by precedence
+ * Highest precedence (lowest number) first
+ */
+function sortEndorsementsByPrecedence(
+  endorsements: EndorsementExtractionRow[]
+): EndorsementExtractionRow[] {
+  return [...endorsements].sort((a, b) => {
+    // Use explicit priority if set
+    const priorityA = a.precedence_priority ?? getPrecedencePriority(
+      a.endorsement_type || classifyEndorsementType(a)
+    );
+    const priorityB = b.precedence_priority ?? getPrecedencePriority(
+      b.endorsement_type || classifyEndorsementType(b)
+    );
+
+    // Lower priority number = higher precedence
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+
+    // If same priority, more recent endorsement takes precedence
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+}
+
+// ============================================
+// EFFECTIVE POLICY BUILDER
+// ============================================
+
+/**
+ * Build the effective policy from base policies and endorsements
+ */
+function buildEffectivePolicy(
+  claimId: string,
+  claim: ClaimRow,
+  basePolicies: PolicyFormExtractionRow[],
+  endorsements: EndorsementExtractionRow[]
+): EffectivePolicy {
+  const sourceMap: Record<string, string[]> = {};
+  const endorsementIds = endorsements.map(e => e.id);
+
+  // Initialize with base policy provisions
+  let effectivePolicy: EffectivePolicy = {
+    claimId,
+    jurisdiction: claim.property_state || undefined,
+    policyNumber: claim.policy_number || undefined,
+    effectiveDate: undefined,
+
+    coverages: {
+      coverageA: initializeCoverageFromClaim(claim, 'A'),
+      coverageB: initializeCoverageFromClaim(claim, 'B'),
+      coverageC: initializeCoverageFromClaim(claim, 'C'),
+      coverageD: initializeCoverageFromClaim(claim, 'D'),
+    },
+
+    lossSettlement: {
+      dwellingAndStructures: undefined,
+      roofingSystem: undefined,
+      personalProperty: undefined,
+    },
+
+    deductibles: {
+      standard: claim.deductible || undefined,
+      windHail: claim.wind_hail_deductible || undefined,
+      sourceEndorsements: [],
+    },
+
+    exclusions: [],
+    conditions: [],
+    sourceMap,
+
+    resolvedAt: new Date().toISOString(),
+    resolvedFromDocuments: {
+      basePolicyId: basePolicies[0]?.id,
+      endorsementIds,
+    },
+  };
+
+  // Apply base policy provisions
+  for (const policy of basePolicies) {
+    effectivePolicy = applyBasePolicyProvisions(effectivePolicy, policy, sourceMap);
+  }
+
+  // Apply endorsements in precedence order (highest precedence first)
+  // Endorsements with lower priority number override those with higher
+  for (const endorsement of endorsements) {
+    effectivePolicy = applyEndorsementModifications(effectivePolicy, endorsement, sourceMap);
+  }
+
+  return effectivePolicy;
+}
+
+/**
+ * Initialize coverage rules from claim data
+ */
+function initializeCoverageFromClaim(
+  claim: ClaimRow,
+  coverageType: 'A' | 'B' | 'C' | 'D'
+): CoverageRules | undefined {
+  const coverageMap: Record<string, string | undefined> = {
+    A: claim.coverage_a || claim.dwelling_limit,
+    B: claim.coverage_b,
+    C: claim.coverage_c,
+    D: claim.coverage_d,
+  };
+
+  const limit = coverageMap[coverageType];
+  if (!limit) {
+    return undefined;
+  }
+
+  return {
+    limit,
+    settlementBasis: 'RCV', // Default to RCV, can be overridden by endorsements
+  };
+}
+
+/**
+ * Apply provisions from a base policy form extraction
+ */
+function applyBasePolicyProvisions(
+  policy: EffectivePolicy,
+  basePolicy: PolicyFormExtractionRow,
+  sourceMap: Record<string, string[]>
+): EffectivePolicy {
+  const sectionI = basePolicy.section_i;
+  if (!sectionI) {
+    return policy;
+  }
+
+  // Track source for base policy
+  const basePolicyId = basePolicy.id;
+
+  // Apply loss settlement from base policy
+  if (sectionI.lossSettlement) {
+    const ls = sectionI.lossSettlement;
+
+    // Dwelling and structures loss settlement
+    if (ls.dwellingAndStructures && !policy.lossSettlement.dwellingAndStructures) {
+      policy.lossSettlement.dwellingAndStructures = {
+        basis: parseLossSettlementBasis(ls.dwellingAndStructures.basis) || 'RCV',
+        repairRequirements: ls.dwellingAndStructures.repairRequirements,
+        timeLimit: ls.dwellingAndStructures.timeLimit,
+        matchingRules: ls.dwellingAndStructures.matchingRules,
+      };
+      addToSourceMap(sourceMap, 'lossSettlement.dwellingAndStructures', basePolicyId);
+    }
+
+    // Roofing system rules from base policy
+    if (ls.roofingSystem && !policy.lossSettlement.roofingSystem) {
+      policy.lossSettlement.roofingSystem = {
+        applies: true,
+        basis: 'RCV', // Default, usually overridden by endorsements
+        sourceEndorsement: undefined,
+      };
+      addToSourceMap(sourceMap, 'lossSettlement.roofingSystem', basePolicyId);
+    }
+
+    // Personal property
+    if (ls.personalProperty && !policy.lossSettlement.personalProperty) {
+      const basis = ls.personalProperty.settlementBasis?.[0];
+      policy.lossSettlement.personalProperty = {
+        settlementBasis: parseLossSettlementBasis(basis) || 'ACV',
+        specialHandling: ls.personalProperty.specialHandling
+          ? [ls.personalProperty.specialHandling]
+          : undefined,
+      };
+      addToSourceMap(sourceMap, 'lossSettlement.personalProperty', basePolicyId);
+    }
+  }
+
+  // Apply exclusions from base policy
+  if (sectionI.exclusions) {
+    const globalExclusions = sectionI.exclusions.global || [];
+    const specificExclusions = sectionI.exclusions.coverageA_B_specific || [];
+    const newExclusions = [...globalExclusions, ...specificExclusions];
+
+    for (const exclusion of newExclusions) {
+      if (!policy.exclusions.includes(exclusion)) {
+        policy.exclusions.push(exclusion);
+        addToSourceMap(sourceMap, `exclusion:${exclusion.substring(0, 50)}`, basePolicyId);
+      }
+    }
+  }
+
+  // Apply conditions from base policy
+  if (sectionI.conditions) {
+    for (const condition of sectionI.conditions) {
+      if (!policy.conditions.includes(condition)) {
+        policy.conditions.push(condition);
+        addToSourceMap(sourceMap, `condition:${condition.substring(0, 50)}`, basePolicyId);
+      }
+    }
+  }
+
+  // Apply general conditions
+  const generalConditions = basePolicy.general_conditions || [];
+  for (const condition of generalConditions) {
+    if (!policy.conditions.includes(condition)) {
+      policy.conditions.push(condition);
+      addToSourceMap(sourceMap, `condition:${condition.substring(0, 50)}`, basePolicyId);
+    }
+  }
+
+  return policy;
+}
+
+/**
+ * Apply modifications from an endorsement
+ * This is the core of the "most specific rule wins" logic
+ */
+function applyEndorsementModifications(
+  policy: EffectivePolicy,
+  endorsement: EndorsementExtractionRow,
+  sourceMap: Record<string, string[]>
+): EffectivePolicy {
+  const modifications = endorsement.modifications;
+  const tables = endorsement.tables;
+  const endorsementId = endorsement.id;
+  const formCode = endorsement.form_code;
+
+  // Apply loss settlement modifications (highest precedence)
+  if (modifications?.lossSettlement?.replacedSections) {
+    for (const replaced of modifications.lossSettlement.replacedSections) {
+      const section = replaced.policySection.toLowerCase();
+      const newRule = replaced.newRule;
+
+      // Roofing system loss settlement
+      if (section.includes('roof') || section.includes('hail')) {
+        // Parse roofing schedule from the new rule text
+        const roofingRules = parseRoofingLossSettlement(newRule, formCode);
+        if (roofingRules) {
+          policy.lossSettlement.roofingSystem = {
+            ...roofingRules,
+            sourceEndorsement: formCode,
+          };
+          addToSourceMap(sourceMap, 'lossSettlement.roofingSystem', endorsementId);
+        }
+      }
+
+      // Dwelling and structures
+      if (section.includes('dwelling') || section.includes('structure')) {
+        const basis = extractSettlementBasis(newRule);
+        if (basis) {
+          policy.lossSettlement.dwellingAndStructures = {
+            ...policy.lossSettlement.dwellingAndStructures,
+            basis,
+            sourceEndorsement: formCode,
+          };
+          addToSourceMap(sourceMap, 'lossSettlement.dwellingAndStructures', endorsementId);
+        }
+      }
+    }
+  }
+
+  // Apply schedule tables (roofing schedules)
+  if (tables) {
+    for (const table of tables) {
+      if (table.tableType === 'roofSchedule' || table.tableType === 'depreciationSchedule') {
+        const ageBasedSchedule = parseAgeBasedSchedule(table.data);
+        if (ageBasedSchedule && policy.lossSettlement.roofingSystem) {
+          policy.lossSettlement.roofingSystem.ageBasedSchedule = ageBasedSchedule;
+          policy.lossSettlement.roofingSystem.basis = 'SCHEDULED';
+          addToSourceMap(sourceMap, 'lossSettlement.roofingSystem.schedule', endorsementId);
+        }
+      }
+    }
+  }
+
+  // Apply exclusion modifications
+  if (modifications?.exclusions) {
+    // Add new exclusions
+    for (const exclusion of modifications.exclusions.added || []) {
+      if (!policy.exclusions.includes(exclusion)) {
+        policy.exclusions.push(exclusion);
+        addToSourceMap(sourceMap, `exclusion:${exclusion.substring(0, 50)}`, endorsementId);
+      }
+    }
+
+    // Remove deleted exclusions (endorsement removes base policy exclusion)
+    for (const deleted of modifications.exclusions.deleted || []) {
+      const index = policy.exclusions.indexOf(deleted);
+      if (index > -1) {
+        policy.exclusions.splice(index, 1);
+        addToSourceMap(sourceMap, `exclusion.removed:${deleted.substring(0, 50)}`, endorsementId);
+      }
+    }
+  }
+
+  // Apply condition modifications
+  if (modifications?.conditions) {
+    for (const condition of modifications.conditions.added || []) {
+      if (!policy.conditions.includes(condition)) {
+        policy.conditions.push(condition);
+        addToSourceMap(sourceMap, `condition:${condition.substring(0, 50)}`, endorsementId);
+      }
+    }
+
+    for (const deleted of modifications.conditions.deleted || []) {
+      const index = policy.conditions.indexOf(deleted);
+      if (index > -1) {
+        policy.conditions.splice(index, 1);
+        addToSourceMap(sourceMap, `condition.removed:${deleted.substring(0, 50)}`, endorsementId);
+      }
+    }
+  }
+
+  // Apply coverage modifications
+  if (modifications?.coverages?.modified) {
+    for (const mod of modifications.coverages.modified) {
+      const coverage = mod.coverage.toUpperCase();
+      if (coverage.includes('A') && policy.coverages.coverageA) {
+        policy.coverages.coverageA.sourceEndorsement = formCode;
+        addToSourceMap(sourceMap, 'coverages.coverageA', endorsementId);
+      }
+      if (coverage.includes('B') && policy.coverages.coverageB) {
+        policy.coverages.coverageB.sourceEndorsement = formCode;
+        addToSourceMap(sourceMap, 'coverages.coverageB', endorsementId);
+      }
+      if (coverage.includes('C') && policy.coverages.coverageC) {
+        policy.coverages.coverageC.sourceEndorsement = formCode;
+        addToSourceMap(sourceMap, 'coverages.coverageC', endorsementId);
+      }
+      if (coverage.includes('D') && policy.coverages.coverageD) {
+        policy.coverages.coverageD.sourceEndorsement = formCode;
+        addToSourceMap(sourceMap, 'coverages.coverageD', endorsementId);
+      }
+    }
+  }
+
+  // Track jurisdiction from state amendatory endorsements
+  if (endorsement.jurisdiction && !policy.jurisdiction) {
+    policy.jurisdiction = endorsement.jurisdiction;
+    addToSourceMap(sourceMap, 'jurisdiction', endorsementId);
+  }
+
+  return policy;
+}
+
+// ============================================
+// PARSING HELPERS
+// ============================================
+
+/**
+ * Parse loss settlement basis from text
+ */
+function parseLossSettlementBasis(text?: string): LossSettlementBasis | undefined {
+  if (!text) return undefined;
+
+  const upper = text.toUpperCase();
+  if (upper.includes('ACTUAL CASH VALUE') || upper.includes('ACV')) {
+    return 'ACV';
+  }
+  if (upper.includes('REPLACEMENT COST') || upper.includes('RCV')) {
+    return 'RCV';
+  }
+  if (upper.includes('SCHEDULE')) {
+    return 'SCHEDULED';
+  }
+  return undefined;
+}
+
+/**
+ * Extract settlement basis from rule text
+ */
+function extractSettlementBasis(ruleText: string): LossSettlementBasis | undefined {
+  return parseLossSettlementBasis(ruleText);
+}
+
+/**
+ * Parse roofing loss settlement rules from endorsement text
+ */
+function parseRoofingLossSettlement(
+  ruleText: string,
+  formCode: string
+): Partial<RoofingSystemLossSettlement> | undefined {
+  const upper = ruleText.toUpperCase();
+
+  // Check for ACV roofing
+  if (upper.includes('ACTUAL CASH VALUE') || upper.includes('ACV')) {
+    const result: Partial<RoofingSystemLossSettlement> = {
+      applies: true,
+      basis: 'ACV',
+    };
+
+    // Look for metal component exclusions
+    if (upper.includes('METAL') && (upper.includes('EXCLUD') || upper.includes('NOT COVER'))) {
+      result.metalComponentRule = {
+        coveredOnlyIf: 'water intrusion occurs',
+        settlementBasis: 'ACV',
+      };
+    }
+
+    return result;
+  }
+
+  // Check for scheduled roofing
+  if (upper.includes('SCHEDULE') || upper.includes('PERCENTAGE')) {
+    return {
+      applies: true,
+      basis: 'SCHEDULED',
+    };
+  }
+
+  // Check for RCV roofing
+  if (upper.includes('REPLACEMENT COST') || upper.includes('RCV')) {
+    return {
+      applies: true,
+      basis: 'RCV',
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Parse age-based depreciation schedule from table data
+ */
+function parseAgeBasedSchedule(
+  data?: Record<string, unknown>
+): RoofingSystemLossSettlement['ageBasedSchedule'] | undefined {
+  if (!data) return undefined;
+
+  // Try to parse common schedule formats
+  const schedule: { minAge: number; maxAge: number; paymentPercentage: number }[] = [];
+
+  // Format 1: { "0-5": 100, "6-10": 80, "11-15": 60, ... }
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === 'number' && key.includes('-')) {
+      const [minStr, maxStr] = key.split('-');
+      const minAge = parseInt(minStr, 10);
+      const maxAge = parseInt(maxStr, 10);
+      if (!isNaN(minAge) && !isNaN(maxAge)) {
+        schedule.push({ minAge, maxAge, paymentPercentage: value });
+      }
+    }
+  }
+
+  // Format 2: { rows: [{ ageRange: "0-5", percentage: 100 }, ...] }
+  if (Array.isArray(data.rows)) {
+    for (const row of data.rows) {
+      if (typeof row === 'object' && row.ageRange && row.percentage) {
+        const [minStr, maxStr] = String(row.ageRange).split('-');
+        const minAge = parseInt(minStr, 10);
+        const maxAge = parseInt(maxStr, 10);
+        const percentage = typeof row.percentage === 'number'
+          ? row.percentage
+          : parseInt(String(row.percentage), 10);
+        if (!isNaN(minAge) && !isNaN(maxAge) && !isNaN(percentage)) {
+          schedule.push({ minAge, maxAge, paymentPercentage: percentage });
+        }
+      }
+    }
+  }
+
+  return schedule.length > 0 ? schedule : undefined;
+}
+
+/**
+ * Add source to source map for auditability
+ */
+function addToSourceMap(
+  sourceMap: Record<string, string[]>,
+  key: string,
+  sourceId: string
+): void {
+  if (!sourceMap[key]) {
+    sourceMap[key] = [];
+  }
+  if (!sourceMap[key].includes(sourceId)) {
+    sourceMap[key].push(sourceId);
+  }
+}
+
+// ============================================
+// RETRIEVAL FUNCTIONS
+// ============================================
+
+/**
+ * Get the effective policy for a claim (from cache or resolve)
+ */
+export async function getEffectivePolicyForClaim(
+  claimId: string,
+  organizationId: string,
+  forceResolve: boolean = false
+): Promise<EffectivePolicy | null> {
+  // Check for cached effective policy
+  if (!forceResolve) {
+    const { data: claim, error } = await supabaseAdmin
+      .from('claims')
+      .select('effective_policy_json, effective_policy_resolved_at')
+      .eq('id', claimId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (!error && claim?.effective_policy_json) {
+      return claim.effective_policy_json as EffectivePolicy;
+    }
+  }
+
+  // Resolve if not cached or force refresh
+  const result = await resolveEffectivePolicyForClaim(claimId, organizationId);
+  return result.effectivePolicy || null;
+}
+
+/**
+ * Check if effective policy needs recomputation
+ * Returns true if endorsements or policies have been updated since last resolution
+ */
+export async function shouldRecomputeEffectivePolicy(
+  claimId: string,
+  organizationId: string
+): Promise<boolean> {
+  const { data: claim, error: claimError } = await supabaseAdmin
+    .from('claims')
+    .select('effective_policy_resolved_at')
+    .eq('id', claimId)
+    .eq('organization_id', organizationId)
+    .single();
+
+  if (claimError || !claim?.effective_policy_resolved_at) {
+    return true; // No effective policy yet, needs computation
+  }
+
+  const resolvedAt = new Date(claim.effective_policy_resolved_at);
+
+  // Check for newer endorsements
+  const { data: newerEndorsements } = await supabaseAdmin
+    .from('endorsement_extractions')
+    .select('id')
+    .eq('claim_id', claimId)
+    .eq('organization_id', organizationId)
+    .gt('updated_at', resolvedAt.toISOString())
+    .limit(1);
+
+  if (newerEndorsements && newerEndorsements.length > 0) {
+    return true;
+  }
+
+  // Check for newer policy extractions
+  const { data: newerPolicies } = await supabaseAdmin
+    .from('policy_form_extractions')
+    .select('id')
+    .eq('claim_id', claimId)
+    .eq('organization_id', organizationId)
+    .gt('updated_at', resolvedAt.toISOString())
+    .limit(1);
+
+  if (newerPolicies && newerPolicies.length > 0) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Recompute effective policy if needed
+ * Called when claim, endorsements, or policies are updated
+ */
+export async function recomputeEffectivePolicyIfNeeded(
+  claimId: string,
+  organizationId: string
+): Promise<void> {
+  const flags = await getEffectivePolicyFlags(organizationId);
+  if (!flags.enabled) {
+    return; // Feature not enabled
+  }
+
+  const shouldRecompute = await shouldRecomputeEffectivePolicy(claimId, organizationId);
+  if (shouldRecompute) {
+    await resolveEffectivePolicyForClaim(claimId, organizationId);
+  }
+}

@@ -2833,3 +2833,172 @@ export interface ChecklistTemplateItem {
   priority: 1 | 2 | 3;
   sortOrder: number;
 }
+
+// ============================================
+// EFFECTIVE POLICY RESOLUTION TYPES
+// ============================================
+
+/**
+ * Loss settlement basis for coverage components
+ */
+export type LossSettlementBasis = "RCV" | "ACV" | "SCHEDULED";
+
+/**
+ * Coverage rules for a specific coverage type (A, B, C, D)
+ */
+export interface CoverageRules {
+  limit?: string;                    // Coverage limit from policy
+  deductible?: string;               // Deductible amount if specific to this coverage
+  settlementBasis?: LossSettlementBasis;  // How loss is settled
+  specialLimits?: {
+    propertyType: string;
+    limit: string;
+    conditions?: string;
+  }[];
+  exclusions?: string[];             // Items excluded from this coverage
+  conditions?: string[];             // Special conditions that apply
+  sourceEndorsement?: string;        // Endorsement that modified this coverage
+}
+
+/**
+ * Roofing system loss settlement rules
+ * Captures complex roof schedules from endorsements
+ */
+export interface RoofingSystemLossSettlement {
+  applies: boolean;                  // Whether special roofing rules apply
+  basis: LossSettlementBasis;        // RCV, ACV, or SCHEDULED
+  paymentPercentage?: number;        // Percentage of RCV paid (for schedules)
+  ageBasedSchedule?: {               // Age-based depreciation schedule
+    minAge: number;
+    maxAge: number;
+    paymentPercentage: number;
+  }[];
+  appliesTo?: string[];              // Roof materials this applies to
+  exclusions?: string[];             // Materials excluded from schedule
+  metalComponentRule?: {             // Special rule for metal components
+    coveredOnlyIf?: string;          // e.g., "water intrusion occurs"
+    settlementBasis?: LossSettlementBasis;
+  };
+  sourceEndorsement?: string;        // Endorsement that establishes these rules
+}
+
+/**
+ * The resolved effective policy for a claim
+ * Merges base policy with all applicable endorsements
+ *
+ * Precedence order (highest to lowest):
+ * 1. Loss settlement / schedule endorsements
+ * 2. Coverage-specific endorsements
+ * 3. State amendatory endorsements
+ * 4. Base policy form
+ *
+ * Conflicts resolved using "most specific rule wins"
+ */
+export interface EffectivePolicy {
+  claimId: string;
+  jurisdiction?: string;             // State or jurisdiction code
+  policyNumber?: string;             // Policy number for reference
+  effectiveDate?: string;            // Policy effective date
+
+  // Coverage limits and rules
+  coverages: {
+    coverageA?: CoverageRules;       // Dwelling
+    coverageB?: CoverageRules;       // Other Structures
+    coverageC?: CoverageRules;       // Personal Property
+    coverageD?: CoverageRules;       // Loss of Use
+  };
+
+  // Loss settlement provisions
+  lossSettlement: {
+    dwellingAndStructures?: {
+      basis: LossSettlementBasis;
+      repairRequirements?: string;
+      timeLimit?: string;
+      matchingRules?: string;
+      sourceEndorsement?: string;
+    };
+    roofingSystem?: RoofingSystemLossSettlement;
+    personalProperty?: {
+      settlementBasis: LossSettlementBasis;
+      specialHandling?: string[];
+      sourceEndorsement?: string;
+    };
+  };
+
+  // Deductibles
+  deductibles: {
+    standard?: string;
+    windHail?: string;
+    hurricane?: string;
+    namedStorm?: string;
+    sourceEndorsements?: string[];
+  };
+
+  // Global exclusions and conditions
+  exclusions: string[];              // All applicable exclusions
+  conditions: string[];              // All applicable conditions
+
+  // Source tracking for auditability
+  // Maps provision name to list of source document IDs
+  sourceMap: Record<string, string[]>;
+
+  // Resolution metadata
+  resolvedAt: string;                // ISO timestamp of resolution
+  resolvedFromDocuments: {
+    basePolicyId?: string;
+    endorsementIds: string[];
+  };
+}
+
+/**
+ * Policy validation result for estimate line items
+ * Advisory only - does not block estimates
+ */
+export type PolicyValidationSeverity = "info" | "warning";
+
+export interface PolicyValidationResult {
+  id: string;
+  severity: PolicyValidationSeverity;
+  policyRule: string;                // The rule being applied
+  ruleDescription: string;           // Human-readable description
+  sourceEndorsement?: string;        // Endorsement source if applicable
+  affectedLineItemIds: string[];     // Line items affected by this rule
+  affectedLineItemCodes?: string[];  // Xactimate codes for display
+  recommendedAction: string;         // What the adjuster should do
+
+  // Additional context for specific validations
+  context?: {
+    depreciationSchedule?: {         // For depreciation-related validations
+      roofAge?: number;
+      depreciationPercentage?: number;
+    };
+    exclusionReason?: string;        // For exclusion-related validations
+    documentationRequired?: string[]; // For documentation-related validations
+  };
+}
+
+/**
+ * Complete policy validation response
+ */
+export interface PolicyValidationResponse {
+  claimId: string;
+  effectivePolicyId?: string;
+  validatedAt: string;
+  totalLineItems: number;
+  validationResults: PolicyValidationResult[];
+  summary: {
+    infoCount: number;
+    warningCount: number;
+  };
+}
+
+/**
+ * Feature flags for effective policy resolution
+ * Stored in organization.settings JSONB
+ */
+export interface EffectivePolicyFeatureFlags {
+  enabled: boolean;
+  version: number;
+  enableInspectionIntegration: boolean;
+  enableEstimateValidation: boolean;
+}
