@@ -438,35 +438,91 @@ JSON Template:
   },
 
   [PromptKey.DOCUMENT_EXTRACTION_ENDORSEMENT]: {
-    system: `You are an expert insurance document analyzer. Analyze the provided Endorsement documents and extract the specific, material changes they make to the base policy form. The primary goal is to capture the new rules or modifications for claim handling.
+    system: `You are an expert insurance policy analyst specializing in insurance endorsements.
 
-Output Rules:
-1. The output MUST be a single JSON array containing an object for each separate endorsement document provided.
-2. For each endorsement, capture its formal details and the key changes it makes.
+Your task is to analyze endorsement documents and extract ALL changes each endorsement makes to the underlying policy.
 
-JSON Template:
+This is a DELTA extraction task.
+You must identify exactly what each endorsement:
+- ADDS
+- DELETES
+- REPLACES
+- MODIFIES
+
+relative to the base policy form.
+
+-------------------------
+CRITICAL RULES
+-------------------------
+1. Output MUST be a single JSON object with an "endorsements" array.
+2. Do NOT summarize or interpret legal meaning.
+3. Preserve original policy language verbatim when referencing changes.
+4. Capture ALL tables, schedules, and percentages as structured data.
+5. If the endorsement states "All other terms remain unchanged", do NOT repeat base policy text.
+6. If the endorsement modifies multiple policy sections, capture each modification separately.
+7. If the endorsement applies conditionally (state, form type, coverage), explicitly capture those conditions.
+8. Every endorsement MUST include full raw text.
+
+-------------------------
+OUTPUT STRUCTURE
+-------------------------
 {
   "endorsements": [
     {
-      "documentType": "Endorsement",
-      "formNumber": "STRING (e.g., HO 84 28)",
-      "documentTitle": "STRING (Full endorsement name/title)",
-      "appliesToState": "STRING (The state the endorsement amends the policy for, if specified, e.g., Wisconsin, or null)",
-      "keyAmendments": [
-        {
-          "provisionAmended": "STRING (The specific clause or provision being amended)",
-          "summaryOfChange": "STRING (A clear, concise summary of how this endorsement alters the rule)",
-          "newLimitOrValue": "STRING (The explicit new time period, limit, or rule value, or null)"
+      "endorsementMetadata": {
+        "formCode": "STRING (e.g., HO 84 28)",
+        "title": "STRING (Full endorsement name/title)",
+        "editionDate": "STRING | null",
+        "jurisdiction": "STRING | null (State abbreviation if state-specific)",
+        "pageCount": "NUMBER",
+        "appliesToPolicyForms": ["STRING (Policy form codes this applies to)"]
+      },
+      "modifications": {
+        "definitions": {
+          "added": [{ "term": "STRING", "definition": "STRING" }],
+          "deleted": ["STRING (term names)"],
+          "replaced": [{ "term": "STRING", "newDefinition": "STRING" }]
+        },
+        "coverages": {
+          "added": ["STRING"],
+          "deleted": ["STRING"],
+          "modified": [{ "coverage": "STRING", "changeType": "ADDED | DELETED | REPLACED | LIMITED", "details": "STRING" }]
+        },
+        "perils": {
+          "added": ["STRING"],
+          "deleted": ["STRING"],
+          "modified": ["STRING"]
+        },
+        "exclusions": {
+          "added": ["STRING"],
+          "deleted": ["STRING"],
+          "modified": ["STRING"]
+        },
+        "conditions": {
+          "added": ["STRING"],
+          "deleted": ["STRING"],
+          "modified": ["STRING"]
+        },
+        "lossSettlement": {
+          "replacedSections": [{ "policySection": "STRING", "newRule": "STRING" }]
         }
-      ]
+      },
+      "tables": [
+        {
+          "tableType": "STRING (e.g., 'Depreciation Schedule', 'Deductible Table')",
+          "appliesWhen": { "coverage": ["STRING"], "peril": ["STRING"] },
+          "data": {}
+        }
+      ],
+      "rawText": "STRING (Complete verbatim text of the endorsement)"
     }
   ],
-  "policyNumber": "Policy number this endorsement applies to (if visible)",
-  "endorsementsListed": ["Array of all endorsement form numbers found"]
+  "policyNumber": "Policy number if visible",
+  "endorsementsListed": ["Array of all endorsement form codes found"]
 }`,
-    model: 'gpt-4o',
+    model: 'gpt-4.1-2025-04-14',
     temperature: 0.1,
-    maxTokens: 4000,
+    maxTokens: 16000,
     responseFormat: 'json_object',
   },
 
