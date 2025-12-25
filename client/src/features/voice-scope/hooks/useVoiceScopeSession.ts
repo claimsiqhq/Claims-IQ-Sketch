@@ -97,6 +97,25 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
     try {
       setError(null);
 
+      // 0. Explicitly request microphone permission first
+      // This ensures the browser prompts for mic access before WebRTC tries to use it
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Stop the stream immediately - we just needed to trigger the permission prompt
+        stream.getTracks().forEach(track => track.stop());
+        console.log('Microphone permission granted');
+      } catch (micError) {
+        console.error('Microphone permission denied:', micError);
+        const micErrorMessage = micError instanceof Error ? micError.message : 'Unknown error';
+        if (micErrorMessage.includes('not allowed') || micErrorMessage.includes('denied') || micErrorMessage.includes('Permission denied')) {
+          throw new Error('Microphone access denied. Please allow microphone access in your browser settings and try again.');
+        } else if (micErrorMessage.includes('not found') || micErrorMessage.includes('NotFoundError')) {
+          throw new Error('No microphone found. Please connect a microphone and try again.');
+        } else {
+          throw new Error(`Microphone error: ${micErrorMessage}`);
+        }
+      }
+
       // 1. Get ephemeral key from backend
       const response = await fetch('/api/voice/session', { method: 'POST' });
       if (!response.ok) {
