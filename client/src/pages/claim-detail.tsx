@@ -78,7 +78,7 @@ import { Link, useLocation } from "wouter";
 import {
   getClaim,
   getClaimDocuments,
-  getClaimEndorsements,
+  getClaimEndorsementExtractions,
   uploadDocument,
   processDocument,
   getDocumentDownloadUrl,
@@ -93,7 +93,7 @@ import {
   deleteScopeItem as apiDeleteScopeItem,
   type Claim,
   type Document,
-  type Endorsement,
+  type EndorsementExtraction,
   type SubmissionResult,
   type ValidationIssue,
   type EstimateLockStatus,
@@ -150,7 +150,7 @@ export default function ClaimDetail() {
   // API Claim Data
   const [apiClaim, setApiClaim] = useState<Claim | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [endorsements, setEndorsements] = useState<Endorsement[]>([]);
+  const [endorsements, setEndorsements] = useState<EndorsementExtraction[]>([]);
   const [scopeItems, setScopeItems] = useState<ScopeItem[]>([]);
   const [savedRooms, setSavedRooms] = useState<ClaimRoom[]>([]);
   const [savedDamageZones, setSavedDamageZones] = useState<ClaimDamageZone[]>([]);
@@ -240,7 +240,7 @@ export default function ClaimDetail() {
       const [claimData, docsData, endorsementsData, scopeData, roomsData] = await Promise.all([
         getClaim(params.id),
         getClaimDocuments(params.id),
-        getClaimEndorsements(params.id).catch(() => []), // Don't fail if endorsements fail
+        getClaimEndorsementExtractions(params.id).catch(() => []), // Don't fail if endorsements fail
         getScopeItems(params.id).catch(() => []), // Don't fail if scope items fail
         getClaimRooms(params.id).catch(() => ({ rooms: [], damageZones: [] })) // Don't fail if rooms fail
       ]);
@@ -1262,15 +1262,18 @@ export default function ClaimDetail() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      {/* Detailed Endorsement Records (from endorsements table) */}
+                      {/* Comprehensive Endorsement Extractions */}
                       {endorsements.length > 0 ? (
                         <div className="space-y-4">
                           <h4 className="text-sm font-medium text-muted-foreground">Endorsement Documents</h4>
                           <div className="space-y-4">
                             {endorsements.map((endorsement) => {
-                              const keyChanges = endorsement.key_changes || endorsement.keyChanges;
-                              const keyAmendments = keyChanges?.keyAmendments || [];
-                              const appliesToState = endorsement.applies_to_state || endorsement.appliesToState;
+                              const mods = endorsement.modifications || {};
+                              const hasModifications = Object.keys(mods).some(k => {
+                                const val = mods[k as keyof typeof mods];
+                                if (!val) return false;
+                                return Object.values(val).some(arr => Array.isArray(arr) && arr.length > 0);
+                              });
 
                               return (
                                 <div key={endorsement.id} className="bg-muted/50 rounded-lg p-4 border border-muted">
@@ -1280,43 +1283,75 @@ export default function ClaimDetail() {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 flex-wrap">
-                                        <p className="font-mono font-semibold text-sm">{endorsement.form_number || endorsement.formNumber}</p>
-                                        {appliesToState && (
+                                        <p className="font-mono font-semibold text-sm">{endorsement.form_code}</p>
+                                        {endorsement.jurisdiction && (
                                           <Badge variant="outline" className="text-xs">
-                                            {appliesToState}
+                                            {endorsement.jurisdiction}
+                                          </Badge>
+                                        )}
+                                        {endorsement.edition_date && (
+                                          <Badge variant="secondary" className="text-xs">
+                                            {endorsement.edition_date}
                                           </Badge>
                                         )}
                                       </div>
                                       <p className="text-sm text-muted-foreground">
-                                        {endorsement.document_title || endorsement.documentTitle || 'No title'}
+                                        {endorsement.title || 'No title'}
                                       </p>
-                                      {endorsement.description && (
-                                        <p className="text-xs text-muted-foreground mt-1">{endorsement.description}</p>
-                                      )}
 
-                                      {/* Key Amendments Section */}
-                                      {keyAmendments.length > 0 && (
+                                      {/* Modifications Section */}
+                                      {hasModifications && (
                                         <div className="mt-3 space-y-2">
-                                          <p className="text-xs font-medium text-muted-foreground uppercase">Key Amendments</p>
-                                          {keyAmendments.map((amendment: { provisionAmended: string; summaryOfChange: string; newLimitOrValue: string | null }, idx: number) => (
-                                            <div key={idx} className="bg-background rounded-md p-3 border border-border text-sm">
-                                              <div className="flex items-start gap-2">
-                                                <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                                  <span className="text-amber-700 text-xs font-bold">{idx + 1}</span>
-                                                </div>
-                                                <div className="flex-1">
-                                                  <p className="font-medium text-foreground">{amendment.provisionAmended}</p>
-                                                  <p className="text-muted-foreground mt-1">{amendment.summaryOfChange}</p>
-                                                  {amendment.newLimitOrValue && amendment.newLimitOrValue !== 'null' && (
-                                                    <p className="text-xs mt-2 flex items-center gap-1.5">
-                                                      <span className="text-muted-foreground">New Value:</span>
-                                                      <span className="font-mono font-medium text-primary">{amendment.newLimitOrValue}</span>
-                                                    </p>
-                                                  )}
-                                                </div>
-                                              </div>
+                                          <p className="text-xs font-medium text-muted-foreground uppercase">Policy Modifications</p>
+                                          
+                                          {/* Definitions */}
+                                          {mods.definitions?.added && mods.definitions.added.length > 0 && (
+                                            <div className="bg-green-50 rounded-md p-2 border border-green-200">
+                                              <p className="text-xs font-medium text-green-700">Added Definitions</p>
+                                              {mods.definitions.added.map((def, idx) => (
+                                                <p key={idx} className="text-xs text-green-600 mt-1">
+                                                  <span className="font-medium">{def.term}:</span> {def.definition.substring(0, 100)}...
+                                                </p>
+                                              ))}
                                             </div>
-                                          ))}
+                                          )}
+                                          
+                                          {/* Exclusions */}
+                                          {mods.exclusions?.added && mods.exclusions.added.length > 0 && (
+                                            <div className="bg-red-50 rounded-md p-2 border border-red-200">
+                                              <p className="text-xs font-medium text-red-700">Added Exclusions</p>
+                                              {mods.exclusions.added.slice(0, 3).map((exc, idx) => (
+                                                <p key={idx} className="text-xs text-red-600 mt-1">• {exc.substring(0, 80)}...</p>
+                                              ))}
+                                              {mods.exclusions.added.length > 3 && (
+                                                <p className="text-xs text-red-500 mt-1">+{mods.exclusions.added.length - 3} more</p>
+                                              )}
+                                            </div>
+                                          )}
+                                          
+                                          {/* Coverages */}
+                                          {mods.coverages?.modified && mods.coverages.modified.length > 0 && (
+                                            <div className="bg-amber-50 rounded-md p-2 border border-amber-200">
+                                              <p className="text-xs font-medium text-amber-700">Coverage Modifications</p>
+                                              {mods.coverages.modified.slice(0, 3).map((cov, idx) => (
+                                                <p key={idx} className="text-xs text-amber-600 mt-1">
+                                                  <span className="font-medium">{cov.coverage}:</span> {cov.details.substring(0, 60)}...
+                                                </p>
+                                              ))}
+                                            </div>
+                                          )}
+                                          
+                                          {/* Loss Settlement */}
+                                          {mods.lossSettlement?.replacedSections && mods.lossSettlement.replacedSections.length > 0 && (
+                                            <div className="bg-blue-50 rounded-md p-2 border border-blue-200">
+                                              <p className="text-xs font-medium text-blue-700">Loss Settlement Changes</p>
+                                              {mods.lossSettlement.replacedSections.map((sec, idx) => (
+                                                <p key={idx} className="text-xs text-blue-600 mt-1">
+                                                  <span className="font-medium">{sec.policySection}:</span> {sec.newRule.substring(0, 80)}...
+                                                </p>
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
                                       )}
                                     </div>

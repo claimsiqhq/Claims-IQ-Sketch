@@ -3209,25 +3209,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get claim endorsements
-  app.get('/api/claims/:id/endorsements', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('endorsements')
-        .select('*')
-        .eq('claim_id', req.params.id)
-        .eq('organization_id', req.organizationId!)
-        .order('created_at');
-
-      if (error) throw error;
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
-
   // Get comprehensive endorsement extractions for a claim
   app.get('/api/claims/:id/endorsement-extractions', requireAuth, requireOrganization, async (req, res) => {
     try {

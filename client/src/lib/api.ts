@@ -1267,16 +1267,6 @@ export interface Endorsement {
   updatedAt?: string;
 }
 
-export async function getClaimEndorsements(claimId: string): Promise<Endorsement[]> {
-  const response = await fetch(`${API_BASE}/claims/${claimId}/endorsements`, {
-    credentials: 'include',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch claim endorsements');
-  }
-  return response.json();
-}
-
 export async function createEndorsement(data: {
   claimId?: string;
   formNumber: string;

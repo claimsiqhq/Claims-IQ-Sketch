@@ -1716,53 +1716,7 @@ export async function createClaimFromDocuments(
       .eq('id', docId);
   }
 
-  // Save endorsement details to endorsements table (legacy format)
-  if (claimData.endorsementDetails && claimData.endorsementDetails.length > 0) {
-    for (const endorsement of claimData.endorsementDetails) {
-      const keyChanges: Record<string, any> = {};
-      if (endorsement.keyAmendments) {
-        keyChanges.keyAmendments = endorsement.keyAmendments;
-      }
-      if (endorsement.additionalInfo) {
-        keyChanges.additionalInfo = endorsement.additionalInfo;
-      }
-
-      // Check if endorsement already exists
-      const { data: existingEndorsements } = await supabaseAdmin
-        .from('endorsements')
-        .select('id')
-        .eq('organization_id', organizationId)
-        .eq('claim_id', claimId)
-        .eq('form_number', endorsement.formNumber);
-
-      if (existingEndorsements && existingEndorsements.length > 0) {
-        await supabaseAdmin
-          .from('endorsements')
-          .update({
-            document_title: endorsement.documentTitle || endorsement.name || null,
-            description: endorsement.description || null,
-            applies_to_state: endorsement.appliesToState || null,
-            key_changes: keyChanges,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingEndorsements[0].id);
-      } else {
-        await supabaseAdmin
-          .from('endorsements')
-          .insert({
-            organization_id: organizationId,
-            claim_id: claimId,
-            form_number: endorsement.formNumber,
-            document_title: endorsement.documentTitle || endorsement.name || null,
-            description: endorsement.description || null,
-            applies_to_state: endorsement.appliesToState || null,
-            key_changes: keyChanges
-          });
-      }
-    }
-  }
-
-  // Save comprehensive endorsement extractions to endorsement_extractions table (new format)
+  // Save comprehensive endorsement extractions to endorsement_extractions table
   if (claimData.comprehensiveEndorsements && claimData.comprehensiveEndorsements.length > 0) {
     for (const endorsement of claimData.comprehensiveEndorsements) {
       const formCode = endorsement.endorsementMetadata?.formCode || '';

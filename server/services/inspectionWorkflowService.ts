@@ -1454,7 +1454,7 @@ export async function shouldRegenerateWorkflow(
     // Check if endorsements have changed since workflow was generated
     if (workflow.createdAt) {
       const { data: newEndorsements, error: endorsementsError } = await supabaseAdmin
-        .from('endorsements')
+        .from('endorsement_extractions')
         .select('id')
         .eq('claim_id', claimId)
         .gt('created_at', workflow.createdAt)
@@ -1469,7 +1469,7 @@ export async function shouldRegenerateWorkflow(
 
       // Check if policy forms have changed
       const { data: newPolicyForms, error: policyFormsError } = await supabaseAdmin
-        .from('policy_forms')
+        .from('policy_form_extractions')
         .select('id')
         .eq('claim_id', claimId)
         .gt('created_at', workflow.createdAt)
