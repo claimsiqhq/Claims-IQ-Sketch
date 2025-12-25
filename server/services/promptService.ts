@@ -170,7 +170,7 @@ export async function getPromptConfig(key: PromptKey | string): Promise<{
     temperature: parseFloat(prompt.temperature || '0.3'),
     maxTokens: prompt.maxTokens ?? null,
     responseFormat: prompt.responseFormat || 'text',
-    version: prompt.version,
+    version: prompt.version ?? undefined,
   };
 }
 
