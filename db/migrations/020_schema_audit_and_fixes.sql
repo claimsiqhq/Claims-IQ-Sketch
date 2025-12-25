@@ -189,6 +189,195 @@ CREATE TABLE IF NOT EXISTS estimates (
   submitted_at TIMESTAMP
 );
 
+-- Add missing columns to estimates table if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'estimates') THEN
+    -- List of columns that might be missing (add them if they don't exist)
+    -- Note: This is a comprehensive list - only missing ones will be added
+    
+    -- Core workflow columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'workflow_status') THEN
+      ALTER TABLE estimates ADD COLUMN workflow_status VARCHAR(20) DEFAULT 'draft';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'policy_number') THEN
+      ALTER TABLE estimates ADD COLUMN policy_number VARCHAR(50);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'policy_type') THEN
+      ALTER TABLE estimates ADD COLUMN policy_type VARCHAR(50);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'xact_settings') THEN
+      ALTER TABLE estimates ADD COLUMN xact_settings JSONB DEFAULT '{}'::jsonb;
+    END IF;
+    
+    -- O&P columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'op_threshold') THEN
+      ALTER TABLE estimates ADD COLUMN op_threshold DECIMAL(10,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'op_trade_minimum') THEN
+      ALTER TABLE estimates ADD COLUMN op_trade_minimum INTEGER DEFAULT 3;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'qualifies_for_op') THEN
+      ALTER TABLE estimates ADD COLUMN qualifies_for_op BOOLEAN DEFAULT false;
+    END IF;
+    
+    -- Date and property columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'date_of_loss') THEN
+      ALTER TABLE estimates ADD COLUMN date_of_loss DATE;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'date_inspected') THEN
+      ALTER TABLE estimates ADD COLUMN date_inspected DATE;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'year_built') THEN
+      ALTER TABLE estimates ADD COLUMN year_built INTEGER;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'roof_age_years') THEN
+      ALTER TABLE estimates ADD COLUMN roof_age_years INTEGER;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'overall_condition') THEN
+      ALTER TABLE estimates ADD COLUMN overall_condition VARCHAR(20) DEFAULT 'Average';
+    END IF;
+    
+    -- Deductible columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'deductible_cov_a') THEN
+      ALTER TABLE estimates ADD COLUMN deductible_cov_a DECIMAL(10,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'deductible_cov_b') THEN
+      ALTER TABLE estimates ADD COLUMN deductible_cov_b DECIMAL(10,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'deductible_cov_c') THEN
+      ALTER TABLE estimates ADD COLUMN deductible_cov_c DECIMAL(10,2) DEFAULT 0;
+    END IF;
+    
+    -- Subtotal columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'subtotal_materials') THEN
+      ALTER TABLE estimates ADD COLUMN subtotal_materials DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'subtotal_labor') THEN
+      ALTER TABLE estimates ADD COLUMN subtotal_labor DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'subtotal_equipment') THEN
+      ALTER TABLE estimates ADD COLUMN subtotal_equipment DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    -- RCV/ACV columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'total_rcv') THEN
+      ALTER TABLE estimates ADD COLUMN total_rcv DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'total_depreciation') THEN
+      ALTER TABLE estimates ADD COLUMN total_depreciation DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'total_acv') THEN
+      ALTER TABLE estimates ADD COLUMN total_acv DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'recoverable_depreciation') THEN
+      ALTER TABLE estimates ADD COLUMN recoverable_depreciation DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'non_recoverable_depreciation') THEN
+      ALTER TABLE estimates ADD COLUMN non_recoverable_depreciation DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    -- Net claim columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'net_claim_cov_a') THEN
+      ALTER TABLE estimates ADD COLUMN net_claim_cov_a DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'net_claim_cov_b') THEN
+      ALTER TABLE estimates ADD COLUMN net_claim_cov_b DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'net_claim_cov_c') THEN
+      ALTER TABLE estimates ADD COLUMN net_claim_cov_c DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'net_claim_total') THEN
+      ALTER TABLE estimates ADD COLUMN net_claim_total DECIMAL(12,2) DEFAULT 0;
+    END IF;
+    
+    -- Reference columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'jurisdiction_id') THEN
+      ALTER TABLE estimates ADD COLUMN jurisdiction_id UUID REFERENCES jurisdictions(id) ON DELETE SET NULL;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'price_list_id') THEN
+      ALTER TABLE estimates ADD COLUMN price_list_id UUID REFERENCES price_lists(id) ON DELETE SET NULL;
+    END IF;
+    
+    -- Rules evaluation columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'rules_evaluated_at') THEN
+      ALTER TABLE estimates ADD COLUMN rules_evaluated_at TIMESTAMP;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'rules_evaluation_version') THEN
+      ALTER TABLE estimates ADD COLUMN rules_evaluation_version INTEGER DEFAULT 0;
+    END IF;
+    
+    -- Lock and export columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'is_locked') THEN
+      ALTER TABLE estimates ADD COLUMN is_locked BOOLEAN DEFAULT false;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'exported_at') THEN
+      ALTER TABLE estimates ADD COLUMN exported_at TIMESTAMP;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'estimates' AND column_name = 'esx_version') THEN
+      ALTER TABLE estimates ADD COLUMN esx_version INTEGER DEFAULT 0;
+    END IF;
+  END IF;
+END $$;
+
 -- ESTIMATE LINE ITEMS TABLE
 CREATE TABLE IF NOT EXISTS estimate_line_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -501,16 +690,47 @@ CREATE INDEX IF NOT EXISTS idx_line_items_code ON line_items(code);
 CREATE INDEX IF NOT EXISTS idx_line_items_active ON line_items(is_active);
 CREATE INDEX IF NOT EXISTS idx_line_items_scope_conditions ON line_items USING GIN (scope_conditions);
 
--- Estimates indexes
-CREATE INDEX IF NOT EXISTS idx_estimates_org ON estimates(organization_id);
-CREATE INDEX IF NOT EXISTS idx_estimates_claim ON estimates(claim_id);
-CREATE INDEX IF NOT EXISTS idx_estimates_status ON estimates(status);
-CREATE INDEX IF NOT EXISTS idx_estimates_workflow_status ON estimates(workflow_status);
-CREATE INDEX IF NOT EXISTS idx_estimates_region ON estimates(region_id);
-CREATE INDEX IF NOT EXISTS idx_estimates_carrier ON estimates(carrier_profile_id);
-CREATE INDEX IF NOT EXISTS idx_estimates_jurisdiction ON estimates(jurisdiction_id);
-CREATE INDEX IF NOT EXISTS idx_estimates_locked ON estimates(is_locked);
-CREATE INDEX IF NOT EXISTS idx_estimates_created_at ON estimates(created_at DESC);
+-- Estimates indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'estimates') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'organization_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_org ON estimates(organization_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_claim ON estimates(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'status') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_status ON estimates(status);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'workflow_status') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_workflow_status ON estimates(workflow_status);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'region_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_region ON estimates(region_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'carrier_profile_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_carrier ON estimates(carrier_profile_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'jurisdiction_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_jurisdiction ON estimates(jurisdiction_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'is_locked') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_locked ON estimates(is_locked);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'created_at') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_created_at ON estimates(created_at DESC);
+    END IF;
+  END IF;
+END $$;
 
 -- Estimate line items indexes
 CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate ON estimate_line_items(estimate_id);
