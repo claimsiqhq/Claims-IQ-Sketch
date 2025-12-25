@@ -222,9 +222,9 @@ export async function buildPerilAwareClaimContext(
     updatedAt: claimData.updated_at,
   };
 
-  // Fetch endorsements
+  // Fetch endorsements from new comprehensive table
   const { data: endorsementsData, error: endorsementsError } = await supabaseAdmin
-    .from('endorsements')
+    .from('endorsement_extractions')
     .select('*')
     .eq('claim_id', claimId);
 
@@ -232,10 +232,10 @@ export async function buildPerilAwareClaimContext(
   const endorsementResult = {
     rows: endorsementRows.map(e => ({
       id: e.id,
-      formNumber: e.form_number,
-      documentTitle: e.document_title,
-      description: e.description,
-      keyChanges: e.key_changes,
+      formNumber: e.form_code || '',
+      documentTitle: e.title || null,
+      description: e.raw_text?.substring(0, 500) || null, // Use first 500 chars of raw text as description
+      keyChanges: e.modifications || {},
     }))
   };
 
