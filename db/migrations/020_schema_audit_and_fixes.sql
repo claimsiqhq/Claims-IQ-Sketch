@@ -128,6 +128,43 @@ CREATE TABLE IF NOT EXISTS line_items (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns to line_items table if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'line_items') THEN
+    -- Add all columns that might be missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'code') THEN
+      ALTER TABLE line_items ADD COLUMN code VARCHAR(50);
+      -- Try to create unique constraint if possible
+      BEGIN
+        ALTER TABLE line_items ADD CONSTRAINT line_items_code_unique UNIQUE(code);
+      EXCEPTION WHEN OTHERS THEN
+        NULL; -- Ignore if constraint can't be created
+      END;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'category_id') THEN
+      ALTER TABLE line_items ADD COLUMN category_id VARCHAR(20);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'is_active') THEN
+      ALTER TABLE line_items ADD COLUMN is_active BOOLEAN DEFAULT true;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'scope_conditions') THEN
+      ALTER TABLE line_items ADD COLUMN scope_conditions JSONB;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'created_at') THEN
+      ALTER TABLE line_items ADD COLUMN created_at TIMESTAMP DEFAULT NOW();
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'updated_at') THEN
+      ALTER TABLE line_items ADD COLUMN updated_at TIMESTAMP DEFAULT NOW();
+    END IF;
+  END IF;
+END $$;
+
 -- ESTIMATES TABLE (if not exists)
 CREATE TABLE IF NOT EXISTS estimates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -695,6 +732,29 @@ CREATE TABLE IF NOT EXISTS materials (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns to materials table if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'materials') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'sku') THEN
+      ALTER TABLE materials ADD COLUMN sku VARCHAR(100);
+      BEGIN
+        ALTER TABLE materials ADD CONSTRAINT materials_sku_unique UNIQUE(sku);
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'category') THEN
+      ALTER TABLE materials ADD COLUMN category VARCHAR(100);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'is_active') THEN
+      ALTER TABLE materials ADD COLUMN is_active BOOLEAN DEFAULT true;
+    END IF;
+  END IF;
+END $$;
+
 -- MATERIAL REGIONAL PRICES TABLE
 CREATE TABLE IF NOT EXISTS material_regional_prices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -719,6 +779,21 @@ CREATE TABLE IF NOT EXISTS xact_categories (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns to xact_categories if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'xact_categories') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_categories' AND column_name = 'code') THEN
+      ALTER TABLE xact_categories ADD COLUMN code VARCHAR(10);
+      BEGIN
+        ALTER TABLE xact_categories ADD CONSTRAINT xact_categories_code_unique UNIQUE(code);
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+    END IF;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS xact_line_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   category_code VARCHAR(10) REFERENCES xact_categories(code),
@@ -731,6 +806,25 @@ CREATE TABLE IF NOT EXISTS xact_line_items (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns to xact_line_items if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'xact_line_items') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_line_items' AND column_name = 'code') THEN
+      ALTER TABLE xact_line_items ADD COLUMN code VARCHAR(30);
+      BEGIN
+        ALTER TABLE xact_line_items ADD CONSTRAINT xact_line_items_code_unique UNIQUE(code);
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_line_items' AND column_name = 'category_code') THEN
+      ALTER TABLE xact_line_items ADD COLUMN category_code VARCHAR(10);
+    END IF;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS xact_components (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   line_item_code VARCHAR(30) REFERENCES xact_line_items(code),
@@ -742,6 +836,16 @@ CREATE TABLE IF NOT EXISTS xact_components (
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Add missing columns to xact_components if it already exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'xact_components') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_components' AND column_name = 'line_item_code') THEN
+      ALTER TABLE xact_components ADD COLUMN line_item_code VARCHAR(30);
+    END IF;
+  END IF;
+END $$;
 
 -- CLAIM STRUCTURES TABLE
 CREATE TABLE IF NOT EXISTS claim_structures (
@@ -905,9 +1009,19 @@ CREATE TABLE IF NOT EXISTS labor_rates (
 -- PART 2: CREATE MISSING INDEXES FOR PERFORMANCE
 -- ============================================
 
--- Users indexes
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_org ON users(current_organization_id);
+-- Users indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email') THEN
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'current_organization_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_users_org ON users(current_organization_id);
+    END IF;
+  END IF;
+END $$;
 
 -- Regions indexes (only create if column exists)
 DO $$
@@ -923,11 +1037,27 @@ BEGIN
   END IF;
 END $$;
 
--- Line items indexes
-CREATE INDEX IF NOT EXISTS idx_line_items_category ON line_items(category_id);
-CREATE INDEX IF NOT EXISTS idx_line_items_code ON line_items(code);
-CREATE INDEX IF NOT EXISTS idx_line_items_active ON line_items(is_active);
-CREATE INDEX IF NOT EXISTS idx_line_items_scope_conditions ON line_items USING GIN (scope_conditions);
+-- Line items indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'line_items') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'category_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_line_items_category ON line_items(category_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'code') THEN
+      CREATE INDEX IF NOT EXISTS idx_line_items_code ON line_items(code);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'is_active') THEN
+      CREATE INDEX IF NOT EXISTS idx_line_items_active ON line_items(is_active);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'scope_conditions') THEN
+      CREATE INDEX IF NOT EXISTS idx_line_items_scope_conditions ON line_items USING GIN (scope_conditions);
+    END IF;
+  END IF;
+END $$;
 
 -- Estimates indexes (only create if columns exist)
 DO $$
@@ -1017,65 +1147,225 @@ BEGIN
   END IF;
 END $$;
 
--- Materials indexes
-CREATE INDEX IF NOT EXISTS idx_materials_sku ON materials(sku);
-CREATE INDEX IF NOT EXISTS idx_materials_category ON materials(category);
-CREATE INDEX IF NOT EXISTS idx_materials_active ON materials(is_active);
+-- Materials indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'materials') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'sku') THEN
+      CREATE INDEX IF NOT EXISTS idx_materials_sku ON materials(sku);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'category') THEN
+      CREATE INDEX IF NOT EXISTS idx_materials_category ON materials(category);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'is_active') THEN
+      CREATE INDEX IF NOT EXISTS idx_materials_active ON materials(is_active);
+    END IF;
+  END IF;
+END $$;
 
--- Material regional prices indexes
-CREATE INDEX IF NOT EXISTS idx_material_regional_prices_material ON material_regional_prices(material_id);
-CREATE INDEX IF NOT EXISTS idx_material_regional_prices_region ON material_regional_prices(region_id);
-CREATE INDEX IF NOT EXISTS idx_material_regional_prices_effective ON material_regional_prices(effective_date DESC);
+-- Material regional prices indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'material_regional_prices') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'material_regional_prices' AND column_name = 'material_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_material_regional_prices_material ON material_regional_prices(material_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'material_regional_prices' AND column_name = 'region_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_material_regional_prices_region ON material_regional_prices(region_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'material_regional_prices' AND column_name = 'effective_date') THEN
+      CREATE INDEX IF NOT EXISTS idx_material_regional_prices_effective ON material_regional_prices(effective_date DESC);
+    END IF;
+  END IF;
+END $$;
 
--- Xactimate indexes
-CREATE INDEX IF NOT EXISTS idx_xact_categories_code ON xact_categories(code);
-CREATE INDEX IF NOT EXISTS idx_xact_line_items_code ON xact_line_items(code);
-CREATE INDEX IF NOT EXISTS idx_xact_line_items_category ON xact_line_items(category_code);
-CREATE INDEX IF NOT EXISTS idx_xact_components_line_item ON xact_components(line_item_code);
+-- Xactimate indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'xact_categories') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_categories' AND column_name = 'code') THEN
+      CREATE INDEX IF NOT EXISTS idx_xact_categories_code ON xact_categories(code);
+    END IF;
+  END IF;
+  
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'xact_line_items') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_line_items' AND column_name = 'code') THEN
+      CREATE INDEX IF NOT EXISTS idx_xact_line_items_code ON xact_line_items(code);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_line_items' AND column_name = 'category_code') THEN
+      CREATE INDEX IF NOT EXISTS idx_xact_line_items_category ON xact_line_items(category_code);
+    END IF;
+  END IF;
+  
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'xact_components') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xact_components' AND column_name = 'line_item_code') THEN
+      CREATE INDEX IF NOT EXISTS idx_xact_components_line_item ON xact_components(line_item_code);
+    END IF;
+  END IF;
+END $$;
 
--- Claim structures indexes
-CREATE INDEX IF NOT EXISTS idx_claim_structures_claim ON claim_structures(claim_id);
+-- Claim structures indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_structures') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_structures' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_structures_claim ON claim_structures(claim_id);
+    END IF;
+  END IF;
+END $$;
 
--- Claim rooms indexes
-CREATE INDEX IF NOT EXISTS idx_claim_rooms_claim ON claim_rooms(claim_id);
-CREATE INDEX IF NOT EXISTS idx_claim_rooms_structure ON claim_rooms(structure_id);
-CREATE INDEX IF NOT EXISTS idx_claim_rooms_type ON claim_rooms(room_type);
+-- Claim rooms indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_rooms') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_rooms' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_rooms_claim ON claim_rooms(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_rooms' AND column_name = 'structure_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_rooms_structure ON claim_rooms(structure_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_rooms' AND column_name = 'room_type') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_rooms_type ON claim_rooms(room_type);
+    END IF;
+  END IF;
+END $$;
 
--- Claim damage zones indexes
-CREATE INDEX IF NOT EXISTS idx_claim_damage_zones_claim ON claim_damage_zones(claim_id);
-CREATE INDEX IF NOT EXISTS idx_claim_damage_zones_room ON claim_damage_zones(room_id);
-CREATE INDEX IF NOT EXISTS idx_claim_damage_zones_peril ON claim_damage_zones(associated_peril);
+-- Claim damage zones indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_damage_zones') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_damage_zones' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_damage_zones_claim ON claim_damage_zones(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_damage_zones' AND column_name = 'room_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_damage_zones_room ON claim_damage_zones(room_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_damage_zones' AND column_name = 'associated_peril') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_damage_zones_peril ON claim_damage_zones(associated_peril);
+    END IF;
+  END IF;
+END $$;
 
--- Claim photos indexes
-CREATE INDEX IF NOT EXISTS idx_claim_photos_claim ON claim_photos(claim_id);
-CREATE INDEX IF NOT EXISTS idx_claim_photos_zone ON claim_photos(zone_id);
-CREATE INDEX IF NOT EXISTS idx_claim_photos_room ON claim_photos(room_id);
-CREATE INDEX IF NOT EXISTS idx_claim_photos_status ON claim_photos(analysis_status);
+-- Claim photos indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_photos') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_photos' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_photos_claim ON claim_photos(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_photos' AND column_name = 'zone_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_photos_zone ON claim_photos(zone_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_photos' AND column_name = 'room_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_photos_room ON claim_photos(room_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_photos' AND column_name = 'analysis_status') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_photos_status ON claim_photos(analysis_status);
+    END IF;
+  END IF;
+END $$;
 
--- Claim checklists indexes
-CREATE INDEX IF NOT EXISTS idx_claim_checklists_claim ON claim_checklists(claim_id);
-CREATE INDEX IF NOT EXISTS idx_claim_checklists_status ON claim_checklists(status);
+-- Claim checklists indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_checklists') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_checklists' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_checklists_claim ON claim_checklists(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_checklists' AND column_name = 'status') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_checklists_status ON claim_checklists(status);
+    END IF;
+  END IF;
+END $$;
 
--- Claim checklist items indexes
-CREATE INDEX IF NOT EXISTS idx_claim_checklist_items_checklist ON claim_checklist_items(checklist_id);
-CREATE INDEX IF NOT EXISTS idx_claim_checklist_items_status ON claim_checklist_items(status);
+-- Claim checklist items indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_checklist_items') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_checklist_items' AND column_name = 'checklist_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_checklist_items_checklist ON claim_checklist_items(checklist_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_checklist_items' AND column_name = 'status') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_checklist_items_status ON claim_checklist_items(status);
+    END IF;
+  END IF;
+END $$;
 
--- Policy form extractions indexes
-CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_org ON policy_form_extractions(organization_id);
-CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_claim ON policy_form_extractions(claim_id);
-CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_document ON policy_form_extractions(document_id);
-CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_policy_form ON policy_form_extractions(policy_form_id);
+-- Policy form extractions indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'policy_form_extractions') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'policy_form_extractions' AND column_name = 'organization_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_org ON policy_form_extractions(organization_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'policy_form_extractions' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_claim ON policy_form_extractions(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'policy_form_extractions' AND column_name = 'document_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_document ON policy_form_extractions(document_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'policy_form_extractions' AND column_name = 'policy_form_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_policy_form_extractions_policy_form ON policy_form_extractions(policy_form_id);
+    END IF;
+  END IF;
+END $$;
 
--- Endorsement extractions indexes
-CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_org ON endorsement_extractions(organization_id);
-CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_claim ON endorsement_extractions(claim_id);
-CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_document ON endorsement_extractions(document_id);
-CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_endorsement ON endorsement_extractions(endorsement_id);
-CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_priority ON endorsement_extractions(precedence_priority);
+-- Endorsement extractions indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'endorsement_extractions') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'endorsement_extractions' AND column_name = 'organization_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_org ON endorsement_extractions(organization_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'endorsement_extractions' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_claim ON endorsement_extractions(claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'endorsement_extractions' AND column_name = 'document_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_document ON endorsement_extractions(document_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'endorsement_extractions' AND column_name = 'endorsement_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_endorsement ON endorsement_extractions(endorsement_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'endorsement_extractions' AND column_name = 'precedence_priority') THEN
+      CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_priority ON endorsement_extractions(precedence_priority);
+    END IF;
+  END IF;
+END $$;
 
--- Labor rates indexes
-CREATE INDEX IF NOT EXISTS idx_labor_rates_trade ON labor_rates(trade_code);
-CREATE INDEX IF NOT EXISTS idx_labor_rates_region ON labor_rates(region_code);
+-- Labor rates indexes (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'labor_rates') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'labor_rates' AND column_name = 'trade_code') THEN
+      CREATE INDEX IF NOT EXISTS idx_labor_rates_trade ON labor_rates(trade_code);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'labor_rates' AND column_name = 'region_code') THEN
+      CREATE INDEX IF NOT EXISTS idx_labor_rates_region ON labor_rates(region_code);
+    END IF;
+  END IF;
+END $$;
 
 -- ============================================
 -- PART 3: ADD MISSING FOREIGN KEY CONSTRAINTS
@@ -1148,13 +1438,47 @@ END $$;
 -- PART 5: CREATE COMPOSITE INDEXES FOR COMMON QUERIES
 -- ============================================
 
--- Composite indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_estimates_org_status ON estimates(organization_id, status);
-CREATE INDEX IF NOT EXISTS idx_estimates_claim_status ON estimates(claim_id, status);
-CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate_approved ON estimate_line_items(estimate_id, is_approved) WHERE is_approved = true;
-CREATE INDEX IF NOT EXISTS idx_claim_photos_claim_status ON claim_photos(claim_id, analysis_status);
-CREATE INDEX IF NOT EXISTS idx_documents_org_claim ON documents(organization_id, claim_id);
-CREATE INDEX IF NOT EXISTS idx_documents_claim_type ON documents(claim_id, type);
+-- Composite indexes for common query patterns (only create if columns exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'estimates') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'organization_id') 
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'status') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_org_status ON estimates(organization_id, status);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'claim_id') 
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimates' AND column_name = 'status') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimates_claim_status ON estimates(claim_id, status);
+    END IF;
+  END IF;
+  
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'estimate_line_items') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'estimate_id') 
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'is_approved') THEN
+      CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate_approved ON estimate_line_items(estimate_id, is_approved) WHERE is_approved = true;
+    END IF;
+  END IF;
+  
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'claim_photos') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_photos' AND column_name = 'claim_id') 
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_photos' AND column_name = 'analysis_status') THEN
+      CREATE INDEX IF NOT EXISTS idx_claim_photos_claim_status ON claim_photos(claim_id, analysis_status);
+    END IF;
+  END IF;
+  
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'documents') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'organization_id') 
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'claim_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_documents_org_claim ON documents(organization_id, claim_id);
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'claim_id') 
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'type') THEN
+      CREATE INDEX IF NOT EXISTS idx_documents_claim_type ON documents(claim_id, type);
+    END IF;
+  END IF;
+END $$;
 
 -- ============================================
 -- PART 6: ADD UPDATED_AT TRIGGERS FOR TABLES THAT NEED THEM
