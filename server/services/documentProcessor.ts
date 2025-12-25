@@ -209,6 +209,54 @@ export interface ExtractedClaimData {
 
   // New nested structure fields (from OpenAI response)
   claims?: FNOLClaimExtraction[];
+
+  // Comprehensive policy extraction fields (new format)
+  documentMetadata?: {
+    documentType?: string;
+    policyFormCode?: string;
+    policyFormName?: string | null;
+    editionDate?: string | null;
+    pageCount?: number;
+  };
+  policyStructure?: {
+    tableOfContents?: string[];
+    policyStatement?: string;
+    agreement?: string;
+  };
+  definitions?: {
+    term: string;
+    definition: string;
+    subClauses?: string[];
+    exceptions?: string[];
+  }[];
+  sectionI?: {
+    propertyCoverage?: {
+      coverageA?: { name?: string; covers?: string[]; excludes?: string[] };
+      coverageB?: { name?: string; covers?: string[]; excludes?: string[]; specialConditions?: string[] };
+      coverageC?: { name?: string; scope?: string; specialLimits?: { propertyType: string; limit: string; conditions?: string }[]; notCovered?: string[] };
+      coverageD?: { name?: string; subCoverages?: string[]; timeLimits?: string };
+    };
+    perils?: { coverageA_B?: string; coverageC?: string[] };
+    exclusions?: { global?: string[]; coverageA_B_specific?: string[] };
+    additionalCoverages?: { name: string; description?: string; limit?: string; conditions?: string }[];
+    conditions?: string[];
+    lossSettlement?: {
+      dwellingAndStructures?: { basis?: string; repairRequirements?: string; timeLimit?: string; matchingRules?: string };
+      roofingSystem?: { definition?: string; hailSettlement?: string; metalRestrictions?: string };
+      personalProperty?: { settlementBasis?: string[]; specialHandling?: string };
+    };
+  };
+  sectionII?: {
+    liabilityCoverages?: {
+      coverageE?: { name?: string; insuringAgreement?: string; dutyToDefend?: boolean };
+      coverageF?: { name?: string; insuringAgreement?: string; timeLimit?: string };
+    };
+    exclusions?: string[];
+    additionalCoverages?: { name: string; description?: string; limit?: string }[];
+    conditions?: string[];
+  };
+  generalConditions?: string[];
+  rawPageText?: string;
 }
 
 // Address component structure
@@ -842,46 +890,97 @@ export async function processDocument(
         })
         .eq('id', documentId);
 
-      // For policy documents, create/update a policy_forms record if form data was extracted
-      if (doc.type === 'policy' && (extractedData.formNumber || extractedData.documentTitle)) {
-        const keyProvisions = {
-          sectionHeadings: extractedData.baseStructure?.sectionHeadings || [],
-          definitionOfACV: extractedData.baseStructure?.definitionOfACV || null,
-          windHailLossSettlement: extractedData.defaultPolicyProvisionSummary?.windHailLossSettlement || null,
-          unoccupiedExclusionPeriod: extractedData.defaultPolicyProvisionSummary?.unoccupiedExclusionPeriod || null,
-        };
+      // For policy documents, create/update comprehensive policy form extraction
+      if (doc.type === 'policy') {
+        // Check for new comprehensive extraction format (documentMetadata, sectionI, etc.)
+        const hasComprehensiveFormat = extractedData.documentMetadata || extractedData.sectionI || extractedData.definitions;
+        
+        if (hasComprehensiveFormat) {
+          // Save to policy_form_extractions table (new comprehensive format)
+          const policyExtraction = {
+            organization_id: organizationId,
+            claim_id: doc.claim_id || null,
+            document_id: documentId,
+            document_type: extractedData.documentMetadata?.documentType || 'PolicyForm',
+            policy_form_code: extractedData.documentMetadata?.policyFormCode || extractedData.formNumber || null,
+            policy_form_name: extractedData.documentMetadata?.policyFormName || extractedData.documentTitle || null,
+            edition_date: extractedData.documentMetadata?.editionDate || null,
+            page_count: extractedData.documentMetadata?.pageCount || extractedData.pageTexts?.length || null,
+            policy_structure: extractedData.policyStructure || {},
+            definitions: extractedData.definitions || [],
+            section_i: extractedData.sectionI || {},
+            section_ii: extractedData.sectionII || {},
+            general_conditions: extractedData.generalConditions || [],
+            raw_page_text: extractedData.rawPageText || extractedData.fullText || null,
+            extraction_model: 'gpt-4.1-2025-04-14',
+            extraction_version: '2.0',
+            status: 'completed'
+          };
 
-        // Check if a policy_form already exists for this claim
-        const { data: existingForms } = await supabaseAdmin
-          .from('policy_forms')
-          .select('id')
-          .eq('organization_id', organizationId)
-          .eq('claim_id', doc.claim_id)
-          .eq('form_number', extractedData.formNumber || 'UNKNOWN')
-          .limit(1);
+          // Check if extraction already exists for this document
+          const { data: existingExtractions } = await supabaseAdmin
+            .from('policy_form_extractions')
+            .select('id')
+            .eq('document_id', documentId)
+            .limit(1);
 
-        if (existingForms && existingForms.length > 0) {
-          // Update existing policy form
-          await supabaseAdmin
+          if (existingExtractions && existingExtractions.length > 0) {
+            await supabaseAdmin
+              .from('policy_form_extractions')
+              .update({ ...policyExtraction, updated_at: new Date().toISOString() })
+              .eq('id', existingExtractions[0].id);
+          } else {
+            await supabaseAdmin
+              .from('policy_form_extractions')
+              .insert(policyExtraction);
+          }
+
+          console.log(`[PolicyExtraction] Saved comprehensive extraction for document ${documentId}`);
+        }
+
+        // Also maintain backward compatibility with policy_forms table
+        if (extractedData.formNumber || extractedData.documentTitle || extractedData.documentMetadata?.policyFormCode) {
+          const formNumber = extractedData.formNumber || extractedData.documentMetadata?.policyFormCode || 'UNKNOWN';
+          const keyProvisions = {
+            sectionHeadings: extractedData.baseStructure?.sectionHeadings || extractedData.policyStructure?.tableOfContents || [],
+            definitionOfACV: extractedData.baseStructure?.definitionOfACV || null,
+            windHailLossSettlement: extractedData.defaultPolicyProvisionSummary?.windHailLossSettlement || 
+              extractedData.sectionI?.lossSettlement?.dwellingAndStructures?.basis || null,
+            unoccupiedExclusionPeriod: extractedData.defaultPolicyProvisionSummary?.unoccupiedExclusionPeriod || null,
+            definitions: extractedData.definitions || [],
+            sectionI: extractedData.sectionI || null,
+            sectionII: extractedData.sectionII || null,
+          };
+
+          const { data: existingForms } = await supabaseAdmin
             .from('policy_forms')
-            .update({
-              document_title: extractedData.documentTitle || null,
-              key_provisions: keyProvisions,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existingForms[0].id);
-        } else if (doc.claim_id) {
-          // Create new policy form record
-          await supabaseAdmin
-            .from('policy_forms')
-            .insert({
-              organization_id: organizationId,
-              claim_id: doc.claim_id,
-              form_type: extractedData.documentType || 'Policy Form',
-              form_number: extractedData.formNumber || 'UNKNOWN',
-              document_title: extractedData.documentTitle || null,
-              key_provisions: keyProvisions
-            });
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('claim_id', doc.claim_id)
+            .eq('form_number', formNumber)
+            .limit(1);
+
+          if (existingForms && existingForms.length > 0) {
+            await supabaseAdmin
+              .from('policy_forms')
+              .update({
+                document_title: extractedData.documentTitle || extractedData.documentMetadata?.policyFormName || null,
+                key_provisions: keyProvisions,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existingForms[0].id);
+          } else if (doc.claim_id) {
+            await supabaseAdmin
+              .from('policy_forms')
+              .insert({
+                organization_id: organizationId,
+                claim_id: doc.claim_id,
+                form_type: extractedData.documentType || extractedData.documentMetadata?.documentType || 'Policy Form',
+                form_number: formNumber,
+                document_title: extractedData.documentTitle || extractedData.documentMetadata?.policyFormName || null,
+                key_provisions: keyProvisions
+              });
+          }
         }
       }
 
