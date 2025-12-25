@@ -180,6 +180,21 @@ The database schema supports:
 - `GET /api/claims/:id/rooms` - Get rooms/damage zones from claim
 - `GET /api/claims/:id/documents` - Get claim documents
 - `GET /api/claims/:id/endorsements` - Get claim endorsements
+- `GET /api/claims/:id/policy-forms` - Get legacy policy form records
+- `GET /api/claims/:id/policy-extractions` - Get comprehensive policy extractions (v2.0)
+- `GET /api/policy-extractions/:id` - Get specific policy extraction by ID
+
+### Comprehensive Policy Extraction (v2.0)
+The system extracts full lossless policy form content using GPT-4.1 Vision API. Extractions are stored in `policy_form_extractions` table with:
+- **documentMetadata**: Document type, form code, edition date, page count
+- **policyStructure**: Table of contents, policy statement, agreement text
+- **definitions**: All policy definitions with terms, definitions, sub-clauses, exceptions
+- **sectionI**: Property coverage (A-D), perils, exclusions, additional coverages, loss settlement details
+- **sectionII**: Liability coverages (E-F), exclusions, additional coverages
+- **generalConditions**: All general conditions from the policy
+- **rawPageText**: Complete verbatim text from all pages
+
+The extraction uses the prompt stored in `ai_prompts` table with key `DOCUMENT_EXTRACTION_POLICY`.
 
 **Claim Statuses:**
 - `draft` - Initial status, claim created incrementally during New Claim wizard
