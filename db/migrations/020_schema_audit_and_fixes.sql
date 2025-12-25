@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS line_item_categories (
 
 -- LINE ITEMS TABLE (Master catalog)
 CREATE TABLE IF NOT EXISTS line_items (
-  id VARCHAR(50) PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   category_id VARCHAR(20) REFERENCES line_item_categories(id),
   code VARCHAR(50) NOT NULL UNIQUE,
   name VARCHAR(255) NOT NULL,
@@ -132,6 +132,22 @@ CREATE TABLE IF NOT EXISTS line_items (
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'line_items') THEN
+    -- Fix id column type if it's VARCHAR instead of UUID
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'line_items' AND column_name = 'id' 
+               AND data_type = 'character varying') THEN
+      -- Convert VARCHAR id to UUID (if possible)
+      -- Note: This assumes existing IDs can be converted or are UUIDs stored as VARCHAR
+      BEGIN
+        -- First, try to alter the type directly
+        ALTER TABLE line_items ALTER COLUMN id TYPE UUID USING id::UUID;
+      EXCEPTION WHEN OTHERS THEN
+        -- If conversion fails, we'll need to handle it differently
+        -- For now, just log a warning
+        RAISE WARNING 'Could not convert line_items.id from VARCHAR to UUID. Manual migration may be required.';
+      END;
+    END IF;
+    
     -- Add all columns that might be missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'code') THEN
       ALTER TABLE line_items ADD COLUMN code VARCHAR(50);
@@ -419,7 +435,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS estimate_line_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   estimate_id UUID NOT NULL REFERENCES estimates(id) ON DELETE CASCADE,
-  line_item_id VARCHAR(50) REFERENCES line_items(id) ON DELETE SET NULL,
+  line_item_id UUID REFERENCES line_items(id) ON DELETE SET NULL,
   zone_id UUID REFERENCES estimate_zones(id) ON DELETE SET NULL,
   coverage_id UUID REFERENCES estimate_coverages(id) ON DELETE SET NULL,
   damage_area_id UUID,
@@ -495,7 +511,18 @@ BEGIN
     
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
                    WHERE table_name = 'estimate_line_items' AND column_name = 'line_item_id') THEN
-      ALTER TABLE estimate_line_items ADD COLUMN line_item_id VARCHAR(50) REFERENCES line_items(id) ON DELETE SET NULL;
+      ALTER TABLE estimate_line_items ADD COLUMN line_item_id UUID REFERENCES line_items(id) ON DELETE SET NULL;
+    ELSE
+      -- Fix type if it's VARCHAR instead of UUID
+      IF EXISTS (SELECT 1 FROM information_schema.columns 
+                 WHERE table_name = 'estimate_line_items' AND column_name = 'line_item_id' 
+                 AND data_type = 'character varying') THEN
+        BEGIN
+          ALTER TABLE estimate_line_items ALTER COLUMN line_item_id TYPE UUID USING line_item_id::UUID;
+        EXCEPTION WHEN OTHERS THEN
+          RAISE WARNING 'Could not convert estimate_line_items.line_item_id from VARCHAR to UUID. Manual migration may be required.';
+        END;
+      END IF;
     END IF;
     
     -- Quantity and calculation columns
@@ -1394,10 +1421,23 @@ BEGIN
       FOREIGN KEY (estimate_id) REFERENCES estimates(id) ON DELETE CASCADE;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
-                 WHERE constraint_name = 'estimate_line_items_line_item_id_fkey' AND table_name = 'estimate_line_items') THEN
-    ALTER TABLE estimate_line_items ADD CONSTRAINT estimate_line_items_line_item_id_fkey
-      FOREIGN KEY (line_item_id) REFERENCES line_items(id) ON DELETE SET NULL;
+  -- Only add foreign key if both columns exist and have compatible types
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'estimate_line_items' AND column_name = 'line_item_id')
+     AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'line_items' AND column_name = 'id')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                     WHERE constraint_name = 'estimate_line_items_line_item_id_fkey' AND table_name = 'estimate_line_items') THEN
+    -- Check that types match
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns c1
+      JOIN information_schema.columns c2 ON c1.data_type = c2.data_type
+      WHERE c1.table_name = 'estimate_line_items' AND c1.column_name = 'line_item_id'
+        AND c2.table_name = 'line_items' AND c2.column_name = 'id'
+    ) THEN
+      ALTER TABLE estimate_line_items ADD CONSTRAINT estimate_line_items_line_item_id_fkey
+        FOREIGN KEY (line_item_id) REFERENCES line_items(id) ON DELETE SET NULL;
+    ELSE
+      RAISE WARNING 'Cannot create foreign key: estimate_line_items.line_item_id and line_items.id have incompatible types';
+    END IF;
   END IF;
 
   -- Material regional prices foreign keys
