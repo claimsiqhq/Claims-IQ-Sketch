@@ -201,6 +201,32 @@ import {
   deleteScopeItem,
 } from "./services/estimateHierarchy";
 
+/**
+ * Normalize peril value from database to Peril enum
+ * Handles various formats: "Wind/Hail", "WATER", "wind_hail", etc.
+ */
+function normalizePeril(value: string | null | undefined): Peril {
+  if (!value) return Peril.OTHER;
+
+  const normalized = value.toLowerCase().trim();
+
+  // Direct matches
+  if (Object.values(Peril).includes(normalized as Peril)) {
+    return normalized as Peril;
+  }
+
+  // Handle common variations
+  if (normalized.includes('wind') || normalized.includes('hail')) return Peril.WIND_HAIL;
+  if (normalized.includes('fire')) return Peril.FIRE;
+  if (normalized.includes('water') && !normalized.includes('flood')) return Peril.WATER;
+  if (normalized.includes('flood')) return Peril.FLOOD;
+  if (normalized.includes('smoke')) return Peril.SMOKE;
+  if (normalized.includes('mold') || normalized.includes('mildew')) return Peril.MOLD;
+  if (normalized.includes('impact') || normalized.includes('tree') || normalized.includes('vehicle')) return Peril.IMPACT;
+
+  return Peril.OTHER;
+}
+
 // Configure multer for file uploads (memory storage for processing)
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -3070,6 +3096,38 @@ export async function registerRoutes(
     }
   });
 
+  // Delete all rooms and structures for a claim (for deleting saved sketches)
+  app.delete('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { deleteRoomsByClaimId, deleteStructuresByClaimId } = await import('./services/rooms');
+
+      // Verify claim exists and belongs to organization
+      const { data: claimCheck, error: claimError } = await supabaseAdmin
+        .from('claims')
+        .select('id')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId)
+        .single();
+      if (claimError || !claimCheck) {
+        return res.status(404).json({ error: 'Claim not found' });
+      }
+
+      // Delete rooms (this also deletes damage zones)
+      const roomsDeleted = await deleteRoomsByClaimId(req.params.id);
+      // Delete structures
+      const structuresDeleted = await deleteStructuresByClaimId(req.params.id);
+
+      res.json({
+        success: true,
+        roomsDeleted,
+        structuresDeleted
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // CLAIM SCOPE ITEMS (uses estimate infrastructure)
   // ============================================
@@ -3436,7 +3494,7 @@ export async function registerRoutes(
           return res.status(404).json({ error: 'Claim not found' });
         }
 
-        const peril = (claim.primary_peril as Peril) || Peril.OTHER;
+        const peril = normalizePeril(claim.primary_peril);
         const severity = inferSeverityFromClaim({
           reserveAmount: claim.reserve_amount ? parseFloat(claim.reserve_amount) : null,
           metadata: claim.metadata as Record<string, any> | null,
@@ -3489,7 +3547,7 @@ export async function registerRoutes(
         .eq('claim_id', claimId)
         .eq('status', 'active');
 
-      const peril = (overridePeril as Peril) || (claim.primary_peril as Peril) || Peril.OTHER;
+      const peril = overridePeril ? normalizePeril(overridePeril) : normalizePeril(claim.primary_peril);
       const severity = (overrideSeverity as ClaimSeverity) || inferSeverityFromClaim({
         reserveAmount: null,
         metadata: claim.metadata as Record<string, any> | null,

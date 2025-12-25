@@ -5,10 +5,13 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText } from 'lucide-react';
+import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText, Pencil, Trash2, Home, Clock } from 'lucide-react';
 import Layout from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +29,7 @@ import {
 } from '@/components/ui/select';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine, geometryEngine } from './services/geometry-engine';
-import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms, getClaimPhotos } from '@/lib/api';
+import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms, getClaimPhotos, deleteClaimRooms } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { toast } from 'sonner';
 import type { RoomGeometry, Structure, VoiceDamageZone } from './types/geometry';
@@ -45,6 +48,8 @@ export default function VoiceSketchPage() {
   const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState<string>('');
   const hasLoadedRooms = useRef(false);
+  const [deleteConfirmClaimId, setDeleteConfirmClaimId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch the real claim from the database (only if claimId provided)
   const { data: claim, isLoading, error } = useQuery({
@@ -138,7 +143,7 @@ export default function VoiceSketchPage() {
   }, [existingRoomsData, loadRooms]);
 
   // Fetch available claims for the claim selector (when no claim is attached)
-  const { data: claimsData } = useQuery({
+  const { data: claimsData, isLoading: isLoadingClaims } = useQuery({
     queryKey: ['claims-for-sketch'],
     queryFn: () => getClaims({ limit: 100 }),
     enabled: !claimId,
@@ -146,6 +151,54 @@ export default function VoiceSketchPage() {
   });
 
   const availableClaims = claimsData?.claims || [];
+
+  // Fetch saved sketches (claims that have rooms) for the saved sketches section
+  const { data: savedSketchesData, isLoading: isLoadingSavedSketches } = useQuery({
+    queryKey: ['saved-sketches'],
+    queryFn: async () => {
+      const claims = await getClaims({ limit: 100 });
+      // For each claim, fetch room count
+      const claimsWithRooms = await Promise.all(
+        (claims.claims || []).map(async (c) => {
+          try {
+            const roomsData = await getClaimRooms(c.id);
+            return {
+              ...c,
+              roomCount: roomsData.rooms?.length || 0,
+              structureCount: new Set(roomsData.rooms?.map((r) => r.structureId).filter(Boolean)).size || 0,
+            };
+          } catch {
+            return { ...c, roomCount: 0, structureCount: 0 };
+          }
+        })
+      );
+      // Only return claims that have saved rooms
+      return claimsWithRooms.filter((c) => c.roomCount > 0);
+    },
+    enabled: !claimId,
+    staleTime: 60000,
+  });
+
+  const savedSketches = savedSketchesData || [];
+
+  // Handle delete sketch
+  const handleDeleteSketch = async (targetClaimId: string) => {
+    setIsDeleting(true);
+    try {
+      await deleteClaimRooms(targetClaimId);
+      toast.success('Sketch deleted', {
+        description: 'All rooms and structures have been removed from this claim.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['saved-sketches'] });
+      queryClient.invalidateQueries({ queryKey: ['claim-rooms', targetClaimId] });
+      setDeleteConfirmClaimId(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete sketch';
+      toast.error('Delete failed', { description: message });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Track if we've already loaded this claim's rooms to prevent re-loading
   const loadedClaimIdRef = useRef<string | null>(null);
@@ -558,12 +611,92 @@ export default function VoiceSketchPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto">
-          <VoiceSketchController
-            userName={authUser?.username}
-            onRoomConfirmed={handleRoomConfirmed}
-            className="min-h-full"
-          />
+        <div className="flex-1 overflow-hidden flex">
+          {/* Main sketch area */}
+          <div className="flex-1 overflow-auto">
+            <VoiceSketchController
+              userName={authUser?.username}
+              onRoomConfirmed={handleRoomConfirmed}
+              className="min-h-full"
+            />
+          </div>
+
+          {/* Saved sketches sidebar - only shown when no claim is attached */}
+          {!claimId && (
+            <div className="w-80 border-l border-border bg-slate-50 flex flex-col">
+              <div className="p-4 border-b border-border bg-white">
+                <h2 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Saved Sketches
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Edit or delete previously saved sketches
+                </p>
+              </div>
+              <ScrollArea className="flex-1">
+                <div className="p-3 space-y-2">
+                  {isLoadingSavedSketches ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : savedSketches.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      <Home className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>No saved sketches yet</p>
+                      <p className="text-xs mt-1">Create a sketch and save it to a claim</p>
+                    </div>
+                  ) : (
+                    savedSketches.map((sketch: any) => (
+                      <Card key={sketch.id} className="bg-white">
+                        <CardContent className="p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-medium text-sm truncate">
+                                {sketch.policyholder || 'Unknown'}
+                              </h3>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {sketch.riskLocation || sketch.claimId}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Badge variant="secondary" className="text-xs">
+                                  {sketch.roomCount} room{sketch.roomCount !== 1 ? 's' : ''}
+                                </Badge>
+                                {sketch.structureCount > 0 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {sketch.structureCount} structure{sketch.structureCount !== 1 ? 's' : ''}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setLocation(`/voice-sketch/${sketch.id}`)}
+                                title="Edit sketch"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() => setDeleteConfirmClaimId(sketch.id)}
+                                title="Delete sketch"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
         </div>
       </div>
 
@@ -620,6 +753,35 @@ export default function VoiceSketchPage() {
                 <Save className="h-4 w-4 mr-2" />
               )}
               Save to Claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmClaimId} onOpenChange={(open) => !open && setDeleteConfirmClaimId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Sketch</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this sketch? This will remove all rooms, structures, and damage zones saved to this claim. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmClaimId(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirmClaimId && handleDeleteSketch(deleteConfirmClaimId)}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete Sketch
             </Button>
           </DialogFooter>
         </DialogContent>
