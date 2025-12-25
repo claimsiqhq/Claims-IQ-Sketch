@@ -39,6 +39,8 @@ import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { CompactPhotoCapture, CapturedPhoto } from "./photo-capture";
+import { VoiceButton } from "./voice-input";
+import { FindingsTemplates, SeverityQuickSelect } from "./findings-templates";
 import {
   CheckCircle2,
   Clock,
@@ -54,6 +56,7 @@ import {
   Eye,
   MessageSquare,
   X,
+  Mic,
 } from "lucide-react";
 
 // Step data from parent
@@ -240,13 +243,24 @@ export function StepCompletionDialog({
 
           {/* Findings / Observations */}
           <div className="space-y-2">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              What did you find?
-              {step.required && (
-                <span className="text-xs text-muted-foreground">(Required)</span>
-              )}
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                What did you find?
+                {step.required && (
+                  <span className="text-xs text-muted-foreground">(Required)</span>
+                )}
+              </Label>
+              <div className="flex items-center gap-1">
+                <FindingsTemplates
+                  onSelect={(text) => setFindings(prev => prev ? `${prev}\n\n${text}` : text)}
+                />
+                <VoiceButton
+                  onTranscript={(text) => setFindings(prev => prev ? `${prev} ${text}` : text)}
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
             <Textarea
               placeholder="Describe your observations, findings, or any notable conditions..."
               value={findings}

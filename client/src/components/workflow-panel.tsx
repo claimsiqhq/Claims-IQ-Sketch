@@ -9,7 +9,7 @@
  * - Room management and custom step addition
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { useSwipe } from "@/hooks/use-swipe";
 import {
   ClipboardCheck,
   RefreshCw,
@@ -74,6 +75,7 @@ import { formatDistanceToNow } from "date-fns";
 // Import new workflow components
 import { WorkflowWizard, type WizardData } from "./workflow/workflow-wizard";
 import { StepCompletionDialog, type StepData, type StepCompletionData } from "./workflow/step-completion-dialog";
+import { CompactSyncIndicator } from "./workflow/sync-status";
 
 interface WorkflowPanelProps {
   claimId: string;
@@ -144,6 +146,49 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   const [newStepInstructions, setNewStepInstructions] = useState("");
   const [addingRoom, setAddingRoom] = useState(false);
   const [addingStep, setAddingStep] = useState(false);
+
+  // Sync status tracking
+  const [pendingUpdates, setPendingUpdates] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Track online status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Phase order for swipe navigation
+  const phaseOrder = useMemo(() =>
+    workflow?.workflow.workflowJson.phases.map(p => p.phase) || [],
+    [workflow]
+  );
+
+  // Navigate to next/previous phase
+  const navigatePhase = useCallback((direction: 'next' | 'prev') => {
+    if (!activePhase || phaseOrder.length === 0) return;
+    const currentIndex = phaseOrder.indexOf(activePhase);
+    const newIndex = direction === 'next'
+      ? Math.min(currentIndex + 1, phaseOrder.length - 1)
+      : Math.max(currentIndex - 1, 0);
+    if (newIndex !== currentIndex) {
+      setActivePhase(phaseOrder[newIndex]);
+    }
+  }, [activePhase, phaseOrder]);
+
+  // Swipe handlers for phase navigation
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: () => navigatePhase('next'),
+    onSwipeRight: () => navigatePhase('prev'),
+    threshold: 75,
+    maxTime: 400,
+  });
 
   // Fetch claim info for wizard
   const fetchClaimInfo = useCallback(async () => {
@@ -483,8 +528,13 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <CompactSyncIndicator
+            isOnline={isOnline}
+            isSyncing={isSyncing}
+            pendingCount={pendingUpdates}
+          />
           {workflow && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground hidden sm:inline">
               {formatDistanceToNow(new Date(workflow.workflow.updatedAt), { addSuffix: true })}
             </span>
           )}
@@ -659,7 +709,10 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
           {/* Steps for active phase */}
           {activePhase && (
-            <ScrollArea className="h-[calc(100vh-500px)] min-h-[250px] md:h-[calc(100vh-450px)]">
+            <ScrollArea
+              className="h-[calc(100vh-500px)] min-h-[250px] md:h-[calc(100vh-450px)]"
+              {...swipeHandlers}
+            >
               <div className="space-y-3 pr-4">
                 {(stepsByPhase[activePhase] || []).map((step, index) => {
                   const statusConfig = STATUS_CONFIG[step.status as InspectionStepStatus];
