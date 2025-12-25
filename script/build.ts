@@ -11,8 +11,11 @@ async function build() {
     bundle: true,
     platform: "node",
     target: "node20",
-    outfile: "dist/index.cjs",
-    format: "cjs",
+    outfile: "dist/index.js",
+    format: "esm",
+    banner: {
+      js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+    },
     external: [
       "pg-native",
       "puppeteer",
