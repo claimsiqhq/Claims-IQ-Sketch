@@ -2,7 +2,7 @@
 
 ## Overview
 
-Claims IQ is a modern, mobile-first web application for property insurance claims estimation. It provides a unified platform where field adjusters can capture property data, document damage, and generate estimates in a single workflow. The application features an interactive floor plan sketch tool, damage zone documentation, and a comprehensive line item pricing system with regional cost adjustments.
+Claims IQ is a modern, mobile-first web application for property insurance claims estimation. It enables field adjusters to capture property data, document damage, and generate estimates through voice-driven interfaces and comprehensive estimation tools. The platform features Voice Sketch (voice-driven room sketching), Voice Scope (damage documentation), My Day (AI-powered claim optimization), document processing, and hierarchical estimate building.
 
 ## User Preferences
 
@@ -23,257 +23,318 @@ Preferred communication style: Simple, everyday language.
 - **Body**: Source Sans 3 (font-body class)
 - **Monospace**: Space Mono (font-mono class)
 
-## System Architecture
+## Tech Stack
 
-### Frontend Architecture
-- **Framework**: React 18 with TypeScript
+### Frontend
+- **Framework**: React 19 with TypeScript
 - **Routing**: Wouter for lightweight client-side routing
-- **State Management**: Zustand for global state with mock data for claims, users, and line item catalogs
-- **Styling**: Tailwind CSS with shadcn/ui component library (New York style variant)
-- **Data Fetching**: TanStack React Query for server state management
-- **Build Tool**: Vite with custom plugins for Replit integration
+- **State Management**: Zustand for global state
+- **Data Fetching**: TanStack React Query v5
+- **Styling**: Tailwind CSS v4 with shadcn/ui components (New York variant)
+- **Build Tool**: Vite 7
+- **Voice AI**: OpenAI Agents SDK (@openai/agents, @openai/agents-realtime)
+- **Maps**: Leaflet with react-leaflet
+- **Forms**: React Hook Form with Zod validation
+- **Animations**: Framer Motion
 
-The frontend follows a page-based structure under `client/src/pages/` with reusable components in `client/src/components/`. UI primitives from shadcn/ui are located in `client/src/components/ui/`.
-
-### Backend Architecture
+### Backend
 - **Framework**: Express.js with TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
-- **API Pattern**: RESTful endpoints under `/api/*`
-- **Development**: tsx for TypeScript execution, Vite dev server for HMR
+- **Database**: PostgreSQL via Supabase
+- **ORM**: Drizzle ORM with drizzle-zod
+- **Authentication**: Passport.js (local strategy) + Supabase Auth
+- **File Storage**: Supabase Storage
+- **AI Services**: OpenAI GPT-4.1 for document analysis, GPT-4o Realtime for voice
+- **PDF Generation**: Puppeteer
 
-Key backend services:
-- `server/services/pricing.ts`: Line item search, price calculation with regional adjustments
-- `server/services/xactPricing.ts`: Xactimate price list integration with formula parsing
-- `server/services/auth.ts`: User authentication and password hashing
-- `server/services/weatherService.ts`: Weather data via National Weather Service API (free, no API key)
-- `server/services/myDayAnalysis.ts`: AI-powered claim analysis for "My Day" optimization
-- `server/middleware/auth.ts`: Passport.js session configuration
-- `server/scraper/homeDepot.ts`: Material price scraping (demo only - not production-ready)
-- `server/routes.ts`: API endpoint registration
+### Development
+- **TypeScript Execution**: tsx
+- **Build**: esbuild (server), Vite (client)
+- **Package Manager**: npm
 
-### Weather Service
+## Project Structure
 
-The application fetches weather data for inspection locations using the free National Weather Service (NWS) API.
+```
+├── client/                     # React frontend
+│   ├── src/
+│   │   ├── features/           # Feature modules
+│   │   │   ├── voice-sketch/   # Voice-driven room sketching
+│   │   │   └── voice-scope/    # Voice damage documentation
+│   │   ├── pages/              # Route pages
+│   │   ├── components/         # Shared components
+│   │   │   ├── ui/             # shadcn/ui primitives
+│   │   │   ├── layouts/        # Desktop/Mobile layouts
+│   │   │   └── workflow/       # Inspection workflow components
+│   │   ├── hooks/              # Custom React hooks
+│   │   ├── lib/                # Utilities, API, store
+│   │   └── contexts/           # React contexts
+│   └── index.html
+├── server/                     # Express backend
+│   ├── services/               # Business logic
+│   ├── middleware/             # Auth, tenant middleware
+│   ├── lib/                    # Supabase clients
+│   ├── config/                 # Inspection rules config
+│   ├── scraper/                # Price scraping (demo)
+│   └── routes.ts               # API endpoints
+├── shared/                     # Shared types
+│   └── schema.ts               # Drizzle schema + Zod types
+├── db/
+│   ├── migrations/             # Supabase SQL migrations
+│   └── seeds/                  # Database seed data
+├── script/
+│   └── build.ts                # Production build script
+└── uploads/                    # Local file uploads
+```
 
-**Key Features:**
-- No API key required - just requires User-Agent header
-- Two-step flow: `/points/{lat},{lon}` → get grid coordinates → fetch forecast
-- Grid point caching to minimize API calls
-- Provides: temperature, wind, precipitation probability, weather conditions, alerts
-- Calculates inspection impact score (good/caution/warning/severe)
+## Core Features
 
-**API Endpoints:**
-- `POST /api/weather/locations` - Fetch weather for multiple locations
-- `POST /api/my-day/analyze` - AI analysis of claims with weather integration
+### 1. Voice Sketch
+Voice-driven room sketching for field adjusters using OpenAI Realtime API.
 
-### Xactimate Price List Integration
+**Location**: `client/src/features/voice-sketch/`
 
-The system includes a full Xactimate price list dataset with 122 categories, 20,974 line items, and 14,586 material/labor/equipment components.
+**Key Components**:
+- `VoiceSketchController.tsx` - Main voice interface
+- `room-sketch-agent.ts` - OpenAI agent with tool definitions
+- `geometry-engine.ts` - Room geometry calculations
+- `FloorPlanPreview.tsx` - Visual floor plan rendering
 
-**Database Tables:**
-- `xact_categories`: Category hierarchy from Xactimate
-- `xact_line_items`: Line items with activity formulas and labor efficiency
-- `xact_components`: Materials, equipment, and labor rates with unit prices
+**Capabilities**:
+- Create rooms with dimensions via voice commands
+- Add doors, windows, openings between rooms
+- Support for exterior zones (roof, elevations, siding, gutters, deck, patio, fence)
+- Auto-calculate square footage and perimeter
+- Generate floor plan visualizations
 
-**Formula System:**
-- Material formulas: `GT,1,C|GZ,19,Co` = component × quantity pairs
-- Component codes: Short IDs (e.g., "GT") map to xact_id with prefix (e.g., "5GT")
-- Labor efficiency: Minutes per 100 units, converted to per-unit pricing
-- Per-unit normalization: Aggregate formula quantities divided by labor efficiency
+**Structure Types**: `main_dwelling`, `detached_garage`, `shed`, `barn`, `carport`, `pool_house`, `guest_house`
 
-**API Endpoints:**
-- `GET /api/xact/search?q=drywall` - Search items with calculated pricing
-- `GET /api/xact/price/:code` - Full price breakdown with material/labor/equipment components
-- `POST /api/estimates/:id/xact-items` - Add Xactimate item to estimate with auto-pricing
+### 2. Voice Scope
+Voice-driven damage documentation for line item creation.
 
-### Authentication System
+**Location**: `client/src/features/voice-scope/`
 
-The application uses session-based authentication with Passport.js:
+**Key Components**:
+- `VoiceScopeController.tsx` - Voice UI
+- `scope-agent.ts` - Damage documentation agent
+- `scope-engine.ts` - Line item management
 
-**Key Files:**
-- `server/middleware/auth.ts` - Session configuration and Passport setup
-- `server/services/auth.ts` - User validation, password hashing with bcrypt
-- `server/routes.ts` - Auth API endpoints
-- `client/src/lib/api.ts` - Frontend API functions
-- `client/src/lib/store.ts` - Zustand auth state management
+**Capabilities**:
+- Document damage via voice
+- Auto-suggest line items based on damage description
+- Link to rooms/zones from Voice Sketch
+- Calculate quantities from dimensions
 
-**Session Configuration (Required for Replit):**
+### 3. My Day
+AI-powered daily claim optimization and route planning.
+
+**Location**: `client/src/pages/my-day.tsx`, `server/services/myDayAnalysis.ts`
+
+**Capabilities**:
+- View assigned claims for the day
+- Weather-aware scheduling with NWS API integration
+- AI-generated insights (priority, efficiency, risk, SLA)
+- Route optimization suggestions
+- Claim briefing summaries
+
+### 4. Claims Management
+Full FNOL processing and claim lifecycle management.
+
+**Key Services**:
+- `server/services/claims.ts` - CRUD operations
+- `server/services/documentProcessor.ts` - AI document extraction
+- `server/services/claimBriefingService.ts` - AI briefings
+
+**Claim Statuses**: `draft` → `fnol` → `open` → `in_progress` → `review` → `approved` → `closed`
+
+### 5. Document Processing
+AI-powered extraction from insurance documents using GPT-4.1 Vision.
+
+**Extraction Types**:
+- **FNOL Documents**: Claim details, policyholder info, loss description
+- **Policy Forms**: Full coverage details, exclusions, conditions
+- **Endorsements**: Delta modifications to base policy
+
+**Tables**:
+- `policy_form_extractions` - Full policy content
+- `endorsement_extractions` - Endorsement modifications
+
+### 6. Estimate Builder
+Hierarchical estimate system with Xactimate compatibility.
+
+**Hierarchy**: Estimate → Structure → Area → Zone → Line Items
+
+**Key Services**:
+- `server/services/estimateHierarchy.ts` - CRUD for estimate hierarchy
+- `server/services/estimateCalculator.ts` - Price calculations
+- `server/services/xactPricing.ts` - Xactimate price list integration
+- `server/services/depreciationEngine.ts` - ACV calculations
+
+**Export Formats**: PDF, ESX (Xactimate), CSV
+
+### 7. Inspection Workflows
+AI-generated inspection checklists based on peril type.
+
+**Services**:
+- `server/services/inspectionWorkflowService.ts` - Workflow generation
+- `server/services/checklistTemplateService.ts` - Checklist templates
+- `server/config/perilInspectionRules.ts` - Per-peril rules
+
+## API Structure
+
+### Authentication
+- `POST /api/auth/login` - Login with username/password
+- `POST /api/auth/logout` - Logout and destroy session
+- `GET /api/auth/me` - Get current user
+- `POST /api/auth/signup` - Create new account
+
+### Claims
+- `GET /api/claims` - List claims
+- `GET /api/claims/:id` - Get claim details
+- `POST /api/claims` - Create claim
+- `PUT /api/claims/:id` - Update claim
+- `DELETE /api/claims/:id` - Delete claim
+- `GET /api/claims/:id/briefing` - Get AI briefing
+- `GET /api/claims/:id/documents` - Get claim documents
+- `GET /api/claims/:id/workflow` - Get inspection workflow
+
+### Estimates
+- `GET /api/estimates/:id` - Get estimate
+- `POST /api/estimates` - Create estimate
+- `GET /api/estimates/:id/hierarchy` - Get full hierarchy
+- `POST /api/estimates/:id/structures` - Add structure
+- `POST /api/estimates/:id/zones` - Add zone
+- `POST /api/zones/:id/line-items` - Add line item
+
+### Documents
+- `POST /api/documents/upload` - Upload document
+- `POST /api/documents/:id/process` - AI extraction
+- `GET /api/documents/:id/preview` - Get previews
+- `GET /api/documents/:id/download` - Download file
+
+### Voice
+- `POST /api/voice/session` - Create ephemeral key for Realtime API
+
+### Weather
+- `POST /api/weather/locations` - Fetch weather for locations
+- `POST /api/my-day/analyze` - AI analysis with weather
+
+### Pricing & Line Items
+- `GET /api/line-items` - Search line items
+- `GET /api/line-items/categories` - Get category hierarchy
+- `POST /api/pricing/calculate` - Calculate prices with regional adjustments
+- `GET /api/regions` - Get all pricing regions
+- `GET /api/xact/search` - Search Xactimate items
+- `GET /api/xact/price/:code` - Get full price breakdown
+
+### Geocoding & Maps
+- `GET /api/claims/map` - Get geocoded claims for map view
+- `GET /api/map/stats` - Get map statistics
+- `POST /api/geocode` - Geocode pending claims
+
+### Organizations
+- `GET /api/organizations` - List organizations
+- `POST /api/organizations` - Create organization
+- `GET /api/organizations/:id/members` - Get members
+- `POST /api/organizations/:id/members` - Add member
+
+### Admin
+- `GET /api/system/status` - Database status
+- `GET /api/prompts` - List AI prompts
+- `PUT /api/prompts/:key` - Update AI prompt
+
+## Environment Variables
+
+### Required
+- `SUPABASE_URL` - Supabase project URL
+- `SUPABASE_PUBLISHABLE_API_KEY` - Client-side key
+- `SUPABASE_SECRET_KEY` - Server admin key
+- `SUPABASE_DATABASE_URL` - PostgreSQL connection string
+- `SESSION_SECRET` - Session encryption key
+- `OPENAI_API_KEY` - OpenAI API key for voice features
+
+### Client-Side (Vite)
+- `VITE_SUPABASE_URL` - Supabase URL for frontend
+- `VITE_SUPABASE_PUBLISHABLE_API_KEY` - Publishable key
+
+### Optional
+- `APP_URL` - Application URL for redirects
+
+## Authentication
+
+Uses session-based auth with Passport.js for local strategy and optional Supabase Auth.
+
+**Cookie Configuration (Replit)**:
 ```typescript
 cookie: {
   secure: true,           // Required for HTTPS
-  httpOnly: true,         // Security best practice
+  httpOnly: true,
   maxAge: 24 * 60 * 60 * 1000,  // 24 hours
   sameSite: 'none',       // Required for Replit iframe
 }
 ```
 
-**Important Notes:**
-- Replit hosts apps in an HTTPS iframe, requiring `sameSite: 'none'` and `secure: true`
-- Sessions are stored in PostgreSQL via `connect-pg-simple`
-- Auth endpoints must include `Cache-Control: no-store` headers to prevent 304 responses
-- Frontend must use `credentials: 'include'` on all fetch requests
+**Note**: Create users via the signup endpoint or Supabase Auth dashboard.
 
-**Default Admin Credentials:**
-- Username: `admin`
-- Password: `admin123`
+## Peril Types
 
-### Data Storage
-- **ORM**: Drizzle ORM with PostgreSQL dialect
-- **Schema Location**: `shared/schema.ts` for shared type definitions
-- **Migrations**: Drizzle Kit with output to `./migrations`
-- **Connection**: Connection pool via `pg` package
+The platform supports comprehensive peril tracking with type-specific metadata:
 
-The database schema supports:
-- Organizations (carriers, adjusting firms, contractors)
-- Users with role-based access (username/password columns for auth)
-- Geographic pricing regions with indices
-- Line item catalog with hierarchical categories
-- Material, labor, and equipment components
-- Session storage table (auto-created by connect-pg-simple)
+| Peril | Description |
+|-------|-------------|
+| `wind_hail` | Wind and hail damage |
+| `fire` | Fire damage |
+| `water` | Non-flood water damage |
+| `flood` | External water intrusion |
+| `smoke` | Smoke damage |
+| `mold` | Mold damage |
+| `impact` | Vehicle/tree/debris impact |
 
-### Build and Deployment
-- **Client Build**: Vite outputs to `dist/public`
-- **Server Build**: esbuild bundles server to `dist/index.cjs`
-- **Production**: Node.js serves static files and API from single process
-- **Development**: Concurrent Vite dev server with Express backend
+## Development
 
-## External Dependencies
-
-### Database
-- PostgreSQL database (required, connection via `DATABASE_URL` environment variable)
-- Drizzle ORM for database operations
-- connect-pg-simple for session storage
-
-### Third-Party Services
-- Session-based authentication with Passport.js (local strategy)
-- Material pricing scraper designed for Home Depot (demo/research only - web scraping is unreliable)
-
-### Key NPM Packages
-- **Authentication**: passport, passport-local, bcryptjs, express-session, connect-pg-simple
-- **UI**: Radix UI primitives, Lucide React icons, shadcn/ui components
-- **State**: Zustand, TanStack React Query
-- **Styling**: Tailwind CSS, class-variance-authority
-- **Utilities**: date-fns, drizzle-zod, zod
-
-## API Structure
-
-### Authentication
-- `POST /api/auth/login` - Login with username/password (supports rememberMe flag)
-- `POST /api/auth/logout` - Logout and destroy session
-- `GET /api/auth/me` - Get current authenticated user
-- `GET /api/auth/check` - Check if authenticated
-
-### Line Items & Pricing
-- `GET /api/line-items` - Search line items with filtering
-- `GET /api/line-items/categories` - Retrieve category hierarchy
-- `POST /api/pricing/calculate` - Calculate prices with regional adjustments
-- `GET /api/regions` - Get all pricing regions
-- `GET /api/carrier-profiles` - Get carrier profit/overhead profiles
-
-### Claims
-- `GET /api/claims` - List claims for organization
-- `GET /api/claims/:id` - Get single claim
-- `POST /api/claims` - Create new claim (requires organizationId)
-- `PUT /api/claims/:id` - Update claim
-- `DELETE /api/claims/:id` - Delete claim
-- `POST /api/claims/:id/rooms` - Save rooms/damage zones to claim (stored in metadata.rooms)
-- `GET /api/claims/:id/rooms` - Get rooms/damage zones from claim
-- `GET /api/claims/:id/documents` - Get claim documents
-- `GET /api/claims/:id/endorsements` - Get claim endorsements (legacy format)
-- `GET /api/claims/:id/endorsement-extractions` - Get comprehensive endorsement extractions (v2.0)
-- `GET /api/endorsement-extractions/:id` - Get specific endorsement extraction by ID
-- `GET /api/claims/:id/policy-forms` - Get legacy policy form records
-- `GET /api/claims/:id/policy-extractions` - Get comprehensive policy extractions (v2.0)
-- `GET /api/policy-extractions/:id` - Get specific policy extraction by ID
-
-### Comprehensive Policy Extraction (v2.0)
-The system extracts full lossless policy form content using GPT-4.1 Vision API. Extractions are stored in `policy_form_extractions` table with:
-- **documentMetadata**: Document type, form code, edition date, page count
-- **policyStructure**: Table of contents, policy statement, agreement text
-- **definitions**: All policy definitions with terms, definitions, sub-clauses, exceptions
-- **sectionI**: Property coverage (A-D), perils, exclusions, additional coverages, loss settlement details
-- **sectionII**: Liability coverages (E-F), exclusions, additional coverages
-- **generalConditions**: All general conditions from the policy
-- **rawPageText**: Complete verbatim text from all pages
-
-The extraction uses the prompt stored in `ai_prompts` table with key `DOCUMENT_EXTRACTION_POLICY`.
-
-### Comprehensive Endorsement Extraction (v2.0)
-The system extracts endorsements as delta changes using GPT-4.1 Vision API. Extractions are stored in `endorsement_extractions` table with:
-- **endorsementMetadata**: Form code, title, edition date, jurisdiction, page count, applies to policy forms
-- **modifications**: Delta changes organized by category:
-  - `definitions`: added/deleted/replaced definitions
-  - `coverages`: added/deleted/modified coverages
-  - `perils`: added/deleted/modified perils
-  - `exclusions`: added/deleted/modified exclusions
-  - `conditions`: added/deleted/modified conditions
-  - `lossSettlement`: replaced loss settlement sections
-- **tables**: Any tables with deductible schedules, coverage limits, etc.
-- **rawText**: Complete verbatim text from all pages
-
-The extraction uses the prompt stored in `ai_prompts` table with key `DOCUMENT_EXTRACTION_ENDORSEMENT`.
-
-**Claim Statuses:**
-- `draft` - Initial status, claim created incrementally during New Claim wizard
-- `fnol` - First Notice of Loss received, claim finalized
-- `open` - Claim is open and being worked
-- `in_progress` - Active work on the claim
-- `review` - Claim under review
-- `approved` - Claim approved
-- `closed` - Claim closed
-
-**Draft Claim Workflow:**
-The New Claim wizard creates a draft claim as soon as the first document (FNOL) is processed. As the user progresses through steps (Policy, Endorsements), the draft is automatically updated with extracted data. When the user clicks "Finalize Claim" on the Review step, the status changes from `draft` to `fnol`. This allows users to close the browser and return later to complete the claim creation process.
-
-### Estimates
-- `POST /api/estimates/calculate` - Calculate estimate without saving
-- `POST /api/estimates` - Create and save estimate
-- `GET /api/estimates` - List estimates
-- `GET /api/estimates/:id` - Get specific estimate
-
-### System/Admin
-- `GET /api/system/status` - Database status and counts
-- `POST /api/scrape/home-depot` - Trigger price scraper (demo only)
-- `GET /api/scrape/prices` - View scraped prices
-- `GET /api/scrape/config` - View scraper configuration
-
-## Development Notes
-
-### Running Locally
+### Commands
 ```bash
-npm run dev  # Starts both frontend and backend
-```
-
-### Database Migrations
-```bash
-npm run db:push  # Push schema changes to database
+npm run dev        # Start development server
+npm run build      # Production build
+npm run start      # Run production
+npm run db:push    # Push schema to database
 ```
 
 ### Adding New Pages
 1. Create component in `client/src/pages/`
 2. Register route in `client/src/App.tsx`
-3. Add to navigation in `client/src/components/layout.tsx`
+3. Add navigation in layouts
 
-### Environment Variables
+### Adding AI Prompts
+Prompts are stored in `ai_prompts` table and cached in memory. Update via API or directly in database.
 
-**Supabase Configuration (Required):**
-- `SUPABASE_URL` - Supabase project URL (https://xxx.supabase.co)
-- `SUPABASE_PUBLISHABLE_API_KEY` - Publishable key (sb_publishable_xxx) for client-side use
-- `SUPABASE_SECRET_KEY` - Secret key (sb_secret_xxx) for server-side admin operations
-- `SUPABASE_DATABASE_URL` - PostgreSQL connection string for direct database access
+## Database
 
-**Client-Side Variables (Vite):**
-- `VITE_SUPABASE_URL` - Supabase URL for frontend
-- `VITE_SUPABASE_PUBLISHABLE_API_KEY` - Publishable key for frontend
+### Key Tables
+- `organizations` - Multi-tenant support
+- `users` - User accounts
+- `claims` - FNOL and claim data
+- `documents` - Uploaded files
+- `estimates` - Estimate headers
+- `estimate_structures` - Buildings/structures
+- `estimate_areas` - Rooms/areas
+- `estimate_zones` - Damage zones
+- `estimate_line_items` - Individual line items
+- `xact_line_items` - Xactimate price catalog
+- `ai_prompts` - Configurable AI prompts
+- `claim_checklists` - Inspection checklists
 
-**Application Configuration:**
-- `SESSION_SECRET` - Session encryption key (required in production)
-- `OPENAI_API_KEY` - For AI features (optional)
-- `APP_URL` - Application URL for redirects
+### Migrations
+SQL migrations are stored in `db/migrations/` and run via Supabase.
 
-**Legacy Variables (Deprecated - backwards compatible):**
-- `DATABASE_URL` - Use SUPABASE_DATABASE_URL instead
-- `SUPABASE_ANON_KEY` - Use SUPABASE_PUBLISHABLE_API_KEY instead
-- `SUPABASE_SERVICE_ROLE_KEY` - Use SUPABASE_SECRET_KEY instead
+## External Services
 
-See `.env.example` for complete configuration reference.
+### Weather
+Uses free National Weather Service API (no key required):
+- Two-step flow: `/points/{lat},{lon}` → forecast
+- Returns temperature, wind, precipitation, alerts
+- Calculates inspection impact score
+
+### Xactimate Integration
+Full price list with 122 categories, 20,000+ line items:
+- Material/labor/equipment components
+- Formula-based pricing
+- ESX export for Xactimate import
