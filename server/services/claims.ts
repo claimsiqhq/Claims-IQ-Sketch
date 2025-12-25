@@ -53,8 +53,8 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
   return {
     id: row.id,
     organizationId: row.organization_id,
-    claimId: row.claim_number,
-    claimNumber: row.claim_number,
+    claimId: row.claim_id,
+    claimNumber: row.claim_id,
     carrierId: row.carrier_id,
     regionId: row.region_id,
     policyholder: row.insured_name,
@@ -142,7 +142,7 @@ export async function createClaim(
     .from('claims')
     .insert({
       organization_id: organizationId,
-      claim_number: claimNumber,
+      claim_id: claimNumber,
       policy_number: data.policyNumber || null,
       date_of_loss: data.dateOfLoss || null,
       claim_type: data.claimType || null,
@@ -238,7 +238,7 @@ export async function listClaims(
     query = query.eq('assigned_adjuster_id', options.assignedAdjusterId);
   }
   if (options?.search) {
-    query = query.or(`claim_number.ilike.%${options.search}%,policy_number.ilike.%${options.search}%,insured_name.ilike.%${options.search}%,property_address.ilike.%${options.search}%`);
+    query = query.or(`claim_id.ilike.%${options.search}%,policy_number.ilike.%${options.search}%,insured_name.ilike.%${options.search}%,property_address.ilike.%${options.search}%`);
   }
 
   const limit = options?.limit || 50;
@@ -293,8 +293,8 @@ export async function updateClaim(
   const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
 
   const fieldMap: Record<string, string> = {
-    claimId: 'claim_number',
-    claimNumber: 'claim_number',
+    claimId: 'claim_id',
+    claimNumber: 'claim_id',
     policyNumber: 'policy_number',
     dateOfLoss: 'date_of_loss',
     claimType: 'claim_type',
