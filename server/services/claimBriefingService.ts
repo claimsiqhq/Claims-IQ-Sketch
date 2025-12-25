@@ -387,11 +387,40 @@ export async function generateClaimBriefing(
       }
 
       // Parse the JSON response
-      const briefingContent: ClaimBriefingContent = JSON.parse(responseContent);
+      let briefingContent: ClaimBriefingContent;
+      try {
+        const parsed = JSON.parse(responseContent);
+        
+        // Normalize the response - AI might return slightly different structures
+        briefingContent = {
+          claim_summary: parsed.claim_summary || {
+            primary_peril: context.primaryPeril || 'unknown',
+            secondary_perils: context.secondaryPerils || [],
+            overview: parsed.overview || parsed.summary || ['No summary available'],
+          },
+          inspection_strategy: parsed.inspection_strategy || {
+            where_to_start: parsed.where_to_start || ['Exterior overview', 'Primary damage area'],
+            what_to_prioritize: parsed.what_to_prioritize || parsed.priorities || ['Document all visible damage'],
+            common_misses: parsed.common_misses || ['Secondary damage', 'Hidden moisture'],
+          },
+          peril_specific_risks: parsed.peril_specific_risks || parsed.risks || [],
+          endorsement_watchouts: parsed.endorsement_watchouts || [],
+          photo_requirements: parsed.photo_requirements || [],
+          sketch_requirements: parsed.sketch_requirements || [],
+          depreciation_considerations: parsed.depreciation_considerations || [],
+          open_questions_for_adjuster: parsed.open_questions_for_adjuster || parsed.open_questions || [],
+        };
 
-      // Validate required fields
-      if (!briefingContent.claim_summary || !briefingContent.inspection_strategy) {
-        throw new Error('Invalid briefing structure from AI');
+        // Ensure claim_summary has required nested fields
+        if (!briefingContent.claim_summary.overview) {
+          briefingContent.claim_summary.overview = ['Review claim details'];
+        }
+        if (!briefingContent.inspection_strategy.where_to_start) {
+          briefingContent.inspection_strategy.where_to_start = ['Start with exterior inspection'];
+        }
+      } catch (parseError) {
+        console.error('Failed to parse AI response:', responseContent);
+        throw new Error(`Invalid JSON from AI: ${parseError instanceof Error ? parseError.message : 'Parse error'}`);
       }
 
       // Update the briefing record
