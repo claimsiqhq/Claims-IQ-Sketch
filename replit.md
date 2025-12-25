@@ -179,7 +179,9 @@ The database schema supports:
 - `POST /api/claims/:id/rooms` - Save rooms/damage zones to claim (stored in metadata.rooms)
 - `GET /api/claims/:id/rooms` - Get rooms/damage zones from claim
 - `GET /api/claims/:id/documents` - Get claim documents
-- `GET /api/claims/:id/endorsements` - Get claim endorsements
+- `GET /api/claims/:id/endorsements` - Get claim endorsements (legacy format)
+- `GET /api/claims/:id/endorsement-extractions` - Get comprehensive endorsement extractions (v2.0)
+- `GET /api/endorsement-extractions/:id` - Get specific endorsement extraction by ID
 - `GET /api/claims/:id/policy-forms` - Get legacy policy form records
 - `GET /api/claims/:id/policy-extractions` - Get comprehensive policy extractions (v2.0)
 - `GET /api/policy-extractions/:id` - Get specific policy extraction by ID
@@ -195,6 +197,21 @@ The system extracts full lossless policy form content using GPT-4.1 Vision API. 
 - **rawPageText**: Complete verbatim text from all pages
 
 The extraction uses the prompt stored in `ai_prompts` table with key `DOCUMENT_EXTRACTION_POLICY`.
+
+### Comprehensive Endorsement Extraction (v2.0)
+The system extracts endorsements as delta changes using GPT-4.1 Vision API. Extractions are stored in `endorsement_extractions` table with:
+- **endorsementMetadata**: Form code, title, edition date, jurisdiction, page count, applies to policy forms
+- **modifications**: Delta changes organized by category:
+  - `definitions`: added/deleted/replaced definitions
+  - `coverages`: added/deleted/modified coverages
+  - `perils`: added/deleted/modified perils
+  - `exclusions`: added/deleted/modified exclusions
+  - `conditions`: added/deleted/modified conditions
+  - `lossSettlement`: replaced loss settlement sections
+- **tables**: Any tables with deductible schedules, coverage limits, etc.
+- **rawText**: Complete verbatim text from all pages
+
+The extraction uses the prompt stored in `ai_prompts` table with key `DOCUMENT_EXTRACTION_ENDORSEMENT`.
 
 **Claim Statuses:**
 - `draft` - Initial status, claim created incrementally during New Claim wizard

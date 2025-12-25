@@ -1415,6 +1415,88 @@ export async function getPolicyExtraction(id: string): Promise<PolicyFormExtract
 }
 
 // ============================================
+// COMPREHENSIVE ENDORSEMENT EXTRACTION API (v2.0)
+// ============================================
+
+export interface EndorsementModifications {
+  definitions?: {
+    added?: { term: string; definition: string }[];
+    deleted?: string[];
+    replaced?: { term: string; newDefinition: string }[];
+  };
+  coverages?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: { coverage: string; changeType: string; details: string }[];
+  };
+  perils?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  exclusions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  conditions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  lossSettlement?: {
+    replacedSections?: { policySection: string; newRule: string }[];
+  };
+}
+
+export interface EndorsementTable {
+  tableType: string;
+  appliesWhen?: { coverage?: string[]; peril?: string[] };
+  data?: Record<string, any>;
+}
+
+export interface EndorsementExtraction {
+  id: string;
+  organization_id: string;
+  claim_id?: string;
+  document_id?: string;
+  form_code: string;
+  title?: string;
+  edition_date?: string;
+  jurisdiction?: string;
+  page_count?: number;
+  applies_to_policy_forms?: string[];
+  modifications?: EndorsementModifications;
+  tables?: EndorsementTable[];
+  raw_text?: string;
+  extraction_model?: string;
+  extraction_version?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getClaimEndorsementExtractions(claimId: string): Promise<EndorsementExtraction[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/endorsement-extractions`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch endorsement extractions');
+  }
+  return response.json();
+}
+
+export async function getEndorsementExtraction(id: string): Promise<EndorsementExtraction> {
+  const response = await fetch(`${API_BASE}/endorsement-extractions/${id}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch endorsement extraction');
+  }
+  return response.json();
+}
+
+// ============================================
 // INSPECTION INTELLIGENCE API
 // ============================================
 

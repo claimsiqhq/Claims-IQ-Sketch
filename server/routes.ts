@@ -3228,6 +3228,48 @@ export async function registerRoutes(
     }
   });
 
+  // Get comprehensive endorsement extractions for a claim
+  app.get('/api/claims/:id/endorsement-extractions', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('endorsement_extractions')
+        .select('*')
+        .eq('claim_id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      res.json(data || []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get a specific endorsement extraction by ID
+  app.get('/api/endorsement-extractions/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('endorsement_extractions')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.organizationId!)
+        .single();
+
+      if (error) throw error;
+
+      if (!data) {
+        return res.status(404).json({ error: 'Endorsement extraction not found' });
+      }
+
+      res.json(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // INSPECTION INTELLIGENCE ROUTES
   // ============================================
