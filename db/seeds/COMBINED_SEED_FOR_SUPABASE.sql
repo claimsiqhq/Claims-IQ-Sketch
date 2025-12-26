@@ -1,11 +1,19 @@
 -- ============================================
--- COMBINED SEED FILE FOR SUPABASE (FIXED v2)
+-- COMBINED SEED FILE FOR SUPABASE (FIXED v3)
+-- Uses DELETE + INSERT pattern for reliable seeding
 -- Copy this entire file and paste into Supabase SQL Editor
 -- ============================================
+
+BEGIN;
 
 -- ============================================
 -- LINE ITEM CATEGORIES (id is VARCHAR primary key)
 -- ============================================
+
+DELETE FROM line_item_categories WHERE id IN (
+  '01','02','03','04','05','06','07','08','09','10',
+  '11','12','13','14','15','16','17','18','19','20','21'
+);
 
 INSERT INTO line_item_categories (id, parent_id, name, description, sort_order, default_coverage_code) VALUES
 ('01', NULL, 'General Conditions', 'Project overhead, permits, supervision', 1, 'A'),
@@ -28,23 +36,28 @@ INSERT INTO line_item_categories (id, parent_id, name, description, sort_order, 
 ('18', NULL, 'Insulation', 'Wall, attic, crawlspace insulation', 18, 'A'),
 ('19', NULL, 'Water Mitigation', 'Drying, extraction, mold remediation', 19, 'A'),
 ('20', NULL, 'Contents', 'Personal property, cleaning', 20, 'C'),
-('21', NULL, 'Additional Living Expense', 'Temporary housing, meals', 21, 'D')
-ON CONFLICT (id) DO NOTHING;
+('21', NULL, 'Additional Living Expense', 'Temporary housing, meals', 21, 'D');
 
 -- ============================================
 -- COVERAGE TYPES
 -- ============================================
 
+DELETE FROM coverage_types WHERE code IN ('A', 'B', 'C', 'D');
+
 INSERT INTO coverage_types (code, name, description, sort_order) VALUES
 ('A', 'Coverage A - Dwelling', 'Structural damage to the insured dwelling including attached structures', 1),
 ('B', 'Coverage B - Other Structures', 'Detached structures like fences, sheds, detached garages, pools', 2),
 ('C', 'Coverage C - Personal Property', 'Contents and personal belongings inside the dwelling', 3),
-('D', 'Coverage D - Loss of Use', 'Additional living expenses during repairs (ALE)', 4)
-ON CONFLICT (code) DO NOTHING;
+('D', 'Coverage D - Loss of Use', 'Additional living expenses during repairs (ALE)', 4);
 
 -- ============================================
 -- TAX RATES
 -- ============================================
+
+DELETE FROM tax_rates WHERE region_code IN (
+  'NATIONAL', 'TX-DFW', 'TX-HOU', 'TX-AUS', 'CA-LA', 'CA-SF',
+  'FL-MIA', 'FL-ORL', 'NY-NYC', 'IL-CHI', 'CO-DEN', 'GA-ATL'
+);
 
 INSERT INTO tax_rates (region_code, tax_type, tax_name, rate, applies_to) VALUES
 ('NATIONAL', 'material_sales', 'Material Sales Tax', 0.0625, 'materials'),
@@ -58,12 +71,13 @@ INSERT INTO tax_rates (region_code, tax_type, tax_name, rate, applies_to) VALUES
 ('NY-NYC', 'material_sales', 'NY Sales Tax', 0.0875, 'materials'),
 ('IL-CHI', 'material_sales', 'IL Sales Tax', 0.1025, 'materials'),
 ('CO-DEN', 'material_sales', 'CO Sales Tax', 0.0877, 'materials'),
-('GA-ATL', 'material_sales', 'GA Sales Tax', 0.0890, 'materials')
-ON CONFLICT (region_code, tax_type) DO NOTHING;
+('GA-ATL', 'material_sales', 'GA Sales Tax', 0.0890, 'materials');
 
 -- ============================================
 -- DEPRECIATION SCHEDULES
 -- ============================================
+
+DELETE FROM depreciation_schedules WHERE category_code IN ('07', '08', '11', '12', '13', '14');
 
 INSERT INTO depreciation_schedules (category_code, item_type, useful_life_years, max_depreciation_pct, notes) VALUES
 ('12', 'asphalt_3tab_shingle', 20, 80.00, 'Standard 3-tab shingles'),
@@ -86,12 +100,16 @@ INSERT INTO depreciation_schedules (category_code, item_type, useful_life_years,
 ('14', 'exterior_paint', 10, 80.00, 'Exterior paint'),
 ('11', 'hvac_furnace', 20, 80.00, 'Gas or electric furnace'),
 ('11', 'hvac_ac_condenser', 15, 80.00, 'AC condenser unit'),
-('11', 'water_heater_tank', 12, 80.00, 'Tank water heater')
-ON CONFLICT (category_code, item_type) DO NOTHING;
+('11', 'water_heater_tank', 12, 80.00, 'Tank water heater');
 
 -- ============================================
 -- LABOR RATES
 -- ============================================
+
+DELETE FROM labor_rates WHERE trade_code IN (
+  'GEN', 'CARP', 'ELEC', 'PLMB', 'HVAC', 'ROOF',
+  'PAINT', 'TILE', 'FLOOR', 'DRYW', 'DEMO', 'MITI'
+) AND region_code = 'NATIONAL';
 
 INSERT INTO labor_rates (trade_code, trade_name, region_code, hourly_rate, effective_date) VALUES
 ('GEN', 'General Labor', 'NATIONAL', 35.00, '2025-01-01'),
@@ -105,12 +123,18 @@ INSERT INTO labor_rates (trade_code, trade_name, region_code, hourly_rate, effec
 ('FLOOR', 'Flooring Installer', 'NATIONAL', 50.00, '2025-01-01'),
 ('DRYW', 'Drywall Finisher', 'NATIONAL', 50.00, '2025-01-01'),
 ('DEMO', 'Demolition', 'NATIONAL', 40.00, '2025-01-01'),
-('MITI', 'Mitigation Technician', 'NATIONAL', 55.00, '2025-01-01')
-ON CONFLICT (trade_code, region_code) DO NOTHING;
+('MITI', 'Mitigation Technician', 'NATIONAL', 55.00, '2025-01-01');
 
 -- ============================================
 -- MATERIALS
 -- ============================================
+
+DELETE FROM materials WHERE sku IN (
+  'MAT-SHIN-3TAB', 'MAT-SHIN-ARCH', 'MAT-SHIN-PREM', 'MAT-FELT-15', 'MAT-FELT-30',
+  'MAT-FLASH-AL', 'MAT-RIDGE', 'MAT-DRIP', 'MAT-DRY-12', 'MAT-DRY-58',
+  'MAT-MUD', 'MAT-TAPE', 'MAT-PAINT-INT', 'MAT-PAINT-EXT', 'MAT-PRIMER',
+  'MAT-CARPET', 'MAT-PAD', 'MAT-LVP', 'MAT-LAMINATE', 'MAT-HARDWOOD'
+);
 
 INSERT INTO materials (sku, name, description, category, unit, manufacturer) VALUES
 ('MAT-SHIN-3TAB', '3-Tab Asphalt Shingles', 'Standard 3-tab shingles per square', 'Roofing', 'SQ', 'GAF'),
@@ -132,10 +156,8 @@ INSERT INTO materials (sku, name, description, category, unit, manufacturer) VAL
 ('MAT-PAD', 'Carpet Pad', '8lb carpet padding', 'Flooring', 'SY', 'Various'),
 ('MAT-LVP', 'Luxury Vinyl Plank', 'LVP flooring', 'Flooring', 'SF', 'LifeProof'),
 ('MAT-LAMINATE', 'Laminate Flooring', 'Laminate plank', 'Flooring', 'SF', 'Pergo'),
-('MAT-HARDWOOD', 'Hardwood Flooring Oak', 'Solid oak hardwood', 'Flooring', 'SF', 'Bruce')
-ON CONFLICT (sku) DO NOTHING;
+('MAT-HARDWOOD', 'Hardwood Flooring Oak', 'Solid oak hardwood', 'Flooring', 'SF', 'Bruce');
 
--- ============================================
--- DONE
--- ============================================
+COMMIT;
+
 SELECT 'Seed data inserted successfully!' as status;
