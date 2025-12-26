@@ -21,6 +21,43 @@ import { getSupabaseAdmin } from '../lib/supabase';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getPromptWithFallback, substituteVariables } from './promptService';
 import { recomputeEffectivePolicyIfNeeded } from './effectivePolicyService';
+import { queueGeocoding } from './geocoding';
+
+/**
+ * Auto-trigger AI generation pipeline after document processing
+ * Runs asynchronously to not block the main response
+ */
+async function triggerAIGenerationPipeline(claimId: string, organizationId: string, documentType: string): Promise<void> {
+  try {
+    console.log(`[AI Pipeline] Starting auto-generation for claim ${claimId} after ${documentType} processing`);
+    
+    // Dynamically import to avoid circular dependencies
+    const { generateClaimBriefing } = await import('./claimBriefingService');
+    const { generateInspectionWorkflow } = await import('./inspectionWorkflowService');
+    
+    // Step 1: Generate briefing (if FNOL, policy, or endorsement was just processed)
+    console.log(`[AI Pipeline] Generating briefing for claim ${claimId}...`);
+    const briefingResult = await generateClaimBriefing(claimId, organizationId, false);
+    
+    if (briefingResult.success) {
+      console.log(`[AI Pipeline] Briefing generated successfully for claim ${claimId}`);
+      
+      // Step 2: Generate inspection workflow after briefing
+      console.log(`[AI Pipeline] Generating inspection workflow for claim ${claimId}...`);
+      const workflowResult = await generateInspectionWorkflow(claimId, organizationId, undefined, false);
+      
+      if (workflowResult.success) {
+        console.log(`[AI Pipeline] Inspection workflow generated successfully for claim ${claimId}`);
+      } else {
+        console.warn(`[AI Pipeline] Workflow generation failed for claim ${claimId}:`, workflowResult.error);
+      }
+    } else {
+      console.warn(`[AI Pipeline] Briefing generation failed for claim ${claimId}:`, briefingResult.error);
+    }
+  } catch (error) {
+    console.error(`[AI Pipeline] Error in auto-generation for claim ${claimId}:`, error);
+  }
+}
 
 const execAsync = promisify(exec);
 
@@ -1018,6 +1055,11 @@ export async function processDocument(
           } catch (e) {
             console.error('[EffectivePolicy] Recomputation error:', e);
           }
+          
+          // Auto-trigger AI generation pipeline (async, non-blocking)
+          triggerAIGenerationPipeline(doc.claim_id, organizationId, 'policy').catch(err => {
+            console.error('[AI Pipeline] Background error:', err);
+          });
         }
 
         console.log(`[Policy] Extraction completed for document ${documentId}`);
@@ -1048,6 +1090,11 @@ export async function processDocument(
           } catch (e) {
             console.error('[EffectivePolicy] Recomputation error:', e);
           }
+          
+          // Auto-trigger AI generation pipeline (async, non-blocking)
+          triggerAIGenerationPipeline(doc.claim_id, organizationId, 'endorsement').catch(err => {
+            console.error('[AI Pipeline] Background error:', err);
+          });
         }
 
         console.log(`[Endorsement] Extraction completed for document ${documentId}`);
@@ -1230,6 +1277,15 @@ export async function createClaimFromDocuments(
   }
 
   console.log(`[ClaimCreation] Created claim ${claimNumber} (${claimId}) with loss_context`);
+
+  // Queue geocoding for the new claim address
+  queueGeocoding(claimId);
+
+  // Auto-trigger AI generation pipeline (async, non-blocking)
+  // This generates briefing + inspection workflow automatically after claim creation
+  triggerAIGenerationPipeline(claimId, organizationId, 'fnol').catch(err => {
+    console.error('[AI Pipeline] Background error:', err);
+  });
 
   return claimId;
 }
