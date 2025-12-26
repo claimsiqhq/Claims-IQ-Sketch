@@ -104,18 +104,18 @@ function QueueItem({ item }: { item: UploadQueueItem }) {
   };
 
   return (
-    <div className="flex items-center gap-3 py-2 px-3 border-b border-border/50 last:border-0">
+    <div className="flex items-center gap-3 py-2 px-3 border-b border-border/50 last:border-0 overflow-hidden">
       <StatusIcon status={item.status} processingStatus={item.processingStatus} />
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{item.fileName}</span>
-          <span className="text-xs text-muted-foreground">{formatFileSize(item.fileSize)}</span>
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <span className="text-sm font-medium truncate max-w-[200px]">{item.fileName}</span>
+          <span className="text-xs text-muted-foreground shrink-0">{formatFileSize(item.fileSize)}</span>
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs text-muted-foreground">{getStatusText()}</span>
+        <div className="flex items-center gap-2 mt-0.5 overflow-hidden">
+          <span className="text-xs text-muted-foreground truncate">{getStatusText()}</span>
           {item.claimNumber && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground shrink-0">
               | Claim: {item.claimNumber}
             </span>
           )}
