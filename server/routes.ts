@@ -4319,7 +4319,7 @@ export async function registerRoutes(
       }
 
       const { uploadAndAnalyzePhoto } = await import('./services/photos');
-      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath } = req.body;
+      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude } = req.body;
 
       const photo = await uploadAndAnalyzePhoto({
         file: {
@@ -4336,6 +4336,8 @@ export async function registerRoutes(
         objectId,
         label,
         hierarchyPath,
+        latitude: latitude ? parseFloat(latitude) : undefined,
+        longitude: longitude ? parseFloat(longitude) : undefined,
       });
 
       res.status(201).json(photo);
