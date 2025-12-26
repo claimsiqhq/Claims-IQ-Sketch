@@ -10,7 +10,7 @@ const GOOGLE_GEOCODING_API_KEY = process.env.GOOGLE_API_KEY || '';
 
 export interface ReverseGeocodeResult {
   formattedAddress: string;
-  shortAddress: string; // Just street or locality
+  shortAddress: string;
 }
 
 export async function reverseGeocode(
@@ -41,7 +41,6 @@ export async function reverseGeocode(
 
     const result = data.results[0];
     
-    // Extract a short address (locality or neighborhood)
     let shortAddress = '';
     for (const component of result.address_components || []) {
       if (component.types.includes('locality')) {
@@ -56,7 +55,6 @@ export async function reverseGeocode(
       }
     }
     
-    // Fallback to formatted address if no locality found
     if (!shortAddress) {
       shortAddress = result.formatted_address.split(',')[0];
     }
@@ -119,7 +117,7 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
   try {
     const { data: claim, error: claimError } = await supabaseAdmin
       .from('claims')
-      .select('property_address, property_city, property_state, property_zip, metadata')
+      .select('property_address, property_city, property_state, property_zip, property_latitude, property_longitude, geocode_status')
       .eq('id', claimId)
       .single();
 
@@ -128,19 +126,16 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       return false;
     }
 
-    const metadata = claim.metadata || {};
-
-    // Check if already geocoded in metadata
-    if (metadata.lat && metadata.lng && metadata.geocoded) {
+    if (claim.property_latitude && claim.property_longitude && claim.geocode_status === 'success') {
       return true;
     }
 
     if (!claim.property_address) {
-      // Mark as skipped in metadata
       await supabaseAdmin
         .from('claims')
         .update({
-          metadata: { ...metadata, geocodeStatus: 'skipped', geocodedAt: new Date().toISOString() }
+          geocode_status: 'skipped',
+          geocoded_at: new Date().toISOString()
         })
         .eq('id', claimId);
       return false;
@@ -154,18 +149,14 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
     );
 
     if (result) {
-      // Store coordinates in metadata JSONB field
-      const geocodeData = {
-        ...metadata,
-        lat: result.latitude,
-        lng: result.longitude,
-        geocoded: true,
-        geocodeStatus: 'success',
-        geocodedAt: new Date().toISOString()
-      };
       await supabaseAdmin
         .from('claims')
-        .update({ metadata: geocodeData })
+        .update({
+          property_latitude: result.latitude,
+          property_longitude: result.longitude,
+          geocode_status: 'success',
+          geocoded_at: new Date().toISOString()
+        })
         .eq('id', claimId);
       console.log(`Geocoded claim ${claimId}: ${result.latitude}, ${result.longitude}`);
       return true;
@@ -173,7 +164,8 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       await supabaseAdmin
         .from('claims')
         .update({
-          metadata: { ...metadata, geocodeStatus: 'failed', geocodedAt: new Date().toISOString() }
+          geocode_status: 'failed',
+          geocoded_at: new Date().toISOString()
         })
         .eq('id', claimId);
       return false;
@@ -184,7 +176,8 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       await supabaseAdmin
         .from('claims')
         .update({
-          metadata: { geocodeStatus: 'failed', geocodedAt: new Date().toISOString() }
+          geocode_status: 'failed',
+          geocoded_at: new Date().toISOString()
         })
         .eq('id', claimId);
     } catch {
@@ -231,11 +224,9 @@ export async function geocodePendingClaims(organizationId?: string, limit = 100)
     .from('claims')
     .select('id')
     .not('property_address', 'is', null)
+    .or('geocode_status.is.null,geocode_status.eq.pending')
     .order('created_at', { ascending: false })
     .limit(limit);
-
-  // Note: Supabase doesn't directly support IS NULL on JSONB fields with ->> notation
-  // We'll filter for claims that need geocoding
 
   if (organizationId) {
     query = query.eq('organization_id', organizationId);
@@ -247,7 +238,6 @@ export async function geocodePendingClaims(organizationId?: string, limit = 100)
     return 0;
   }
 
-  // Filter for claims that need geocoding (geocodeStatus is null or pending)
   let count = 0;
   for (const row of claims) {
     queueGeocoding(row.id);
@@ -264,8 +254,10 @@ export async function getClaimsForMap(organizationId: string, filters?: {
 }): Promise<any[]> {
   let query = supabaseAdmin
     .from('claims')
-    .select('id, claim_number, insured_name, property_address, property_city, property_state, metadata, status, loss_type, date_of_loss, assigned_adjuster_id')
+    .select('id, claim_id, insured_name, property_address, property_city, property_state, property_latitude, property_longitude, status, loss_type, date_of_loss, assigned_adjuster_id')
     .eq('organization_id', organizationId)
+    .not('property_latitude', 'is', null)
+    .not('property_longitude', 'is', null)
     .order('created_at', { ascending: false });
 
   if (filters?.assignedAdjusterId) {
@@ -284,28 +276,19 @@ export async function getClaimsForMap(organizationId: string, filters?: {
     return [];
   }
 
-  // Filter for claims that have lat/lng in metadata
-  return claims
-    .filter(row => {
-      const metadata = row.metadata || {};
-      return metadata.lat && metadata.lng;
-    })
-    .map(row => {
-      const metadata = row.metadata || {};
-      return {
-        id: row.id,
-        claimNumber: row.claim_number,
-        insuredName: row.insured_name,
-        address: row.property_address,
-        city: row.property_city,
-        state: row.property_state,
-        lat: parseFloat(metadata.lat) || 0,
-        lng: parseFloat(metadata.lng) || 0,
-        status: row.status,
-        lossType: row.loss_type,
-        dateOfLoss: row.date_of_loss
-      };
-    });
+  return claims.map(row => ({
+    id: row.id,
+    claimNumber: row.claim_id,
+    insuredName: row.insured_name,
+    address: row.property_address,
+    city: row.property_city,
+    state: row.property_state,
+    lat: row.property_latitude ? parseFloat(String(row.property_latitude)) : 0,
+    lng: row.property_longitude ? parseFloat(String(row.property_longitude)) : 0,
+    status: row.status,
+    lossType: row.loss_type,
+    dateOfLoss: row.date_of_loss
+  }));
 }
 
 export async function getMapStats(organizationId: string): Promise<{
@@ -316,7 +299,7 @@ export async function getMapStats(organizationId: string): Promise<{
 }> {
   const { data: claims, error } = await supabaseAdmin
     .from('claims')
-    .select('metadata')
+    .select('geocode_status')
     .eq('organization_id', organizationId);
 
   if (error || !claims) {
@@ -328,8 +311,7 @@ export async function getMapStats(organizationId: string): Promise<{
   let failed = 0;
 
   for (const claim of claims) {
-    const metadata = claim.metadata || {};
-    const status = metadata.geocodeStatus;
+    const status = claim.geocode_status;
 
     if (status === 'success') {
       geocoded++;
