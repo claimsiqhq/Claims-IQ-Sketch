@@ -389,7 +389,24 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
   const propDmg = source.propertyDamageDetails || source.propertyDamage || {};
   const roofDetails = propDetails.roof || {};
   const fnolInfo = source.fnol || {};
-  const coverages = source.coverages || [];
+  // Normalize coverages to array - handle both array and object formats
+  const rawCoverages = source.coverages;
+  const coverages: any[] = Array.isArray(rawCoverages) 
+    ? rawCoverages 
+    : (rawCoverages && typeof rawCoverages === 'object')
+      ? Object.entries(rawCoverages).map(([k, v]) => typeof v === 'object' ? { ...v, coverageCode: k } : { coverageCode: k, limit: v })
+      : [];
+  
+  // Debug: Log policy-related raw values
+  console.log('[FNOL Transform] Policy extraction debug:', {
+    'claimInfo.policyNumber': claimInfo.policyNumber,
+    'source.policyNumber': source.policyNumber,
+    'source.deductibles': source.deductibles,
+    'coverages.length': coverages.length,
+    'coverageA': Array.isArray(coverages) ? coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling')) : undefined,
+    'source.endorsementsListed': source.endorsementsListed,
+    'source.endorsements': source.endorsements,
+  });
 
   // Build the clean extraction - NULL for missing, no inference
   const extraction: FNOLExtraction = {
@@ -436,32 +453,68 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
       coverageC: coverages.find((c: any) => c.coverageCode === 'C' || c.coverageName?.toLowerCase().includes('personal property'))?.limit || undefined,
     },
     policy: {
-      policyNumber: claimInfo.policyNumber || source.policyNumber || undefined,
-      dwellingLimit: coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling'))?.limit || undefined,
+      policyNumber: claimInfo.policyNumber || source.policyNumber || source.policy?.policyNumber || undefined,
+      dwellingLimit: (() => {
+        // First check coverages array for Coverage A
+        const coverageA = coverages.find((c: any) => 
+          c.coverageCode === 'A' || 
+          c.code === 'A' ||
+          c.coverageName?.toLowerCase().includes('dwelling') ||
+          c.name?.toLowerCase().includes('dwelling')
+        );
+        if (coverageA?.limit) return coverageA.limit;
+        if (coverageA?.amount) return coverageA.amount;
+        // Check for direct Coverage A fields
+        if (source.coverageA) return source.coverageA;
+        if (source.CoverageA) return source.CoverageA;
+        if (source['Coverage A']) return source['Coverage A'];
+        return undefined;
+      })(),
       windHailDeductible: (() => {
         const deductibles = source.deductibles;
         if (!deductibles) return undefined;
-        // Direct property access
-        if (typeof deductibles.windHail === 'string') return deductibles.windHail;
-        if (typeof deductibles['wind/hail'] === 'string') return deductibles['wind/hail'];
-        // Array of deductibles
+        
+        // Handle scalar string value (e.g., "2%", "$1,000")
+        if (typeof deductibles === 'string') return deductibles;
+        if (typeof deductibles === 'number') return `$${deductibles.toLocaleString()}`;
+        
+        // Handle array of deductibles - check FIRST before object checks
         if (Array.isArray(deductibles)) {
           const windHail = deductibles.find((d: any) => 
             d.type?.toLowerCase().includes('wind') || d.type?.toLowerCase().includes('hail') || 
             d.name?.toLowerCase().includes('wind') || d.name?.toLowerCase().includes('hail')
           );
-          return windHail?.amount || windHail?.value || undefined;
+          if (windHail?.amount) return String(windHail.amount);
+          if (windHail?.value) return String(windHail.value);
+          return undefined;
         }
-        // Object with keys
-        if (typeof deductibles === 'object') {
-          const entry = Object.entries(deductibles).find(([k]) => 
-            k.toLowerCase().includes('wind') || k.toLowerCase().includes('hail')
-          );
-          return entry ? String(entry[1]) : undefined;
+        
+        // Handle object with keys (non-array)
+        if (typeof deductibles === 'object' && deductibles !== null) {
+          // Direct property access - try common key variations
+          if (typeof deductibles.windHail === 'string') return deductibles.windHail;
+          if (typeof deductibles['wind/hail'] === 'string') return deductibles['wind/hail'];
+          if (typeof deductibles.windHailDeductible === 'string') return deductibles.windHailDeductible;
+          if (typeof deductibles['Wind/Hail'] === 'string') return deductibles['Wind/Hail'];
+          if (typeof deductibles.wind === 'string') return deductibles.wind;
+          if (typeof deductibles.hail === 'string') return deductibles.hail;
+          
+          // Numeric values - convert to string
+          for (const key of Object.keys(deductibles)) {
+            if (key.toLowerCase().includes('wind') || key.toLowerCase().includes('hail')) {
+              const val = deductibles[key];
+              if (typeof val === 'number') return `$${val.toLocaleString()}`;
+              if (typeof val === 'string') return val;
+            }
+          }
         }
+        
         return undefined;
       })(),
-      endorsementsListed: source.endorsementsListed || source.endorsements?.map((e: any) => e.formCode || e.code || e) || undefined,
+      endorsementsListed: source.endorsementsListed || source.endorsements?.map((e: any) => {
+        if (typeof e === 'string') return e;
+        return e.formCode || e.formNumber || e.code || e.name || JSON.stringify(e);
+      }) || undefined,
     },
   };
 
@@ -1324,6 +1377,14 @@ export async function createClaimFromDocuments(
     primaryPeril: perilInference.primaryPeril,
     secondaryPerils: perilInference.secondaryPerils,
     confidence: perilInference.confidence,
+  });
+
+  // Debug: Log policy values being stored
+  console.log(`[ClaimCreation] Policy values for claim ${claimNumber}:`, {
+    policyNumber: fnolExtraction.policy?.policyNumber || null,
+    dwellingLimit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
+    windHailDeductible: fnolExtraction.policy?.windHailDeductible || null,
+    endorsementsListed: fnolExtraction.policy?.endorsementsListed || [],
   });
 
   // CREATE CLAIM - STRICT SCALAR MAPPING
