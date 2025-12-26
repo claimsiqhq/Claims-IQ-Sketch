@@ -1275,6 +1275,47 @@ export function getDocumentDownloadUrl(documentId: string): string {
   return `${API_BASE}/documents/${documentId}/download`;
 }
 
+/**
+ * Get processing status for multiple documents at once
+ * Used by the upload queue to efficiently poll for completion
+ */
+export async function getDocumentBatchStatus(
+  documentIds: string[]
+): Promise<Record<string, string>> {
+  if (documentIds.length === 0) return {};
+
+  const response = await fetch(
+    `${API_BASE}/documents/batch-status?ids=${documentIds.join(',')}`,
+    { credentials: 'include' }
+  );
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch batch status');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get document processing queue statistics
+ */
+export async function getDocumentQueueStats(): Promise<{
+  queued: number;
+  processing: number;
+  completed: number;
+  failed: number;
+}> {
+  const response = await fetch(`${API_BASE}/documents/queue-stats`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch queue stats');
+  }
+
+  return response.json();
+}
+
 // ============================================
 // ENDORSEMENTS API
 // ============================================
