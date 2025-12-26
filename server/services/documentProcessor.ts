@@ -839,7 +839,8 @@ async function extractFromSingleImage(
 
 async function extractFromPDF(
   filePath: string,
-  documentType: DocumentType
+  documentType: DocumentType,
+  documentId?: string
 ): Promise<any> {
   let imagePaths: string[] = [];
 
@@ -852,6 +853,37 @@ async function extractFromPDF(
     }
 
     console.log(`Processing ${imagePaths.length} page(s) with Vision API`);
+
+    // Helper to update progress without overwriting existing extracted_data
+    const updateProgress = async (progress: any) => {
+      if (!documentId) return;
+      
+      // Fetch current extracted_data to preserve existing fields
+      const { data: currentDoc } = await supabaseAdmin
+        .from('documents')
+        .select('extracted_data')
+        .eq('id', documentId)
+        .single();
+      
+      const currentData = (currentDoc?.extracted_data as any) || {};
+      
+      await supabaseAdmin
+        .from('documents')
+        .update({
+          extracted_data: { ...currentData, _progress: progress },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', documentId);
+    };
+
+    // Initial progress
+    await updateProgress({
+      totalPages: imagePaths.length,
+      pagesProcessed: 0,
+      percentComplete: 0,
+      stage: 'extracting',
+      startedAt: new Date().toISOString()
+    });
 
     const pageResults: any[] = [];
     const pageTexts: string[] = [];
@@ -869,6 +901,18 @@ async function extractFromPDF(
         if (pageData.pageText) {
           pageTexts.push(pageData.pageText);
         }
+
+        // Update progress after each page
+        const pagesProcessed = i + 1;
+        const percentComplete = Math.round((pagesProcessed / imagePaths.length) * 100);
+        await updateProgress({
+          totalPages: imagePaths.length,
+          pagesProcessed,
+          percentComplete,
+          stage: pagesProcessed === imagePaths.length ? 'finalizing' : 'extracting',
+          currentPage: pagesProcessed
+        });
+        console.log(`[Progress] Document ${documentId}: ${pagesProcessed}/${imagePaths.length} pages (${percentComplete}%)`);
       } catch (pageError) {
         console.error(`Error processing page ${i + 1}:`, pageError);
         pageTexts.push(`[Error extracting page ${i + 1}]`);
@@ -993,7 +1037,7 @@ export async function processDocument(
 
       // Extract based on mime type
       if (doc.mime_type === 'application/pdf') {
-        rawExtraction = await extractFromPDF(tempFilePath, documentType);
+        rawExtraction = await extractFromPDF(tempFilePath, documentType, documentId);
       } else if (doc.mime_type.startsWith('image/')) {
         rawExtraction = await extractFromImage(tempFilePath, documentType);
       } else {
@@ -1009,17 +1053,29 @@ export async function processDocument(
       }
     }
 
+    // Fetch current extracted_data to preserve _progress
+    const { data: currentDocData } = await supabaseAdmin
+      .from('documents')
+      .select('extracted_data')
+      .eq('id', documentId)
+      .single();
+    const existingProgress = (currentDocData?.extracted_data as any)?._progress;
+
     // SIMPLIFIED CONTROL FLOW - one path per document type
     switch (documentType) {
       case 'fnol': {
         const fnolExtraction = transformToFNOLExtraction(rawExtraction);
         validateFNOLExtraction(fnolExtraction);
 
-        // Store extracted data
+        // Store extracted data, preserving progress info
+        const finalExtractedData = existingProgress 
+          ? { ...fnolExtraction, _progress: { ...existingProgress, stage: 'completed' } }
+          : fnolExtraction;
+
         await supabaseAdmin
           .from('documents')
           .update({
-            extracted_data: fnolExtraction,
+            extracted_data: finalExtractedData,
             full_text: rawExtraction.fullText || null,
             page_texts: rawExtraction.pageTexts || [],
             processing_status: 'completed',
@@ -1027,24 +1083,53 @@ export async function processDocument(
           })
           .eq('id', documentId);
 
-        // Auto-trigger AI generation pipeline if document is linked to a claim (async, non-blocking)
-        if (doc.claim_id) {
-          triggerAIGenerationPipeline(doc.claim_id, organizationId, 'fnol').catch(err => {
+        // If no claim linked, automatically create one from the extracted FNOL data
+        let claimId = doc.claim_id;
+        if (!claimId) {
+          console.log(`[FNOL] No claim linked - creating claim from FNOL extraction for document ${documentId}`);
+          try {
+            claimId = await createClaimFromDocuments(organizationId, [documentId]);
+            console.log(`[FNOL] Created claim ${claimId} from FNOL document ${documentId}`);
+          } catch (createError) {
+            console.error(`[FNOL] Failed to create claim from FNOL:`, createError);
+            // Update document with error info but keep extraction data
+            await supabaseAdmin
+              .from('documents')
+              .update({
+                processing_status: 'failed',
+                extracted_data: { 
+                  ...fnolExtraction, 
+                  claimCreationError: (createError as Error).message 
+                },
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', documentId);
+            throw createError;
+          }
+        }
+
+        // Auto-trigger AI generation pipeline (async, non-blocking)
+        if (claimId) {
+          triggerAIGenerationPipeline(claimId, organizationId, 'fnol').catch(err => {
             console.error('[AI Pipeline] Background error:', err);
           });
         }
 
-        console.log(`[FNOL] Extraction completed for document ${documentId}`);
+        console.log(`[FNOL] Extraction completed for document ${documentId}, claimId: ${claimId}`);
         return fnolExtraction;
       }
 
       case 'policy': {
         const policyExtraction = transformToPolicyExtraction(rawExtraction);
 
+        const finalPolicyData = existingProgress 
+          ? { ...policyExtraction, _progress: { ...existingProgress, stage: 'completed' } }
+          : policyExtraction;
+
         await supabaseAdmin
           .from('documents')
           .update({
-            extracted_data: policyExtraction,
+            extracted_data: finalPolicyData,
             full_text: rawExtraction.fullText || policyExtraction.rawText || null,
             page_texts: rawExtraction.pageTexts || [],
             processing_status: 'completed',
@@ -1076,10 +1161,14 @@ export async function processDocument(
       case 'endorsement': {
         const endorsementExtractions = transformToEndorsementExtraction(rawExtraction);
 
+        const finalEndorsementData = existingProgress 
+          ? { ...endorsementExtractions, _progress: { ...existingProgress, stage: 'completed' } }
+          : endorsementExtractions;
+
         await supabaseAdmin
           .from('documents')
           .update({
-            extracted_data: endorsementExtractions,
+            extracted_data: finalEndorsementData,
             full_text: rawExtraction.fullText || null,
             page_texts: rawExtraction.pageTexts || [],
             processing_status: 'completed',

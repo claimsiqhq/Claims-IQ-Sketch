@@ -46,12 +46,21 @@ interface ClaimUploadWizardProps {
   onClaimCreated?: (claimId: string) => void;
 }
 
+interface ProcessingProgress {
+  totalPages: number;
+  pagesProcessed: number;
+  percentComplete: number;
+  stage: string;
+  currentPage: number;
+}
+
 interface FnolState {
   file: File | null;
   status: "idle" | "uploading" | "classifying" | "processing" | "completed" | "failed";
   error?: string;
   claimId?: string;
   claimNumber?: string;
+  progress?: ProcessingProgress;
 }
 
 export function ClaimUploadWizard({ 
@@ -152,7 +161,7 @@ export function ClaimUploadWizard({
 
   const pollForClaimCreation = useCallback(async (documentId: string): Promise<{ claimId: string; claimNumber: string } | null> => {
     const maxAttempts = 60;
-    const pollInterval = 5000;
+    const pollInterval = 3000;
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -166,6 +175,14 @@ export function ClaimUploadWizard({
         
         if (response.ok) {
           const data = await response.json();
+          
+          // Update progress in state if available
+          if (data.progress) {
+            setFnolState(prev => ({ 
+              ...prev, 
+              progress: data.progress,
+            }));
+          }
           
           if (data.processingStatus === "completed" && data.claimId) {
             return { claimId: data.claimId, claimNumber: data.claimNumber || data.claimId };
@@ -267,6 +284,8 @@ export function ClaimUploadWizard({
   const isUploading = fnolState.status !== "idle" && fnolState.status !== "completed" && fnolState.status !== "failed";
 
   const renderFnolStatus = () => {
+    const progress = fnolState.progress;
+    
     switch (fnolState.status) {
       case "uploading":
         return (
@@ -284,9 +303,25 @@ export function ClaimUploadWizard({
         );
       case "processing":
         return (
-          <div className="flex items-center gap-2 text-purple-600">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-sm">Creating claim from FNOL...</span>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-purple-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">
+                {progress ? (
+                  progress.stage === 'finalizing' 
+                    ? 'Creating claim...' 
+                    : `Extracting page ${progress.pagesProcessed}/${progress.totalPages}`
+                ) : (
+                  'Processing FNOL...'
+                )}
+              </span>
+            </div>
+            {progress && progress.totalPages > 0 && (
+              <div className="flex items-center gap-2 ml-6">
+                <Progress value={progress.percentComplete} className="h-1.5 w-24" />
+                <span className="text-xs text-muted-foreground">{progress.percentComplete}%</span>
+              </div>
+            )}
           </div>
         );
       case "completed":

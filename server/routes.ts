@@ -4734,13 +4734,24 @@ export async function registerRoutes(
         claimNumber = claim?.claim_number || null;
       }
       
+      // Extract progress info from extracted_data
+      const extractedData = doc.extractedData as any;
+      const progress = extractedData?._progress || null;
+      
       res.json({
         documentId: doc.id,
         processingStatus: doc.processingStatus || 'pending',
         claimId: doc.claimId || null,
         claimNumber,
         documentType: doc.type || null,
-        error: (doc.extractedData as any)?.error || null,
+        error: extractedData?.error || extractedData?.claimCreationError || null,
+        progress: progress ? {
+          totalPages: progress.totalPages || 0,
+          pagesProcessed: progress.pagesProcessed || 0,
+          percentComplete: progress.percentComplete || 0,
+          stage: progress.stage || 'pending',
+          currentPage: progress.currentPage || 0,
+        } : null,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
