@@ -43,6 +43,7 @@ import {
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
+import { BulkUploadZone, BulkUploadStatusBar } from "@/components/BulkUploadZone";
 
 function ClaimCard({ claim }: { claim: Claim }) {
   const statusColors: Record<string, string> = {
@@ -320,7 +321,7 @@ export default function Home() {
           </div>
 
           {/* Mobile Quick Actions */}
-          <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="grid grid-cols-2 gap-3 mb-4">
             <Link href="/new-claim">
               <div className="bg-primary text-primary-foreground p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
                 <Plus className="h-6 w-6" />
@@ -334,6 +335,9 @@ export default function Home() {
               </div>
             </Link>
           </div>
+
+          {/* Bulk Upload Zone */}
+          <BulkUploadZone className="mb-4" onUploadComplete={loadData} />
 
           {/* Mobile Stats - Compact horizontal scroll */}
           <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
@@ -468,6 +472,7 @@ export default function Home() {
             )}
           </div>
         </div>
+        <BulkUploadStatusBar />
       </Layout>
     );
   }
@@ -561,6 +566,9 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {/* Bulk Upload Zone - Desktop */}
+        <BulkUploadZone className="mb-8" onUploadComplete={loadData} />
 
         {/* Total Value Card */}
         {stats && (stats.totalRcv > 0 || stats.totalAcv > 0) && (
@@ -683,6 +691,7 @@ export default function Home() {
           )}
         </div>
       </div>
+      <BulkUploadStatusBar />
     </Layout>
   );
 }

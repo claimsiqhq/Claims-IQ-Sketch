@@ -7,6 +7,7 @@
  * - Automatic retry on failures
  * - Progress tracking per file
  * - Processing status polling
+ * - Completion callback via subscriber pattern
  */
 
 import { create } from 'zustand';
@@ -19,6 +20,19 @@ import { persist } from 'zustand/middleware';
 export type DocumentUploadType = 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence' | 'auto';
 export type UploadStatus = 'pending' | 'uploading' | 'classifying' | 'processing' | 'completed' | 'failed';
 export type ProcessingStatus = 'pending' | 'classifying' | 'processing' | 'completed' | 'failed';
+
+// Completion callback subscribers
+type CompletionCallback = () => void;
+const completionSubscribers = new Set<CompletionCallback>();
+
+export function subscribeToCompletions(callback: CompletionCallback): () => void {
+  completionSubscribers.add(callback);
+  return () => completionSubscribers.delete(callback);
+}
+
+function notifyCompletion() {
+  completionSubscribers.forEach((cb) => cb());
+}
 
 export interface UploadQueueItem {
   id: string;
@@ -94,7 +108,7 @@ export const useUploadQueue = create<UploadQueueState>()(
       // Add files to the queue
       addToQueue: (files, options) => {
         const newItems: UploadQueueItem[] = files.map((file) => ({
-          id: `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           file,
           fileName: file.name,
           fileSize: file.size,
@@ -168,11 +182,29 @@ export const useUploadQueue = create<UploadQueueState>()(
 
       // Internal actions
       _updateItem: (id, updates) => {
+        const currentItem = get().queue.find((item) => item.id === id);
+        
+        // Skip if item was removed from queue (e.g., cleared/cancelled)
+        if (!currentItem) {
+          return;
+        }
+        
+        const prevStatus = currentItem.status;
+        const nextStatus = updates.status ?? prevStatus;
+        const isNewTerminal = prevStatus !== 'completed' && prevStatus !== 'failed' && 
+                              (nextStatus === 'completed' || nextStatus === 'failed');
+        
         set((state) => ({
           queue: state.queue.map((item) =>
             item.id === id ? { ...item, ...updates } : item
           ),
         }));
+        
+        // Notify subscribers when an item transitions to terminal state
+        if (isNewTerminal) {
+          // Defer notification to allow React to process state update
+          setTimeout(() => notifyCompletion(), 0);
+        }
       },
 
       _setActiveUploads: (count) => {
