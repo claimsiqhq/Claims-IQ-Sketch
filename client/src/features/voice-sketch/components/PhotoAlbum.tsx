@@ -375,29 +375,81 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">
-                <span className="font-medium">Location:</span> {photo.hierarchyPath}
-              </div>
-              {(photo.latitude != null && photo.longitude != null) && (
-                <div className="text-sm text-muted-foreground flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  <span className="font-medium">GPS:</span>{' '}
-                  <a
-                    href={`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                    data-testid="link-gps-coordinates"
-                  >
-                    {photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}
-                  </a>
+              {/* Photo Metadata Section */}
+              <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+                <h4 className="font-medium text-sm flex items-center gap-1.5">
+                  <Camera className="h-4 w-4" />
+                  Photo Details
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  {/* Location in structure */}
+                  <div className="flex items-start gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-muted-foreground">Location:</span>
+                      <p className="font-medium">{photo.hierarchyPath || 'Not specified'}</p>
+                    </div>
+                  </div>
+
+                  {/* Uploaded by */}
+                  {photo.uploadedBy && (
+                    <div className="flex items-start gap-2">
+                      <svg className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <div>
+                        <span className="text-muted-foreground">Uploaded by:</span>
+                        <p className="font-medium" data-testid="text-uploaded-by">{photo.uploadedBy}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* GPS Coordinates */}
+                  {(photo.latitude != null && photo.longitude != null) && (
+                    <div className="flex items-start gap-2 sm:col-span-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                      <div>
+                        <span className="text-muted-foreground">GPS Coordinates:</span>
+                        <p className="font-medium">
+                          <a
+                            href={`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                            data-testid="link-gps-coordinates"
+                          >
+                            {photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}
+                          </a>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Geo Address */}
                   {photo.geoAddress && (
-                    <span className="text-muted-foreground ml-1">
-                      (near {photo.geoAddress})
-                    </span>
+                    <div className="flex items-start gap-2 sm:col-span-2">
+                      <Home className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                      <div>
+                        <span className="text-muted-foreground">Address:</span>
+                        <p className="font-medium" data-testid="text-geo-address">{photo.geoAddress}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Captured At */}
+                  {photo.capturedAt && (
+                    <div className="flex items-start gap-2">
+                      <svg className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <span className="text-muted-foreground">Captured:</span>
+                        <p className="font-medium">{new Date(photo.capturedAt).toLocaleString()}</p>
+                      </div>
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
 
               {/* Claim Assignment Section */}
               {claims.length > 0 && onUpdate && (
