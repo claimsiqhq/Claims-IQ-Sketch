@@ -43,7 +43,7 @@ import {
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
-import { BulkUploadZone } from "@/components/BulkUploadZone";
+import { ClaimUploadWizard } from "@/components/ClaimUploadWizard";
 
 function ClaimCard({ claim }: { claim: Claim }) {
   const statusColors: Record<string, string> = {
@@ -344,9 +344,9 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Bulk Upload Zone */}
+          {/* Claim Upload Wizard */}
           <div ref={bulkUploadRef}>
-            <BulkUploadZone className="mb-4" onUploadComplete={loadData} />
+            <ClaimUploadWizard className="mb-4" onUploadComplete={loadData} />
           </div>
 
           {/* Mobile Stats - Compact horizontal scroll */}
@@ -568,9 +568,9 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Bulk Upload Zone - Desktop */}
+        {/* Claim Upload Wizard - Desktop */}
         <div ref={bulkUploadRef}>
-          <BulkUploadZone className="mb-8" onUploadComplete={loadData} />
+          <ClaimUploadWizard className="mb-8" onUploadComplete={loadData} />
         </div>
 
         {/* Total Value Card */}
