@@ -5,7 +5,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText, Pencil, Trash2, Home, Clock } from 'lucide-react';
+import { ArrowLeft, Save, Mic, AlertCircle, Loader2, FileText, Pencil, Trash2, Home, Clock, FolderOpen, ChevronDown } from 'lucide-react';
 import Layout from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -27,6 +27,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { VoiceSketchController } from './components/VoiceSketchController';
 import { useGeometryEngine, geometryEngine } from './services/geometry-engine';
 import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms, getClaimPhotos, deleteClaimRooms } from '@/lib/api';
@@ -50,6 +55,7 @@ export default function VoiceSketchPage() {
   const hasLoadedRooms = useRef(false);
   const [deleteConfirmClaimId, setDeleteConfirmClaimId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSavedSketchesOpen, setIsSavedSketchesOpen] = useState(false);
 
   // Fetch the real claim from the database (only if claimId provided)
   const { data: claim, isLoading, error } = useQuery({
