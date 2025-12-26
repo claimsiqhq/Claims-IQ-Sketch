@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useLocation } from 'wouter';
 import {
   Upload,
   X,
@@ -160,10 +161,16 @@ function QueueItem({ item }: { item: UploadQueueItem }) {
 export function UploadStatusBar() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [location] = useLocation();
 
   const queue = useUploadQueue((state) => state.queue);
   const { clearCompleted, clearFailed, retryAllFailed, clearAll } = useUploadQueue();
   const stats = useUploadQueueStats();
+
+  // Don't render on /claims page where BulkUploadZone shows status
+  if (location === '/claims') {
+    return null;
+  }
 
   // Don't render if queue is empty
   if (queue.length === 0) {
