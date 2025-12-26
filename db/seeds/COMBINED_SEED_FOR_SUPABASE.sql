@@ -1,5 +1,5 @@
 -- ============================================
--- COMBINED SEED FILE FOR SUPABASE (COMPLETE v4)
+-- COMBINED SEED FILE FOR SUPABASE
 -- Uses DELETE + INSERT pattern for reliable seeding
 -- Copy this entire file and paste into Supabase SQL Editor
 -- ============================================
@@ -74,7 +74,7 @@ INSERT INTO price_lists (code, name, region_code, effective_date, source, base_m
 ('GAATL_JAN25', 'Georgia - Atlanta - January 2025', 'GA-ATL', '2025-01-01', 'internal', 1.00, true);
 
 -- ============================================
--- LINE ITEM CATEGORIES (id is VARCHAR primary key)
+-- LINE ITEM CATEGORIES
 -- ============================================
 
 DELETE FROM line_item_categories WHERE id IN (
