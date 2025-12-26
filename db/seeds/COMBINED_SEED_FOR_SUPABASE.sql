@@ -1,5 +1,5 @@
 -- ============================================
--- COMBINED SEED FILE FOR SUPABASE (FIXED)
+-- COMBINED SEED FILE FOR SUPABASE (FIXED v2)
 -- Copy this entire file and paste into Supabase SQL Editor
 -- ============================================
 
@@ -29,7 +29,7 @@ INSERT INTO line_item_categories (id, parent_id, name, description, sort_order, 
 ('19', NULL, 'Water Mitigation', 'Drying, extraction, mold remediation', 19, 'A'),
 ('20', NULL, 'Contents', 'Personal property, cleaning', 20, 'C'),
 ('21', NULL, 'Additional Living Expense', 'Temporary housing, meals', 21, 'D')
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================
 -- COVERAGE TYPES
@@ -40,7 +40,7 @@ INSERT INTO coverage_types (code, name, description, sort_order) VALUES
 ('B', 'Coverage B - Other Structures', 'Detached structures like fences, sheds, detached garages, pools', 2),
 ('C', 'Coverage C - Personal Property', 'Contents and personal belongings inside the dwelling', 3),
 ('D', 'Coverage D - Loss of Use', 'Additional living expenses during repairs (ALE)', 4)
-ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;
+ON CONFLICT (code) DO NOTHING;
 
 -- ============================================
 -- TAX RATES
@@ -59,44 +59,38 @@ INSERT INTO tax_rates (region_code, tax_type, tax_name, rate, applies_to) VALUES
 ('IL-CHI', 'material_sales', 'IL Sales Tax', 0.1025, 'materials'),
 ('CO-DEN', 'material_sales', 'CO Sales Tax', 0.0877, 'materials'),
 ('GA-ATL', 'material_sales', 'GA Sales Tax', 0.0890, 'materials')
-ON CONFLICT (region_code, tax_type) DO UPDATE SET rate = EXCLUDED.rate;
+ON CONFLICT (region_code, tax_type) DO NOTHING;
 
 -- ============================================
 -- DEPRECIATION SCHEDULES
 -- ============================================
 
 INSERT INTO depreciation_schedules (category_code, item_type, useful_life_years, max_depreciation_pct, notes) VALUES
--- Roofing
 ('12', 'asphalt_3tab_shingle', 20, 80.00, 'Standard 3-tab shingles'),
 ('12', 'asphalt_laminated_shingle', 30, 80.00, 'Architectural/dimensional shingles'),
 ('12', 'metal_roofing', 50, 80.00, 'Standing seam or metal panels'),
 ('12', 'tile_roofing', 50, 80.00, 'Clay or concrete tile'),
--- Siding
 ('13', 'vinyl_siding', 40, 80.00, 'Vinyl siding panels'),
 ('13', 'fiber_cement_siding', 50, 80.00, 'HardiePlank or similar'),
 ('13', 'wood_siding', 30, 80.00, 'Natural wood siding'),
--- Windows & Doors
 ('08', 'vinyl_window', 25, 80.00, 'Standard vinyl windows'),
 ('08', 'wood_window', 30, 80.00, 'Wood frame windows'),
 ('08', 'entry_door_wood', 30, 80.00, 'Solid wood entry door'),
 ('08', 'garage_door', 20, 80.00, 'Garage door'),
--- Flooring
 ('07', 'carpet', 10, 80.00, 'Wall-to-wall carpet'),
 ('07', 'hardwood_flooring', 50, 80.00, 'Solid hardwood'),
 ('07', 'laminate_flooring', 20, 80.00, 'Laminate plank flooring'),
 ('07', 'lvp_flooring', 25, 80.00, 'Luxury vinyl plank'),
 ('07', 'ceramic_tile', 50, 80.00, 'Ceramic or porcelain tile'),
--- Painting
 ('14', 'interior_paint', 7, 80.00, 'Interior wall paint'),
 ('14', 'exterior_paint', 10, 80.00, 'Exterior paint'),
--- HVAC
 ('11', 'hvac_furnace', 20, 80.00, 'Gas or electric furnace'),
 ('11', 'hvac_ac_condenser', 15, 80.00, 'AC condenser unit'),
 ('11', 'water_heater_tank', 12, 80.00, 'Tank water heater')
-ON CONFLICT (category_code, item_type) DO UPDATE SET useful_life_years = EXCLUDED.useful_life_years;
+ON CONFLICT (category_code, item_type) DO NOTHING;
 
 -- ============================================
--- LABOR RATES (uses hourly_rate, not base_hourly_rate)
+-- LABOR RATES
 -- ============================================
 
 INSERT INTO labor_rates (trade_code, trade_name, region_code, hourly_rate, effective_date) VALUES
@@ -112,14 +106,13 @@ INSERT INTO labor_rates (trade_code, trade_name, region_code, hourly_rate, effec
 ('DRYW', 'Drywall Finisher', 'NATIONAL', 50.00, '2025-01-01'),
 ('DEMO', 'Demolition', 'NATIONAL', 40.00, '2025-01-01'),
 ('MITI', 'Mitigation Technician', 'NATIONAL', 55.00, '2025-01-01')
-ON CONFLICT (trade_code, region_code) DO UPDATE SET hourly_rate = EXCLUDED.hourly_rate;
+ON CONFLICT (trade_code, region_code) DO NOTHING;
 
 -- ============================================
--- MATERIALS (uses sku, not code)
+-- MATERIALS
 -- ============================================
 
 INSERT INTO materials (sku, name, description, category, unit, manufacturer) VALUES
--- Roofing Materials
 ('MAT-SHIN-3TAB', '3-Tab Asphalt Shingles', 'Standard 3-tab shingles per square', 'Roofing', 'SQ', 'GAF'),
 ('MAT-SHIN-ARCH', 'Architectural Shingles', 'Dimensional shingles per square', 'Roofing', 'SQ', 'GAF'),
 ('MAT-SHIN-PREM', 'Premium Designer Shingles', 'Designer shingles per square', 'Roofing', 'SQ', 'GAF'),
@@ -128,22 +121,19 @@ INSERT INTO materials (sku, name, description, category, unit, manufacturer) VAL
 ('MAT-FLASH-AL', 'Aluminum Step Flashing', 'Step flashing pieces', 'Roofing', 'EA', 'Various'),
 ('MAT-RIDGE', 'Ridge Cap Shingles', 'Ridge cap per linear foot', 'Roofing', 'LF', 'GAF'),
 ('MAT-DRIP', 'Drip Edge', 'Drip edge per linear foot', 'Roofing', 'LF', 'Various'),
--- Drywall
-('MAT-DRY-12', '1/2" Drywall Sheet', 'Standard drywall', 'Drywall', 'SF', 'USG'),
-('MAT-DRY-58', '5/8" Drywall Sheet', 'Fire-rated drywall', 'Drywall', 'SF', 'USG'),
+('MAT-DRY-12', '1/2 inch Drywall Sheet', 'Standard drywall', 'Drywall', 'SF', 'USG'),
+('MAT-DRY-58', '5/8 inch Drywall Sheet', 'Fire-rated drywall', 'Drywall', 'SF', 'USG'),
 ('MAT-MUD', 'Joint Compound', 'All-purpose joint compound', 'Drywall', 'GAL', 'USG'),
 ('MAT-TAPE', 'Drywall Tape', 'Paper joint tape', 'Drywall', 'RL', 'Various'),
--- Paint
 ('MAT-PAINT-INT', 'Interior Latex Paint', 'Interior wall paint', 'Paint', 'GAL', 'Sherwin-Williams'),
 ('MAT-PAINT-EXT', 'Exterior Latex Paint', 'Exterior house paint', 'Paint', 'GAL', 'Sherwin-Williams'),
 ('MAT-PRIMER', 'Primer', 'Multi-surface primer', 'Paint', 'GAL', 'Kilz'),
--- Flooring
-('MAT-CARPET', 'Carpet (mid-grade)', 'Residential carpet', 'Flooring', 'SY', 'Shaw'),
+('MAT-CARPET', 'Carpet mid-grade', 'Residential carpet', 'Flooring', 'SY', 'Shaw'),
 ('MAT-PAD', 'Carpet Pad', '8lb carpet padding', 'Flooring', 'SY', 'Various'),
 ('MAT-LVP', 'Luxury Vinyl Plank', 'LVP flooring', 'Flooring', 'SF', 'LifeProof'),
 ('MAT-LAMINATE', 'Laminate Flooring', 'Laminate plank', 'Flooring', 'SF', 'Pergo'),
-('MAT-HARDWOOD', 'Hardwood Flooring (Oak)', 'Solid oak hardwood', 'Flooring', 'SF', 'Bruce')
-ON CONFLICT (sku) DO UPDATE SET name = EXCLUDED.name;
+('MAT-HARDWOOD', 'Hardwood Flooring Oak', 'Solid oak hardwood', 'Flooring', 'SF', 'Bruce')
+ON CONFLICT (sku) DO NOTHING;
 
 -- ============================================
 -- DONE
