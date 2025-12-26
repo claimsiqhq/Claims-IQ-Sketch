@@ -112,15 +112,21 @@ export interface ClaimLineItem extends LineItem {
 export interface Claim {
   id: string;
   claimId: string; // Format: XX-XXX-XXXXXX
+  claimNumber?: string; // Display claim number
   policyholder?: string;
+  insuredName?: string; // Same as policyholder, from insured_name column
+  insuredPhone?: string; // From insured_phone column
+  insuredEmail?: string; // From insured_email column
   dateOfLoss?: string; // Format: MM/DD/YYYY@HH:MM AM/PM
   riskLocation?: string; // Full address string (legacy)
   propertyAddress?: string; // Formatted property address
   propertyStreetAddress?: string; // Street address only
   propertyCity?: string; // City only
   propertyState?: string; // State abbreviation
-  propertyZipCode?: string; // ZIP code only
+  propertyZip?: string; // ZIP code only
+  propertyZipCode?: string; // Alias for propertyZip
   causeOfLoss?: string; // Hail, Fire, Water, Wind, etc. - LEGACY field
+  lossType?: string; // Canonical loss type
   lossDescription?: string;
   policyNumber?: string;
   state?: string;
@@ -157,38 +163,31 @@ export interface Claim {
 
 /**
  * Loss context structure (canonical FNOL storage)
+ * NOTE: Field names match backend snake_case format from documentProcessor.ts buildLossContext()
  */
 export interface LossContext {
   fnol?: {
-    reportDate?: string;
-    reportedBy?: string;
-    reportMethod?: string;
-    lossDescription?: string;
-    dateOfLoss?: string;
-    timeOfLoss?: string;
-    occupiedAtTimeOfLoss?: boolean;
-    temporaryRepairsMade?: boolean;
-    mitigationSteps?: string[];
+    reported_by?: string;
+    reported_date?: string;
+    drone_eligible?: boolean;
+    weather?: {
+      status?: string;
+      message?: string;
+    };
   };
   property?: {
-    yearBuilt?: string;
-    constructionType?: string;
-    roofType?: string;
+    year_built?: number;
     stories?: number;
-    squareFootage?: number;
-    occupancyType?: string;
-    hasBasement?: boolean;
-    basementFinished?: boolean;
+    roof?: {
+      material?: string;
+      year_installed?: number;
+      damage_scope?: "Exterior Only" | "Interior" | "Both";
+    };
   };
   damage_summary?: {
-    areasAffected?: string[];
-    waterSource?: string;
-    waterCategory?: number;
-    moldVisible?: boolean;
-    structuralConcerns?: boolean;
-    habitability?: string;
-    contentsDamage?: boolean;
-    additionalLivingExpenses?: boolean;
+    coverage_a?: string;
+    coverage_b?: string;
+    coverage_c?: string;
   };
 }
 

@@ -585,20 +585,21 @@ export default function NewClaim() {
         setDraftClaim(claim);
         
         // Populate claim data from the loaded claim
+        // Use direct claim fields (from extraction) with metadata fallback for legacy data
         const metadata = (claim as any).metadata || {};
         setClaimData({
           claimId: claim.claimNumber || '',
-          policyholder: claim.insuredName || '',
+          policyholder: claim.insuredName || claim.policyholder || '',
           policyholderSecondary: metadata.policyholderSecondary,
-          contactPhone: metadata.contactPhone,
-          contactEmail: metadata.contactEmail,
+          contactPhone: claim.insuredPhone || metadata.contactPhone,
+          contactEmail: claim.insuredEmail || metadata.contactEmail,
           dateOfLoss: claim.dateOfLoss || '',
           riskLocation: claim.propertyAddress || '',
-          causeOfLoss: claim.lossType || 'Hail',
+          causeOfLoss: claim.lossType || claim.primaryPeril || 'Hail',
           lossDescription: claim.lossDescription || '',
           policyNumber: claim.policyNumber || '',
           state: claim.propertyState || '',
-          yearRoofInstall: claim.yearRoofInstall || metadata.yearRoofInstall,
+          yearRoofInstall: claim.yearRoofInstall || claim.lossContext?.property?.roof?.year_installed?.toString() || metadata.yearRoofInstall,
           windHailDeductible: claim.windHailDeductible || '',
           dwellingLimit: claim.dwellingLimit || '',
           endorsementsListed: claim.endorsementsListed || [],

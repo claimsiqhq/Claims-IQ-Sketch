@@ -894,9 +894,19 @@ export async function getEffectivePolicyForClaim(
   return result.effectivePolicy || null;
 }
 
-// NOTE: Cache-related functions (shouldRecomputeEffectivePolicy, recomputeEffectivePolicyIfNeeded)
-// have been removed. Effective policy is now ALWAYS computed dynamically on each request.
-// This ensures consistency with the latest canonical data and eliminates stale cache issues.
+/**
+ * Trigger recomputation of effective policy (legacy compatibility)
+ * Since effective policy is now ALWAYS computed dynamically, this is a no-op.
+ * It's kept for backward compatibility with code that calls it.
+ */
+export async function recomputeEffectivePolicyIfNeeded(
+  claimId: string,
+  organizationId: string
+): Promise<void> {
+  // No-op: Effective policy is now always computed dynamically on each request.
+  // This function exists for backward compatibility with documentProcessor.
+  console.log(`[EffectivePolicy] Recomputation triggered for claim ${claimId} (dynamic computation active)`);
+}
 
 // ============================================
 // AI BRIEFING HELPERS
