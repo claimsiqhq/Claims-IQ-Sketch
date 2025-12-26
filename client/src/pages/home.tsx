@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useStore } from "@/lib/store";
 import Layout from "@/components/layout";
 import { useDeviceMode } from "@/contexts/DeviceModeContext";
@@ -209,6 +209,13 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showClosed, setShowClosed] = useState(false);
+  
+  // Ref for bulk upload zone scroll-to
+  const bulkUploadRef = useRef<HTMLDivElement>(null);
+  
+  const scrollToBulkUpload = () => {
+    bulkUploadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   // Fetch weather for current location
   useEffect(() => {
@@ -322,12 +329,13 @@ export default function Home() {
 
           {/* Mobile Quick Actions */}
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <Link href="/new-claim">
-              <div className="bg-primary text-primary-foreground p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
-                <Plus className="h-6 w-6" />
-                <span className="text-sm font-medium">New Claim</span>
-              </div>
-            </Link>
+            <button
+              onClick={scrollToBulkUpload}
+              className="bg-primary text-primary-foreground p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target"
+            >
+              <Plus className="h-6 w-6" />
+              <span className="text-sm font-medium">New Claim</span>
+            </button>
             <Link href="/voice-sketch">
               <div className="bg-gradient-to-br from-purple-500 to-primary text-white p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
                 <Mic className="h-6 w-6" />
@@ -337,7 +345,9 @@ export default function Home() {
           </div>
 
           {/* Bulk Upload Zone */}
-          <BulkUploadZone className="mb-4" onUploadComplete={loadData} />
+          <div ref={bulkUploadRef}>
+            <BulkUploadZone className="mb-4" onUploadComplete={loadData} />
+          </div>
 
           {/* Mobile Stats - Compact horizontal scroll */}
           <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
@@ -455,13 +465,7 @@ export default function Home() {
             ) : claims.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Building2 className="h-10 w-10 text-slate-300 mb-3" />
-                <p className="text-sm text-slate-500 mb-3">No claims yet</p>
-                <Link href="/new-claim">
-                  <Button size="sm">
-                    <Plus className="mr-1 h-4 w-4" />
-                    New Claim
-                  </Button>
-                </Link>
+                <p className="text-sm text-slate-500 mb-3">No claims yet — drop files above to get started</p>
               </div>
             ) : (
               <div className="space-y-2">

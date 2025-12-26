@@ -9,7 +9,6 @@ import Home from "@/pages/home";
 import MyDay from "@/pages/my-day";
 import Auth from "@/pages/auth";
 import ClaimDetail from "@/pages/claim-detail";
-import NewClaim from "@/pages/new-claim";
 import Settings from "@/pages/settings";
 import Profile from "@/pages/profile";
 import ClaimsMap from "@/pages/claims-map";
@@ -35,11 +34,6 @@ function Router() {
       <Route path="/claim/:id">
         <ProtectedRoute>
           <ClaimDetail />
-        </ProtectedRoute>
-      </Route>
-      <Route path="/new-claim">
-        <ProtectedRoute>
-          <NewClaim />
         </ProtectedRoute>
       </Route>
       <Route path="/settings">
