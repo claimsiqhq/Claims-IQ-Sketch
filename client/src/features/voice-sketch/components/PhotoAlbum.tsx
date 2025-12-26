@@ -313,7 +313,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl w-[calc(100%-1.5rem)] max-h-[calc(100vh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
@@ -345,7 +345,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
         </DialogHeader>
         
         <div className="grid gap-4">
-          <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+          <div className="aspect-video bg-muted rounded-lg overflow-hidden max-h-[40vh] sm:max-h-[50vh]">
             {photoUrl ? (
               <img 
                 src={photoUrl} 
@@ -579,7 +579,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
               )}
               
               {analysis.metadata && (
-                <div className="grid grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div className="p-2 bg-muted rounded">
                     <span className="text-muted-foreground">Lighting:</span>
                     <p className="font-medium capitalize">{analysis.metadata.lighting || 'N/A'}</p>
