@@ -402,11 +402,25 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
                 isOpen={openSections.depreciation}
                 onToggle={() => toggleSection('depreciation')}
               >
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  {content.depreciation_considerations.map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                </ul>
+                <div className="space-y-3 text-sm">
+                  {content.depreciation_considerations.map((consideration: any, i: number) => {
+                    if (typeof consideration === 'string') {
+                      return <p key={i}>{consideration}</p>;
+                    }
+                    return (
+                      <div key={i} className="space-y-1">
+                        <p className="font-medium">{consideration.item}</p>
+                        {consideration.factors && consideration.factors.length > 0 && (
+                          <ul className="list-disc list-inside pl-2 text-muted-foreground">
+                            {consideration.factors.map((factor: string, j: number) => (
+                              <li key={j}>{factor}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </CollapsibleSection>
             )}
 
