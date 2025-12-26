@@ -86,29 +86,33 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
           </div>
 
           <div className="p-4">
-            {/* Organization Switcher */}
-            {organizations.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-3 p-3 mb-4 bg-primary/5 border border-primary/20 rounded-lg w-full hover:bg-primary/10 transition-colors cursor-pointer">
-                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                      <Building2 className="h-5 w-5" />
-                    </div>
-                    <div className="overflow-hidden flex-1 text-left">
-                      <p className="font-medium text-sm truncate">
-                        {loadingOrgs ? 'Loading...' : (currentOrg?.name || 'Select Organization')}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {currentOrg?.type || 'No organization'}
-                      </p>
-                    </div>
-                    {switchingOrg ? (
-                      <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+            {/* Organization Switcher - always render container for stable layout */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild disabled={loadingOrgs || organizations.length === 0}>
+                <button className="flex items-center gap-3 p-3 mb-4 bg-primary/5 border border-primary/20 rounded-lg w-full hover:bg-primary/10 transition-colors cursor-pointer min-h-[64px]">
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                    {loadingOrgs ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      <Building2 className="h-5 w-5" />
                     )}
-                  </button>
-                </DropdownMenuTrigger>
+                  </div>
+                  <div className="overflow-hidden flex-1 text-left">
+                    <p className="font-medium text-sm truncate">
+                      {loadingOrgs ? 'Loading...' : (currentOrg?.name || 'No Organization')}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {loadingOrgs ? 'Please wait' : (currentOrg?.type || 'Not assigned')}
+                    </p>
+                  </div>
+                  {switchingOrg ? (
+                    <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+                  ) : organizations.length > 0 ? (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  ) : null}
+                </button>
+              </DropdownMenuTrigger>
+              {organizations.length > 0 && (
                 <DropdownMenuContent align="start" className="w-56">
                   <DropdownMenuLabel>Switch Organization</DropdownMenuLabel>
                   <DropdownMenuSeparator />
@@ -126,8 +130,8 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+              )}
+            </DropdownMenu>
 
             {/* User Profile */}
             <DropdownMenu>
