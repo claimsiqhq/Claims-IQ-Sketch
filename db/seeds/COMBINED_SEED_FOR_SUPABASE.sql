@@ -1,10 +1,77 @@
 -- ============================================
--- COMBINED SEED FILE FOR SUPABASE (FIXED v3)
+-- COMBINED SEED FILE FOR SUPABASE (COMPLETE v4)
 -- Uses DELETE + INSERT pattern for reliable seeding
 -- Copy this entire file and paste into Supabase SQL Editor
 -- ============================================
 
 BEGIN;
+
+-- ============================================
+-- REGIONS
+-- ============================================
+
+DELETE FROM regions WHERE id IN (
+  'NATIONAL', 'TX-DFW', 'TX-HOU', 'TX-AUS', 'CA-LA', 'CA-SF',
+  'FL-MIA', 'FL-ORL', 'NY-NYC', 'IL-CHI', 'CO-DEN', 'GA-ATL'
+);
+
+INSERT INTO regions (id, name, state, price_index, labor_index, material_index, equipment_index, currency, tax_rate) VALUES
+('NATIONAL', 'National Average', 'US', 1.00, 1.00, 1.00, 1.00, 'USD', 0.0625),
+('TX-DFW', 'Texas - Dallas/Fort Worth', 'TX', 0.97, 0.95, 0.98, 0.97, 'USD', 0.0825),
+('TX-HOU', 'Texas - Houston', 'TX', 0.98, 0.97, 1.00, 0.98, 'USD', 0.0825),
+('TX-AUS', 'Texas - Austin', 'TX', 1.02, 1.00, 1.02, 1.00, 'USD', 0.0825),
+('CA-LA', 'California - Los Angeles', 'CA', 1.25, 1.30, 1.18, 1.15, 'USD', 0.0950),
+('CA-SF', 'California - San Francisco', 'CA', 1.35, 1.40, 1.25, 1.20, 'USD', 0.0875),
+('FL-MIA', 'Florida - Miami', 'FL', 1.05, 1.02, 1.05, 1.03, 'USD', 0.0700),
+('FL-ORL', 'Florida - Orlando', 'FL', 0.98, 0.95, 1.00, 0.98, 'USD', 0.0650),
+('NY-NYC', 'New York - NYC Metro', 'NY', 1.45, 1.55, 1.30, 1.25, 'USD', 0.0875),
+('IL-CHI', 'Illinois - Chicago', 'IL', 1.15, 1.20, 1.10, 1.08, 'USD', 0.1025),
+('CO-DEN', 'Colorado - Denver', 'CO', 1.08, 1.05, 1.08, 1.05, 'USD', 0.0877),
+('GA-ATL', 'Georgia - Atlanta', 'GA', 1.00, 0.98, 1.02, 1.00, 'USD', 0.0890);
+
+-- ============================================
+-- REGIONAL MULTIPLIERS
+-- ============================================
+
+DELETE FROM regional_multipliers WHERE region_code IN (
+  'NATIONAL', 'TX-DFW', 'TX-HOU', 'TX-AUS', 'CA-LA', 'CA-SF',
+  'FL-MIA', 'FL-ORL', 'NY-NYC', 'IL-CHI', 'CO-DEN', 'GA-ATL'
+);
+
+INSERT INTO regional_multipliers (region_code, region_name, material_multiplier, labor_multiplier, equipment_multiplier, is_active) VALUES
+('NATIONAL', 'National Average', 1.00, 1.00, 1.00, true),
+('TX-DFW', 'Texas - Dallas/Fort Worth', 0.98, 0.95, 0.97, true),
+('TX-HOU', 'Texas - Houston', 1.00, 0.97, 0.98, true),
+('TX-AUS', 'Texas - Austin', 1.02, 1.00, 1.00, true),
+('CA-LA', 'California - Los Angeles', 1.18, 1.30, 1.15, true),
+('CA-SF', 'California - San Francisco', 1.25, 1.40, 1.20, true),
+('FL-MIA', 'Florida - Miami', 1.05, 1.02, 1.03, true),
+('FL-ORL', 'Florida - Orlando', 1.00, 0.95, 0.98, true),
+('NY-NYC', 'New York - NYC Metro', 1.30, 1.55, 1.25, true),
+('IL-CHI', 'Illinois - Chicago', 1.10, 1.20, 1.08, true),
+('CO-DEN', 'Colorado - Denver', 1.08, 1.05, 1.05, true),
+('GA-ATL', 'Georgia - Atlanta', 1.02, 0.98, 1.00, true);
+
+-- ============================================
+-- PRICE LISTS
+-- ============================================
+
+DELETE FROM price_lists WHERE code IN (
+  'NATL_JAN25', 'TXDFW_JAN25', 'TXHOU_JAN25', 'CALA_JAN25', 'CASF_JAN25',
+  'FLMIA_JAN25', 'NYNYC_JAN25', 'ILCHI_JAN25', 'CODEN_JAN25', 'GAATL_JAN25'
+);
+
+INSERT INTO price_lists (code, name, region_code, effective_date, source, base_multiplier, is_active) VALUES
+('NATL_JAN25', 'National Baseline - January 2025', 'NATIONAL', '2025-01-01', 'internal', 1.00, true),
+('TXDFW_JAN25', 'Texas - Dallas/Fort Worth - January 2025', 'TX-DFW', '2025-01-01', 'internal', 0.97, true),
+('TXHOU_JAN25', 'Texas - Houston - January 2025', 'TX-HOU', '2025-01-01', 'internal', 0.98, true),
+('CALA_JAN25', 'California - Los Angeles - January 2025', 'CA-LA', '2025-01-01', 'internal', 1.25, true),
+('CASF_JAN25', 'California - San Francisco - January 2025', 'CA-SF', '2025-01-01', 'internal', 1.35, true),
+('FLMIA_JAN25', 'Florida - Miami - January 2025', 'FL-MIA', '2025-01-01', 'internal', 1.05, true),
+('NYNYC_JAN25', 'New York - NYC Metro - January 2025', 'NY-NYC', '2025-01-01', 'internal', 1.45, true),
+('ILCHI_JAN25', 'Illinois - Chicago - January 2025', 'IL-CHI', '2025-01-01', 'internal', 1.15, true),
+('CODEN_JAN25', 'Colorado - Denver - January 2025', 'CO-DEN', '2025-01-01', 'internal', 1.08, true),
+('GAATL_JAN25', 'Georgia - Atlanta - January 2025', 'GA-ATL', '2025-01-01', 'internal', 1.00, true);
 
 -- ============================================
 -- LINE ITEM CATEGORIES (id is VARCHAR primary key)
@@ -160,4 +227,16 @@ INSERT INTO materials (sku, name, description, category, unit, manufacturer) VAL
 
 COMMIT;
 
-SELECT 'Seed data inserted successfully!' as status;
+-- ============================================
+-- VERIFICATION
+-- ============================================
+
+SELECT 'regions' as table_name, COUNT(*) as row_count FROM regions
+UNION ALL SELECT 'regional_multipliers', COUNT(*) FROM regional_multipliers
+UNION ALL SELECT 'price_lists', COUNT(*) FROM price_lists
+UNION ALL SELECT 'line_item_categories', COUNT(*) FROM line_item_categories
+UNION ALL SELECT 'coverage_types', COUNT(*) FROM coverage_types
+UNION ALL SELECT 'tax_rates', COUNT(*) FROM tax_rates
+UNION ALL SELECT 'depreciation_schedules', COUNT(*) FROM depreciation_schedules
+UNION ALL SELECT 'labor_rates', COUNT(*) FROM labor_rates
+UNION ALL SELECT 'materials', COUNT(*) FROM materials;
