@@ -355,6 +355,8 @@ export type PolicyForm = typeof policyForms.$inferSelect;
 /**
  * Comprehensive policy extraction with full lossless content
  * Stores complete policy structure including sections, definitions, coverages
+ *
+ * NEW: Supports is_canonical for versioning and extraction_data for lossless storage
  */
 export const policyFormExtractions = pgTable("policy_form_extractions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -367,7 +369,16 @@ export const policyFormExtractions = pgTable("policy_form_extractions", {
   policyFormCode: varchar("policy_form_code", { length: 100 }),
   policyFormName: varchar("policy_form_name", { length: 255 }),
   editionDate: varchar("edition_date", { length: 50 }),
+  jurisdiction: varchar("jurisdiction", { length: 50 }),
   pageCount: integer("page_count"),
+
+  // Complete extraction as JSONB (lossless PolicyFormExtraction)
+  extractionData: jsonb("extraction_data").default(sql`'{}'::jsonb`),
+  extractionVersionNum: integer("extraction_version").default(1),
+  sourceFormCode: varchar("source_form_code", { length: 100 }),
+
+  // Canonical flag for versioning
+  isCanonical: boolean("is_canonical").default(true),
 
   // Policy structure {tableOfContents: [], policyStatement: "", agreement: ""}
   policyStructure: jsonb("policy_structure").default(sql`'{}'::jsonb`),
@@ -391,7 +402,8 @@ export const policyFormExtractions = pgTable("policy_form_extractions", {
 
   // Processing metadata
   extractionModel: varchar("extraction_model", { length: 100 }),
-  extractionVersion: varchar("extraction_version", { length: 20 }),
+  extractionVersion: varchar("extraction_version_str", { length: 20 }), // Legacy string version
+  extractionStatus: varchar("extraction_status", { length: 30 }).default("completed"),
   promptTokens: integer("prompt_tokens"),
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
@@ -408,6 +420,7 @@ export const policyFormExtractions = pgTable("policy_form_extractions", {
   claimIdx: index("pfe_claim_idx").on(table.claimId),
   documentIdx: index("pfe_document_idx").on(table.documentId),
   formCodeIdx: index("pfe_form_code_idx").on(table.policyFormCode),
+  canonicalIdx: index("pfe_canonical_idx").on(table.isCanonical),
 }));
 
 export const insertPolicyFormExtractionSchema = createInsertSchema(policyFormExtractions).omit({
@@ -556,6 +569,114 @@ export const insertEndorsementSchema = createInsertSchema(endorsements).omit({
 
 export type InsertEndorsement = z.infer<typeof insertEndorsementSchema>;
 export type Endorsement = typeof endorsements.$inferSelect;
+
+// ============================================
+// ENDORSEMENT EXTRACTIONS TABLE
+// ============================================
+
+/**
+ * Endorsement extractions with delta-only modifications
+ * Stores complete endorsement extraction data with explicit type and priority
+ */
+export const endorsementExtractions = pgTable("endorsement_extractions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id"),
+  documentId: uuid("document_id"), // Link to source document
+
+  // Endorsement identification
+  formCode: varchar("form_code", { length: 100 }).notNull(),
+  title: varchar("title", { length: 255 }),
+  editionDate: varchar("edition_date", { length: 50 }),
+  jurisdiction: varchar("jurisdiction", { length: 50 }),
+
+  // What this endorsement applies to
+  appliesToPolicyForms: jsonb("applies_to_policy_forms").default(sql`'[]'::jsonb`),
+  appliesToCoverages: jsonb("applies_to_coverages").default(sql`'[]'::jsonb`),
+
+  // Complete extraction as JSONB (lossless)
+  extractionData: jsonb("extraction_data").default(sql`'{}'::jsonb`),
+  extractionVersion: integer("extraction_version").default(1),
+
+  // Type and precedence (MANDATORY for resolution)
+  endorsementType: varchar("endorsement_type", { length: 50 }).notNull().default("general"),
+    // loss_settlement (1-10), coverage_specific (11-30), state_amendatory (31-50), general (51-100)
+  precedencePriority: integer("precedence_priority").notNull().default(75),
+
+  // Delta modifications (structured for queries)
+  modifications: jsonb("modifications").default(sql`'{}'::jsonb`),
+  // Structure: { definitions: {added, deleted, replaced}, coverages, perils, exclusions, conditions, lossSettlement }
+
+  // Tables (depreciation schedules, etc.)
+  tables: jsonb("tables").default(sql`'[]'::jsonb`),
+
+  // Raw endorsement text (full verbatim)
+  rawText: text("raw_text"),
+
+  // Processing metadata
+  extractionModel: varchar("extraction_model", { length: 100 }),
+  extractionStatus: varchar("extraction_status", { length: 30 }).default("completed"),
+  status: varchar("status", { length: 30 }).default("completed"),
+  errorMessage: text("error_message"),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("ee_org_idx").on(table.organizationId),
+  claimIdx: index("ee_claim_idx").on(table.claimId),
+  documentIdx: index("ee_document_idx").on(table.documentId),
+  formCodeIdx: index("ee_form_code_idx").on(table.formCode),
+  typeIdx: index("ee_type_idx").on(table.endorsementType),
+  priorityIdx: index("ee_priority_idx").on(table.precedencePriority),
+}));
+
+export const insertEndorsementExtractionSchema = createInsertSchema(endorsementExtractions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEndorsementExtraction = z.infer<typeof insertEndorsementExtractionSchema>;
+export type EndorsementExtractionRow = typeof endorsementExtractions.$inferSelect;
+
+// TypeScript interfaces for endorsement extraction JSONB structures
+export interface EndorsementModifications {
+  definitions?: {
+    added?: Array<{ term: string; definition: string }>;
+    deleted?: string[];
+    replaced?: Array<{ term: string; newDefinition: string }>;
+  };
+  coverages?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: Array<{ coverage: string; changeType: string; details: string }>;
+  };
+  perils?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  exclusions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  conditions?: {
+    added?: string[];
+    deleted?: string[];
+    modified?: string[];
+  };
+  lossSettlement?: {
+    replacedSections?: Array<{ policySection: string; newRule: string }>;
+  };
+}
+
+export interface EndorsementTable {
+  tableType: string;
+  appliesWhen?: { coverage?: string[]; peril?: string[] };
+  data?: Record<string, unknown>;
+}
 
 // ============================================
 // CLAIM BRIEFINGS TABLE
