@@ -1027,6 +1027,13 @@ export async function processDocument(
           })
           .eq('id', documentId);
 
+        // Auto-trigger AI generation pipeline if document is linked to a claim (async, non-blocking)
+        if (doc.claim_id) {
+          triggerAIGenerationPipeline(doc.claim_id, organizationId, 'fnol').catch(err => {
+            console.error('[AI Pipeline] Background error:', err);
+          });
+        }
+
         console.log(`[FNOL] Extraction completed for document ${documentId}`);
         return fnolExtraction;
       }
