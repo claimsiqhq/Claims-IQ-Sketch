@@ -264,7 +264,7 @@ export async function getClaimsForMap(organizationId: string, filters?: {
 }): Promise<any[]> {
   let query = supabaseAdmin
     .from('claims')
-    .select('id, claim_id, insured_name, property_address, property_city, property_state, metadata, status, loss_type, date_of_loss, assigned_adjuster_id')
+    .select('id, claim_number, insured_name, property_address, property_city, property_state, metadata, status, loss_type, date_of_loss, assigned_adjuster_id')
     .eq('organization_id', organizationId)
     .order('created_at', { ascending: false });
 
@@ -294,7 +294,7 @@ export async function getClaimsForMap(organizationId: string, filters?: {
       const metadata = row.metadata || {};
       return {
         id: row.id,
-        claimNumber: row.claim_id,
+        claimNumber: row.claim_number,
         insuredName: row.insured_name,
         address: row.property_address,
         city: row.property_city,
