@@ -1,11 +1,5 @@
 /**
  * Upload Status Bar - Global floating component for tracking background uploads
- *
- * Features:
- * - Shows upload progress for all queued documents
- * - Minimizable to a small indicator
- * - Expandable to see individual file status
- * - Persists across navigation
  */
 
 import { useState } from 'react';
@@ -14,10 +8,6 @@ import {
   X,
   ChevronUp,
   ChevronDown,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-  FileText,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -25,133 +15,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  useUploadQueue,
-  useUploadQueueStats,
-  type UploadQueueItem,
-  type UploadStatus,
-} from '@/lib/uploadQueue';
-
-// ============================================
-// STATUS ICON COMPONENT
-// ============================================
-
-function StatusIcon({ status, processingStatus }: { status: UploadStatus; processingStatus?: string }) {
-  if (status === 'completed') {
-    if (processingStatus === 'completed') {
-      return <CheckCircle className="h-4 w-4 text-green-500" />;
-    }
-    if (processingStatus === 'failed') {
-      return <AlertCircle className="h-4 w-4 text-yellow-500" />;
-    }
-    // Still processing
-    return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
-  }
-
-  if (status === 'failed') {
-    return <AlertCircle className="h-4 w-4 text-red-500" />;
-  }
-
-  if (status === 'uploading') {
-    return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
-  }
-
-  if (status === 'classifying') {
-    return <Loader2 className="h-4 w-4 text-orange-500 animate-spin" />;
-  }
-
-  if (status === 'processing') {
-    return <Loader2 className="h-4 w-4 text-purple-500 animate-spin" />;
-  }
-
-  // Pending
-  return <FileText className="h-4 w-4 text-muted-foreground" />;
-}
-
-// ============================================
-// QUEUE ITEM COMPONENT
-// ============================================
-
-function QueueItem({ item }: { item: UploadQueueItem }) {
-  const { retryFailed, removeFromQueue } = useUploadQueue();
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const getStatusText = () => {
-    switch (item.status) {
-      case 'pending':
-        return 'Waiting...';
-      case 'uploading':
-        return `Uploading ${item.progress}%`;
-      case 'classifying':
-        return 'Identifying document type...';
-      case 'processing':
-        return 'Extracting data...';
-      case 'completed':
-        if (item.processingStatus === 'completed') return 'Complete';
-        if (item.processingStatus === 'failed') return 'Upload OK, processing failed';
-        if (item.processingStatus === 'classifying') return 'Identifying document type...';
-        return 'Processing...';
-      case 'failed':
-        return item.error || 'Failed';
-      default:
-        return '';
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-3 py-2 px-3 border-b border-border/50 last:border-0 overflow-hidden">
-      <StatusIcon status={item.status} processingStatus={item.processingStatus} />
-
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <div className="flex items-center gap-2 overflow-hidden">
-          <span className="text-sm font-medium truncate max-w-[200px]">{item.fileName}</span>
-          <span className="text-xs text-muted-foreground shrink-0">{formatFileSize(item.fileSize)}</span>
-        </div>
-        <div className="flex items-center gap-2 mt-0.5 overflow-hidden">
-          <span className="text-xs text-muted-foreground truncate">{getStatusText()}</span>
-          {item.claimNumber && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              | Claim: {item.claimNumber}
-            </span>
-          )}
-        </div>
-        {(item.status === 'uploading' || item.status === 'pending') && (
-          <Progress value={item.progress} className="h-1 mt-1" />
-        )}
-      </div>
-
-      <div className="flex items-center gap-1">
-        {item.status === 'failed' && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => retryFailed(item.id)}
-            title="Retry upload"
-          >
-            <RefreshCw className="h-3 w-3" />
-          </Button>
-        )}
-        {(item.status === 'completed' || item.status === 'failed') && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => removeFromQueue(item.id)}
-            title="Remove from list"
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
+import { useUploadQueue, useUploadQueueStats } from '@/lib/uploadQueue';
+import { UploadQueueRow } from './UploadQueueRow';
 
 // ============================================
 // MAIN COMPONENT
@@ -162,7 +27,7 @@ export function UploadStatusBar() {
   const [isMinimized, setIsMinimized] = useState(false);
 
   const queue = useUploadQueue((state) => state.queue);
-  const { clearCompleted, clearFailed, retryAllFailed, clearAll } = useUploadQueue();
+  const { clearCompleted, clearFailed, retryAllFailed, retryFailed, removeFromQueue, clearAll } = useUploadQueue();
   const stats = useUploadQueueStats();
 
   // Don't render if queue is empty
@@ -261,9 +126,15 @@ export function UploadStatusBar() {
         {isExpanded && (
           <>
             <ScrollArea className="max-h-64">
-              <div className="divide-y divide-border/50">
+              <div>
                 {queue.map((item) => (
-                  <QueueItem key={item.id} item={item} />
+                  <UploadQueueRow 
+                    key={item.id} 
+                    item={item}
+                    onRetry={() => retryFailed(item.id)}
+                    onRemove={() => removeFromQueue(item.id)}
+                    variant="compact"
+                  />
                 ))}
               </div>
             </ScrollArea>

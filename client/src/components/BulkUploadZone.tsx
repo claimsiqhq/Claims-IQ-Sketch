@@ -6,13 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Upload,
-  FileText,
-  X,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
   RefreshCw,
-  Trash2,
   ChevronDown,
   ChevronUp,
   FolderOpen,
@@ -23,111 +17,13 @@ import {
   useUploadQueueStats,
   subscribeToCompletions,
   type DocumentUploadType,
-  type UploadQueueItem,
 } from "@/lib/uploadQueue";
+import { UploadQueueRow } from "./UploadQueueRow";
 
 interface BulkUploadZoneProps {
   className?: string;
   compact?: boolean;
   onUploadComplete?: () => void;
-}
-
-function getFileIcon(fileName: string) {
-  const ext = fileName.split('.').pop()?.toLowerCase();
-  if (ext === 'pdf') return '📄';
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) return '🖼️';
-  if (['doc', 'docx'].includes(ext || '')) return '📝';
-  if (['xls', 'xlsx'].includes(ext || '')) return '📊';
-  return '📎';
-}
-
-function getStatusBadge(item: UploadQueueItem) {
-  switch (item.status) {
-    case 'pending':
-      return <Badge variant="outline" className="text-slate-500">Queued</Badge>;
-    case 'uploading':
-      return <Badge variant="outline" className="text-blue-600 bg-blue-50">Uploading {item.progress}%</Badge>;
-    case 'classifying':
-      return <Badge variant="outline" className="text-purple-600 bg-purple-50">Classifying</Badge>;
-    case 'processing':
-      return <Badge variant="outline" className="text-amber-600 bg-amber-50">Processing</Badge>;
-    case 'completed':
-      return <Badge variant="outline" className="text-green-600 bg-green-50">Done</Badge>;
-    case 'failed':
-      return <Badge variant="destructive">Failed</Badge>;
-    default:
-      return null;
-  }
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function UploadQueueItem({ 
-  item, 
-  onRemove, 
-  onRetry 
-}: { 
-  item: UploadQueueItem; 
-  onRemove: () => void;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/50 text-sm">
-      <span className="text-lg shrink-0">{getFileIcon(item.fileName)}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium truncate">{item.fileName}</span>
-          {getStatusBadge(item)}
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{formatFileSize(item.fileSize)}</span>
-          {item.type !== 'auto' && (
-            <>
-              <span>•</span>
-              <span className="capitalize">{item.type}</span>
-            </>
-          )}
-          {item.error && (
-            <>
-              <span>•</span>
-              <span className="text-destructive">{item.error}</span>
-            </>
-          )}
-        </div>
-        {item.status === 'uploading' && (
-          <Progress value={item.progress} className="h-1 mt-1" />
-        )}
-      </div>
-      <div className="flex items-center gap-1 shrink-0">
-        {item.status === 'failed' && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={onRetry}
-            data-testid={`button-retry-upload-${item.id}`}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
-        )}
-        {(item.status === 'pending' || item.status === 'failed' || item.status === 'completed') && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-            onClick={onRemove}
-            data-testid={`button-remove-upload-${item.id}`}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
-    </div>
-  );
 }
 
 export function BulkUploadZone({ className, compact = false, onUploadComplete }: BulkUploadZoneProps) {
@@ -345,13 +241,14 @@ export function BulkUploadZone({ className, compact = false, onUploadComplete }:
 
         {queue.length > 0 && isExpanded && (
           <ScrollArea className="max-h-[300px]">
-            <div className="space-y-2">
+            <div className="rounded-lg border border-border overflow-hidden">
               {queue.map((item) => (
-                <UploadQueueItem
+                <UploadQueueRow
                   key={item.id}
                   item={item}
                   onRemove={() => removeFromQueue(item.id)}
                   onRetry={() => retryFailed(item.id)}
+                  variant="full"
                 />
               ))}
             </div>
