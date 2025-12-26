@@ -1297,6 +1297,7 @@ export async function createClaimFromDocuments(
     .from('claims')
     .insert({
       organization_id: organizationId,
+      claim_id: claimNumber,  // Required NOT NULL column in DB
       claim_number: claimNumber,
 
       // Insured info
