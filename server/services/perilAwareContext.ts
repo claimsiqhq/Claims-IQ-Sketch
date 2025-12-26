@@ -9,7 +9,13 @@
  * - Every claim has explicit peril information
  * - All perils are treated equally (no wind/hail bias)
  * - Peril-specific metadata is properly structured
- * - Policy and endorsement context is included
+ * - Policy context uses ONLY canonical data sources:
+ *   - claims.loss_context (FNOL truth)
+ *   - policy_form_extractions (base policy)
+ *   - endorsement_extractions (endorsement modifications)
+ *
+ * IMPORTANT: This module does NOT use claims.endorsements_listed (legacy).
+ * All endorsement data comes from endorsement_extractions table.
  */
 
 import { supabaseAdmin } from '../lib/supabaseAdmin';
@@ -41,6 +47,9 @@ export interface PerilAwareClaimContext {
   claimId: string;
   claimNumber: string;
 
+  // Policyholder info
+  policyholderName: string | null;
+
   // Peril information (core of peril parity)
   primaryPeril: Peril | string;
   secondaryPerils: (Peril | string)[];
@@ -61,7 +70,7 @@ export interface PerilAwareClaimContext {
   // Policy context
   policyContext: PolicyContext;
 
-  // Endorsements (coverage modifications)
+  // Endorsements (coverage modifications) - from endorsement_extractions
   endorsements: EndorsementContext[];
 
   // Damage zones with peril associations
@@ -70,9 +79,49 @@ export interface PerilAwareClaimContext {
   // Coverage warnings/advisories
   coverageAdvisories: CoverageAdvisory[];
 
+  // Canonical FNOL truth from claims.loss_context
+  lossContext?: LossContextData;
+
   // Timestamps
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Loss context data structure (from claims.loss_context)
+ */
+export interface LossContextData {
+  fnol?: {
+    reportDate?: string;
+    reportedBy?: string;
+    reportMethod?: string;
+    lossDescription?: string;
+    dateOfLoss?: string;
+    timeOfLoss?: string;
+    occupiedAtTimeOfLoss?: boolean;
+    temporaryRepairsMade?: boolean;
+    mitigationSteps?: string[];
+  };
+  property?: {
+    yearBuilt?: string;
+    constructionType?: string;
+    roofType?: string;
+    stories?: number;
+    squareFootage?: number;
+    occupancyType?: string;
+    hasBasement?: boolean;
+    basementFinished?: boolean;
+  };
+  damage_summary?: {
+    areasAffected?: string[];
+    waterSource?: string;
+    waterCategory?: number;
+    moldVisible?: boolean;
+    structuralConcerns?: boolean;
+    habitability?: string;
+    contentsDamage?: boolean;
+    additionalLivingExpenses?: boolean;
+  };
 }
 
 export interface PolicyContext {
@@ -86,6 +135,25 @@ export interface PolicyContext {
   coverageD: string | null;
   deductible: string | null;
   yearRoofInstall: string | null;
+
+  // Extended fields from loss_context / effective policy
+  carrier?: string;
+  yearBuilt?: string;
+  roofType?: string;
+  constructionType?: string;
+  stories?: number;
+  squareFootage?: number;
+  otherStructuresLimit?: string;
+  personalPropertyLimit?: string;
+  lossOfUseLimit?: string;
+
+  // Roof settlement rules from effective policy
+  roofSettlementBasis?: string;  // RCV, ACV, or SCHEDULED
+  hasRoofSchedule?: boolean;
+  metalComponentRestrictions?: boolean;
+
+  // LEGACY: endorsementsListed from claims table - DO NOT USE for new code
+  // Use endorsement_extractions instead
   endorsementsListed: string[];
 }
 
@@ -197,6 +265,7 @@ export async function buildPerilAwareClaimContext(
   const claim = {
     id: claimData.id,
     claimNumber: claimData.claim_number,
+    insuredName: claimData.insured_name,
     primaryPeril: claimData.primary_peril,
     secondaryPerils: claimData.secondary_perils,
     perilConfidence: claimData.peril_confidence,
@@ -217,7 +286,8 @@ export async function buildPerilAwareClaimContext(
     coverageD: claimData.coverage_d,
     deductible: claimData.deductible,
     yearRoofInstall: claimData.year_roof_install,
-    endorsementsListed: claimData.endorsements_listed,
+    endorsementsListed: claimData.endorsements_listed,  // LEGACY - use endorsement_extractions
+    lossContext: claimData.loss_context,  // Canonical FNOL truth
     createdAt: claimData.created_at,
     updatedAt: claimData.updated_at,
   };
@@ -389,7 +459,10 @@ export async function buildPerilAwareClaimContext(
     endorsements
   );
 
-  // Build policy context
+  // Extract property info from loss_context if available
+  const lossContextProperty = claim.lossContext?.property || {};
+
+  // Build policy context with extended fields from loss_context
   const policyContext: PolicyContext = {
     policyNumber: claim.policyNumber,
     state: claim.propertyState,
@@ -401,6 +474,15 @@ export async function buildPerilAwareClaimContext(
     coverageD: claim.coverageD,
     deductible: claim.deductible,
     yearRoofInstall: claim.yearRoofInstall,
+
+    // Extended fields from loss_context
+    yearBuilt: lossContextProperty.yearBuilt,
+    roofType: lossContextProperty.roofType,
+    constructionType: lossContextProperty.constructionType,
+    stories: lossContextProperty.stories,
+    squareFootage: lossContextProperty.squareFootage,
+
+    // LEGACY: endorsementsListed from claims table - use endorsement_extractions
     endorsementsListed: Array.isArray(claim.endorsementsListed)
       ? claim.endorsementsListed
       : [],
@@ -410,6 +492,7 @@ export async function buildPerilAwareClaimContext(
   const context: PerilAwareClaimContext = {
     claimId: claim.id,
     claimNumber: claim.claimNumber,
+    policyholderName: claim.insuredName,
     primaryPeril,
     secondaryPerils,
     perilConfidence: claim.perilConfidence ? parseFloat(claim.perilConfidence) : 0.5,
@@ -425,6 +508,7 @@ export async function buildPerilAwareClaimContext(
     endorsements,
     damageZones,
     coverageAdvisories,
+    lossContext: claim.lossContext,
     createdAt: claim.createdAt,
     updatedAt: claim.updatedAt,
   };

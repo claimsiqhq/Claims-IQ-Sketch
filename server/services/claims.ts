@@ -1,5 +1,13 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
+/**
+ * Claim interface with all canonical fields
+ *
+ * Canonical data sources:
+ * - primaryPeril, secondaryPerils: Normalized peril data
+ * - lossContext: FNOL truth from claims.loss_context
+ * - endorsementsListed: LEGACY - use endorsement_extractions instead
+ */
 export interface ClaimWithDocuments {
   id: string;
   organizationId: string;
@@ -26,7 +34,7 @@ export interface ClaimWithDocuments {
   yearRoofInstall?: string;
   windHailDeductible?: string;
   dwellingLimit?: string;
-  endorsementsListed?: string[];
+  endorsementsListed?: string[];  // LEGACY - use endorsement_extractions
   coverageA?: string;
   coverageB?: string;
   coverageC?: string;
@@ -43,13 +51,59 @@ export interface ClaimWithDocuments {
   closedAt?: string;
   documentCount?: number;
   estimateCount?: number;
+
+  // Canonical peril fields
+  primaryPeril?: string;
+  secondaryPerils?: string[];
+  perilConfidence?: number;
+  perilMetadata?: Record<string, any>;
+
+  // Canonical FNOL truth
+  lossContext?: LossContext;
+}
+
+/**
+ * Loss context structure (canonical FNOL storage)
+ */
+export interface LossContext {
+  fnol?: {
+    reportDate?: string;
+    reportedBy?: string;
+    reportMethod?: string;
+    lossDescription?: string;
+    dateOfLoss?: string;
+    timeOfLoss?: string;
+    occupiedAtTimeOfLoss?: boolean;
+    temporaryRepairsMade?: boolean;
+    mitigationSteps?: string[];
+  };
+  property?: {
+    yearBuilt?: string;
+    constructionType?: string;
+    roofType?: string;
+    stories?: number;
+    squareFootage?: number;
+    occupancyType?: string;
+    hasBasement?: boolean;
+    basementFinished?: boolean;
+  };
+  damage_summary?: {
+    areasAffected?: string[];
+    waterSource?: string;
+    waterCategory?: number;
+    moldVisible?: boolean;
+    structuralConcerns?: boolean;
+    habitability?: string;
+    contentsDamage?: boolean;
+    additionalLivingExpenses?: boolean;
+  };
 }
 
 function mapRowToClaim(row: any): ClaimWithDocuments {
-  const riskLocation = row.property_address 
+  const riskLocation = row.property_address
     ? [row.property_address, row.property_city, row.property_state, row.property_zip].filter(Boolean).join(', ')
     : undefined;
-    
+
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -76,7 +130,7 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
     yearRoofInstall: row.year_roof_install,
     windHailDeductible: row.wind_hail_deductible,
     dwellingLimit: row.dwelling_limit,
-    endorsementsListed: row.endorsements_listed,
+    endorsementsListed: row.endorsements_listed,  // LEGACY - kept for backward compatibility
     coverageA: row.coverage_a,
     coverageB: row.coverage_b,
     coverageC: row.coverage_c,
@@ -92,7 +146,16 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
     updatedAt: row.updated_at,
     closedAt: row.closed_at,
     documentCount: row.document_count ? parseInt(row.document_count) : undefined,
-    estimateCount: row.estimate_count ? parseInt(row.estimate_count) : undefined
+    estimateCount: row.estimate_count ? parseInt(row.estimate_count) : undefined,
+
+    // Canonical peril fields
+    primaryPeril: row.primary_peril,
+    secondaryPerils: Array.isArray(row.secondary_perils) ? row.secondary_perils : [],
+    perilConfidence: row.peril_confidence ? parseFloat(row.peril_confidence) : undefined,
+    perilMetadata: row.peril_metadata,
+
+    // Canonical FNOL truth
+    lossContext: row.loss_context,
   };
 }
 

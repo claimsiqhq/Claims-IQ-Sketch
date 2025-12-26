@@ -47,7 +47,6 @@ import { getClaimBriefing } from './claimBriefingService';
 import { getCarrierOverlays } from './carrierOverlayService';
 import {
   getEffectivePolicyForClaim,
-  getEffectivePolicyFlags,
 } from './effectivePolicyService';
 import { EffectivePolicy } from '../../shared/schema';
 
@@ -765,25 +764,27 @@ Overview: ${briefing.briefingJson?.claim_summary?.overview?.join('; ') || 'No ov
 Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.join('; ') || 'No priorities'}`
       : 'No briefing available - generate a comprehensive workflow based on FNOL and peril rules';
 
-    // Step 2.5: Load effective policy if feature is enabled
+    // Step 2.5: Load effective policy (ALWAYS - no feature flag)
     // The effective policy provides deterministic inspection requirements based on endorsements
-    const policyFlags = await getEffectivePolicyFlags(organizationId);
+    // This is computed dynamically from:
+    // - policy_form_extractions (base policy)
+    // - endorsement_extractions (endorsement modifications)
     let effectivePolicy: EffectivePolicy | null = null;
     let policyBasedSteps: PolicyInspectionStep[] = [];
 
-    if (policyFlags.enabled && policyFlags.enableInspectionIntegration) {
-      try {
-        effectivePolicy = await getEffectivePolicyForClaim(claimId, organizationId);
-        if (effectivePolicy) {
-          // Generate deterministic policy-based inspection steps
-          // These are injected PROGRAMMATICALLY, not AI-inferred
-          policyBasedSteps = generatePolicyBasedInspectionSteps(effectivePolicy);
-          console.log(`[InspectionWorkflow] Generated ${policyBasedSteps.length} policy-based inspection steps for claim ${claimId}`);
-        }
-      } catch (err) {
-        console.error('[InspectionWorkflow] Error loading effective policy:', err);
-        // Continue without effective policy - not a fatal error
+    try {
+      effectivePolicy = await getEffectivePolicyForClaim(claimId, organizationId);
+      if (effectivePolicy) {
+        // Generate deterministic policy-based inspection steps
+        // These are injected PROGRAMMATICALLY, not AI-inferred
+        policyBasedSteps = generatePolicyBasedInspectionSteps(effectivePolicy);
+        console.log(`[InspectionWorkflow] Generated ${policyBasedSteps.length} policy-based inspection steps for claim ${claimId}`);
+      } else {
+        console.log(`[InspectionWorkflow] No effective policy available for claim ${claimId} - using peril rules only`);
       }
+    } catch (err) {
+      console.error('[InspectionWorkflow] Error loading effective policy:', err);
+      // Continue without effective policy - not a fatal error
     }
 
     // Step 3: Check for existing active workflow (unless force regenerate)

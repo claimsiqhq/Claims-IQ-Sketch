@@ -101,11 +101,93 @@ function generateSourceHash(context: PerilAwareClaimContext): string {
 }
 
 /**
- * Build the AI prompt for generating a claim briefing
+ * Build FNOL facts section from loss_context
  */
-function buildBriefingPrompt(context: PerilAwareClaimContext): string {
-  const inspectionRules = getInspectionRulesForPeril(context.primaryPeril);
+function buildFnolFactsSection(context: PerilAwareClaimContext): string {
+  const lossContext = context.lossContext;
+  if (!lossContext) {
+    return 'FNOL FACTS:\n- No structured FNOL data available';
+  }
+
+  const lines: string[] = ['FNOL FACTS:'];
+
+  // FNOL reporting info
+  if (lossContext.fnol) {
+    if (lossContext.fnol.reportDate) lines.push(`- Report Date: ${lossContext.fnol.reportDate}`);
+    if (lossContext.fnol.reportedBy) lines.push(`- Reported By: ${lossContext.fnol.reportedBy}`);
+    if (lossContext.fnol.occupiedAtTimeOfLoss !== undefined) {
+      lines.push(`- Occupied at Time of Loss: ${lossContext.fnol.occupiedAtTimeOfLoss ? 'Yes' : 'No'}`);
+    }
+    if (lossContext.fnol.temporaryRepairsMade !== undefined) {
+      lines.push(`- Temporary Repairs Made: ${lossContext.fnol.temporaryRepairsMade ? 'Yes' : 'No'}`);
+    }
+    if (lossContext.fnol.mitigationSteps && lossContext.fnol.mitigationSteps.length > 0) {
+      lines.push(`- Mitigation Steps: ${lossContext.fnol.mitigationSteps.join(', ')}`);
+    }
+  }
+
+  // Property info
+  if (lossContext.property) {
+    if (lossContext.property.yearBuilt) lines.push(`- Year Built: ${lossContext.property.yearBuilt}`);
+    if (lossContext.property.roofType) lines.push(`- Roof Type: ${lossContext.property.roofType}`);
+    if (lossContext.property.constructionType) lines.push(`- Construction: ${lossContext.property.constructionType}`);
+    if (lossContext.property.stories) lines.push(`- Stories: ${lossContext.property.stories}`);
+    if (lossContext.property.hasBasement) lines.push(`- Has Basement: Yes (Finished: ${lossContext.property.basementFinished ? 'Yes' : 'No'})`);
+  }
+
+  // Damage summary
+  if (lossContext.damage_summary) {
+    const ds = lossContext.damage_summary;
+    if (ds.areasAffected && ds.areasAffected.length > 0) {
+      lines.push(`- Areas Affected: ${ds.areasAffected.join(', ')}`);
+    }
+    if (ds.waterSource) lines.push(`- Water Source: ${ds.waterSource}`);
+    if (ds.waterCategory) lines.push(`- Water Category: ${ds.waterCategory}`);
+    if (ds.moldVisible) lines.push('- Mold Visible: Yes');
+    if (ds.structuralConcerns) lines.push('- Structural Concerns: Yes');
+    if (ds.habitability) lines.push(`- Habitability: ${ds.habitability}`);
+  }
+
+  return lines.length > 1 ? lines.join('\n') : 'FNOL FACTS:\n- No structured FNOL data available';
+}
+
+/**
+ * Build basic policy context when effective policy is not available
+ * Uses claim table fields as fallback
+ */
+function buildBasicPolicyContext(context: PerilAwareClaimContext): string {
+  const lines: string[] = ['POLICY CONTEXT (from claim data):'];
+
+  if (context.policyContext.policyNumber) lines.push(`- Policy Number: ${context.policyContext.policyNumber}`);
+  if (context.policyContext.state) lines.push(`- State: ${context.policyContext.state}`);
+  if (context.policyContext.dwellingLimit) lines.push(`- Dwelling Limit: ${context.policyContext.dwellingLimit}`);
+  if (context.policyContext.coverageA) lines.push(`- Coverage A: ${context.policyContext.coverageA}`);
+  if (context.policyContext.coverageB) lines.push(`- Coverage B: ${context.policyContext.coverageB}`);
+  if (context.policyContext.coverageC) lines.push(`- Coverage C: ${context.policyContext.coverageC}`);
+  if (context.policyContext.coverageD) lines.push(`- Coverage D: ${context.policyContext.coverageD}`);
+  if (context.policyContext.deductible) lines.push(`- Deductible: ${context.policyContext.deductible}`);
+  if (context.policyContext.windHailDeductible) lines.push(`- Wind/Hail Deductible: ${context.policyContext.windHailDeductible}`);
+  if (context.policyContext.yearRoofInstall) lines.push(`- Year Roof Installed: ${context.policyContext.yearRoofInstall}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Build the AI prompt for generating a claim briefing
+ *
+ * Uses ONLY canonical data sources:
+ * - Effective policy for coverage limits, deductibles, roof settlement
+ * - FNOL facts from loss_context
+ * - Endorsements from endorsement_extractions (NOT endorsements_listed)
+ */
+function buildBriefingPrompt(
+  context: PerilAwareClaimContext,
+  effectivePolicySummary?: string
+): string {
   const mergedGuidance = getMergedInspectionGuidance(context.primaryPeril, context.secondaryPerils);
+
+  // Build FNOL facts section from loss_context
+  const fnolFacts = buildFnolFactsSection(context);
 
   return `You are an expert insurance claim inspection advisor. Generate a field-ready claim briefing for an adjuster based on the following claim data.
 
@@ -115,27 +197,25 @@ IMPORTANT RULES:
 3. Be practical, concise, and field-focused
 4. If information is missing, add it to "open_questions_for_adjuster"
 5. Do NOT guess or assume - only use provided data
+6. Rephrase provided policy facts - do NOT infer policy rules
 
 CLAIM DATA:
 - Claim Number: ${context.claimNumber}
+- Policyholder: ${context.policyholderName || 'Unknown'}
 - Primary Peril: ${context.primaryPeril}
 - Secondary Perils: ${context.secondaryPerils.join(', ') || 'None'}
 - Date of Loss: ${context.dateOfLoss || 'Unknown'}
 - Loss Description: ${context.lossDescription || 'No description provided'}
 - Property Location: ${[context.propertyAddress, context.propertyCity, context.propertyState, context.propertyZip].filter(Boolean).join(', ') || 'Unknown'}
 
-POLICY CONTEXT:
-- Policy Number: ${context.policyContext.policyNumber || 'Unknown'}
-- State: ${context.policyContext.state || 'Unknown'}
-- Dwelling Limit: ${context.policyContext.dwellingLimit || 'Unknown'}
-- Deductible: ${context.policyContext.deductible || 'Unknown'}
-- Wind/Hail Deductible: ${context.policyContext.windHailDeductible || 'Unknown'}
-- Year Roof Installed: ${context.policyContext.yearRoofInstall || 'Unknown'}
-- Endorsements Listed: ${context.policyContext.endorsementsListed.join(', ') || 'None'}
+${fnolFacts}
 
-ENDORSEMENTS DETAIL:
-${context.endorsements.length > 0 ? context.endorsements.map(e => `- ${e.formNumber}: ${e.documentTitle || 'No title'} - ${e.description || 'No description'}
-  Key Changes: ${JSON.stringify(e.keyChanges)}`).join('\n') : 'No endorsements loaded'}
+${effectivePolicySummary || buildBasicPolicyContext(context)}
+
+ENDORSEMENTS (from policy extraction):
+${context.endorsements.length > 0 ? context.endorsements.map(e => `- ${e.formNumber}: ${e.documentTitle || 'No title'}
+  Key Changes: ${JSON.stringify(e.keyChanges)}
+  Relevant to perils: ${e.relevantToPerils.join(', ') || 'General'}`).join('\n') : 'No endorsements extracted'}
 
 DAMAGE ZONES:
 ${context.damageZones.length > 0 ? context.damageZones.map(z => `- ${z.name}: ${z.damageType || 'Unknown damage'} (${z.damageSeverity || 'unknown severity'})
@@ -184,10 +264,15 @@ Respond ONLY with valid JSON. No explanation, no markdown.`;
 
 /**
  * Build the briefing prompt using a template or fall back to the hardcoded version
+ *
+ * @param context - The peril-aware claim context
+ * @param userPromptTemplate - Optional template for custom prompt
+ * @param effectivePolicySummary - Optional effective policy summary for prompt injection
  */
 function buildBriefingPromptWithTemplate(
   context: PerilAwareClaimContext,
-  userPromptTemplate: string | null
+  userPromptTemplate: string | null,
+  effectivePolicySummary?: string
 ): string {
   // If we have a template, use variable substitution
   if (userPromptTemplate) {
@@ -257,11 +342,16 @@ function buildBriefingPromptWithTemplate(
       documentText: documentText || 'No document text available',
     };
 
+    // Add effective policy summary to template variables if available
+    if (effectivePolicySummary) {
+      (variables as any).effectivePolicySummary = effectivePolicySummary;
+    }
+
     return substituteVariables(userPromptTemplate, variables);
   }
 
-  // Fall back to the existing buildBriefingPrompt function
-  return buildBriefingPrompt(context);
+  // Fall back to the existing buildBriefingPrompt function with effective policy
+  return buildBriefingPrompt(context, effectivePolicySummary);
 }
 
 // ============================================
@@ -270,6 +360,11 @@ function buildBriefingPromptWithTemplate(
 
 /**
  * Generate a claim briefing for a specific claim
+ *
+ * Uses ONLY canonical data sources:
+ * - claims.loss_context for FNOL facts
+ * - Effective policy (dynamically computed) for policy context
+ * - endorsement_extractions for endorsement modifications
  *
  * @param claimId - The UUID of the claim
  * @param organizationId - The organization ID
@@ -291,7 +386,23 @@ export async function generateClaimBriefing(
       };
     }
 
-    // Step 2: Generate source hash for caching
+    // Step 1.5: Load effective policy (dynamically computed - no caching)
+    let effectivePolicySummary: string | undefined;
+    try {
+      const { getEffectivePolicyForClaim, generateEffectivePolicySummary, formatEffectivePolicySummaryForPrompt } =
+        await import('./effectivePolicyService');
+
+      const effectivePolicy = await getEffectivePolicyForClaim(claimId, organizationId);
+      if (effectivePolicy) {
+        const summary = generateEffectivePolicySummary(effectivePolicy);
+        effectivePolicySummary = formatEffectivePolicySummaryForPrompt(summary);
+      }
+    } catch (effectivePolicyError) {
+      console.warn('[ClaimBriefing] Could not load effective policy, using basic policy context:', effectivePolicyError);
+      // Continue with basic policy context from perilAwareContext
+    }
+
+    // Step 2: Generate source hash for caching (include effective policy in hash)
     const sourceHash = generateSourceHash(context);
 
     // Step 3: Check for cached briefing (unless force regenerate)
@@ -361,7 +472,8 @@ export async function generateClaimBriefing(
       const promptConfig = await getPromptWithFallback(PromptKey.CLAIM_BRIEFING);
 
       // Build the user prompt using template variables or fallback to buildBriefingPrompt
-      const userPrompt = buildBriefingPromptWithTemplate(context, promptConfig.userPromptTemplate);
+      // Pass effective policy summary for use in prompt
+      const userPrompt = buildBriefingPromptWithTemplate(context, promptConfig.userPromptTemplate, effectivePolicySummary);
 
       // Call OpenAI
       const completion = await openai.chat.completions.create({

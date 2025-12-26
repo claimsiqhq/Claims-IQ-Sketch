@@ -1,5 +1,5 @@
 /**
- * Effective Policy Resolution Service
+ * Effective Policy Resolution Service (DYNAMIC ONLY)
  *
  * Resolves FNOL + Policy + Endorsements into a deterministic, claim-specific
  * Effective Policy JSON. This service merges base policy provisions with
@@ -14,7 +14,12 @@
  * Conflicts resolved using "most specific rule wins"
  *
  * IMPORTANT:
- * - This service does NOT mutate or delete existing policy/endorsement records
+ * - This service NEVER writes to the database
+ * - Effective policy is computed dynamically on each request
+ * - Uses ONLY canonical data from:
+ *   - claims.loss_context (FNOL truth)
+ *   - policy_form_extractions (base policy)
+ *   - endorsement_extractions (endorsement modifications)
  * - All changes are additive and auditable
  * - No automated coverage approvals or denials are made
  */
@@ -297,7 +302,7 @@ export async function resolveEffectivePolicyForClaim(
     // Priority 51-100: General/other endorsements
     const sortedEndorsements = sortEndorsementsByPrecedence(endorsements);
 
-    // Build the effective policy
+    // Build the effective policy (DYNAMIC ONLY - no DB write)
     const effectivePolicy = buildEffectivePolicy(
       claimId,
       claim,
@@ -305,26 +310,7 @@ export async function resolveEffectivePolicyForClaim(
       sortedEndorsements
     );
 
-    // Save to claims table
-    const { error: updateError } = await supabaseAdmin
-      .from('claims')
-      .update({
-        effective_policy_json: effectivePolicy,
-        effective_policy_resolved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', claimId)
-      .eq('organization_id', organizationId);
-
-    if (updateError) {
-      console.error('[EffectivePolicy] Error saving effective policy:', updateError);
-      return {
-        success: false,
-        error: `Failed to save effective policy: ${updateError.message}`,
-      };
-    }
-
-    console.log(`[EffectivePolicy] Resolved effective policy for claim ${claimId} from ${basePolicies.length} policies and ${endorsements.length} endorsements`);
+    console.log(`[EffectivePolicy] Dynamically resolved effective policy for claim ${claimId} from ${basePolicies.length} policies and ${endorsements.length} endorsements`);
 
     return {
       success: true,
@@ -889,97 +875,184 @@ function addToSourceMap(
 // ============================================
 
 /**
- * Get the effective policy for a claim (from cache or resolve)
+ * Get the effective policy for a claim (ALWAYS computed dynamically)
+ *
+ * This function always computes the effective policy from:
+ * - Base policy form extractions
+ * - Endorsement extractions (sorted by precedence)
+ * - Claim data (coverage limits, deductibles)
+ *
+ * NO caching is used - policy is resolved fresh each time.
+ * This ensures consistency with the latest canonical data.
  */
 export async function getEffectivePolicyForClaim(
   claimId: string,
-  organizationId: string,
-  forceResolve: boolean = false
+  organizationId: string
 ): Promise<EffectivePolicy | null> {
-  // Check for cached effective policy
-  if (!forceResolve) {
-    const { data: claim, error } = await supabaseAdmin
-      .from('claims')
-      .select('effective_policy_json, effective_policy_resolved_at')
-      .eq('id', claimId)
-      .eq('organization_id', organizationId)
-      .single();
-
-    if (!error && claim?.effective_policy_json) {
-      return claim.effective_policy_json as EffectivePolicy;
-    }
-  }
-
-  // Resolve if not cached or force refresh
+  // Always resolve dynamically - no caching
   const result = await resolveEffectivePolicyForClaim(claimId, organizationId);
   return result.effectivePolicy || null;
 }
 
+// NOTE: Cache-related functions (shouldRecomputeEffectivePolicy, recomputeEffectivePolicyIfNeeded)
+// have been removed. Effective policy is now ALWAYS computed dynamically on each request.
+// This ensures consistency with the latest canonical data and eliminates stale cache issues.
+
+// ============================================
+// AI BRIEFING HELPERS
+// ============================================
+
 /**
- * Check if effective policy needs recomputation
- * Returns true if endorsements or policies have been updated since last resolution
+ * Effective policy summary for AI briefings
+ * Contains concise, structured data for prompt injection
  */
-export async function shouldRecomputeEffectivePolicy(
-  claimId: string,
-  organizationId: string
-): Promise<boolean> {
-  const { data: claim, error: claimError } = await supabaseAdmin
-    .from('claims')
-    .select('effective_policy_resolved_at')
-    .eq('id', claimId)
-    .eq('organization_id', organizationId)
-    .single();
-
-  if (claimError || !claim?.effective_policy_resolved_at) {
-    return true; // No effective policy yet, needs computation
-  }
-
-  const resolvedAt = new Date(claim.effective_policy_resolved_at);
-
-  // Check for newer endorsements
-  const { data: newerEndorsements } = await supabaseAdmin
-    .from('endorsement_extractions')
-    .select('id')
-    .eq('claim_id', claimId)
-    .eq('organization_id', organizationId)
-    .gt('updated_at', resolvedAt.toISOString())
-    .limit(1);
-
-  if (newerEndorsements && newerEndorsements.length > 0) {
-    return true;
-  }
-
-  // Check for newer policy extractions
-  const { data: newerPolicies } = await supabaseAdmin
-    .from('policy_form_extractions')
-    .select('id')
-    .eq('claim_id', claimId)
-    .eq('organization_id', organizationId)
-    .gt('updated_at', resolvedAt.toISOString())
-    .limit(1);
-
-  if (newerPolicies && newerPolicies.length > 0) {
-    return true;
-  }
-
-  return false;
+export interface EffectivePolicySummary {
+  coverageLimits: {
+    coverageA?: string;
+    coverageB?: string;
+    coverageC?: string;
+    coverageD?: string;
+  };
+  deductibles: {
+    standard?: string;
+    windHail?: string;
+  };
+  roofSettlement: {
+    basis: string;
+    isScheduled: boolean;
+    hasMetalRestrictions: boolean;
+    sourceEndorsement?: string;
+  };
+  majorExclusions: string[];
+  endorsementWatchouts: {
+    formCode: string;
+    summary: string;
+  }[];
 }
 
 /**
- * Recompute effective policy if needed
- * Called when claim, endorsements, or policies are updated
+ * Generate a concise summary of the effective policy for AI briefings
+ *
+ * This summary is designed to be injected into AI prompts.
+ * It extracts the most relevant policy information for inspection guidance.
  */
-export async function recomputeEffectivePolicyIfNeeded(
-  claimId: string,
-  organizationId: string
-): Promise<void> {
-  const flags = await getEffectivePolicyFlags(organizationId);
-  if (!flags.enabled) {
-    return; // Feature not enabled
+export function generateEffectivePolicySummary(
+  effectivePolicy: EffectivePolicy
+): EffectivePolicySummary {
+  // Extract coverage limits
+  const coverageLimits = {
+    coverageA: effectivePolicy.coverages.coverageA?.limit,
+    coverageB: effectivePolicy.coverages.coverageB?.limit,
+    coverageC: effectivePolicy.coverages.coverageC?.limit,
+    coverageD: effectivePolicy.coverages.coverageD?.limit,
+  };
+
+  // Extract deductibles
+  const deductibles = {
+    standard: effectivePolicy.deductibles.standard,
+    windHail: effectivePolicy.deductibles.windHail,
+  };
+
+  // Extract roof settlement rules
+  const roofingSystem = effectivePolicy.lossSettlement.roofingSystem;
+  const roofSettlement = {
+    basis: roofingSystem?.basis || 'RCV',
+    isScheduled: roofingSystem?.basis === 'SCHEDULED',
+    hasMetalRestrictions: !!roofingSystem?.metalComponentRule,
+    sourceEndorsement: roofingSystem?.sourceEndorsement,
+  };
+
+  // Extract major exclusions (first 5)
+  const majorExclusions = effectivePolicy.exclusions.slice(0, 5);
+
+  // Build endorsement watchouts from source map
+  const endorsementWatchouts: { formCode: string; summary: string }[] = [];
+
+  // Find endorsements that modified important provisions
+  const importantProvisions = [
+    'lossSettlement.roofingSystem',
+    'lossSettlement.dwellingAndStructures',
+    'lossSettlement.roofingSystem.schedule',
+  ];
+
+  for (const provision of importantProvisions) {
+    const sources = effectivePolicy.sourceMap[provision];
+    if (sources && sources.length > 0) {
+      // Get the form code from the resolved data
+      if (provision === 'lossSettlement.roofingSystem' && roofingSystem?.sourceEndorsement) {
+        endorsementWatchouts.push({
+          formCode: roofingSystem.sourceEndorsement,
+          summary: `Modifies roof loss settlement to ${roofingSystem.basis}`,
+        });
+      }
+    }
   }
 
-  const shouldRecompute = await shouldRecomputeEffectivePolicy(claimId, organizationId);
-  if (shouldRecompute) {
-    await resolveEffectivePolicyForClaim(claimId, organizationId);
+  // Check for metal component restrictions
+  if (roofingSystem?.metalComponentRule) {
+    endorsementWatchouts.push({
+      formCode: roofingSystem.sourceEndorsement || 'Policy Endorsement',
+      summary: `Metal components covered only if: ${roofingSystem.metalComponentRule.coveredOnlyIf}`,
+    });
   }
+
+  return {
+    coverageLimits,
+    deductibles,
+    roofSettlement,
+    majorExclusions,
+    endorsementWatchouts,
+  };
+}
+
+/**
+ * Format effective policy summary as a string for AI prompt injection
+ */
+export function formatEffectivePolicySummaryForPrompt(
+  summary: EffectivePolicySummary
+): string {
+  const lines: string[] = ['## EFFECTIVE POLICY SUMMARY'];
+
+  // Coverage limits
+  lines.push('\n### Coverage Limits');
+  if (summary.coverageLimits.coverageA) lines.push(`- Coverage A (Dwelling): ${summary.coverageLimits.coverageA}`);
+  if (summary.coverageLimits.coverageB) lines.push(`- Coverage B (Other Structures): ${summary.coverageLimits.coverageB}`);
+  if (summary.coverageLimits.coverageC) lines.push(`- Coverage C (Personal Property): ${summary.coverageLimits.coverageC}`);
+  if (summary.coverageLimits.coverageD) lines.push(`- Coverage D (Loss of Use): ${summary.coverageLimits.coverageD}`);
+
+  // Deductibles
+  lines.push('\n### Deductibles');
+  if (summary.deductibles.standard) lines.push(`- Standard: ${summary.deductibles.standard}`);
+  if (summary.deductibles.windHail) lines.push(`- Wind/Hail: ${summary.deductibles.windHail}`);
+
+  // Roof settlement
+  lines.push('\n### Roof Settlement Rules');
+  lines.push(`- Settlement Basis: ${summary.roofSettlement.basis}`);
+  if (summary.roofSettlement.isScheduled) {
+    lines.push('- IMPORTANT: Scheduled depreciation applies - document roof age and condition');
+  }
+  if (summary.roofSettlement.hasMetalRestrictions) {
+    lines.push('- IMPORTANT: Metal components have special restrictions');
+  }
+  if (summary.roofSettlement.sourceEndorsement) {
+    lines.push(`- Source: ${summary.roofSettlement.sourceEndorsement}`);
+  }
+
+  // Major exclusions
+  if (summary.majorExclusions.length > 0) {
+    lines.push('\n### Major Exclusions');
+    summary.majorExclusions.forEach(excl => {
+      lines.push(`- ${excl.substring(0, 100)}${excl.length > 100 ? '...' : ''}`);
+    });
+  }
+
+  // Endorsement watchouts
+  if (summary.endorsementWatchouts.length > 0) {
+    lines.push('\n### Endorsement Watchouts');
+    summary.endorsementWatchouts.forEach(watchout => {
+      lines.push(`- ${watchout.formCode}: ${watchout.summary}`);
+    });
+  }
+
+  return lines.join('\n');
 }
