@@ -282,6 +282,10 @@ export const claims = pgTable("claims", {
   // Metadata for additional fields
   metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
 
+  // Loss context - canonical storage for FNOL/loss-intake facts
+  // Structure: { fnol: {...}, property: {...}, damage_summary: {...} }
+  lossContext: jsonb("loss_context").notNull().default(sql`'{}'::jsonb`),
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
