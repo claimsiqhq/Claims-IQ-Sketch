@@ -478,34 +478,115 @@ export async function purgeAllClaims(organizationId: string): Promise<{
   const claimIds = claims.map(c => c.id);
   let relatedRecordsDeleted = 0;
 
-  const tables = [
+  // 1. Get all estimates for these claims (claim_id can be uuid or string)
+  const { data: estimates } = await supabaseAdmin
+    .from('estimates')
+    .select('id')
+    .or(claimIds.map(id => `claim_id.eq.${id}`).join(','));
+  
+  const estimateIds = estimates?.map(e => e.id) || [];
+
+  // 2. Get all structures for these estimates
+  if (estimateIds.length > 0) {
+    const { data: structures } = await supabaseAdmin
+      .from('estimate_structures')
+      .select('id')
+      .in('estimate_id', estimateIds);
+    
+    const structureIds = structures?.map(s => s.id) || [];
+
+    // 3. Get all areas for these structures
+    if (structureIds.length > 0) {
+      const { data: areas } = await supabaseAdmin
+        .from('estimate_areas')
+        .select('id')
+        .in('structure_id', structureIds);
+      
+      const areaIds = areas?.map(a => a.id) || [];
+
+      // 4. Get all zones for these areas
+      if (areaIds.length > 0) {
+        const { data: zones } = await supabaseAdmin
+          .from('estimate_zones')
+          .select('id')
+          .in('area_id', areaIds);
+        
+        const zoneIds = zones?.map(z => z.id) || [];
+
+        // 5. Delete estimate_line_items by zone_id
+        if (zoneIds.length > 0) {
+          await supabaseAdmin
+            .from('estimate_line_items')
+            .delete()
+            .in('zone_id', zoneIds);
+          relatedRecordsDeleted += zoneIds.length;
+        }
+
+        // 6. Delete estimate_zones by area_id
+        await supabaseAdmin
+          .from('estimate_zones')
+          .delete()
+          .in('area_id', areaIds);
+        relatedRecordsDeleted += areaIds.length;
+      }
+
+      // 7. Delete estimate_areas by structure_id
+      await supabaseAdmin
+        .from('estimate_areas')
+        .delete()
+        .in('structure_id', structureIds);
+      relatedRecordsDeleted += structureIds.length;
+    }
+
+    // 8. Delete estimate_structures by estimate_id
+    await supabaseAdmin
+      .from('estimate_structures')
+      .delete()
+      .in('estimate_id', estimateIds);
+    relatedRecordsDeleted += estimateIds.length;
+  }
+
+  // 9. Delete from tables with claim_id foreign key
+  const directClaimTables = [
     'inspection_workflows',
     'claim_briefings', 
     'claim_photos',
-    'claim_damage_zones',
-    'claim_rooms',
-    'claim_structures',
+    'claim_checklists',
     'documents',
-    'estimates',
-    'policy_forms',
-    'endorsements'
+    'policy_form_extractions',
+    'endorsement_extractions',
   ];
 
-  for (const table of tables) {
+  for (const table of directClaimTables) {
     try {
       await supabaseAdmin
         .from(table)
         .delete()
         .in('claim_id', claimIds);
+      relatedRecordsDeleted += claimIds.length;
     } catch (e) {
-      // Table may not exist, continue
+      // Table may not exist or have different FK, continue
+      console.log(`[purge] Could not delete from ${table}:`, e);
     }
   }
 
+  // 10. Delete estimates
+  if (estimateIds.length > 0) {
+    await supabaseAdmin
+      .from('estimates')
+      .delete()
+      .in('id', estimateIds);
+    relatedRecordsDeleted += estimateIds.length;
+  }
+
+  // 11. Finally delete claims
   await supabaseAdmin
     .from('claims')
     .delete()
     .eq('organization_id', organizationId);
 
-  return { claimsDeleted: claimIds.length, relatedRecordsDeleted: 0 };
+  return { 
+    claimsDeleted: claimIds.length, 
+    relatedRecordsDeleted 
+  };
 }
