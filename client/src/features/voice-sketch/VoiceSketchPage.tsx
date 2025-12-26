@@ -697,92 +697,12 @@ export default function VoiceSketchPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden flex">
-          {/* Main sketch area */}
-          <div className="flex-1 overflow-auto">
-            <VoiceSketchController
-              userName={authUser?.username}
-              onRoomConfirmed={handleRoomConfirmed}
-              className="min-h-full"
-            />
-          </div>
-
-          {/* Saved sketches sidebar - only shown when no claim is attached */}
-          {!claimId && (
-            <div className="w-80 border-l border-border bg-slate-50 flex flex-col">
-              <div className="p-4 border-b border-border bg-white">
-                <h2 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Saved Sketches
-                </h2>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Edit or delete previously saved sketches
-                </p>
-              </div>
-              <ScrollArea className="flex-1">
-                <div className="p-3 space-y-2">
-                  {isLoadingSavedSketches ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : savedSketches.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground text-sm">
-                      <Home className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>No saved sketches yet</p>
-                      <p className="text-xs mt-1">Create a sketch and save it to a claim</p>
-                    </div>
-                  ) : (
-                    savedSketches.map((sketch: any) => (
-                      <Card key={sketch.id} className="bg-white">
-                        <CardContent className="p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium text-sm truncate">
-                                {sketch.policyholder || 'Unknown'}
-                              </h3>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {sketch.riskLocation || sketch.claimId}
-                              </p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Badge variant="secondary" className="text-xs">
-                                  {sketch.roomCount} room{sketch.roomCount !== 1 ? 's' : ''}
-                                </Badge>
-                                {sketch.structureCount > 0 && (
-                                  <Badge variant="outline" className="text-xs">
-                                    {sketch.structureCount} structure{sketch.structureCount !== 1 ? 's' : ''}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={() => setLocation(`/voice-sketch/${sketch.id}`)}
-                                title="Edit sketch"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-destructive hover:text-destructive"
-                                onClick={() => setDeleteConfirmClaimId(sketch.id)}
-                                title="Delete sketch"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
+        <div className="flex-1 overflow-hidden">
+          <VoiceSketchController
+            userName={authUser?.username}
+            onRoomConfirmed={handleRoomConfirmed}
+            className="min-h-full"
+          />
         </div>
       </div>
 
