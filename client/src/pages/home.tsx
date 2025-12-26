@@ -512,12 +512,10 @@ export default function Home() {
               </div>
             )}
           </div>
-          <Link href="/new-claim">
-            <Button size="lg" className="shadow-lg shadow-primary/20">
-              <Plus className="mr-2 h-5 w-5" />
-              New Claim
-            </Button>
-          </Link>
+          <Button size="lg" className="shadow-lg shadow-primary/20" onClick={scrollToBulkUpload}>
+            <Plus className="mr-2 h-5 w-5" />
+            New Claim
+          </Button>
         </div>
 
         {/* Stats Grid */}
@@ -572,7 +570,9 @@ export default function Home() {
         </div>
 
         {/* Bulk Upload Zone - Desktop */}
-        <BulkUploadZone className="mb-8" onUploadComplete={loadData} />
+        <div ref={bulkUploadRef}>
+          <BulkUploadZone className="mb-8" onUploadComplete={loadData} />
+        </div>
 
         {/* Total Value Card */}
         {stats && (stats.totalRcv > 0 || stats.totalAcv > 0) && (
@@ -677,14 +677,8 @@ export default function Home() {
               <Building2 className="h-12 w-12 text-slate-300 mb-4" />
               <h3 className="text-lg font-semibold text-slate-900 mb-2">No claims yet</h3>
               <p className="text-slate-500 mb-4">
-                Get started by uploading your first FNOL document
+                Drop files in the upload zone above to get started
               </p>
-              <Link href="/new-claim">
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Claim
-                </Button>
-              </Link>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

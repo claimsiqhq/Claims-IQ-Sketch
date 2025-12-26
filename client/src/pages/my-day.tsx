@@ -1681,8 +1681,8 @@ export default function MyDay() {
               <p className="text-sm text-muted-foreground text-center max-w-sm">
                 Upload FNOL documents to create new claims, then they'll appear here for inspection.
               </p>
-              <Link href="/new-claim" className="mt-4 text-primary hover:underline text-sm font-medium">
-                Create New Claim
+              <Link href="/claims" className="mt-4 text-primary hover:underline text-sm font-medium">
+                Upload Documents
               </Link>
             </div>
           )}
