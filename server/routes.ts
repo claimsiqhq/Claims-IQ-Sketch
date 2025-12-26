@@ -4512,8 +4512,12 @@ export async function registerRoutes(
 
       const { claimId, name, type, category, description, tags } = req.body;
       if (!type) {
-        return res.status(400).json({ error: 'Document type required (fnol, policy, endorsement, photo, estimate, correspondence)' });
+        return res.status(400).json({ error: 'Document type required (fnol, policy, endorsement, photo, estimate, correspondence, or auto)' });
       }
+
+      // For 'auto' type, store as 'pending' initially - will be classified by the queue
+      const isAutoClassify = type === 'auto';
+      const storageType = isAutoClassify ? 'pending' : type;
 
       const doc = await createDocument(
         req.organizationId!,
@@ -4526,7 +4530,7 @@ export async function registerRoutes(
         {
           claimId,
           name,
-          type,
+          type: storageType,
           category,
           description,
           tags: tags ? JSON.parse(tags) : undefined,
@@ -4534,9 +4538,14 @@ export async function registerRoutes(
         }
       );
 
-      // Auto-trigger background processing for FNOL, policy, and endorsement documents
-      if (['fnol', 'policy', 'endorsement'].includes(type)) {
-        queueDocumentProcessing(doc.id, req.organizationId!);
+      // Auto-trigger background processing
+      // For 'auto' type: classify first, then extract
+      // For specific types: extract directly (if applicable)
+      if (isAutoClassify) {
+        queueDocumentProcessing(doc.id, req.organizationId!, true); // needsClassification = true
+        console.log(`[DocumentUpload] Queued auto-classification for document ${doc.id}`);
+      } else if (['fnol', 'policy', 'endorsement'].includes(type)) {
+        queueDocumentProcessing(doc.id, req.organizationId!, false);
         console.log(`[DocumentUpload] Queued background processing for document ${doc.id} (type: ${type})`);
       }
 
@@ -4557,11 +4566,15 @@ export async function registerRoutes(
 
       const { claimId, type, category } = req.body;
       if (!type) {
-        return res.status(400).json({ error: 'Document type required' });
+        return res.status(400).json({ error: 'Document type required (fnol, policy, endorsement, photo, estimate, correspondence, or auto)' });
       }
 
+      // For 'auto' type, store as 'pending' initially - will be classified by the queue
+      const isAutoClassify = type === 'auto';
+      const storageType = isAutoClassify ? 'pending' : type;
+
       const results = [];
-      const toProcess: Array<{ documentId: string; organizationId: string }> = [];
+      const toProcess: Array<{ documentId: string; organizationId: string; needsClassification?: boolean }> = [];
 
       for (const file of files) {
         const doc = await createDocument(
@@ -4574,23 +4587,25 @@ export async function registerRoutes(
           },
           {
             claimId,
-            type,
+            type: storageType,
             category,
             uploadedBy: req.user!.id
           }
         );
         results.push(doc);
 
-        // Queue for background processing if applicable
-        if (['fnol', 'policy', 'endorsement'].includes(type)) {
-          toProcess.push({ documentId: doc.id, organizationId: req.organizationId! });
+        // Queue for background processing
+        if (isAutoClassify) {
+          toProcess.push({ documentId: doc.id, organizationId: req.organizationId!, needsClassification: true });
+        } else if (['fnol', 'policy', 'endorsement'].includes(type)) {
+          toProcess.push({ documentId: doc.id, organizationId: req.organizationId!, needsClassification: false });
         }
       }
 
       // Auto-trigger background processing for all applicable documents
       if (toProcess.length > 0) {
         queueDocumentsProcessing(toProcess);
-        console.log(`[DocumentUpload] Queued background processing for ${toProcess.length} documents (type: ${type})`);
+        console.log(`[DocumentUpload] Queued ${isAutoClassify ? 'auto-classification' : 'background processing'} for ${toProcess.length} documents`);
       }
 
       res.status(201).json({ documents: results });

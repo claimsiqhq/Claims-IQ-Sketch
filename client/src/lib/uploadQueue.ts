@@ -16,9 +16,9 @@ import { persist } from 'zustand/middleware';
 // TYPES
 // ============================================
 
-export type DocumentUploadType = 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence';
-export type UploadStatus = 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
-export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type DocumentUploadType = 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence' | 'auto';
+export type UploadStatus = 'pending' | 'uploading' | 'classifying' | 'processing' | 'completed' | 'failed';
+export type ProcessingStatus = 'pending' | 'classifying' | 'processing' | 'completed' | 'failed';
 
 export interface UploadQueueItem {
   id: string;
@@ -498,24 +498,26 @@ export function useUploadQueueStats() {
 
   const pending = queue.filter((item) => item.status === 'pending').length;
   const uploading = queue.filter((item) => item.status === 'uploading').length;
+  const classifying = queue.filter((item) => item.status === 'classifying').length;
   const processing = queue.filter((item) => item.status === 'processing').length;
   const completed = queue.filter((item) => item.status === 'completed').length;
   const failed = queue.filter((item) => item.status === 'failed').length;
   const total = queue.length;
 
   const activeItems = queue.filter(
-    (item) => item.status === 'uploading' || item.status === 'processing' || item.status === 'pending'
+    (item) => item.status === 'uploading' || item.status === 'classifying' || item.status === 'processing' || item.status === 'pending'
   );
 
   const overallProgress = activeItems.length > 0
     ? Math.round(activeItems.reduce((sum, item) => sum + item.progress, 0) / activeItems.length)
     : 100;
 
-  const isActive = pending > 0 || uploading > 0 || processing > 0;
+  const isActive = pending > 0 || uploading > 0 || classifying > 0 || processing > 0;
 
   return {
     pending,
     uploading,
+    classifying,
     processing,
     completed,
     failed,

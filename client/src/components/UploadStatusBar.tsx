@@ -56,6 +56,10 @@ function StatusIcon({ status, processingStatus }: { status: UploadStatus; proces
     return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
   }
 
+  if (status === 'classifying') {
+    return <Loader2 className="h-4 w-4 text-orange-500 animate-spin" />;
+  }
+
   if (status === 'processing') {
     return <Loader2 className="h-4 w-4 text-purple-500 animate-spin" />;
   }
@@ -83,12 +87,15 @@ function QueueItem({ item }: { item: UploadQueueItem }) {
         return 'Waiting...';
       case 'uploading':
         return `Uploading ${item.progress}%`;
+      case 'classifying':
+        return 'Identifying document type...';
       case 'processing':
-        return 'Processing...';
+        return 'Extracting data...';
       case 'completed':
         if (item.processingStatus === 'completed') return 'Complete';
         if (item.processingStatus === 'failed') return 'Upload OK, processing failed';
-        return 'Extracting data...';
+        if (item.processingStatus === 'classifying') return 'Identifying document type...';
+        return 'Processing...';
       case 'failed':
         return item.error || 'Failed';
       default:
@@ -163,7 +170,8 @@ export function UploadStatusBar() {
     return null;
   }
 
-  const { pending, uploading, processing, completed, failed, overallProgress, isActive } = stats;
+  const { pending, uploading, classifying, processing, completed, failed, overallProgress, isActive } = stats;
+  const activeCount = pending + uploading + classifying + processing;
 
   // Minimized view - just a small floating indicator
   if (isMinimized) {
@@ -180,7 +188,7 @@ export function UploadStatusBar() {
         >
           <Upload className="h-4 w-4" />
           {isActive ? (
-            <span>{pending + uploading + processing} uploading</span>
+            <span>{activeCount} uploading</span>
           ) : (
             <span>{completed} done</span>
           )}
@@ -214,7 +222,7 @@ export function UploadStatusBar() {
             <div className="flex items-center gap-2">
               <span className="font-medium text-sm">
                 {isActive
-                  ? `Uploading ${pending + uploading + processing} document${pending + uploading + processing !== 1 ? 's' : ''}`
+                  ? `Uploading ${activeCount} document${activeCount !== 1 ? 's' : ''}`
                   : `${completed} document${completed !== 1 ? 's' : ''} uploaded`}
               </span>
               {failed > 0 && (

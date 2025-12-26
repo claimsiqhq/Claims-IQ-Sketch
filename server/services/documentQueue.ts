@@ -10,19 +10,23 @@
  * - Automatic retry on failures
  * - Status tracking per document
  * - Fire-and-forget pattern for non-blocking uploads
+ * - Auto-classification support for unknown document types
  */
 
 import { processDocument as processDocumentAI } from './documentProcessor';
+import { classifyDocumentFromStorage } from './documentClassifier';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 // ============================================
 // TYPES
 // ============================================
 
-export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type ProcessingStatus = 'pending' | 'classifying' | 'processing' | 'completed' | 'failed';
 
 interface QueueItem {
   documentId: string;
   organizationId: string;
+  needsClassification: boolean; // If true, classify before processing
   addedAt: number;
   startedAt?: number;
   completedAt?: number;
@@ -58,10 +62,15 @@ let isProcessing = false;
 /**
  * Add a document to the processing queue
  * Returns immediately - processing happens in background
+ *
+ * @param documentId - The document ID
+ * @param organizationId - The organization ID
+ * @param needsClassification - If true, auto-classify before processing
  */
 export function queueDocumentProcessing(
   documentId: string,
-  organizationId: string
+  organizationId: string,
+  needsClassification: boolean = false
 ): void {
   // Check if already in queue or processing
   if (queue.some(item => item.documentId === documentId) || processing.has(documentId)) {
@@ -72,12 +81,13 @@ export function queueDocumentProcessing(
   const item: QueueItem = {
     documentId,
     organizationId,
+    needsClassification,
     addedAt: Date.now(),
     retryCount: 0,
   };
 
   queue.push(item);
-  console.log(`[DocumentQueue] Added document ${documentId} to queue (queue size: ${queue.length})`);
+  console.log(`[DocumentQueue] Added document ${documentId} to queue (classification: ${needsClassification}, queue size: ${queue.length})`);
 
   // Trigger processing
   processQueueAsync();
@@ -87,10 +97,10 @@ export function queueDocumentProcessing(
  * Add multiple documents to the processing queue
  */
 export function queueDocumentsProcessing(
-  documents: Array<{ documentId: string; organizationId: string }>
+  documents: Array<{ documentId: string; organizationId: string; needsClassification?: boolean }>
 ): void {
   for (const doc of documents) {
-    queueDocumentProcessing(doc.documentId, doc.organizationId);
+    queueDocumentProcessing(doc.documentId, doc.organizationId, doc.needsClassification ?? false);
   }
 }
 
@@ -172,14 +182,81 @@ async function processQueueAsync(): Promise<void> {
 }
 
 async function processItemAsync(item: QueueItem): Promise<void> {
-  const { documentId, organizationId } = item;
+  const { documentId, organizationId, needsClassification } = item;
 
   processing.add(documentId);
   item.startedAt = Date.now();
 
-  console.log(`[DocumentQueue] Starting processing for document ${documentId} (attempt ${item.retryCount + 1})`);
+  console.log(`[DocumentQueue] Starting processing for document ${documentId} (attempt ${item.retryCount + 1}, classification: ${needsClassification})`);
 
   try {
+    // Step 1: Classification (if needed)
+    if (needsClassification) {
+      console.log(`[DocumentQueue] Classifying document ${documentId}...`);
+
+      // Get document info to find storage path
+      const { data: doc, error: docError } = await supabaseAdmin
+        .from('documents')
+        .select('storage_path, type')
+        .eq('id', documentId)
+        .single();
+
+      if (docError || !doc) {
+        throw new Error(`Document not found: ${docError?.message || 'No data'}`);
+      }
+
+      // Update status to classifying
+      await supabaseAdmin
+        .from('documents')
+        .update({ processing_status: 'classifying', updated_at: new Date().toISOString() })
+        .eq('id', documentId);
+
+      // Run classification
+      const classification = await classifyDocumentFromStorage(doc.storage_path);
+
+      console.log(`[DocumentQueue] Document ${documentId} classified as: ${classification.documentType} (confidence: ${classification.confidence})`);
+
+      // Update document with classified type
+      await supabaseAdmin
+        .from('documents')
+        .update({
+          type: classification.documentType,
+          extracted_data: {
+            ...((doc as any).extracted_data || {}),
+            _classification: {
+              documentType: classification.documentType,
+              confidence: classification.confidence,
+              reasoning: classification.reasoning,
+              detectedFormCode: classification.detectedFormCode,
+              detectedTitle: classification.detectedTitle,
+              classifiedAt: new Date().toISOString(),
+            },
+          },
+          processing_status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', documentId);
+
+      // Skip AI extraction for photos and correspondence - they don't need it
+      if (classification.documentType === 'photo' || classification.documentType === 'correspondence') {
+        console.log(`[DocumentQueue] Document ${documentId} is ${classification.documentType}, skipping AI extraction`);
+
+        await supabaseAdmin
+          .from('documents')
+          .update({ processing_status: 'completed', updated_at: new Date().toISOString() })
+          .eq('id', documentId);
+
+        processing.delete(documentId);
+        completed.set(documentId, { success: true });
+        item.completedAt = Date.now();
+
+        console.log(`[DocumentQueue] Document ${documentId} completed (classification only) in ${Date.now() - item.startedAt}ms`);
+        processQueueAsync();
+        return;
+      }
+    }
+
+    // Step 2: AI Extraction
     await processDocumentAI(documentId, organizationId);
 
     // Success
