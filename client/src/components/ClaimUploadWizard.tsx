@@ -198,7 +198,7 @@ export function ClaimUploadWizard({
       formData.append("type", "fnol");
       formData.append("processAI", "true");
 
-      const response = await fetch("/api/documents/upload", {
+      const response = await fetch("/api/documents", {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -210,7 +210,7 @@ export function ClaimUploadWizard({
       }
 
       const result = await response.json();
-      const documentId = result.documentId;
+      const documentId = result.id;
 
       setFnolState(prev => ({ ...prev, status: "classifying" }));
 
