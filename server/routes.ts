@@ -4736,13 +4736,24 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Document not found' });
       }
       
+      // If there's a claimId, lookup the claim number
+      let claimNumber: string | null = null;
+      if (doc.claimId) {
+        const { data: claim } = await supabaseAdmin
+          .from('claims')
+          .select('claim_number')
+          .eq('id', doc.claimId)
+          .single();
+        claimNumber = claim?.claim_number || null;
+      }
+      
       res.json({
         documentId: doc.id,
         processingStatus: doc.processingStatus || 'pending',
         claimId: doc.claimId || null,
-        claimNumber: doc.claimNumber || null,
-        documentType: doc.documentType || null,
-        error: doc.processingError || null,
+        claimNumber,
+        documentType: doc.type || null,
+        error: (doc.extractedData as any)?.error || null,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
