@@ -673,7 +673,7 @@ export function ClaimUploadWizard({
         )}
 
         {queueForCurrentMode.length > 0 && isExpanded && (
-          <ScrollArea className="max-h-[200px]">
+          <ScrollArea className="max-h-[400px]">
             <div className="rounded-lg border border-border overflow-hidden">
               {queueForCurrentMode.map((item) => (
                 <UploadQueueRow

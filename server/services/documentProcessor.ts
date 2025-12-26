@@ -121,6 +121,13 @@ export interface FNOLExtraction {
     coverageB?: string;
     coverageC?: string;
   };
+
+  policy?: {
+    policyNumber?: string;
+    dwellingLimit?: string;
+    windHailDeductible?: string;
+    endorsementsListed?: string[];
+  };
 }
 
 /**
@@ -427,6 +434,19 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
       coverageA: coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling'))?.limit || undefined,
       coverageB: coverages.find((c: any) => c.coverageCode === 'B' || c.coverageName?.toLowerCase().includes('other structure'))?.limit || undefined,
       coverageC: coverages.find((c: any) => c.coverageCode === 'C' || c.coverageName?.toLowerCase().includes('personal property'))?.limit || undefined,
+    },
+    policy: {
+      policyNumber: claimInfo.policyNumber || source.policyNumber || undefined,
+      dwellingLimit: coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling'))?.limit || undefined,
+      windHailDeductible: source.deductibles?.windHail || source.deductibles?.['wind/hail'] || 
+        (Array.isArray(source.deductibles) ? source.deductibles.find((d: any) => 
+          d.type?.toLowerCase().includes('wind') || d.type?.toLowerCase().includes('hail') || 
+          d.name?.toLowerCase().includes('wind') || d.name?.toLowerCase().includes('hail')
+        )?.amount : undefined) ||
+        (typeof source.deductibles === 'object' && !Array.isArray(source.deductibles) ? 
+          Object.entries(source.deductibles).find(([k]) => k.toLowerCase().includes('wind') || k.toLowerCase().includes('hail'))?.[1] as string : undefined) ||
+        undefined,
+      endorsementsListed: source.endorsementsListed || source.endorsements?.map((e: any) => e.formCode || e.code || e) || undefined,
     },
   };
 
@@ -1318,6 +1338,12 @@ export async function createClaimFromDocuments(
 
       // Roof
       year_roof_install: fnolExtraction.property.roof?.yearInstalled?.toString() || null,
+
+      // Policy details from FNOL
+      policy_number: fnolExtraction.policy?.policyNumber || null,
+      dwelling_limit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
+      wind_hail_deductible: fnolExtraction.policy?.windHailDeductible || null,
+      endorsements_listed: fnolExtraction.policy?.endorsementsListed || [],
 
       // Peril inference
       secondary_perils: perilInference.secondaryPerils,
