@@ -4714,21 +4714,8 @@ export async function registerRoutes(
     }
   });
 
-  // Get single document metadata
-  app.get('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await getDocument(req.params.id, req.organizationId!);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-      res.json(doc);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
-
   // Get document processing status (for polling after upload)
+  // NOTE: This must be before /api/documents/:id to avoid route collision
   app.get('/api/documents/:id/status', requireAuth, requireOrganization, async (req, res) => {
     try {
       const doc = await getDocument(req.params.id, req.organizationId!);
@@ -4755,6 +4742,20 @@ export async function registerRoutes(
         documentType: doc.type || null,
         error: (doc.extractedData as any)?.error || null,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get single document metadata
+  app.get('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      res.json(doc);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
