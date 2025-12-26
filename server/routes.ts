@@ -118,6 +118,12 @@ import {
   createClaimFromDocuments
 } from "./services/documentProcessor";
 import {
+  queueDocumentProcessing,
+  queueDocumentsProcessing,
+  getBatchProcessingStatus,
+  getQueueStats as getDocumentQueueStats,
+} from "./services/documentQueue";
+import {
   getClaimsForMap,
   getMapStats,
   geocodePendingClaims,
@@ -4527,6 +4533,13 @@ export async function registerRoutes(
           uploadedBy: req.user!.id
         }
       );
+
+      // Auto-trigger background processing for FNOL, policy, and endorsement documents
+      if (['fnol', 'policy', 'endorsement'].includes(type)) {
+        queueDocumentProcessing(doc.id, req.organizationId!);
+        console.log(`[DocumentUpload] Queued background processing for document ${doc.id} (type: ${type})`);
+      }
+
       res.status(201).json(doc);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -4548,6 +4561,8 @@ export async function registerRoutes(
       }
 
       const results = [];
+      const toProcess: Array<{ documentId: string; organizationId: string }> = [];
+
       for (const file of files) {
         const doc = await createDocument(
           req.organizationId!,
@@ -4565,6 +4580,17 @@ export async function registerRoutes(
           }
         );
         results.push(doc);
+
+        // Queue for background processing if applicable
+        if (['fnol', 'policy', 'endorsement'].includes(type)) {
+          toProcess.push({ documentId: doc.id, organizationId: req.organizationId! });
+        }
+      }
+
+      // Auto-trigger background processing for all applicable documents
+      if (toProcess.length > 0) {
+        queueDocumentsProcessing(toProcess);
+        console.log(`[DocumentUpload] Queued background processing for ${toProcess.length} documents (type: ${type})`);
       }
 
       res.status(201).json({ documents: results });
@@ -4597,6 +4623,59 @@ export async function registerRoutes(
   app.get('/api/documents/stats', requireAuth, requireOrganization, async (req, res) => {
     try {
       const stats = await getDocumentStats(req.organizationId!);
+      res.json(stats);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get batch processing status for multiple documents
+  // Used by the upload queue to poll for completion
+  app.get('/api/documents/batch-status', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const idsParam = req.query.ids as string;
+      if (!idsParam) {
+        return res.status(400).json({ error: 'Document IDs required (comma-separated)' });
+      }
+
+      const documentIds = idsParam.split(',').map(id => id.trim()).filter(Boolean);
+      if (documentIds.length === 0) {
+        return res.status(400).json({ error: 'No valid document IDs provided' });
+      }
+
+      // Get status from the processing queue
+      const queueStatus = getBatchProcessingStatus(documentIds);
+
+      // Also fetch actual document status from the database
+      const result: Record<string, string> = {};
+
+      for (const docId of documentIds) {
+        // If in queue, use queue status
+        if (queueStatus[docId] && queueStatus[docId] !== 'pending') {
+          result[docId] = queueStatus[docId];
+        } else {
+          // Otherwise, check the database
+          try {
+            const doc = await getDocument(docId, req.organizationId!);
+            result[docId] = doc?.processingStatus || 'pending';
+          } catch {
+            result[docId] = 'pending';
+          }
+        }
+      }
+
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Get document processing queue statistics
+  app.get('/api/documents/queue-stats', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const stats = getDocumentQueueStats();
       res.json(stats);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

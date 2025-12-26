@@ -16,6 +16,7 @@ import ClaimsMap from "@/pages/claims-map";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import Photos from "@/pages/photos";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { UploadStatusBar } from "@/components/UploadStatusBar";
 
 function Router() {
   return (
@@ -83,6 +84,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          <UploadStatusBar />
         </TooltipProvider>
       </DeviceModeProvider>
     </QueryClientProvider>
