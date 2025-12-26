@@ -600,6 +600,86 @@ export default function VoiceSketchPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Saved Sketches dropdown - only shown when no claim is attached */}
+            {!claimId && (
+              <Popover open={isSavedSketchesOpen} onOpenChange={setIsSavedSketchesOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" data-testid="button-saved-sketches">
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Saved Sketches
+                    {savedSketches.length > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-xs">
+                        {savedSketches.length}
+                      </Badge>
+                    )}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-0" align="end">
+                  <div className="p-3 border-b border-border">
+                    <h3 className="font-semibold text-sm">Saved Sketches</h3>
+                    <p className="text-xs text-muted-foreground">Edit or delete previously saved sketches</p>
+                  </div>
+                  <ScrollArea className="max-h-72">
+                    <div className="p-2 space-y-1">
+                      {isLoadingSavedSketches ? (
+                        <div className="flex items-center justify-center py-6">
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : savedSketches.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground text-sm">
+                          <Home className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                          <p>No saved sketches yet</p>
+                        </div>
+                      ) : (
+                        savedSketches.map((sketch: any) => (
+                          <div
+                            key={sketch.id}
+                            className="flex items-center justify-between gap-2 p-2 rounded-md hover:bg-muted/50"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm truncate">
+                                {sketch.policyholder || 'Unknown'}
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {sketch.roomCount} room{sketch.roomCount !== 1 ? 's' : ''}
+                                {sketch.structureCount > 0 && ` | ${sketch.structureCount} structure${sketch.structureCount !== 1 ? 's' : ''}`}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => {
+                                  setIsSavedSketchesOpen(false);
+                                  setLocation(`/voice-sketch/${sketch.id}`);
+                                }}
+                                title="Edit sketch"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() => {
+                                  setIsSavedSketchesOpen(false);
+                                  setDeleteConfirmClaimId(sketch.id);
+                                }}
+                                title="Delete sketch"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+            )}
             {hasRooms && (
               <Button 
                 onClick={handleSaveToClaimClick} 
