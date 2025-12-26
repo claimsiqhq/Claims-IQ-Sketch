@@ -438,14 +438,29 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
     policy: {
       policyNumber: claimInfo.policyNumber || source.policyNumber || undefined,
       dwellingLimit: coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling'))?.limit || undefined,
-      windHailDeductible: source.deductibles?.windHail || source.deductibles?.['wind/hail'] || 
-        (Array.isArray(source.deductibles) ? source.deductibles.find((d: any) => 
-          d.type?.toLowerCase().includes('wind') || d.type?.toLowerCase().includes('hail') || 
-          d.name?.toLowerCase().includes('wind') || d.name?.toLowerCase().includes('hail')
-        )?.amount : undefined) ||
-        (typeof source.deductibles === 'object' && !Array.isArray(source.deductibles) ? 
-          Object.entries(source.deductibles).find(([k]) => k.toLowerCase().includes('wind') || k.toLowerCase().includes('hail'))?.[1] as string : undefined) ||
-        undefined,
+      windHailDeductible: (() => {
+        const deductibles = source.deductibles;
+        if (!deductibles) return undefined;
+        // Direct property access
+        if (typeof deductibles.windHail === 'string') return deductibles.windHail;
+        if (typeof deductibles['wind/hail'] === 'string') return deductibles['wind/hail'];
+        // Array of deductibles
+        if (Array.isArray(deductibles)) {
+          const windHail = deductibles.find((d: any) => 
+            d.type?.toLowerCase().includes('wind') || d.type?.toLowerCase().includes('hail') || 
+            d.name?.toLowerCase().includes('wind') || d.name?.toLowerCase().includes('hail')
+          );
+          return windHail?.amount || windHail?.value || undefined;
+        }
+        // Object with keys
+        if (typeof deductibles === 'object') {
+          const entry = Object.entries(deductibles).find(([k]) => 
+            k.toLowerCase().includes('wind') || k.toLowerCase().includes('hail')
+          );
+          return entry ? String(entry[1]) : undefined;
+        }
+        return undefined;
+      })(),
       endorsementsListed: source.endorsementsListed || source.endorsements?.map((e: any) => e.formCode || e.code || e) || undefined,
     },
   };
