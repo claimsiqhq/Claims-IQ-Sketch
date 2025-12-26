@@ -43,7 +43,7 @@ import {
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
-import { BulkUploadZone, BulkUploadStatusBar } from "@/components/BulkUploadZone";
+import { BulkUploadZone } from "@/components/BulkUploadZone";
 
 function ClaimCard({ claim }: { claim: Claim }) {
   const statusColors: Record<string, string> = {
@@ -476,7 +476,6 @@ export default function Home() {
             )}
           </div>
         </div>
-        <BulkUploadStatusBar />
       </Layout>
     );
   }
@@ -689,7 +688,6 @@ export default function Home() {
           )}
         </div>
       </div>
-      <BulkUploadStatusBar />
     </Layout>
   );
 }
