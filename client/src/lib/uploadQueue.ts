@@ -458,6 +458,11 @@ async function pollProcessingStatus(itemId: string, documentId: string): Promise
         credentials: 'include',
       });
 
+      // Stop polling if user is not authenticated
+      if (response.status === 401) {
+        return;
+      }
+
       if (!response.ok) {
         throw new Error('Failed to fetch document status');
       }

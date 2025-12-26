@@ -4,7 +4,6 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { setupAuth } from "./middleware/auth";
 import { initializeStorageBucket } from "./services/documents";
-import { seedAdminUser } from "./services/auth";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -90,14 +89,6 @@ app.use((req, res, next) => {
     // Continue startup - storage will fail at runtime if not configured
   }
 
-  // Seed admin user if not exists
-  try {
-    await seedAdminUser();
-    log('Admin user seeded/verified', 'auth');
-  } catch (error) {
-    log(`Warning: Could not seed admin user: ${error}`, 'auth');
-    // Continue startup - admin can be created manually
-  }
 
   await registerRoutes(httpServer, app);
 
