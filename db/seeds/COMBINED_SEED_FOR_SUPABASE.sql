@@ -1,35 +1,35 @@
 -- ============================================
--- COMBINED SEED FILE FOR SUPABASE
+-- COMBINED SEED FILE FOR SUPABASE (FIXED)
 -- Copy this entire file and paste into Supabase SQL Editor
 -- ============================================
 
 -- ============================================
--- LINE ITEM CATEGORIES
+-- LINE ITEM CATEGORIES (id is VARCHAR primary key)
 -- ============================================
 
-INSERT INTO line_item_categories (code, name, description, parent_code, sort_order) VALUES
-('01', 'General Conditions', 'Project overhead, permits, supervision', NULL, 1),
-('02', 'Site Work', 'Demolition, clearing, grading', NULL, 2),
-('03', 'Concrete', 'Foundations, slabs, flatwork', NULL, 3),
-('04', 'Masonry', 'Brick, block, stone', NULL, 4),
-('05', 'Metals', 'Structural steel, railings', NULL, 5),
-('06', 'Wood & Plastics', 'Framing, trim, drywall', NULL, 6),
-('07', 'Flooring', 'Carpet, hardwood, tile, vinyl', NULL, 7),
-('08', 'Doors & Windows', 'Entry doors, windows, garage doors', NULL, 8),
-('09', 'Finishes', 'Paint, wallpaper, specialty finishes', NULL, 9),
-('10', 'Specialties', 'Cabinets, countertops, bath accessories', NULL, 10),
-('11', 'Equipment', 'Appliances, HVAC equipment', NULL, 11),
-('12', 'Roofing', 'Shingles, flashing, gutters', NULL, 12),
-('13', 'Exterior', 'Siding, soffit, fascia', NULL, 13),
-('14', 'Painting', 'Interior/exterior paint, stain', NULL, 14),
-('15', 'Plumbing', 'Fixtures, piping, water heaters', NULL, 15),
-('16', 'Electrical', 'Wiring, fixtures, panels', NULL, 16),
-('17', 'HVAC', 'Heating, cooling, ventilation', NULL, 17),
-('18', 'Insulation', 'Wall, attic, crawlspace insulation', NULL, 18),
-('19', 'Water Mitigation', 'Drying, extraction, mold remediation', NULL, 19),
-('20', 'Contents', 'Personal property, cleaning', NULL, 20),
-('21', 'Additional Living Expense', 'Temporary housing, meals', NULL, 21)
-ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;
+INSERT INTO line_item_categories (id, parent_id, name, description, sort_order, default_coverage_code) VALUES
+('01', NULL, 'General Conditions', 'Project overhead, permits, supervision', 1, 'A'),
+('02', NULL, 'Site Work', 'Demolition, clearing, grading', 2, 'A'),
+('03', NULL, 'Concrete', 'Foundations, slabs, flatwork', 3, 'A'),
+('04', NULL, 'Masonry', 'Brick, block, stone', 4, 'A'),
+('05', NULL, 'Metals', 'Structural steel, railings', 5, 'A'),
+('06', NULL, 'Wood & Plastics', 'Framing, trim, drywall', 6, 'A'),
+('07', NULL, 'Flooring', 'Carpet, hardwood, tile, vinyl', 7, 'A'),
+('08', NULL, 'Doors & Windows', 'Entry doors, windows, garage doors', 8, 'A'),
+('09', NULL, 'Finishes', 'Paint, wallpaper, specialty finishes', 9, 'A'),
+('10', NULL, 'Specialties', 'Cabinets, countertops, bath accessories', 10, 'A'),
+('11', NULL, 'Equipment', 'Appliances, HVAC equipment', 11, 'A'),
+('12', NULL, 'Roofing', 'Shingles, flashing, gutters', 12, 'A'),
+('13', NULL, 'Exterior', 'Siding, soffit, fascia', 13, 'A'),
+('14', NULL, 'Painting', 'Interior/exterior paint, stain', 14, 'A'),
+('15', NULL, 'Plumbing', 'Fixtures, piping, water heaters', 15, 'A'),
+('16', NULL, 'Electrical', 'Wiring, fixtures, panels', 16, 'A'),
+('17', NULL, 'HVAC', 'Heating, cooling, ventilation', 17, 'A'),
+('18', NULL, 'Insulation', 'Wall, attic, crawlspace insulation', 18, 'A'),
+('19', NULL, 'Water Mitigation', 'Drying, extraction, mold remediation', 19, 'A'),
+('20', NULL, 'Contents', 'Personal property, cleaning', 20, 'C'),
+('21', NULL, 'Additional Living Expense', 'Temporary housing, meals', 21, 'D')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;
 
 -- ============================================
 -- COVERAGE TYPES
@@ -96,7 +96,7 @@ INSERT INTO depreciation_schedules (category_code, item_type, useful_life_years,
 ON CONFLICT (category_code, item_type) DO UPDATE SET useful_life_years = EXCLUDED.useful_life_years;
 
 -- ============================================
--- LABOR RATES
+-- LABOR RATES (uses hourly_rate, not base_hourly_rate)
 -- ============================================
 
 INSERT INTO labor_rates (trade_code, trade_name, region_code, hourly_rate, effective_date) VALUES
@@ -115,35 +115,35 @@ INSERT INTO labor_rates (trade_code, trade_name, region_code, hourly_rate, effec
 ON CONFLICT (trade_code, region_code) DO UPDATE SET hourly_rate = EXCLUDED.hourly_rate;
 
 -- ============================================
--- MATERIALS (Sample)
+-- MATERIALS (uses sku, not code)
 -- ============================================
 
-INSERT INTO materials (code, name, category_code, unit, unit_cost, supplier) VALUES
+INSERT INTO materials (sku, name, description, category, unit, manufacturer) VALUES
 -- Roofing Materials
-('MAT-SHIN-3TAB', '3-Tab Asphalt Shingles', '12', 'SQ', 95.00, 'National'),
-('MAT-SHIN-ARCH', 'Architectural Shingles', '12', 'SQ', 145.00, 'National'),
-('MAT-SHIN-PREM', 'Premium Designer Shingles', '12', 'SQ', 225.00, 'National'),
-('MAT-FELT-15', '15# Felt Underlayment', '12', 'SQ', 18.00, 'National'),
-('MAT-FELT-30', '30# Felt Underlayment', '12', 'SQ', 28.00, 'National'),
-('MAT-FLASH-AL', 'Aluminum Step Flashing', '12', 'EA', 1.50, 'National'),
-('MAT-RIDGE', 'Ridge Cap Shingles', '12', 'LF', 4.50, 'National'),
-('MAT-DRIP', 'Drip Edge', '12', 'LF', 1.25, 'National'),
+('MAT-SHIN-3TAB', '3-Tab Asphalt Shingles', 'Standard 3-tab shingles per square', 'Roofing', 'SQ', 'GAF'),
+('MAT-SHIN-ARCH', 'Architectural Shingles', 'Dimensional shingles per square', 'Roofing', 'SQ', 'GAF'),
+('MAT-SHIN-PREM', 'Premium Designer Shingles', 'Designer shingles per square', 'Roofing', 'SQ', 'GAF'),
+('MAT-FELT-15', '15# Felt Underlayment', 'Roof underlayment', 'Roofing', 'SQ', 'Various'),
+('MAT-FELT-30', '30# Felt Underlayment', 'Heavy roof underlayment', 'Roofing', 'SQ', 'Various'),
+('MAT-FLASH-AL', 'Aluminum Step Flashing', 'Step flashing pieces', 'Roofing', 'EA', 'Various'),
+('MAT-RIDGE', 'Ridge Cap Shingles', 'Ridge cap per linear foot', 'Roofing', 'LF', 'GAF'),
+('MAT-DRIP', 'Drip Edge', 'Drip edge per linear foot', 'Roofing', 'LF', 'Various'),
 -- Drywall
-('MAT-DRY-12', '1/2" Drywall Sheet', '06', 'SF', 0.45, 'National'),
-('MAT-DRY-58', '5/8" Drywall Sheet', '06', 'SF', 0.55, 'National'),
-('MAT-MUD', 'Joint Compound', '06', 'GAL', 12.00, 'National'),
-('MAT-TAPE', 'Drywall Tape', '06', 'RL', 4.50, 'National'),
+('MAT-DRY-12', '1/2" Drywall Sheet', 'Standard drywall', 'Drywall', 'SF', 'USG'),
+('MAT-DRY-58', '5/8" Drywall Sheet', 'Fire-rated drywall', 'Drywall', 'SF', 'USG'),
+('MAT-MUD', 'Joint Compound', 'All-purpose joint compound', 'Drywall', 'GAL', 'USG'),
+('MAT-TAPE', 'Drywall Tape', 'Paper joint tape', 'Drywall', 'RL', 'Various'),
 -- Paint
-('MAT-PAINT-INT', 'Interior Latex Paint', '14', 'GAL', 35.00, 'National'),
-('MAT-PAINT-EXT', 'Exterior Latex Paint', '14', 'GAL', 45.00, 'National'),
-('MAT-PRIMER', 'Primer', '14', 'GAL', 28.00, 'National'),
+('MAT-PAINT-INT', 'Interior Latex Paint', 'Interior wall paint', 'Paint', 'GAL', 'Sherwin-Williams'),
+('MAT-PAINT-EXT', 'Exterior Latex Paint', 'Exterior house paint', 'Paint', 'GAL', 'Sherwin-Williams'),
+('MAT-PRIMER', 'Primer', 'Multi-surface primer', 'Paint', 'GAL', 'Kilz'),
 -- Flooring
-('MAT-CARPET', 'Carpet (mid-grade)', '07', 'SY', 25.00, 'National'),
-('MAT-PAD', 'Carpet Pad', '07', 'SY', 6.00, 'National'),
-('MAT-LVP', 'Luxury Vinyl Plank', '07', 'SF', 3.50, 'National'),
-('MAT-LAMINATE', 'Laminate Flooring', '07', 'SF', 2.50, 'National'),
-('MAT-HARDWOOD', 'Hardwood Flooring (Oak)', '07', 'SF', 6.00, 'National')
-ON CONFLICT (code) DO UPDATE SET unit_cost = EXCLUDED.unit_cost;
+('MAT-CARPET', 'Carpet (mid-grade)', 'Residential carpet', 'Flooring', 'SY', 'Shaw'),
+('MAT-PAD', 'Carpet Pad', '8lb carpet padding', 'Flooring', 'SY', 'Various'),
+('MAT-LVP', 'Luxury Vinyl Plank', 'LVP flooring', 'Flooring', 'SF', 'LifeProof'),
+('MAT-LAMINATE', 'Laminate Flooring', 'Laminate plank', 'Flooring', 'SF', 'Pergo'),
+('MAT-HARDWOOD', 'Hardwood Flooring (Oak)', 'Solid oak hardwood', 'Flooring', 'SF', 'Bruce')
+ON CONFLICT (sku) DO UPDATE SET name = EXCLUDED.name;
 
 -- ============================================
 -- DONE
