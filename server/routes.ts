@@ -3379,6 +3379,49 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // EFFECTIVE POLICY ROUTES
+  // ============================================
+
+  /**
+   * GET /api/claims/:id/effective-policy
+   * Get the dynamically computed effective policy for a claim.
+   *
+   * This endpoint computes the effective policy by:
+   * 1. Loading base policy form extractions
+   * 2. Loading endorsement extractions (sorted by precedence)
+   * 3. Merging according to "most specific rule wins"
+   *
+   * The effective policy is NEVER cached - always computed fresh.
+   */
+  app.get('/api/claims/:id/effective-policy', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getEffectivePolicyForClaim, generateEffectivePolicySummary } = await import('./services/effectivePolicyService');
+
+      const effectivePolicy = await getEffectivePolicyForClaim(req.params.id, req.organizationId!);
+
+      if (!effectivePolicy) {
+        // Return empty policy if no extractions exist yet
+        return res.json({
+          effectivePolicy: null,
+          summary: null,
+          message: 'No policy or endorsement extractions found for this claim',
+        });
+      }
+
+      // Generate AI-friendly summary
+      const summary = generateEffectivePolicySummary(effectivePolicy);
+
+      res.json({
+        effectivePolicy,
+        summary,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
   // CLAIM BRIEFING ROUTES
   // ============================================
 

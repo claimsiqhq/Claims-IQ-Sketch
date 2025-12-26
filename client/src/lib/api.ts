@@ -1499,6 +1499,77 @@ export async function getEndorsementExtraction(id: string): Promise<EndorsementE
 }
 
 // ============================================
+// EFFECTIVE POLICY API
+// ============================================
+
+/**
+ * Response from the effective policy endpoint
+ */
+export interface EffectivePolicyResponse {
+  effectivePolicy: {
+    claimId: string;
+    jurisdiction?: string;
+    policyNumber?: string;
+    effectiveDate?: string;
+    coverages: Record<string, any>;
+    lossSettlement: Record<string, any>;
+    deductibles: Record<string, any>;
+    exclusions: string[];
+    conditions: string[];
+    sourceMap: Record<string, string[]>;
+    resolvedAt: string;
+    resolvedFromDocuments: {
+      basePolicyId?: string;
+      endorsementIds: string[];
+    };
+  } | null;
+  summary: {
+    coverageLimits: {
+      coverageA?: string;
+      coverageB?: string;
+      coverageC?: string;
+      coverageD?: string;
+    };
+    deductibles: {
+      standard?: string;
+      windHail?: string;
+    };
+    roofSettlement: {
+      basis: string;
+      isScheduled: boolean;
+      hasMetalRestrictions: boolean;
+      sourceEndorsement?: string;
+    };
+    majorExclusions: string[];
+    endorsementWatchouts: {
+      formCode: string;
+      summary: string;
+    }[];
+  } | null;
+  message?: string;
+}
+
+/**
+ * Get the dynamically computed effective policy for a claim
+ *
+ * This endpoint computes the effective policy by:
+ * 1. Loading base policy form extractions
+ * 2. Loading endorsement extractions (sorted by precedence)
+ * 3. Merging according to "most specific rule wins"
+ *
+ * The effective policy is NEVER cached - always computed fresh.
+ */
+export async function getClaimEffectivePolicy(claimId: string): Promise<EffectivePolicyResponse> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/effective-policy`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch effective policy');
+  }
+  return response.json();
+}
+
+// ============================================
 // INSPECTION INTELLIGENCE API
 // ============================================
 

@@ -127,7 +127,7 @@ export interface Claim {
   yearRoofInstall?: string; // Format: MM-DD-YYYY
   windHailDeductible?: string; // Format: $X,XXX X%
   dwellingLimit?: string; // Format: $XXX,XXX
-  endorsementsListed?: string[];
+  endorsementsListed?: string[];  // LEGACY - use endorsement_extractions
   status: ClaimStatus;
   assignedAdjusterId?: string;
   totalRcv?: string;
@@ -146,10 +146,159 @@ export interface Claim {
   perilConfidence?: number;  // 0.00-1.00 confidence in inference
   perilMetadata?: Record<string, any>;  // Peril-specific structured data
 
+  // Canonical FNOL truth from claims.loss_context
+  lossContext?: LossContext;
+
   // Legacy compatibility fields (computed from new fields)
   rooms?: Room[];
   damageZones?: DamageZone[];
   lineItems?: ClaimLineItem[];
+}
+
+/**
+ * Loss context structure (canonical FNOL storage)
+ */
+export interface LossContext {
+  fnol?: {
+    reportDate?: string;
+    reportedBy?: string;
+    reportMethod?: string;
+    lossDescription?: string;
+    dateOfLoss?: string;
+    timeOfLoss?: string;
+    occupiedAtTimeOfLoss?: boolean;
+    temporaryRepairsMade?: boolean;
+    mitigationSteps?: string[];
+  };
+  property?: {
+    yearBuilt?: string;
+    constructionType?: string;
+    roofType?: string;
+    stories?: number;
+    squareFootage?: number;
+    occupancyType?: string;
+    hasBasement?: boolean;
+    basementFinished?: boolean;
+  };
+  damage_summary?: {
+    areasAffected?: string[];
+    waterSource?: string;
+    waterCategory?: number;
+    moldVisible?: boolean;
+    structuralConcerns?: boolean;
+    habitability?: string;
+    contentsDamage?: boolean;
+    additionalLivingExpenses?: boolean;
+  };
+}
+
+/**
+ * Effective policy computed from policy_form_extractions + endorsement_extractions
+ * NEVER stored in database - always computed dynamically
+ */
+export interface EffectivePolicy {
+  claimId: string;
+  jurisdiction?: string;
+  policyNumber?: string;
+  effectiveDate?: string;
+
+  coverages: {
+    coverageA?: CoverageRules;
+    coverageB?: CoverageRules;
+    coverageC?: CoverageRules;
+    coverageD?: CoverageRules;
+  };
+
+  lossSettlement: {
+    dwellingAndStructures?: {
+      basis: 'RCV' | 'ACV' | 'SCHEDULED';
+      repairRequirements?: string;
+      timeLimit?: string;
+      matchingRules?: string;
+      sourceEndorsement?: string;
+    };
+    roofingSystem?: RoofingSystemLossSettlement;
+    personalProperty?: {
+      settlementBasis: 'RCV' | 'ACV' | 'SCHEDULED';
+      specialHandling?: string[];
+      sourceEndorsement?: string;
+    };
+  };
+
+  deductibles: {
+    standard?: string;
+    windHail?: string;
+    hurricane?: string;
+    namedStorm?: string;
+    sourceEndorsements?: string[];
+  };
+
+  exclusions: string[];
+  conditions: string[];
+
+  sourceMap: Record<string, string[]>;
+  resolvedAt: string;
+  resolvedFromDocuments: {
+    basePolicyId?: string;
+    endorsementIds: string[];
+  };
+}
+
+export interface CoverageRules {
+  limit?: string;
+  deductible?: string;
+  settlementBasis?: 'RCV' | 'ACV' | 'SCHEDULED';
+  specialLimits?: {
+    propertyType: string;
+    limit: string;
+    conditions?: string;
+  }[];
+  sourceEndorsement?: string;
+}
+
+export interface RoofingSystemLossSettlement {
+  applies: boolean;
+  basis: 'RCV' | 'ACV' | 'SCHEDULED';
+  paymentPercentage?: number;
+  ageBasedSchedule?: {
+    minAge: number;
+    maxAge: number;
+    paymentPercentage: number;
+  }[];
+  appliesTo?: string[];
+  exclusions?: string[];
+  metalComponentRule?: {
+    coveredOnlyIf?: string;
+    settlementBasis?: 'RCV' | 'ACV' | 'SCHEDULED';
+  };
+  sourceEndorsement?: string;
+}
+
+/**
+ * Effective policy summary for UI display
+ */
+export interface EffectivePolicySummary {
+  coverageLimits: {
+    coverageA?: string;
+    coverageB?: string;
+    coverageC?: string;
+    coverageD?: string;
+  };
+  deductibles: {
+    standard?: string;
+    windHail?: string;
+  };
+  roofSettlement: {
+    basis: string;
+    isScheduled: boolean;
+    hasMetalRestrictions: boolean;
+    sourceEndorsement?: string;
+  };
+  majorExclusions: string[];
+  endorsementWatchouts: {
+    formCode: string;
+    summary: string;
+  }[];
 }
 
 export interface PolicyForm {
