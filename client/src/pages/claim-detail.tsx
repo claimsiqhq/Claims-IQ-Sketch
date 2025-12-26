@@ -1235,8 +1235,8 @@ export default function ClaimDetail() {
                       <Separator />
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Dwelling Limit</Label>
-                          <p className="text-lg font-bold text-green-600">{apiClaim?.dwellingLimit || '-'}</p>
+                          <Label className="text-xs text-muted-foreground uppercase">Dwelling Limit (Coverage A)</Label>
+                          <p className="text-lg font-bold text-green-600">{apiClaim?.dwellingLimit || apiClaim?.lossContext?.damage_summary?.coverage_a || '-'}</p>
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground uppercase">Wind/Hail Deductible</Label>
@@ -1245,7 +1245,7 @@ export default function ClaimDetail() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground uppercase">Year Roof Installed</Label>
-                        <p className="font-medium">{apiClaim?.yearRoofInstall || '-'}</p>
+                        <p className="font-medium">{apiClaim?.yearRoofInstall || apiClaim?.lossContext?.property?.roof?.year_installed || '-'}</p>
                       </div>
                     </CardContent>
                   </Card>
