@@ -25,6 +25,7 @@ export interface PhotoUploadInput {
   hierarchyPath?: string;
   latitude?: number;
   longitude?: number;
+  uploadedBy?: string;
 }
 
 export interface PhotoAnalysis {
@@ -323,6 +324,7 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       analyzedAt: null, // Not analyzed yet
       analysisStatus: 'pending',
       analysisError: null,
+      uploadedBy: input.uploadedBy ?? null,
     };
 
     const saved = await storage.createClaimPhoto(photoRecord);

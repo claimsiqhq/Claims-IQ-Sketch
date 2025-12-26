@@ -191,6 +191,7 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
     latitude: cp.latitude,
     longitude: cp.longitude,
     geoAddress: cp.geoAddress,
+    uploadedBy: cp.uploadedBy,
     claimId: cp.claimId, // Include claimId for reassignment
     aiAnalysis: cp.aiAnalysis && Object.keys(cp.aiAnalysis).length > 0 ? {
       quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },

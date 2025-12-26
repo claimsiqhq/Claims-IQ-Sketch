@@ -4327,6 +4327,21 @@ export async function registerRoutes(
       const { uploadAndAnalyzePhoto } = await import('./services/photos');
       const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude } = req.body;
 
+      // Get user display name for uploadedBy field
+      const user = req.user;
+      let uploadedBy: string | undefined;
+      if (user) {
+        if (user.firstName && user.lastName) {
+          uploadedBy = `${user.firstName} ${user.lastName}`;
+        } else if (user.firstName) {
+          uploadedBy = user.firstName;
+        } else if (user.email) {
+          uploadedBy = user.email;
+        } else if (user.username) {
+          uploadedBy = user.username;
+        }
+      }
+
       const photo = await uploadAndAnalyzePhoto({
         file: {
           originalname: req.file.originalname,
@@ -4344,6 +4359,7 @@ export async function registerRoutes(
         hierarchyPath,
         latitude: latitude ? parseFloat(latitude) : undefined,
         longitude: longitude ? parseFloat(longitude) : undefined,
+        uploadedBy,
       });
 
       res.status(201).json(photo);

@@ -122,6 +122,8 @@ export interface SketchPhoto {
   latitude?: number | null;
   longitude?: number | null;
   geoAddress?: string | null; // Reverse geocoded address
+  // User who uploaded the photo
+  uploadedBy?: string | null;
   // AI analysis results
   aiAnalysis?: PhotoAIAnalysis | null;
   // Analysis status
