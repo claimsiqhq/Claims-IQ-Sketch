@@ -79,8 +79,6 @@ import {
   getClaim,
   getClaimDocuments,
   getClaimEndorsementExtractions,
-  uploadDocument,
-  processDocument,
   getDocumentDownloadUrl,
   deleteClaim,
   updateClaim,
@@ -121,6 +119,7 @@ import ClaimChecklistPanel from "@/components/claim-checklist";
 import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DoorOpen } from "lucide-react";
+import { useUploadQueue } from "@/lib/uploadQueue";
 
 export default function ClaimDetail() {
   const [, params] = useRoute("/claim/:id");
@@ -156,8 +155,10 @@ export default function ClaimDetail() {
   const [savedDamageZones, setSavedDamageZones] = useState<ClaimDamageZone[]>([]);
   const [loadingApiData, setLoadingApiData] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [uploadingDocument, setUploadingDocument] = useState(false);
   const [savingScopeItem, setSavingScopeItem] = useState(false);
+
+  // Bulk upload queue integration
+  const { addToQueue } = useUploadQueue();
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
@@ -421,53 +422,32 @@ export default function ClaimDetail() {
     }
   };
 
-  // Handle document upload
-  const handleDocumentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle document upload - uses background queue with auto-classification
+  const handleDocumentUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0 || !params?.id) return;
 
-    setUploadingDocument(true);
-    try {
-      for (const file of Array.from(files)) {
-        // Determine document type based on file extension or default to 'photo'
-        const fileName = file.name.toLowerCase();
-        let docType: 'fnol' | 'policy' | 'endorsement' | 'photo' | 'estimate' | 'correspondence' = 'photo';
-        if (fileName.includes('fnol') || fileName.includes('first notice')) {
-          docType = 'fnol';
-        } else if (fileName.includes('policy') || fileName.includes('dec')) {
-          docType = 'policy';
-        } else if (fileName.includes('endorsement') || fileName.includes('endo')) {
-          docType = 'endorsement';
-        } else if (file.type === 'application/pdf' || fileName.endsWith('.pdf')) {
-          // PDFs without specific naming default to 'fnol' for processing
-          docType = 'fnol';
-        }
-        
-        // Upload the document
-        const uploadedDoc = await uploadDocument(file, {
-          claimId: params.id,
-          type: docType,
-          name: file.name
-        });
-        
-        // Process the document to extract data (AI extraction)
-        try {
-          await processDocument(uploadedDoc.id);
-          toast.success(`${file.name} uploaded and processed`);
-        } catch (processErr) {
-          console.error('Document processing failed:', processErr);
-          toast.warning(`${file.name} uploaded but processing failed`);
-        }
-      }
-      // Reload documents to get updated processing status
-      const docsData = await getClaimDocuments(params.id);
-      setDocuments(docsData);
-    } catch (err) {
-      console.error('Failed to upload document:', err);
-      toast.error('Failed to upload document');
-    } finally {
-      setUploadingDocument(false);
-    }
+    const fileArray = Array.from(files);
+
+    // Add files to the upload queue with auto-classification
+    // The queue handles concurrent uploads, progress tracking, and AI processing
+    addToQueue(fileArray, {
+      claimId: params.id,
+      claimNumber: apiClaim?.claimNumber,
+      type: 'auto', // Auto-classify document type using AI
+    });
+
+    // Show feedback to user
+    const fileCount = fileArray.length;
+    toast.success(
+      fileCount === 1
+        ? `Uploading ${fileArray[0].name}...`
+        : `Uploading ${fileCount} documents...`,
+      { description: 'Documents will be processed in the background' }
+    );
+
+    // Clear the input so the same files can be re-selected if needed
+    event.target.value = '';
   };
 
   // Handle delete claim
@@ -1452,14 +1432,10 @@ export default function ClaimDetail() {
                       onChange={handleDocumentUpload}
                     />
                     <label htmlFor="document-upload">
-                      <Button asChild disabled={uploadingDocument}>
+                      <Button asChild>
                         <span>
-                          {uploadingDocument ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <Upload className="h-4 w-4 mr-2" />
-                          )}
-                          Upload Document
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload Documents
                         </span>
                       </Button>
                     </label>
