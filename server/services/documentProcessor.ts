@@ -116,81 +116,95 @@ export interface LossContext {
 }
 
 /**
- * Policy Extraction Interface
+ * AUTHORITATIVE Policy Form Extraction Interface
+ * This is the ONLY accepted policy extraction shape. No legacy formats.
+ *
+ * Rules:
+ * - Lossless extraction of policy language
+ * - NO summarization
+ * - NO interpretation
+ * - rawText must contain full verbatim policy text
  */
-export interface PolicyExtraction {
-  documentMetadata?: {
-    documentType?: string;
-    policyFormCode?: string;
-    policyFormName?: string | null;
-    editionDate?: string | null;
-    pageCount?: number;
-  };
-  policyStructure?: {
-    tableOfContents?: string[];
-    policyStatement?: string;
-    agreement?: string;
-  };
-  definitions?: Array<{
-    term: string;
-    definition: string;
-    subClauses?: string[];
-    exceptions?: string[];
-  }>;
-  sectionI?: {
-    propertyCoverage?: {
+export interface PolicyFormExtraction {
+  // Form identification
+  formCode: string;
+  formName: string;
+  editionDate?: string;
+  jurisdiction?: string;
+
+  // Complete policy structure - lossless
+  structure: {
+    definitions: Array<{
+      term: string;
+      definition: string;
+      subClauses?: string[];
+      exceptions?: string[];
+    }>;
+    coverages: {
       coverageA?: { name?: string; covers?: string[]; excludes?: string[] };
       coverageB?: { name?: string; covers?: string[]; excludes?: string[]; specialConditions?: string[] };
       coverageC?: { name?: string; scope?: string; specialLimits?: { propertyType: string; limit: string; conditions?: string }[]; notCovered?: string[] };
       coverageD?: { name?: string; subCoverages?: string[]; timeLimits?: string };
+      liability?: {
+        coverageE?: { name?: string; insuringAgreement?: string; dutyToDefend?: boolean };
+        coverageF?: { name?: string; insuringAgreement?: string; timeLimit?: string };
+      };
     };
-    perils?: { coverageA_B?: string; coverageC?: string[] };
-    exclusions?: { global?: string[]; coverageA_B_specific?: string[] };
-    additionalCoverages?: { name: string; description?: string; limit?: string; conditions?: string }[];
-    conditions?: string[];
-    lossSettlement?: {
+    perils: {
+      coverageA_B?: string;
+      coverageC?: string[];
+    };
+    exclusions: {
+      global?: string[];
+      coverageA_B_specific?: string[];
+      liabilityExclusions?: string[];
+    };
+    conditions: string[];
+    lossSettlement: {
       dwellingAndStructures?: { basis?: string; repairRequirements?: string; timeLimit?: string; matchingRules?: string };
       roofingSystem?: { definition?: string; hailSettlement?: string; metalRestrictions?: string };
       personalProperty?: { settlementBasis?: string[]; specialHandling?: string };
     };
+    additionalCoverages?: Array<{ name: string; description?: string; limit?: string; conditions?: string }>;
   };
-  sectionII?: {
-    liabilityCoverages?: {
-      coverageE?: { name?: string; insuringAgreement?: string; dutyToDefend?: boolean };
-      coverageF?: { name?: string; insuringAgreement?: string; timeLimit?: string };
-    };
-    exclusions?: string[];
-    additionalCoverages?: { name: string; description?: string; limit?: string }[];
-    conditions?: string[];
-  };
-  generalConditions?: string[];
-  rawPageText?: string;
-  fullText?: string;
-  pageTexts?: string[];
+
+  // Full verbatim policy text - MANDATORY
+  rawText: string;
 }
 
 /**
- * Endorsement Extraction Interface
+ * AUTHORITATIVE Endorsement Extraction Interface
+ * This is the ONLY accepted endorsement extraction shape. No legacy formats.
+ *
+ * Rules:
+ * - Extraction MUST be delta-only (what the endorsement changes)
+ * - NEVER reprint base policy language
+ * - NEVER merge with other endorsements
+ * - NEVER interpret impact
+ * - rawText must contain full endorsement text
  */
 export interface EndorsementExtraction {
-  endorsementMetadata: {
-    formCode: string;
-    title: string;
-    editionDate?: string | null;
-    jurisdiction?: string | null;
-    pageCount?: number;
-    appliesToPolicyForms?: string[];
-  };
+  // Endorsement identification
+  formCode: string;
+  title: string;
+  editionDate?: string;
+  jurisdiction?: string;
+
+  // What this endorsement applies to
+  appliesToForms: string[];
+  appliesToCoverages: string[];
+
+  // Delta modifications only
   modifications: {
     definitions?: {
-      added?: { term: string; definition: string }[];
+      added?: Array<{ term: string; definition: string }>;
       deleted?: string[];
-      replaced?: { term: string; newDefinition: string }[];
+      replaced?: Array<{ term: string; newDefinition: string }>;
     };
     coverages?: {
       added?: string[];
       deleted?: string[];
-      modified?: { coverage: string; changeType: string; details: string }[];
+      modified?: Array<{ coverage: string; changeType: string; details: string }>;
     };
     perils?: {
       added?: string[];
@@ -208,14 +222,18 @@ export interface EndorsementExtraction {
       modified?: string[];
     };
     lossSettlement?: {
-      replacedSections?: { policySection: string; newRule: string }[];
+      replacedSections?: Array<{ policySection: string; newRule: string }>;
     };
   };
+
+  // Tables (depreciation schedules, etc.)
   tables?: Array<{
     tableType: string;
     appliesWhen?: { coverage?: string[]; peril?: string[] };
-    data?: Record<string, any>;
+    data?: Record<string, unknown>;
   }>;
+
+  // Full verbatim endorsement text - MANDATORY
   rawText: string;
 }
 
@@ -422,142 +440,258 @@ function validateFNOLExtraction(extraction: FNOLExtraction): void {
 // POLICY EXTRACTION AND PROCESSING
 // ============================================
 
-function transformToPolicyExtraction(raw: any): PolicyExtraction {
-  const extraction: PolicyExtraction = {
-    documentMetadata: raw.documentMetadata || undefined,
-    policyStructure: raw.policyStructure || undefined,
-    definitions: raw.definitions || undefined,
-    sectionI: raw.sectionI || undefined,
-    sectionII: raw.sectionII || undefined,
-    generalConditions: raw.generalConditions || undefined,
-    rawPageText: raw.rawPageText || raw.pageText || undefined,
-    fullText: raw.fullText || undefined,
-    pageTexts: raw.pageTexts || undefined,
+/**
+ * Transform raw AI extraction to strict PolicyFormExtraction
+ * Rules:
+ * - Lossless extraction
+ * - NO summarization
+ * - NO interpretation
+ * - Missing data remains NULL
+ */
+function transformToPolicyExtraction(raw: any): PolicyFormExtraction {
+  // Extract form identification
+  const formCode = raw.documentMetadata?.policyFormCode ||
+                   raw.formCode ||
+                   raw.policyFormCode || '';
+  const formName = raw.documentMetadata?.policyFormName ||
+                   raw.formName ||
+                   raw.policyFormName || '';
+
+  // Build the lossless structure
+  const extraction: PolicyFormExtraction = {
+    formCode,
+    formName,
+    editionDate: raw.documentMetadata?.editionDate || raw.editionDate || undefined,
+    jurisdiction: raw.jurisdiction || undefined,
+
+    structure: {
+      definitions: raw.definitions || [],
+      coverages: {
+        coverageA: raw.sectionI?.propertyCoverage?.coverageA || undefined,
+        coverageB: raw.sectionI?.propertyCoverage?.coverageB || undefined,
+        coverageC: raw.sectionI?.propertyCoverage?.coverageC || undefined,
+        coverageD: raw.sectionI?.propertyCoverage?.coverageD || undefined,
+        liability: raw.sectionII?.liabilityCoverages || undefined,
+      },
+      perils: raw.sectionI?.perils || {},
+      exclusions: {
+        global: raw.sectionI?.exclusions?.global || [],
+        coverageA_B_specific: raw.sectionI?.exclusions?.coverageA_B_specific || [],
+        liabilityExclusions: raw.sectionII?.exclusions || [],
+      },
+      conditions: [
+        ...(raw.sectionI?.conditions || []),
+        ...(raw.sectionII?.conditions || []),
+        ...(raw.generalConditions || []),
+      ],
+      lossSettlement: raw.sectionI?.lossSettlement || {},
+      additionalCoverages: [
+        ...(raw.sectionI?.additionalCoverages || []),
+        ...(raw.sectionII?.additionalCoverages || []),
+      ],
+    },
+
+    // Full verbatim text - MANDATORY
+    rawText: raw.fullText || raw.rawPageText || raw.pageTexts?.join('\n\n--- Page Break ---\n\n') || '',
   };
 
   return extraction;
 }
 
+/**
+ * Store policy extraction to database
+ * Rules:
+ * - ONE row per document
+ * - Mark existing canonical rows as non-canonical
+ * - Do NOT write to legacy policy_forms table
+ * - Do NOT update claims table
+ */
 async function storePolicy(
-  extraction: PolicyExtraction,
+  extraction: PolicyFormExtraction,
   documentId: string,
   claimId: string | null,
   organizationId: string
 ): Promise<void> {
-  // Store to policy_form_extractions table
-  if (extraction.documentMetadata || extraction.sectionI || extraction.definitions) {
-    const policyExtraction = {
-      organization_id: organizationId,
-      claim_id: claimId,
-      document_id: documentId,
-      document_type: extraction.documentMetadata?.documentType || 'PolicyForm',
-      policy_form_code: extraction.documentMetadata?.policyFormCode || null,
-      policy_form_name: extraction.documentMetadata?.policyFormName || null,
-      edition_date: extraction.documentMetadata?.editionDate || null,
-      page_count: extraction.documentMetadata?.pageCount || extraction.pageTexts?.length || null,
-      policy_structure: extraction.policyStructure || {},
-      definitions: extraction.definitions || [],
-      section_i: extraction.sectionI || {},
-      section_ii: extraction.sectionII || {},
-      general_conditions: extraction.generalConditions || [],
-      raw_page_text: extraction.rawPageText || extraction.fullText || null,
-      extraction_model: 'gpt-4o',
-      extraction_version: '3.0',
-      status: 'completed'
-    };
-
-    const { data: existing } = await supabaseAdmin
+  // If existing canonical extraction exists for same claim + form, mark it non-canonical
+  if (claimId && extraction.formCode) {
+    await supabaseAdmin
       .from('policy_form_extractions')
-      .select('id')
-      .eq('document_id', documentId)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      await supabaseAdmin
-        .from('policy_form_extractions')
-        .update({ ...policyExtraction, updated_at: new Date().toISOString() })
-        .eq('id', existing[0].id);
-    } else {
-      await supabaseAdmin
-        .from('policy_form_extractions')
-        .insert(policyExtraction);
-    }
-
-    console.log(`[PolicyExtraction] Saved extraction for document ${documentId}`);
-  }
-
-  // Also store to policy_forms table for backward compatibility
-  if (extraction.documentMetadata?.policyFormCode && claimId) {
-    const formNumber = extraction.documentMetadata.policyFormCode;
-    const keyProvisions = {
-      sectionHeadings: extraction.policyStructure?.tableOfContents || [],
-      definitions: extraction.definitions || [],
-      sectionI: extraction.sectionI || null,
-      sectionII: extraction.sectionII || null,
-    };
-
-    const { data: existingForms } = await supabaseAdmin
-      .from('policy_forms')
-      .select('id')
+      .update({ is_canonical: false, updated_at: new Date().toISOString() })
       .eq('organization_id', organizationId)
       .eq('claim_id', claimId)
-      .eq('form_number', formNumber)
-      .limit(1);
-
-    if (existingForms && existingForms.length > 0) {
-      await supabaseAdmin
-        .from('policy_forms')
-        .update({
-          document_title: extraction.documentMetadata?.policyFormName || null,
-          key_provisions: keyProvisions,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingForms[0].id);
-    } else {
-      await supabaseAdmin
-        .from('policy_forms')
-        .insert({
-          organization_id: organizationId,
-          claim_id: claimId,
-          form_type: extraction.documentMetadata?.documentType || 'Policy Form',
-          form_number: formNumber,
-          document_title: extraction.documentMetadata?.policyFormName || null,
-          key_provisions: keyProvisions
-        });
-    }
+      .eq('policy_form_code', extraction.formCode)
+      .eq('is_canonical', true);
   }
+
+  // Build the extraction data payload
+  const policyExtractionRow = {
+    organization_id: organizationId,
+    claim_id: claimId,
+    document_id: documentId,
+    policy_form_code: extraction.formCode || null,
+    policy_form_name: extraction.formName || null,
+    edition_date: extraction.editionDate || null,
+    // Store the complete extraction as JSONB
+    extraction_data: extraction,
+    extraction_version: 1,
+    source_form_code: extraction.formCode || null,
+    jurisdiction: extraction.jurisdiction || null,
+    is_canonical: true,
+    extraction_status: 'completed',
+    extraction_model: 'gpt-4o',
+    // Also store structured fields for backward compatibility with existing queries
+    definitions: extraction.structure.definitions || [],
+    section_i: {
+      propertyCoverage: extraction.structure.coverages,
+      perils: extraction.structure.perils,
+      exclusions: extraction.structure.exclusions,
+      conditions: extraction.structure.conditions.filter(c => !c.includes('liability')),
+      lossSettlement: extraction.structure.lossSettlement,
+      additionalCoverages: extraction.structure.additionalCoverages,
+    },
+    section_ii: {
+      liabilityCoverages: extraction.structure.coverages.liability,
+      exclusions: extraction.structure.exclusions.liabilityExclusions,
+    },
+    raw_page_text: extraction.rawText || null,
+    status: 'completed',
+  };
+
+  // Check for existing extraction for this document
+  const { data: existing } = await supabaseAdmin
+    .from('policy_form_extractions')
+    .select('id')
+    .eq('document_id', documentId)
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    await supabaseAdmin
+      .from('policy_form_extractions')
+      .update({ ...policyExtractionRow, updated_at: new Date().toISOString() })
+      .eq('id', existing[0].id);
+  } else {
+    await supabaseAdmin
+      .from('policy_form_extractions')
+      .insert(policyExtractionRow);
+  }
+
+  console.log(`[PolicyExtraction] Saved canonical extraction for document ${documentId}, form ${extraction.formCode}`);
 }
 
 // ============================================
 // ENDORSEMENT EXTRACTION AND PROCESSING
 // ============================================
 
+/**
+ * Infer endorsement type from form code and modifications
+ * Priority ranges:
+ * - 1-10: loss_settlement (depreciation schedules, ACV rules)
+ * - 11-30: coverage_specific (hidden water, equipment breakdown)
+ * - 31-50: state_amendatory (state-specific requirements)
+ * - 51-100: general (miscellaneous endorsements)
+ */
+function inferEndorsementTypeAndPriority(
+  formCode: string,
+  modifications: EndorsementExtraction['modifications']
+): { endorsementType: string; precedencePriority: number } {
+  const lowerFormCode = formCode.toLowerCase();
+
+  // Loss settlement endorsements (highest priority)
+  if (lowerFormCode.includes('81') || // Roof schedules
+      lowerFormCode.includes('84') || // Hidden water / loss settlement
+      modifications.lossSettlement?.replacedSections?.length) {
+    return { endorsementType: 'loss_settlement', precedencePriority: 5 };
+  }
+
+  // Coverage-specific endorsements
+  if (lowerFormCode.includes('04') || // Coverage modifications
+      lowerFormCode.includes('06') || // Equipment breakdown
+      modifications.coverages?.added?.length ||
+      modifications.coverages?.modified?.length) {
+    return { endorsementType: 'coverage_specific', precedencePriority: 20 };
+  }
+
+  // State amendatory endorsements
+  if (lowerFormCode.includes('53') || // State amendatory
+      lowerFormCode.includes('amendatory') ||
+      modifications.conditions?.modified?.length) {
+    return { endorsementType: 'state_amendatory', precedencePriority: 40 };
+  }
+
+  // General endorsements
+  return { endorsementType: 'general', precedencePriority: 75 };
+}
+
+/**
+ * Transform raw AI extraction to strict EndorsementExtraction[]
+ * Rules:
+ * - Delta-only extraction (what the endorsement changes)
+ * - NEVER reprint base policy language
+ * - NEVER merge with other endorsements
+ * - Missing data remains NULL
+ */
 function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
   const endorsements = raw.endorsements || [raw];
 
-  return endorsements.map((e: any) => ({
-    endorsementMetadata: {
-      formCode: e.endorsementMetadata?.formCode || e.formNumber || '',
-      title: e.endorsementMetadata?.title || e.documentTitle || e.name || '',
-      editionDate: e.endorsementMetadata?.editionDate || null,
-      jurisdiction: e.endorsementMetadata?.jurisdiction || e.appliesToState || null,
-      pageCount: e.endorsementMetadata?.pageCount || 1,
-      appliesToPolicyForms: e.endorsementMetadata?.appliesToPolicyForms || [],
-    },
-    modifications: e.modifications || {},
-    tables: e.tables || [],
-    rawText: e.rawText || '',
-  }));
+  return endorsements.map((e: any) => {
+    const formCode = e.endorsementMetadata?.formCode ||
+                     e.formCode ||
+                     e.formNumber || '';
+    const title = e.endorsementMetadata?.title ||
+                  e.title ||
+                  e.documentTitle ||
+                  e.name || '';
+
+    const extraction: EndorsementExtraction = {
+      // Endorsement identification
+      formCode,
+      title,
+      editionDate: e.endorsementMetadata?.editionDate || e.editionDate || undefined,
+      jurisdiction: e.endorsementMetadata?.jurisdiction || e.jurisdiction || e.appliesToState || undefined,
+
+      // What this endorsement applies to
+      appliesToForms: e.endorsementMetadata?.appliesToPolicyForms || e.appliesToForms || [],
+      appliesToCoverages: e.appliesToCoverages || [],
+
+      // Delta modifications only
+      modifications: e.modifications || {},
+
+      // Tables (depreciation schedules, etc.)
+      tables: e.tables || [],
+
+      // Full verbatim endorsement text - MANDATORY
+      rawText: e.rawText || '',
+    };
+
+    return extraction;
+  });
 }
 
+/**
+ * Store endorsement extractions to database
+ * Rules:
+ * - ONE row per endorsement document
+ * - precedence_priority must be explicitly set
+ * - endorsement_type must be explicitly set
+ * - Do NOT merge endorsements
+ * - Do NOT update policy rows
+ * - Do NOT update claims table
+ */
 async function storeEndorsements(
   extractions: EndorsementExtraction[],
   claimId: string,
-  organizationId: string
+  organizationId: string,
+  documentId?: string
 ): Promise<void> {
   for (const endorsement of extractions) {
-    const formCode = endorsement.endorsementMetadata.formCode;
+    const formCode = endorsement.formCode;
     if (!formCode) continue;
+
+    // Infer type and priority
+    const { endorsementType, precedencePriority } = inferEndorsementTypeAndPriority(
+      formCode,
+      endorsement.modifications
+    );
 
     const { data: existing } = await supabaseAdmin
       .from('endorsement_extractions')
@@ -567,35 +701,43 @@ async function storeEndorsements(
       .eq('form_code', formCode)
       .limit(1);
 
-    const extractionData = {
+    const extractionRow = {
       organization_id: organizationId,
       claim_id: claimId,
+      document_id: documentId || null,
       form_code: formCode,
-      title: endorsement.endorsementMetadata.title || null,
-      edition_date: endorsement.endorsementMetadata.editionDate || null,
-      jurisdiction: endorsement.endorsementMetadata.jurisdiction || null,
-      page_count: endorsement.endorsementMetadata.pageCount || null,
-      applies_to_policy_forms: endorsement.endorsementMetadata.appliesToPolicyForms || [],
+      title: endorsement.title || null,
+      edition_date: endorsement.editionDate || null,
+      jurisdiction: endorsement.jurisdiction || null,
+      applies_to_policy_forms: endorsement.appliesToForms || [],
+      applies_to_coverages: endorsement.appliesToCoverages || [],
+      // Store the complete extraction as JSONB
+      extraction_data: endorsement,
+      extraction_version: 1,
+      // Type and priority - MANDATORY
+      endorsement_type: endorsementType,
+      precedence_priority: precedencePriority,
+      // Legacy fields for backward compatibility
       modifications: endorsement.modifications || {},
       tables: endorsement.tables || [],
       raw_text: endorsement.rawText || null,
       extraction_model: 'gpt-4o',
-      extraction_version: '3.0',
-      status: 'completed'
+      extraction_status: 'completed',
+      status: 'completed',
     };
 
     if (existing && existing.length > 0) {
       await supabaseAdmin
         .from('endorsement_extractions')
-        .update({ ...extractionData, updated_at: new Date().toISOString() })
+        .update({ ...extractionRow, updated_at: new Date().toISOString() })
         .eq('id', existing[0].id);
     } else {
       await supabaseAdmin
         .from('endorsement_extractions')
-        .insert(extractionData);
+        .insert(extractionRow);
     }
 
-    console.log(`[EndorsementExtraction] Saved extraction for ${formCode}`);
+    console.log(`[EndorsementExtraction] Saved extraction for ${formCode} (type: ${endorsementType}, priority: ${precedencePriority})`);
   }
 }
 
@@ -859,8 +1001,8 @@ export async function processDocument(
           .from('documents')
           .update({
             extracted_data: policyExtraction,
-            full_text: policyExtraction.fullText || null,
-            page_texts: policyExtraction.pageTexts || [],
+            full_text: rawExtraction.fullText || policyExtraction.rawText || null,
+            page_texts: rawExtraction.pageTexts || [],
             processing_status: 'completed',
             updated_at: new Date().toISOString()
           })
@@ -897,7 +1039,7 @@ export async function processDocument(
           .eq('id', documentId);
 
         if (doc.claim_id) {
-          await storeEndorsements(endorsementExtractions, doc.claim_id, organizationId);
+          await storeEndorsements(endorsementExtractions, doc.claim_id, organizationId, documentId);
 
           // Trigger effective policy recomputation
           try {
@@ -1073,7 +1215,7 @@ export async function createClaimFromDocuments(
       const extractions = Array.isArray(endDoc.extracted_data)
         ? endDoc.extracted_data
         : [endDoc.extracted_data];
-      await storeEndorsements(extractions as EndorsementExtraction[], claimId, organizationId);
+      await storeEndorsements(extractions as EndorsementExtraction[], claimId, organizationId, endDoc.id);
     }
   }
 
@@ -1110,36 +1252,9 @@ async function generateClaimId(organizationId: string): Promise<string> {
 }
 
 // ============================================
-// EXPORTS FOR BACKWARD COMPATIBILITY
+// NO BACKWARD COMPATIBILITY EXPORTS
 // ============================================
-
-// These exports maintain API compatibility while using the new clean types internally
-
-export type ExtractedClaimData = FNOLExtraction | PolicyExtraction | EndorsementExtraction[];
-
-export function transformOpenAIResponse(response: any): any {
-  // Determine document type and transform accordingly
-  if (response.claims || response.claimInformation || response.claim) {
-    return transformToFNOLExtraction(response);
-  }
-  if (response.endorsements || response.endorsementMetadata) {
-    return transformToEndorsementExtraction(response);
-  }
-  if (response.documentMetadata || response.sectionI || response.definitions) {
-    return transformToPolicyExtraction(response);
-  }
-  return response;
-}
-
-export function mergeExtractedData(...documents: any[]): any {
-  // Simple merge - first non-null value wins
-  return documents.reduce((acc, doc) => {
-    if (!doc) return acc;
-    for (const [key, value] of Object.entries(doc)) {
-      if (value !== null && value !== undefined && value !== '' && acc[key] === undefined) {
-        acc[key] = value;
-      }
-    }
-    return acc;
-  }, {});
-}
+// Legacy exports removed. Use the strict typed interfaces directly:
+// - FNOLExtraction
+// - PolicyFormExtraction
+// - EndorsementExtraction
