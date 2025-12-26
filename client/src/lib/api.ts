@@ -1021,6 +1021,18 @@ export async function getClaimRooms(
   return response.json();
 }
 
+export async function deleteClaimRooms(claimId: string): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to delete rooms' }));
+    throw new Error(error.error || 'Failed to delete rooms');
+  }
+  return response.json();
+}
+
 // ============================================
 // SCOPE ITEMS API
 // ============================================

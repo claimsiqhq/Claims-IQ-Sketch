@@ -1141,35 +1141,146 @@ export async function initializeEstimateHierarchy(
     ...options,
   };
 
-  // Create default structure
-  const structure = await createStructure({
-    estimateId,
-    name: opts.structureName,
-  });
+  // Get the claim_id from the estimate to check for saved rooms
+  const { data: estimate, error: estError } = await supabaseAdmin
+    .from('estimates')
+    .select('claim_id')
+    .eq('id', estimateId)
+    .single();
 
-  // Create default areas
-  if (opts.includeInterior) {
-    await createArea({
-      structureId: structure.id,
-      name: 'Interior',
-      areaType: 'interior',
-    });
+  if (estError) throw estError;
+
+  // Check if there are saved rooms from Voice Sketch
+  let claimRooms: any[] = [];
+  let claimStructures: any[] = [];
+
+  if (estimate?.claim_id) {
+    const { data: rooms } = await supabaseAdmin
+      .from('claim_rooms')
+      .select('*')
+      .eq('claim_id', estimate.claim_id)
+      .order('sort_order', { ascending: true });
+
+    const { data: structures } = await supabaseAdmin
+      .from('claim_structures')
+      .select('*')
+      .eq('claim_id', estimate.claim_id)
+      .order('sort_order', { ascending: true });
+
+    claimRooms = rooms || [];
+    claimStructures = structures || [];
   }
 
-  if (opts.includeExterior) {
-    await createArea({
-      structureId: structure.id,
-      name: 'Exterior',
-      areaType: 'exterior',
-    });
-  }
+  // If we have saved rooms from Voice Sketch, import them
+  if (claimRooms.length > 0) {
+    // Create structures from claim_structures or a default one
+    const structureMap = new Map<string | null, EstimateStructure>();
 
-  if (opts.includeRoofing) {
-    await createArea({
-      structureId: structure.id,
-      name: 'Roofing',
-      areaType: 'roofing',
+    if (claimStructures.length > 0) {
+      for (const cs of claimStructures) {
+        const structure = await createStructure({
+          estimateId,
+          name: cs.name,
+          description: cs.description,
+          yearBuilt: cs.year_built,
+          constructionType: cs.construction_type,
+          stories: cs.stories || 1,
+        });
+        structureMap.set(cs.id, structure);
+      }
+    }
+
+    // Create a default structure for orphan rooms
+    const defaultStructure = await createStructure({
+      estimateId,
+      name: opts.structureName,
     });
+    structureMap.set(null, defaultStructure);
+
+    // Create Interior area for each structure
+    const areaMap = new Map<string, EstimateArea>();
+    for (const [structureClaimId, structure] of structureMap) {
+      const area = await createArea({
+        structureId: structure.id,
+        name: 'Interior',
+        areaType: 'interior',
+      });
+      areaMap.set(structure.id, area);
+    }
+
+    // Create zones from claim_rooms
+    for (const room of claimRooms) {
+      // Find the corresponding estimate structure
+      const estimateStructure = room.structure_id
+        ? structureMap.get(room.structure_id) || structureMap.get(null)
+        : structureMap.get(null);
+
+      if (!estimateStructure) continue;
+
+      const area = areaMap.get(estimateStructure.id);
+      if (!area) continue;
+
+      // Create zone from claim room
+      await createZone({
+        areaId: area.id,
+        name: room.name,
+        zoneType: 'room',
+        roomType: room.room_type || 'room',
+        floorLevel: room.floor_level || '1',
+        lengthFt: parseFloat(room.length_ft) || 10,
+        widthFt: parseFloat(room.width_ft) || 10,
+        heightFt: parseFloat(room.ceiling_height_ft) || 8,
+        notes: Array.isArray(room.notes) ? room.notes.join('\n') : room.notes || undefined,
+      });
+    }
+
+    // Also create Exterior and Roofing areas on the default structure
+    if (opts.includeExterior) {
+      await createArea({
+        structureId: defaultStructure.id,
+        name: 'Exterior',
+        areaType: 'exterior',
+      });
+    }
+
+    if (opts.includeRoofing) {
+      await createArea({
+        structureId: defaultStructure.id,
+        name: 'Roofing',
+        areaType: 'roofing',
+      });
+    }
+  } else {
+    // No saved rooms - create default structure
+    const structure = await createStructure({
+      estimateId,
+      name: opts.structureName,
+    });
+
+    // Create default areas
+    if (opts.includeInterior) {
+      await createArea({
+        structureId: structure.id,
+        name: 'Interior',
+        areaType: 'interior',
+      });
+    }
+
+    if (opts.includeExterior) {
+      await createArea({
+        structureId: structure.id,
+        name: 'Exterior',
+        areaType: 'exterior',
+      });
+    }
+
+    if (opts.includeRoofing) {
+      await createArea({
+        structureId: structure.id,
+        name: 'Roofing',
+        areaType: 'roofing',
+      });
+    }
   }
 
   return getEstimateHierarchy(estimateId);
