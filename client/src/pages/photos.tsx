@@ -218,6 +218,14 @@ export default function PhotosPage() {
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Track pending uploads for optimistic UI
+  const [pendingUploads, setPendingUploads] = useState<Array<{
+    id: string;
+    file: File;
+    previewUrl: string;
+    claimId?: string;
+  }>>([]);
+
   const queryClient = useQueryClient();
 
   const { data: claimsData, isLoading: claimsLoading } = useQuery({
@@ -283,7 +291,7 @@ export default function PhotosPage() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, pendingId }: { file: File; pendingId: string }) => {
       // Get GPS coordinates if available
       let latitude: number | undefined;
       let longitude: number | undefined;
@@ -310,21 +318,51 @@ export default function PhotosPage() {
         longitude,
       });
     },
-    onSuccess: () => {
-      toast.success('Photo uploaded - analysis in progress');
+    onSuccess: (_data, variables) => {
+      toast.success('Photo uploaded - AI analysis in progress');
+      // Remove from pending uploads
+      setPendingUploads((prev) => prev.filter((p) => p.id !== variables.pendingId));
+      // Revoke the blob URL to free memory
+      const pending = pendingUploads.find((p) => p.id === variables.pendingId);
+      if (pending) {
+        URL.revokeObjectURL(pending.previewUrl);
+      }
+      // Refetch photos to get the real data
       queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
       if (selectedClaimId !== 'all') {
         queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
       }
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       toast.error('Failed to upload photo: ' + (error as Error).message);
+      // Remove from pending uploads on error too
+      setPendingUploads((prev) => prev.filter((p) => p.id !== variables.pendingId));
+      const pending = pendingUploads.find((p) => p.id === variables.pendingId);
+      if (pending) {
+        URL.revokeObjectURL(pending.previewUrl);
+      }
     },
   });
 
+  // Convert pending uploads to sketch photos for display
+  const pendingSketchPhotos: ExtendedSketchPhoto[] = useMemo(() => {
+    return pendingUploads.map((p): ExtendedSketchPhoto => ({
+      id: p.id,
+      label: 'Uploading...',
+      hierarchyPath: p.claimId ? 'Exterior' : 'Uncategorized',
+      localUri: p.previewUrl,
+      storageUrl: undefined,
+      capturedAt: new Date().toISOString(),
+      analysisStatus: 'pending',
+      claimId: p.claimId,
+    }));
+  }, [pendingUploads]);
+
   const sketchPhotos: ExtendedSketchPhoto[] = useMemo(() => {
-    return photos.map(claimPhotoToSketchPhoto);
-  }, [photos]);
+    const serverPhotos = photos.map(claimPhotoToSketchPhoto);
+    // Prepend pending uploads so they appear first
+    return [...pendingSketchPhotos, ...serverPhotos];
+  }, [photos, pendingSketchPhotos]);
 
   const filteredPhotos = useMemo(() => {
     let result = sketchPhotos;
@@ -374,10 +412,13 @@ export default function PhotosPage() {
 
   const stats = useMemo(() => {
     const withDamage = sketchPhotos.filter((p) => p.aiAnalysis?.content?.damageDetected).length;
-    const avgQuality = sketchPhotos.length > 0
-      ? Math.round(sketchPhotos.reduce((sum, p) => sum + (p.aiAnalysis?.quality?.score ?? 5), 0) / sketchPhotos.length)
+    const processing = sketchPhotos.filter((p) => p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing').length;
+    const failed = sketchPhotos.filter((p) => p.analysisStatus === 'failed' || p.analysisStatus === 'concerns').length;
+    const analyzed = sketchPhotos.filter((p) => p.analysisStatus === 'completed').length;
+    const avgQuality = analyzed > 0
+      ? Math.round(sketchPhotos.filter((p) => p.analysisStatus === 'completed').reduce((sum, p) => sum + (p.aiAnalysis?.quality?.score ?? 5), 0) / analyzed)
       : 0;
-    return { total: sketchPhotos.length, withDamage, avgQuality };
+    return { total: sketchPhotos.length, withDamage, avgQuality, processing, failed, analyzed };
   }, [sketchPhotos]);
 
   // Auto-poll for photos that are pending or analyzing
@@ -418,14 +459,25 @@ export default function PhotosPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Create optimistic pending upload
+    const pendingId = `pending-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+    setPendingUploads((prev) => [
+      ...prev,
+      {
+        id: pendingId,
+        file,
+        previewUrl,
+        claimId: selectedClaimId !== 'all' ? selectedClaimId : undefined,
+      },
+    ]);
+
     setIsUploading(true);
-    const loadingToast = toast.loading('Uploading photo...');
 
     try {
-      await uploadMutation.mutateAsync(file);
-      toast.dismiss(loadingToast);
+      await uploadMutation.mutateAsync({ file, pendingId });
     } catch (error) {
-      toast.dismiss(loadingToast);
+      // Error handling in mutation
     } finally {
       setIsUploading(false);
       // Reset input so the same file can be selected again
@@ -436,14 +488,25 @@ export default function PhotosPage() {
   };
 
   const handleCameraCapture = async (file: File) => {
+    // Create optimistic pending upload
+    const pendingId = `pending-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+    setPendingUploads((prev) => [
+      ...prev,
+      {
+        id: pendingId,
+        file,
+        previewUrl,
+        claimId: selectedClaimId !== 'all' ? selectedClaimId : undefined,
+      },
+    ]);
+
     setIsUploading(true);
-    const loadingToast = toast.loading('Uploading photo...');
 
     try {
-      await uploadMutation.mutateAsync(file);
-      toast.dismiss(loadingToast);
+      await uploadMutation.mutateAsync({ file, pendingId });
     } catch (error) {
-      toast.dismiss(loadingToast);
+      // Error handling in mutation
     } finally {
       setIsUploading(false);
     }
@@ -574,13 +637,24 @@ export default function PhotosPage() {
           </Card>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Photos</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold" data-testid="text-total-photos">{stats.total}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                    AI Processing
+                    {stats.processing > 0 && <Loader2 className="h-3 w-3 animate-spin" />}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-500" data-testid="text-processing-photos">{stats.processing}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -604,7 +678,7 @@ export default function PhotosPage() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Avg Quality</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold" data-testid="text-avg-quality">{stats.avgQuality}/10</div>
+                  <div className="text-2xl font-bold" data-testid="text-avg-quality">{stats.avgQuality > 0 ? `${stats.avgQuality}/10` : '-'}</div>
                 </CardContent>
               </Card>
             </div>

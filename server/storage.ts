@@ -61,6 +61,13 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createClaimPhoto(photo: InsertClaimPhoto): Promise<ClaimPhoto> {
+    console.log('[storage] Creating claim photo:', {
+      organizationId: photo.organizationId,
+      claimId: photo.claimId,
+      storagePath: photo.storagePath,
+      fileName: photo.fileName,
+    });
+
     const { data, error } = await supabaseAdmin
       .from('claim_photos')
       .insert({
@@ -91,9 +98,15 @@ export class SupabaseStorage implements IStorage {
       .select('*')
       .single();
 
-    if (error || !data) {
-      throw new Error(`Failed to create claim photo: ${error?.message}`);
+    if (error) {
+      console.error('[storage] Failed to create claim photo:', error);
+      throw new Error(`Failed to create claim photo: ${error.message}`);
     }
+    if (!data) {
+      console.error('[storage] No data returned from claim photo insert');
+      throw new Error('Failed to create claim photo: No data returned');
+    }
+    console.log('[storage] Successfully created claim photo:', data.id);
     return this.mapClaimPhoto(data);
   }
 
@@ -128,17 +141,31 @@ export class SupabaseStorage implements IStorage {
     }
 
     const { data, error } = await query;
-    if (error || !data) return [];
+    if (error) {
+      console.error('[storage] Error listing claim photos:', error);
+      return [];
+    }
+    if (!data) return [];
     return data.map(this.mapClaimPhoto);
   }
 
   async listAllClaimPhotos(organizationId: string): Promise<ClaimPhoto[]> {
+    console.log('[storage] Fetching all photos for organization:', organizationId);
     const { data, error } = await supabaseAdmin
       .from('claim_photos')
       .select('*')
-      .eq('organization_id', organizationId);
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false });
 
-    if (error || !data) return [];
+    if (error) {
+      console.error('[storage] Error listing all claim photos:', error);
+      return [];
+    }
+    if (!data) {
+      console.log('[storage] No photos found for organization');
+      return [];
+    }
+    console.log('[storage] Found', data.length, 'photos');
     return data.map(this.mapClaimPhoto);
   }
 
