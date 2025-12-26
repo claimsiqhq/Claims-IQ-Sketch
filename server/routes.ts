@@ -4728,6 +4728,28 @@ export async function registerRoutes(
     }
   });
 
+  // Get document processing status (for polling after upload)
+  app.get('/api/documents/:id/status', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const doc = await getDocument(req.params.id, req.organizationId!);
+      if (!doc) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      
+      res.json({
+        documentId: doc.id,
+        processingStatus: doc.processingStatus || 'pending',
+        claimId: doc.claimId || null,
+        claimNumber: doc.claimNumber || null,
+        documentType: doc.documentType || null,
+        error: doc.processingError || null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Download document file (redirects to Supabase Storage signed URL)
   app.get('/api/documents/:id/download', requireAuth, requireOrganization, async (req, res) => {
     try {
