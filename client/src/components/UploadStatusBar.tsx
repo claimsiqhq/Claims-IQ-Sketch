@@ -125,7 +125,7 @@ export function UploadStatusBar() {
         {/* Expanded view */}
         {isExpanded && (
           <>
-            <ScrollArea className="max-h-64">
+            <ScrollArea className="max-h-80">
               <div>
                 {queue.map((item) => (
                   <UploadQueueRow 
