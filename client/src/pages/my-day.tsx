@@ -1487,25 +1487,23 @@ export default function MyDay() {
       }
     }
 
-    // Try to get actual location first
+    // Fetch immediately with Austin, TX as default
+    setWeatherLocation("Austin, TX (default)");
+    fetchLocalWeather(30.2672, -97.7431, true);
+
+    // Then try to get actual location and update
     if (navigator.geolocation) {
-      setWeatherLocation("Getting location...");
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          // Got real location - update weather
           fetchLocalWeather(position.coords.latitude, position.coords.longitude, false);
         },
         (error) => {
           console.warn('[MyDay] Geolocation failed:', error.message);
-          // Fallback to Austin, TX as default
-          setWeatherLocation("Austin, TX (default)");
-          fetchLocalWeather(30.2672, -97.7431, true);
+          // Already have default weather, no action needed
         },
         { timeout: 5000, maximumAge: 300000 }
       );
-    } else {
-      // No geolocation support, use default
-      setWeatherLocation("Austin, TX (default)");
-      fetchLocalWeather(30.2672, -97.7431, true);
     }
   }, []);
 
