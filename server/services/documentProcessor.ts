@@ -882,21 +882,7 @@ async function extractFromSingleImage(
       })
     : `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information. Return ONLY valid JSON.`;
 
-  // Add 60-second timeout to prevent infinite hangs on stalled API calls
-  const VISION_TIMEOUT_MS = 60000;
-  
-  let timeoutId: NodeJS.Timeout | undefined;
-  let resolved = false;
-  
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      if (!resolved) {
-        reject(new Error(`OpenAI Vision API timeout after ${VISION_TIMEOUT_MS / 1000}s on page ${pageNum}`));
-      }
-    }, VISION_TIMEOUT_MS);
-  });
-  
-  const apiPromise = openai.chat.completions.create({
+  const response = await openai.chat.completions.create({
     model: promptConfig.model,
     messages: [
       {
@@ -922,13 +908,7 @@ async function extractFromSingleImage(
     ],
     max_tokens: promptConfig.maxTokens || 4000,
     response_format: { type: 'json_object' }
-  }).then(result => {
-    resolved = true;
-    if (timeoutId) clearTimeout(timeoutId);
-    return result;
   });
-  
-  const response = await Promise.race([apiPromise, timeoutPromise]);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
