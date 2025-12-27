@@ -5,6 +5,7 @@ import fs from "fs";
 import multer from "multer";
 import { storage } from "./storage";
 import { supabaseAdmin } from './lib/supabaseAdmin';
+import { pool } from './db';
 import {
   calculateXactPrice,
   searchXactItemsWithPricing,
@@ -964,6 +965,40 @@ export async function registerRoutes(
         },
         environment: process.env.NODE_ENV || 'development',
         openaiConfigured: !!process.env.OPENAI_API_KEY
+      });
+    }
+  });
+
+  // Database migrations endpoint (admin only)
+  app.post('/api/system/migrate', async (req, res) => {
+    try {
+      const migrations: string[] = [];
+      
+      // Add missing required column to inspection_workflow_steps
+      await pool.query(`
+        ALTER TABLE inspection_workflow_steps 
+        ADD COLUMN IF NOT EXISTS required boolean DEFAULT true
+      `);
+      migrations.push('Added required column to inspection_workflow_steps');
+      
+      // Check current columns
+      const result = await pool.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'inspection_workflow_steps' 
+        ORDER BY ordinal_position
+      `);
+      
+      res.json({ 
+        success: true, 
+        migrations,
+        columns: result.rows.map((r: any) => r.column_name)
+      });
+    } catch (error) {
+      console.error('[Migration] Error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
   });
