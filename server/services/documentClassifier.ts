@@ -109,48 +109,60 @@ Key distinguishing factors:
 // IMAGE PROCESSING
 // ============================================
 
-async function extractFirstPageImage(filePath: string, mimeType: string): Promise<string> {
+const MAX_CLASSIFICATION_PAGES = 3;
+
+/**
+ * Extract up to 3 pages from a document as base64 images for classification
+ */
+async function extractPreviewImages(filePath: string, mimeType: string): Promise<string[]> {
   // Ensure temp directory exists
   if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
   }
 
-  // For images, just return the file directly as base64
+  // For images, just return the file directly as base64 (single image)
   if (mimeType.startsWith('image/')) {
     const buffer = fs.readFileSync(filePath);
-    return buffer.toString('base64');
+    return [buffer.toString('base64')];
   }
 
-  // For PDFs, extract first page as image
+  // For PDFs, extract up to 3 pages as images
   if (mimeType === 'application/pdf') {
     const baseName = path.basename(filePath, '.pdf').replace(/[^a-zA-Z0-9-_]/g, '_');
     const timestamp = Date.now();
-    const outputPath = path.join(TEMP_DIR, `${baseName}-${timestamp}-1.png`);
+    const outputPrefix = path.join(TEMP_DIR, `${baseName}-${timestamp}`);
 
     try {
-      // Extract only the first page (-f 1 -l 1)
-      await execAsync(`pdftoppm -png -f 1 -l 1 -r 150 "${filePath}" "${path.join(TEMP_DIR, `${baseName}-${timestamp}`)}"`);
+      // Extract up to 3 pages (-f 1 -l 3)
+      await execAsync(`pdftoppm -png -f 1 -l ${MAX_CLASSIFICATION_PAGES} -r 150 "${filePath}" "${outputPrefix}"`);
 
-      // Find the generated file (pdftoppm adds page number suffix)
+      // Find all generated files (pdftoppm adds page number suffix like -1.png, -2.png, -3.png)
       const files = fs.readdirSync(TEMP_DIR);
-      const generatedFile = files.find(f => f.startsWith(`${baseName}-${timestamp}`) && f.endsWith('.png'));
+      const generatedFiles = files
+        .filter(f => f.startsWith(`${baseName}-${timestamp}`) && f.endsWith('.png'))
+        .sort(); // Sort to ensure page order
 
-      if (!generatedFile) {
+      if (generatedFiles.length === 0) {
         throw new Error('PDF conversion produced no output');
       }
 
-      const fullPath = path.join(TEMP_DIR, generatedFile);
-      const buffer = fs.readFileSync(fullPath);
-      const base64 = buffer.toString('base64');
+      console.log(`[Classification] Extracted ${generatedFiles.length} pages for classification`);
 
-      // Cleanup
-      try {
-        fs.unlinkSync(fullPath);
-      } catch {
-        // Ignore cleanup errors
+      const base64Images: string[] = [];
+      for (const file of generatedFiles) {
+        const fullPath = path.join(TEMP_DIR, file);
+        const buffer = fs.readFileSync(fullPath);
+        base64Images.push(buffer.toString('base64'));
+
+        // Cleanup each file after reading
+        try {
+          fs.unlinkSync(fullPath);
+        } catch {
+          // Ignore cleanup errors
+        }
       }
 
-      return base64;
+      return base64Images;
     } catch (error) {
       console.error('[Classification] PDF conversion error:', error);
       throw new Error(`Failed to convert PDF for classification: ${(error as Error).message}`);
@@ -208,9 +220,31 @@ export async function classifyDocumentFromFile(
 
   console.log(`[Classification] Classifying document: ${filePath} (${mimeType})`);
 
-  // Extract first page as image
-  const base64Image = await extractFirstPageImage(filePath, mimeType);
+  // Extract up to 3 pages as images
+  const base64Images = await extractPreviewImages(filePath, mimeType);
   const imageMimeType = 'image/png'; // pdftoppm outputs PNG
+
+  console.log(`[Classification] Sending ${base64Images.length} page(s) to AI for classification`);
+
+  // Build content array with all page images
+  const contentParts: Array<{ type: 'image_url'; image_url: { url: string; detail: 'high' } } | { type: 'text'; text: string }> = [];
+
+  // Add all page images first
+  for (let i = 0; i < base64Images.length; i++) {
+    contentParts.push({
+      type: 'image_url',
+      image_url: {
+        url: `data:${imageMimeType};base64,${base64Images[i]}`,
+        detail: 'high',
+      },
+    });
+  }
+
+  // Add the text instruction at the end
+  contentParts.push({
+    type: 'text',
+    text: `Classify this insurance document. I'm showing you ${base64Images.length} page(s) from the document. Analyze all pages to determine the document type. Return only the JSON response.`,
+  });
 
   // Call OpenAI Vision
   const response = await openai.chat.completions.create({
@@ -222,19 +256,7 @@ export async function classifyDocumentFromFile(
       },
       {
         role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: {
-              url: `data:${imageMimeType};base64,${base64Image}`,
-              detail: 'high',
-            },
-          },
-          {
-            type: 'text',
-            text: 'Classify this insurance document. Return only the JSON response.',
-          },
-        ],
+        content: contentParts,
       },
     ],
     max_tokens: 500,
