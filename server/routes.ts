@@ -330,7 +330,7 @@ export async function registerRoutes(
         if (sessionErr) {
           return res.status(500).json({ error: 'Session destroy error' });
         }
-        res.clearCookie('connect.sid');
+        res.clearCookie('claimsiq.sid');
         res.json({ message: 'Logout successful' });
       });
     });

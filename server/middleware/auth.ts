@@ -74,10 +74,12 @@ export function setupAuth(app: Express): void {
   console.log(`[auth] Using ${isProduction ? 'Supabase' : 'Memory'} session store`);
 
   app.use(session({
+    name: 'claimsiq.sid',
     store: sessionStore,
     secret: sessionSecret || 'dev-only-insecure-key-do-not-use-in-production',
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     cookie: {
       secure: isProduction || isReplit,
       httpOnly: true,
