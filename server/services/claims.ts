@@ -61,6 +61,42 @@ export interface ClaimWithDocuments {
 
   // Canonical FNOL truth
   lossContext?: LossContext;
+
+  // Extracted policy data from policy_form_extractions
+  extractedPolicy?: {
+    policyNumber?: string;
+    policyFormCode?: string;
+    effectiveDate?: string;
+    expirationDate?: string;
+    dwellingLimit?: string;
+    otherStructuresLimit?: string;
+    personalPropertyLimit?: string;
+    lossOfUseLimit?: string;
+    personalLiabilityLimit?: string;
+    medicalPaymentsLimit?: string;
+    deductible?: string;
+    windHailDeductible?: string;
+    namedInsured?: string;
+    mailingAddress?: string;
+    propertyAddress?: string;
+    constructionType?: string;
+    yearBuilt?: string;
+    protectionClass?: string;
+    distanceToFireStation?: string;
+    distanceToFireHydrant?: string;
+  };
+
+  // Extracted endorsements from endorsement_extractions
+  extractedEndorsements?: Array<{
+    id: string;
+    formCode: string;
+    title?: string;
+    editionDate?: string;
+    endorsementType?: string;
+    summary?: string;
+    modifications?: Record<string, any>;
+    extractionStatus?: string;
+  }>;
 }
 
 /**
@@ -250,21 +286,96 @@ export async function getClaim(
 
   if (error || !claim) return null;
 
-  const { count: documentCount } = await supabaseAdmin
-    .from('documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('claim_id', id);
+  // Fetch counts, policy extraction, and endorsements in parallel
+  const [
+    documentCountResult,
+    estimateCountResult,
+    policyExtractionResult,
+    endorsementExtractionsResult
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('documents')
+      .select('*', { count: 'exact', head: true })
+      .eq('claim_id', id),
+    supabaseAdmin
+      .from('estimates')
+      .select('*', { count: 'exact', head: true })
+      .eq('claim_id', id),
+    supabaseAdmin
+      .from('policy_form_extractions')
+      .select('*')
+      .eq('claim_id', id)
+      .eq('extraction_status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('endorsement_extractions')
+      .select('*')
+      .eq('claim_id', id)
+      .order('created_at', { ascending: false })
+  ]);
 
-  const { count: estimateCount } = await supabaseAdmin
-    .from('estimates')
-    .select('*', { count: 'exact', head: true })
-    .eq('claim_id', id);
+  const documentCount = documentCountResult.count || 0;
+  const estimateCount = estimateCountResult.count || 0;
+  const policyExtraction = policyExtractionResult.data;
+  const endorsementExtractions = endorsementExtractionsResult.data || [];
 
-  return mapRowToClaim({
+  // Map policy extraction to extractedPolicy format
+  let extractedPolicy: ClaimWithDocuments['extractedPolicy'] = undefined;
+  if (policyExtraction) {
+    const declarations = policyExtraction.declarations as Record<string, any> | null;
+    const coverageLimits = declarations?.coverageLimits || {};
+    const propertyInfo = declarations?.propertyInfo || {};
+    const insuredInfo = declarations?.insuredInfo || {};
+
+    extractedPolicy = {
+      policyNumber: policyExtraction.policy_number,
+      policyFormCode: policyExtraction.policy_form_code,
+      effectiveDate: declarations?.effectiveDate,
+      expirationDate: declarations?.expirationDate,
+      dwellingLimit: coverageLimits.dwellingCoverageA || coverageLimits.coverageA,
+      otherStructuresLimit: coverageLimits.otherStructuresCoverageB || coverageLimits.coverageB,
+      personalPropertyLimit: coverageLimits.personalPropertyCoverageC || coverageLimits.coverageC,
+      lossOfUseLimit: coverageLimits.lossOfUseCoverageD || coverageLimits.coverageD,
+      personalLiabilityLimit: coverageLimits.personalLiabilityCoverageE || coverageLimits.coverageE,
+      medicalPaymentsLimit: coverageLimits.medicalPaymentsCoverageF || coverageLimits.coverageF,
+      deductible: coverageLimits.deductible || declarations?.deductible,
+      windHailDeductible: coverageLimits.windHailDeductible || declarations?.windHailDeductible,
+      namedInsured: insuredInfo.namedInsured || declarations?.namedInsured,
+      mailingAddress: insuredInfo.mailingAddress,
+      propertyAddress: propertyInfo.address || declarations?.propertyAddress,
+      constructionType: propertyInfo.constructionType,
+      yearBuilt: propertyInfo.yearBuilt,
+      protectionClass: propertyInfo.protectionClass,
+      distanceToFireStation: propertyInfo.distanceToFireStation,
+      distanceToFireHydrant: propertyInfo.distanceToFireHydrant,
+    };
+  }
+
+  // Map endorsement extractions
+  const extractedEndorsements = endorsementExtractions.map((e: any) => ({
+    id: e.id,
+    formCode: e.form_code,
+    title: e.title,
+    editionDate: e.edition_date,
+    endorsementType: e.endorsement_type,
+    summary: e.summary,
+    modifications: e.modifications,
+    extractionStatus: e.extraction_status,
+  }));
+
+  const baseClaim = mapRowToClaim({
     ...claim,
-    document_count: documentCount || 0,
-    estimate_count: estimateCount || 0
+    document_count: documentCount,
+    estimate_count: estimateCount
   });
+
+  return {
+    ...baseClaim,
+    extractedPolicy,
+    extractedEndorsements: extractedEndorsements.length > 0 ? extractedEndorsements : undefined,
+  };
 }
 
 export async function listClaims(
