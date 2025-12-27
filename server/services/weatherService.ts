@@ -96,9 +96,10 @@ async function fetchNWSWeatherData(location: WeatherLocation): Promise<WeatherDa
 
     if (!pointsResponse.ok) {
       // 404 means the coordinates are not covered by NWS (outside US, ocean, etc.)
-      // This is expected for non-US locations, so handle gracefully
+      // Use Open-Meteo as fallback for international locations
       if (pointsResponse.status === 404) {
-        return createFallbackWeather(location, 'Location not covered by NWS');
+        console.log(`[Weather] Location ${lat},${lng} not covered by NWS, using Open-Meteo`);
+        return fetchOpenMeteoWeather(location);
       }
       throw new Error(`NWS points API error: ${pointsResponse.status}`);
     }
@@ -307,21 +308,95 @@ function createFallbackWeather(location: WeatherLocation, reason?: string): Weat
     stopId: location.stopId || 'unknown',
     location: { lat: location.lat, lng: location.lng },
     current: {
-      temp: 72,
-      feelsLike: 72,
+      temp: 0,
+      feelsLike: 0,
       humidity: 50,
       windSpeed: 5,
-      conditions: [{ id: '800', main: 'Clear', description: 'clear sky', icon: '01d' }],
+      conditions: [{ id: '800', main: 'Unknown', description: 'weather data unavailable', icon: '01d' }],
       visibility: 10,
     },
     alerts: [],
     forecast: [],
     inspectionImpact: {
       score: 'good',
-      reasons: [reason || 'Weather data unavailable - assuming clear conditions'],
+      reasons: [reason || 'Weather data unavailable'],
       recommendations: [],
     },
   };
+}
+
+// Fetch weather from Open-Meteo API (free, no API key, global coverage)
+async function fetchOpenMeteoWeather(location: WeatherLocation): Promise<WeatherData> {
+  const { lat, lng, stopId = 'unknown' } = location;
+  
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_gusts_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&forecast_days=1&temperature_unit=fahrenheit&wind_speed_unit=mph`;
+  
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Open-Meteo API error: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  const current = data.current;
+  const hourly = data.hourly;
+  
+  // Map WMO weather codes to conditions
+  const weatherCondition = mapWMOCodeToCondition(current.weather_code);
+  
+  const currentWeather = {
+    temp: Math.round(current.temperature_2m),
+    feelsLike: Math.round(current.apparent_temperature),
+    humidity: Math.round(current.relative_humidity_2m),
+    windSpeed: Math.round(current.wind_speed_10m),
+    windGust: current.wind_gusts_10m ? Math.round(current.wind_gusts_10m) : undefined,
+    conditions: [weatherCondition],
+    visibility: 10,
+  };
+  
+  // Build hourly forecast (next 8 hours)
+  const forecast: HourlyForecast[] = [];
+  const now = new Date();
+  const currentHour = now.getHours();
+  
+  for (let i = 0; i < 8 && i + currentHour < hourly.time.length; i++) {
+    const hourIndex = i + currentHour;
+    forecast.push({
+      time: hourly.time[hourIndex],
+      temp: Math.round(hourly.temperature_2m[hourIndex]),
+      pop: hourly.precipitation_probability[hourIndex] || 0,
+      conditions: [mapWMOCodeToCondition(hourly.weather_code[hourIndex])],
+      windSpeed: Math.round(hourly.wind_speed_10m[hourIndex]),
+    });
+  }
+  
+  return {
+    stopId,
+    location: { lat, lng },
+    current: currentWeather,
+    alerts: [], // Open-Meteo free tier doesn't include alerts
+    forecast,
+    inspectionImpact: calculateInspectionImpact(currentWeather, [], forecast),
+  };
+}
+
+// Map WMO weather codes to our WeatherCondition format
+function mapWMOCodeToCondition(code: number): WeatherCondition {
+  // WMO Weather interpretation codes (WW)
+  // https://open-meteo.com/en/docs
+  if (code === 0) return { id: '800', main: 'Clear', description: 'clear sky', icon: '01d' };
+  if (code === 1) return { id: '800', main: 'Clear', description: 'mainly clear', icon: '01d' };
+  if (code === 2) return { id: '802', main: 'Clouds', description: 'partly cloudy', icon: '02d' };
+  if (code === 3) return { id: '804', main: 'Clouds', description: 'overcast', icon: '04d' };
+  if (code >= 45 && code <= 48) return { id: '741', main: 'Fog', description: 'fog', icon: '50d' };
+  if (code >= 51 && code <= 55) return { id: '300', main: 'Drizzle', description: 'drizzle', icon: '09d' };
+  if (code >= 56 && code <= 57) return { id: '511', main: 'Rain', description: 'freezing drizzle', icon: '13d' };
+  if (code >= 61 && code <= 65) return { id: '500', main: 'Rain', description: 'rain', icon: '10d' };
+  if (code >= 66 && code <= 67) return { id: '511', main: 'Rain', description: 'freezing rain', icon: '13d' };
+  if (code >= 71 && code <= 77) return { id: '601', main: 'Snow', description: 'snow', icon: '13d' };
+  if (code >= 80 && code <= 82) return { id: '520', main: 'Rain', description: 'rain showers', icon: '09d' };
+  if (code >= 85 && code <= 86) return { id: '620', main: 'Snow', description: 'snow showers', icon: '13d' };
+  if (code >= 95 && code <= 99) return { id: '211', main: 'Thunderstorm', description: 'thunderstorm', icon: '11d' };
+  return { id: '800', main: 'Clear', description: 'clear', icon: '01d' };
 }
 
 function calculateInspectionImpact(
