@@ -103,13 +103,11 @@ function ClaimCard({ claim }: { claim: Claim }) {
                 <span>RCV: ${parseFloat(claim.totalRcv).toLocaleString()}</span>
               </div>
             )}
-            {claim.coverageA && (
+            {claim.coverageA && Number(claim.coverageA) > 0 && (
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4" />
                 <span>
-                  Coverage A: {Number.isFinite(Number(claim.coverageA)) 
-                    ? `$${Number(claim.coverageA).toLocaleString()}` 
-                    : "—"}
+                  Coverage A: ${Number(claim.coverageA).toLocaleString()}
                 </span>
               </div>
             )}
@@ -121,7 +119,7 @@ function ClaimCard({ claim }: { claim: Claim }) {
             </span>
             <span>
               {claim.createdAt && !isNaN(new Date(claim.createdAt).getTime())
-                ? formatDistanceToNow(new Date(claim.createdAt), { addSuffix: true })
+                ? `Received: ${new Date(claim.createdAt).toLocaleDateString()}`
                 : "—"}
             </span>
           </div>

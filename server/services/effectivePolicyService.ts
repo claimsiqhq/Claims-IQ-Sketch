@@ -264,13 +264,13 @@ export async function resolveEffectivePolicyForClaim(
 
     const claim = claimData as ClaimRow;
 
-    // Load base policy form extractions
+    // Load base policy form extractions (filter by extraction_status, not status column which may be unsynced)
     const { data: policyExtractions, error: policyError } = await supabaseAdmin
       .from('policy_form_extractions')
       .select('*')
       .eq('claim_id', claimId)
       .eq('organization_id', organizationId)
-      .eq('status', 'completed')
+      .eq('extraction_status', 'completed')
       .order('created_at', { ascending: false });
 
     if (policyError) {
@@ -279,13 +279,13 @@ export async function resolveEffectivePolicyForClaim(
 
     const basePolicies = (policyExtractions || []) as PolicyFormExtractionRow[];
 
-    // Load endorsement extractions (sorted by precedence priority)
+    // Load endorsement extractions (sorted by precedence priority, filter by extraction_status)
     const { data: endorsementData, error: endorsementError } = await supabaseAdmin
       .from('endorsement_extractions')
       .select('*')
       .eq('claim_id', claimId)
       .eq('organization_id', organizationId)
-      .eq('status', 'completed')
+      .eq('extraction_status', 'completed')
       .order('precedence_priority', { ascending: true })
       .order('created_at', { ascending: true });
 
