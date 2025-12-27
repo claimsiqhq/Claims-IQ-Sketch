@@ -418,20 +418,94 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
             </TabsList>
           </div>
 
-          <div className="flex-1 flex overflow-hidden mt-2">
-            <div className="w-56 border-r overflow-y-auto p-2 shrink-0">
-              <TabsContent value="fnol" className="m-0">
-                <DocumentList docs={fnolDocs} type="FNOL" />
-              </TabsContent>
-              <TabsContent value="policy" className="m-0">
-                <DocumentList docs={policyDocs} type="policy" />
-              </TabsContent>
-              <TabsContent value="endorsement" className="m-0">
-                <DocumentList docs={endorsementDocs} type="endorsement" />
-              </TabsContent>
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden mt-2">
+            <div className="md:w-48 border-b md:border-b-0 md:border-r overflow-x-auto md:overflow-y-auto p-2 shrink-0 max-h-24 md:max-h-none">
+              <div className="flex md:flex-col gap-2">
+                <TabsContent value="fnol" className="m-0">
+                  <div className="flex md:flex-col gap-2">
+                    {fnolDocs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center whitespace-nowrap">No FNOL docs</p>
+                    ) : fnolDocs.map(doc => (
+                      <button
+                        key={doc.id}
+                        data-testid={`doc-item-${doc.id}`}
+                        onClick={() => setSelectedDoc(doc)}
+                        className={`flex-shrink-0 text-left p-2 rounded-lg border transition-colors ${
+                          selectedDoc?.id === doc.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <ImageIcon className="w-3 h-3 text-muted-foreground shrink-0" />
+                          <span className="text-xs font-medium truncate max-w-[100px] md:max-w-[120px]">{doc.name || doc.fileName}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Badge variant="outline" className="text-[10px] px-1 py-0">
+                            {doc.mimeType.split('/')[1]?.toUpperCase() || 'FILE'}
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground">{(doc.fileSize / 1024).toFixed(0)} KB</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </TabsContent>
+                <TabsContent value="policy" className="m-0">
+                  <div className="flex md:flex-col gap-2">
+                    {policyDocs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center whitespace-nowrap">No policy docs</p>
+                    ) : policyDocs.map(doc => (
+                      <button
+                        key={doc.id}
+                        data-testid={`doc-item-${doc.id}`}
+                        onClick={() => setSelectedDoc(doc)}
+                        className={`flex-shrink-0 text-left p-2 rounded-lg border transition-colors ${
+                          selectedDoc?.id === doc.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <ImageIcon className="w-3 h-3 text-muted-foreground shrink-0" />
+                          <span className="text-xs font-medium truncate max-w-[100px] md:max-w-[120px]">{doc.name || doc.fileName}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Badge variant="outline" className="text-[10px] px-1 py-0">
+                            {doc.mimeType.split('/')[1]?.toUpperCase() || 'FILE'}
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground">{(doc.fileSize / 1024).toFixed(0)} KB</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </TabsContent>
+                <TabsContent value="endorsement" className="m-0">
+                  <div className="flex md:flex-col gap-2">
+                    {endorsementDocs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center whitespace-nowrap">No endorsements</p>
+                    ) : endorsementDocs.map(doc => (
+                      <button
+                        key={doc.id}
+                        data-testid={`doc-item-${doc.id}`}
+                        onClick={() => setSelectedDoc(doc)}
+                        className={`flex-shrink-0 text-left p-2 rounded-lg border transition-colors ${
+                          selectedDoc?.id === doc.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <ImageIcon className="w-3 h-3 text-muted-foreground shrink-0" />
+                          <span className="text-xs font-medium truncate max-w-[100px] md:max-w-[120px]">{doc.name || doc.fileName}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Badge variant="outline" className="text-[10px] px-1 py-0">
+                            {doc.mimeType.split('/')[1]?.toUpperCase() || 'FILE'}
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground">{(doc.fileSize / 1024).toFixed(0)} KB</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </TabsContent>
+              </div>
             </div>
 
-            <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-hidden flex flex-col min-h-[300px]">
               <ViewerContent />
             </div>
           </div>
