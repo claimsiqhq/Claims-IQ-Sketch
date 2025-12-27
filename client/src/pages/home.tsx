@@ -360,29 +360,29 @@ export default function Home() {
             </div>
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center text-primary">
-                <Clock className="h-4 w-4" />
+                <FileText className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Active</p>
-                <p className="text-lg font-bold">{(stats?.byStatus.open || 0) + (stats?.byStatus.in_progress || 0)}</p>
+                <p className="text-xs text-muted-foreground">Documents</p>
+                <p className="text-lg font-bold">{stats?.totalDocuments || 0}</p>
               </div>
             </div>
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-                <BarChart3 className="h-4 w-4" />
+                <Clock className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Review</p>
-                <p className="text-lg font-bold">{stats?.byStatus.review || 0}</p>
+                <p className="text-xs text-muted-foreground">Processing</p>
+                <p className="text-lg font-bold">{stats?.pendingDocuments || 0}</p>
               </div>
             </div>
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-                <CheckCircle2 className="h-4 w-4" />
+                <DollarSign className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Closed</p>
-                <p className="text-lg font-bold">{stats?.byStatus.closed || 0}</p>
+                <p className="text-xs text-muted-foreground">Total RCV</p>
+                <p className="text-lg font-bold">${((stats?.totalRcv || 0) / 1000).toFixed(0)}k</p>
               </div>
             </div>
           </div>
@@ -531,36 +531,36 @@ export default function Home() {
 
           <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
             <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center text-primary">
-              <Clock className="h-6 w-6" />
+              <FileText className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">In Progress</p>
+              <p className="text-sm font-medium text-muted-foreground">Documents</p>
               <p className="text-3xl font-display font-bold text-slate-900">
-                {(stats?.byStatus.open || 0) + (stats?.byStatus.in_progress || 0)}
+                {stats?.totalDocuments || 0}
               </p>
             </div>
           </div>
 
           <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
             <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-              <BarChart3 className="h-6 w-6" />
+              <Clock className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">In Review</p>
+              <p className="text-sm font-medium text-muted-foreground">Processing</p>
               <p className="text-3xl font-display font-bold text-slate-900">
-                {stats?.byStatus.review || 0}
+                {stats?.pendingDocuments || 0}
               </p>
             </div>
           </div>
 
           <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
             <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-              <CheckCircle2 className="h-6 w-6" />
+              <DollarSign className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Closed</p>
+              <p className="text-sm font-medium text-muted-foreground">Total RCV</p>
               <p className="text-3xl font-display font-bold text-slate-900">
-                {stats?.byStatus.closed || 0}
+                ${((stats?.totalRcv || 0) / 1000).toFixed(0)}k
               </p>
             </div>
           </div>

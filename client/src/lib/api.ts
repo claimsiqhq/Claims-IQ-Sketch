@@ -754,6 +754,8 @@ export interface ClaimStats {
   byLossType: Record<string, number>;
   totalRcv: number;
   totalAcv: number;
+  totalDocuments: number;
+  pendingDocuments: number;
 }
 
 export async function createClaim(data: Partial<Claim>): Promise<Claim> {

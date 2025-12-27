@@ -423,12 +423,27 @@ export async function getClaimStats(organizationId: string): Promise<{
   byLossType: Record<string, number>;
   totalRcv: number;
   totalAcv: number;
+  totalDocuments: number;
+  pendingDocuments: number;
 }> {
+  // Get claims data
   const { data: claims, count } = await supabaseAdmin
     .from('claims')
     .select('status, loss_type, total_rcv, total_acv', { count: 'exact' })
     .eq('organization_id', organizationId)
     .neq('status', 'deleted');
+
+  // Get document counts
+  const { count: totalDocs } = await supabaseAdmin
+    .from('documents')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', organizationId);
+
+  const { count: pendingDocs } = await supabaseAdmin
+    .from('documents')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .in('processing_status', ['pending', 'processing']);
 
   const byStatus: Record<string, number> = {};
   const byLossType: Record<string, number> = {};
@@ -451,7 +466,9 @@ export async function getClaimStats(organizationId: string): Promise<{
     byStatus,
     byLossType,
     totalRcv,
-    totalAcv
+    totalAcv,
+    totalDocuments: totalDocs || 0,
+    pendingDocuments: pendingDocs || 0
   };
 }
 
