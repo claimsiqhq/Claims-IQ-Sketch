@@ -66,12 +66,14 @@ export function setupAuth(app: Express): void {
     app.set('trust proxy', 1);
   }
 
-  // Use Supabase session store for production, MemoryStore for development
-  const sessionStore = isProduction 
+  // Use Supabase session store for persistent sessions (works across restarts)
+  // Only fall back to MemoryStore if Supabase isn't available
+  const useSupabaseStore = isProduction || isReplit;
+  const sessionStore = useSupabaseStore
     ? new SupabaseSessionStore()
     : new MemoryStoreSession({ checkPeriod: 86400000 });
 
-  console.log(`[auth] Using ${isProduction ? 'Supabase' : 'Memory'} session store`);
+  console.log(`[auth] Using ${useSupabaseStore ? 'Supabase' : 'Memory'} session store`);
 
   app.use(session({
     name: 'claimsiq.sid',
