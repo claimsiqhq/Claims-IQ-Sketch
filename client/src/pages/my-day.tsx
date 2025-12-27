@@ -601,7 +601,7 @@ function StopWeatherBadge({ weather }: { weather?: StopWeatherData }) {
 // ==========================================
 
 // Mobile Day Context Bar
-function MobileDayContextBar({ context, weather }: { context: MyDayData["context"]; weather?: StopWeatherData }) {
+function MobileDayContextBar({ context, weather, locationName }: { context: MyDayData["context"]; weather?: StopWeatherData; locationName?: string }) {
   const today = format(new Date(), "EEE, MMM d");
 
   // Get weather icon based on conditions
@@ -629,9 +629,14 @@ function MobileDayContextBar({ context, weather }: { context: MyDayData["context
         </div>
         <div className="flex items-center gap-2">
           {weather?.current?.temp != null && (
-            <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5">
-              <WeatherIcon className="h-4 w-4 text-sky-600" />
-              <span className="text-sm font-medium text-sky-700">{weather.current.temp}°F</span>
+            <div className="flex flex-col items-end gap-0.5">
+              <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5">
+                <WeatherIcon className="h-4 w-4 text-sky-600" />
+                <span className="text-sm font-medium text-sky-700">{weather.current.temp}°F</span>
+              </div>
+              {locationName && (
+                <span className="text-xs text-muted-foreground">{locationName}</span>
+              )}
             </div>
           )}
           {context.catEvent && (
@@ -700,7 +705,7 @@ function MobileDayContextBar({ context, weather }: { context: MyDayData["context
 }
 
 // Desktop Day Context Bar
-function DesktopDayContextBar({ context, weather }: { context: MyDayData["context"]; weather?: StopWeatherData }) {
+function DesktopDayContextBar({ context, weather, locationName }: { context: MyDayData["context"]; weather?: StopWeatherData; locationName?: string }) {
   const today = format(new Date(), "EEEE, MMMM d, yyyy");
 
   // Get weather icon based on conditions
@@ -721,6 +726,9 @@ function DesktopDayContextBar({ context, weather }: { context: MyDayData["contex
                 <WeatherIcon className="h-5 w-5 text-sky-600" />
                 <span className="text-base font-medium text-sky-700">{weather.current.temp}°F</span>
                 <span className="text-sm text-sky-600">{mainCondition}</span>
+                {locationName && (
+                  <span className="text-sm text-sky-500 border-l border-sky-200 pl-2">{locationName}</span>
+                )}
               </div>
             )}
           </div>
@@ -1427,12 +1435,36 @@ export default function MyDay() {
   const [aiAnalysis, setAiAnalysis] = useState<MyDayAnalysisResult | undefined>();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [localWeather, setLocalWeather] = useState<StopWeatherData | undefined>();
+  const [weatherLocation, setWeatherLocation] = useState<string>("Loading...");
 
   // Fetch current location weather - fetch immediately with defaults, update with geolocation
   useEffect(() => {
-    async function fetchLocalWeather(lat: number, lng: number) {
+    async function reverseGeocode(lat: number, lng: number): Promise<string> {
       try {
-        console.log('[MyDay] Fetching weather for:', lat, lng);
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county;
+          const state = data.address?.state;
+          if (city && state) {
+            return `${city}, ${state}`;
+          } else if (city) {
+            return city;
+          } else if (state) {
+            return state;
+          }
+        }
+      } catch (err) {
+        console.error('[MyDay] Reverse geocode failed:', err);
+      }
+      return "Unknown Location";
+    }
+
+    async function fetchLocalWeather(lat: number, lng: number, isDefault: boolean = false) {
+      try {
+        console.log('[MyDay] Fetching weather for:', lat, lng, isDefault ? '(default)' : '(geolocation)');
         const response = await fetch('/api/weather/locations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1446,6 +1478,8 @@ export default function MyDay() {
           console.log('[MyDay] Weather response:', data);
           if (data.weather && data.weather.length > 0) {
             setLocalWeather(data.weather[0]);
+            const locationName = await reverseGeocode(lat, lng);
+            setWeatherLocation(locationName);
           }
         }
       } catch (err) {
@@ -1453,18 +1487,25 @@ export default function MyDay() {
       }
     }
 
-    // Fetch immediately with Austin, TX as default
-    const defaultLat = 30.2672;
-    const defaultLng = -97.7431;
-    fetchLocalWeather(defaultLat, defaultLng);
-
-    // Then try to get actual location and update
+    // Try to get actual location first
     if (navigator.geolocation) {
+      setWeatherLocation("Getting location...");
       navigator.geolocation.getCurrentPosition(
-        (position) => fetchLocalWeather(position.coords.latitude, position.coords.longitude),
-        () => {}, // Already fetched with defaults
+        (position) => {
+          fetchLocalWeather(position.coords.latitude, position.coords.longitude, false);
+        },
+        (error) => {
+          console.warn('[MyDay] Geolocation failed:', error.message);
+          // Fallback to Austin, TX as default
+          setWeatherLocation("Austin, TX (default)");
+          fetchLocalWeather(30.2672, -97.7431, true);
+        },
         { timeout: 5000, maximumAge: 300000 }
       );
+    } else {
+      // No geolocation support, use default
+      setWeatherLocation("Austin, TX (default)");
+      fetchLocalWeather(30.2672, -97.7431, true);
     }
   }, []);
 
@@ -1664,9 +1705,9 @@ export default function MyDay() {
       <div className="min-h-full bg-background">
         {/* Day Context Bar */}
         {isMobileLayout ? (
-          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} />
+          <MobileDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} locationName={weatherLocation} />
         ) : (
-          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} />
+          <DesktopDayContextBar context={dayData.context} weather={aiAnalysis?.weatherData?.[0] || localWeather} locationName={weatherLocation} />
         )}
 
         {/* Main Content */}
