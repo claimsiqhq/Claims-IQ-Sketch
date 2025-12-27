@@ -151,10 +151,6 @@ export interface PolicyContext {
   roofSettlementBasis?: string;  // RCV, ACV, or SCHEDULED
   hasRoofSchedule?: boolean;
   metalComponentRestrictions?: boolean;
-
-  // LEGACY: endorsementsListed from claims table - DO NOT USE for new code
-  // Use endorsement_extractions instead
-  endorsementsListed: string[];
 }
 
 export interface EndorsementContext {
@@ -286,7 +282,6 @@ export async function buildPerilAwareClaimContext(
     coverageD: claimData.coverage_d,
     deductible: claimData.deductible,
     yearRoofInstall: claimData.year_roof_install,
-    endorsementsListed: claimData.endorsements_listed,  // LEGACY - use endorsement_extractions
     lossContext: claimData.loss_context,  // Canonical FNOL truth
     createdAt: claimData.created_at,
     updatedAt: claimData.updated_at,
@@ -481,11 +476,6 @@ export async function buildPerilAwareClaimContext(
     constructionType: lossContextProperty.constructionType,
     stories: lossContextProperty.stories,
     squareFootage: lossContextProperty.squareFootage,
-
-    // LEGACY: endorsementsListed from claims table - use endorsement_extractions
-    endorsementsListed: Array.isArray(claim.endorsementsListed)
-      ? claim.endorsementsListed
-      : [],
   };
 
   // Build full context

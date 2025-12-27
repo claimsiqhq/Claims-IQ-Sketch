@@ -318,8 +318,7 @@ function buildBriefingPromptWithTemplate(
       stories: propertyDetails.stories || context.policyContext.stories || 'Unknown',
       squareFootage: propertyDetails.squareFootage || context.policyContext.squareFootage || 'Unknown',
 
-      // Endorsements
-      endorsementsListed: context.policyContext.endorsementsListed.join(', ') || 'None',
+      // Endorsements (from endorsement_extractions table)
       endorsementsDetail: context.endorsements.length > 0
         ? context.endorsements.map(e => `- ${e.formNumber}: ${e.documentTitle || 'No title'} - ${e.description || 'No description'}\n  Key Changes: ${JSON.stringify(e.keyChanges)}`).join('\n')
         : 'No endorsements loaded',

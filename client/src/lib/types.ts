@@ -133,7 +133,6 @@ export interface Claim {
   yearRoofInstall?: string; // Format: MM-DD-YYYY
   windHailDeductible?: string; // Format: $X,XXX X%
   dwellingLimit?: string; // Format: $XXX,XXX
-  endorsementsListed?: string[];  // LEGACY - use endorsement_extractions
   status: ClaimStatus;
   assignedAdjusterId?: string;
   totalRcv?: string;

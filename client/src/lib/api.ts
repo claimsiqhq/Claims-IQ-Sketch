@@ -726,7 +726,6 @@ export interface Claim {
   coverageC?: string;
   coverageD?: string;
   deductible?: string;
-  endorsementsListed?: string[];
   status: string;
   assignedAdjusterId?: string;
   totalRcv?: string;
@@ -1313,66 +1312,6 @@ export async function getDocumentQueueStats(): Promise<{
     throw new Error('Failed to fetch queue stats');
   }
 
-  return response.json();
-}
-
-// ============================================
-// ENDORSEMENTS API
-// ============================================
-
-export interface KeyAmendment {
-  provisionAmended: string;
-  summaryOfChange: string;
-  newLimitOrValue: string | null;
-}
-
-export interface EndorsementKeyChanges {
-  keyAmendments?: KeyAmendment[];
-  [key: string]: any;
-}
-
-export interface Endorsement {
-  id: string;
-  organization_id: string;
-  claim_id?: string;
-  form_type: string;
-  form_number: string;
-  document_title?: string;
-  description?: string;
-  applies_to_state?: string;
-  key_changes?: EndorsementKeyChanges;
-  created_at: string;
-  updated_at: string;
-  // Also support camelCase for compatibility
-  organizationId?: string;
-  claimId?: string;
-  formType?: string;
-  formNumber?: string;
-  documentTitle?: string;
-  appliesToState?: string;
-  keyChanges?: EndorsementKeyChanges;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export async function createEndorsement(data: {
-  claimId?: string;
-  formNumber: string;
-  documentTitle?: string;
-  description?: string;
-  appliesToState?: string;
-  keyChanges?: EndorsementKeyChanges;
-}): Promise<Endorsement> {
-  const response = await fetch(`${API_BASE}/endorsements`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-    credentials: 'include',
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create endorsement');
-  }
   return response.json();
 }
 

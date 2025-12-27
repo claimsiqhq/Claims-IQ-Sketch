@@ -126,7 +126,6 @@ export interface FNOLExtraction {
     policyNumber?: string;
     dwellingLimit?: string;
     windHailDeductible?: string;
-    endorsementsListed?: string[];
   };
 }
 
@@ -404,8 +403,6 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
     'source.deductibles': source.deductibles,
     'coverages.length': coverages.length,
     'coverageA': Array.isArray(coverages) ? coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling')) : undefined,
-    'source.endorsementsListed': source.endorsementsListed,
-    'source.endorsements': source.endorsements,
   });
 
   // Build the clean extraction - NULL for missing, no inference
@@ -511,10 +508,6 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
         
         return undefined;
       })(),
-      endorsementsListed: source.endorsementsListed || source.endorsements?.map((e: any) => {
-        if (typeof e === 'string') return e;
-        return e.formCode || e.formNumber || e.code || e.name || JSON.stringify(e);
-      }) || undefined,
     },
   };
 
@@ -1462,7 +1455,6 @@ export async function createClaimFromDocuments(
     policyNumber: fnolExtraction.policy?.policyNumber || null,
     dwellingLimit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
     windHailDeductible: fnolExtraction.policy?.windHailDeductible || null,
-    endorsementsListed: fnolExtraction.policy?.endorsementsListed || [],
   });
 
   // CREATE CLAIM - STRICT SCALAR MAPPING
@@ -1497,7 +1489,6 @@ export async function createClaimFromDocuments(
       policy_number: fnolExtraction.policy?.policyNumber || null,
       dwelling_limit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
       wind_hail_deductible: fnolExtraction.policy?.windHailDeductible || null,
-      endorsements_listed: fnolExtraction.policy?.endorsementsListed || [],
 
       // Peril inference
       secondary_perils: perilInference.secondaryPerils,

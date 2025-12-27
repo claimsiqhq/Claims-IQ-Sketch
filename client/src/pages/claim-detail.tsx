@@ -1202,7 +1202,7 @@ export default function ClaimDetail() {
                         <ClipboardList className="w-5 h-5" />
                         Endorsements
                         <Badge variant="secondary" className="ml-2">
-                          {endorsements.length > 0 ? endorsements.length : (apiClaim?.endorsementsListed?.length || 0)}
+                          {endorsements.length}
                         </Badge>
                       </CardTitle>
                     </CardHeader>
@@ -1307,24 +1307,9 @@ export default function ClaimDetail() {
                             })}
                           </div>
                         </div>
-                      ) : apiClaim?.endorsementsListed && apiClaim.endorsementsListed.length > 0 ? (
-                        /* Fallback to simple endorsements list from claim */
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-medium text-muted-foreground">Listed Endorsements</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                            {apiClaim.endorsementsListed
-                              .filter((endorsement): endorsement is string => typeof endorsement === 'string')
-                              .map((endorsement, idx) => (
-                              <div key={idx} className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
-                                <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                                <span className="text-sm">{endorsement}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
                       ) : (
                         <p className="text-sm text-muted-foreground text-center py-4">
-                          No endorsements listed for this claim
+                          No endorsements extracted for this claim
                         </p>
                       )}
                     </CardContent>

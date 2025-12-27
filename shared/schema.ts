@@ -256,7 +256,8 @@ export const claims = pgTable("claims", {
   yearRoofInstall: varchar("year_roof_install", { length: 20 }), // "01-01-2016"
   windHailDeductible: varchar("wind_hail_deductible", { length: 50 }), // "$7,932 1%"
   dwellingLimit: varchar("dwelling_limit", { length: 50 }), // "$793,200"
-  endorsementsListed: jsonb("endorsements_listed").default(sql`'[]'::jsonb`), // ["HO 84 28-Hidden Water Coverage", ...]
+  // @deprecated Use endorsement_extractions table instead
+  endorsementsListed: jsonb("endorsements_listed").default(sql`'[]'::jsonb`),
 
   // Coverage amounts (numeric for calculations)
   coverageA: decimal("coverage_a", { precision: 12, scale: 2 }),
@@ -309,6 +310,12 @@ export type Claim = typeof claims.$inferSelect;
 // ============================================
 // POLICY FORMS TABLE
 // ============================================
+// @deprecated This table is DEPRECATED and will be removed.
+// Use policy_form_extractions table instead.
+// All policy data should flow through:
+// - policy_form_extractions (for base policy)
+// - endorsement_extractions (for endorsements)
+// - EffectivePolicy service (for merged policy rules)
 
 export const policyForms = pgTable("policy_forms", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -528,6 +535,11 @@ export interface PolicyStructure {
 // ============================================
 // ENDORSEMENTS TABLE
 // ============================================
+// @deprecated This table is DEPRECATED and will be removed.
+// Use endorsement_extractions table instead.
+// All endorsement data should flow through:
+// - endorsement_extractions (for comprehensive endorsement data)
+// - EffectivePolicy service (for merged policy rules)
 
 export const endorsements = pgTable("endorsements", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
