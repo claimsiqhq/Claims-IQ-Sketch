@@ -746,6 +746,42 @@ export interface Claim {
 
   // Canonical FNOL truth (snake_case JSON from backend)
   lossContext?: LossContext;
+
+  // Extracted policy data from policy_form_extractions
+  extractedPolicy?: {
+    policyNumber?: string;
+    policyFormCode?: string;
+    effectiveDate?: string;
+    expirationDate?: string;
+    dwellingLimit?: string;
+    otherStructuresLimit?: string;
+    personalPropertyLimit?: string;
+    lossOfUseLimit?: string;
+    personalLiabilityLimit?: string;
+    medicalPaymentsLimit?: string;
+    deductible?: string;
+    windHailDeductible?: string;
+    namedInsured?: string;
+    mailingAddress?: string;
+    propertyAddress?: string;
+    constructionType?: string;
+    yearBuilt?: string;
+    protectionClass?: string;
+    distanceToFireStation?: string;
+    distanceToFireHydrant?: string;
+  };
+
+  // Extracted endorsements from endorsement_extractions
+  extractedEndorsements?: Array<{
+    id: string;
+    formCode: string;
+    title?: string;
+    editionDate?: string;
+    endorsementType?: string;
+    summary?: string;
+    modifications?: Record<string, any>;
+    extractionStatus?: string;
+  }>;
 }
 
 export interface ClaimStats {

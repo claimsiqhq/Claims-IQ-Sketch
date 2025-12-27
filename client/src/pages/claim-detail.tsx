@@ -1164,7 +1164,7 @@ export default function ClaimDetail() {
                       <CardTitle className="text-lg flex items-center gap-2">
                         <Home className="w-5 h-5" />
                         Policy Details
-                        {(apiClaim as any)?.extractedPolicy && (
+                        {apiClaim?.extractedPolicy && (
                           <Badge variant="outline" className="ml-2 text-xs text-green-600 border-green-300">From Policy Doc</Badge>
                         )}
                       </CardTitle>
@@ -1174,7 +1174,7 @@ export default function ClaimDetail() {
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground uppercase">Policy Number</Label>
                           <p className="font-mono font-medium" data-testid="policy-number">
-                            {(apiClaim as any)?.extractedPolicy?.policyNumber || apiClaim?.policyNumber || '-'}
+                            {apiClaim?.extractedPolicy?.policyNumber || apiClaim?.policyNumber || '-'}
                           </p>
                         </div>
                         <div className="space-y-1">
@@ -1187,43 +1187,43 @@ export default function ClaimDetail() {
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground uppercase">Dwelling Limit (Coverage A)</Label>
                           <p className="text-lg font-bold text-green-600" data-testid="dwelling-limit">
-                            {(apiClaim as any)?.extractedPolicy?.dwellingLimit || apiClaim?.dwellingLimit || '-'}
+                            {apiClaim?.extractedPolicy?.dwellingLimit || apiClaim?.dwellingLimit || '-'}
                           </p>
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground uppercase">Wind/Hail Deductible</Label>
                           <p className="text-lg font-bold text-amber-600" data-testid="wind-hail-deductible">
-                            {(apiClaim as any)?.extractedPolicy?.windHailDeductible || apiClaim?.windHailDeductible || '-'}
+                            {apiClaim?.extractedPolicy?.windHailDeductible || apiClaim?.windHailDeductible || '-'}
                           </p>
                         </div>
                       </div>
                       {/* Additional coverages from extracted policy */}
-                      {(apiClaim as any)?.extractedPolicy && (
+                      {apiClaim?.extractedPolicy && (
                         <>
                           <Separator />
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {(apiClaim as any)?.extractedPolicy?.otherStructuresLimit && (
+                            {apiClaim.extractedPolicy.otherStructuresLimit && (
                               <div className="space-y-1">
                                 <Label className="text-xs text-muted-foreground uppercase">Coverage B</Label>
-                                <p className="font-medium text-sm" data-testid="coverage-b">{(apiClaim as any)?.extractedPolicy?.otherStructuresLimit}</p>
+                                <p className="font-medium text-sm" data-testid="coverage-b">{apiClaim.extractedPolicy.otherStructuresLimit}</p>
                               </div>
                             )}
-                            {(apiClaim as any)?.extractedPolicy?.personalPropertyLimit && (
+                            {apiClaim.extractedPolicy.personalPropertyLimit && (
                               <div className="space-y-1">
                                 <Label className="text-xs text-muted-foreground uppercase">Coverage C</Label>
-                                <p className="font-medium text-sm" data-testid="coverage-c">{(apiClaim as any)?.extractedPolicy?.personalPropertyLimit}</p>
+                                <p className="font-medium text-sm" data-testid="coverage-c">{apiClaim.extractedPolicy.personalPropertyLimit}</p>
                               </div>
                             )}
-                            {(apiClaim as any)?.extractedPolicy?.lossOfUseLimit && (
+                            {apiClaim.extractedPolicy.lossOfUseLimit && (
                               <div className="space-y-1">
                                 <Label className="text-xs text-muted-foreground uppercase">Coverage D</Label>
-                                <p className="font-medium text-sm" data-testid="coverage-d">{(apiClaim as any)?.extractedPolicy?.lossOfUseLimit}</p>
+                                <p className="font-medium text-sm" data-testid="coverage-d">{apiClaim.extractedPolicy.lossOfUseLimit}</p>
                               </div>
                             )}
-                            {(apiClaim as any)?.extractedPolicy?.deductible && (
+                            {apiClaim.extractedPolicy.deductible && (
                               <div className="space-y-1">
                                 <Label className="text-xs text-muted-foreground uppercase">Deductible</Label>
-                                <p className="font-medium text-sm" data-testid="deductible">{(apiClaim as any)?.extractedPolicy?.deductible}</p>
+                                <p className="font-medium text-sm" data-testid="deductible">{apiClaim.extractedPolicy.deductible}</p>
                               </div>
                             )}
                           </div>
@@ -1243,26 +1243,27 @@ export default function ClaimDetail() {
                         <ClipboardList className="w-5 h-5" />
                         Endorsements
                         <Badge variant="secondary" className="ml-2">
-                          {endorsements.length || ((apiClaim as any)?.extractedEndorsements?.length || 0)}
+                          {endorsements.length || (apiClaim?.extractedEndorsements?.length || 0)}
                         </Badge>
-                        {((apiClaim as any)?.extractedEndorsements?.length > 0) && (
+                        {(apiClaim?.extractedEndorsements && apiClaim.extractedEndorsements.length > 0) && (
                           <Badge variant="outline" className="text-xs text-green-600 border-green-300">Extracted</Badge>
                         )}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       {/* Comprehensive Endorsement Extractions */}
-                      {(endorsements.length > 0 || (apiClaim as any)?.extractedEndorsements?.length > 0) ? (
+                      {(endorsements.length > 0 || (apiClaim?.extractedEndorsements?.length || 0) > 0) ? (
                         <div className="space-y-4">
                           <h4 className="text-sm font-medium text-muted-foreground">Endorsement Documents</h4>
                           <div className="space-y-4">
                             {/* Use extractedEndorsements from claim if available, otherwise fall back to separate API call */}
-                            {(endorsements.length > 0 ? endorsements : ((apiClaim as any)?.extractedEndorsements || []).map((e: any) => ({
+                            {(endorsements.length > 0 ? endorsements : (apiClaim?.extractedEndorsements || []).map((e, idx) => ({
                               ...e,
-                              form_code: e.formCode || e.form_code,
-                              edition_date: e.editionDate || e.edition_date,
-                              endorsement_type: e.endorsementType || e.endorsement_type,
-                              extraction_status: e.extractionStatus || e.extraction_status,
+                              id: e.id || `extracted-${idx}`,
+                              form_code: e.formCode,
+                              edition_date: e.editionDate,
+                              endorsement_type: e.endorsementType,
+                              extraction_status: e.extractionStatus,
                             }))).map((endorsement: any) => {
                               const mods = endorsement.modifications || {};
                               const hasModifications = Object.keys(mods).some(k => {
