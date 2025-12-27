@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type UploadQueueItem, type UploadStatus } from "@/lib/uploadQueue";
+import { type UploadQueueItem, type UploadStatus, type PageProgress } from "@/lib/uploadQueue";
 
 interface UploadQueueRowProps {
   item: UploadQueueItem;
@@ -52,8 +52,13 @@ function getStatusBadge(item: UploadQueueItem) {
       return <Badge variant="outline" className="text-blue-600 bg-blue-50 shrink-0">Uploading {item.progress}%</Badge>;
     case "classifying":
       return <Badge variant="outline" className="text-purple-600 bg-purple-50 shrink-0">Classifying</Badge>;
-    case "processing":
+    case "processing": {
+      const pageText = getPageProgressText(item.pageProgress);
+      if (pageText) {
+        return <Badge variant="outline" className="text-amber-600 bg-amber-50 shrink-0">{pageText}</Badge>;
+      }
       return <Badge variant="outline" className="text-amber-600 bg-amber-50 shrink-0">Processing</Badge>;
+    }
     case "completed":
       return <Badge variant="outline" className="text-green-600 bg-green-50 shrink-0">Done</Badge>;
     case "failed":
@@ -61,6 +66,13 @@ function getStatusBadge(item: UploadQueueItem) {
     default:
       return null;
   }
+}
+
+function getPageProgressText(pageProgress?: PageProgress): string | null {
+  if (!pageProgress || pageProgress.totalPages === 0) return null;
+  if (pageProgress.stage === 'completed') return null;
+  if (pageProgress.stage === 'finalizing') return 'Finalizing...';
+  return `Page ${pageProgress.pagesProcessed} of ${pageProgress.totalPages}`;
 }
 
 function getStatusText(item: UploadQueueItem): string {
@@ -71,8 +83,11 @@ function getStatusText(item: UploadQueueItem): string {
       return `Uploading ${item.progress}%`;
     case "classifying":
       return "Identifying...";
-    case "processing":
+    case "processing": {
+      const pageText = getPageProgressText(item.pageProgress);
+      if (pageText) return pageText;
       return "Extracting data...";
+    }
     case "completed":
       if (item.processingStatus === "completed") return "Complete";
       if (item.processingStatus === "failed") return "Processing failed";

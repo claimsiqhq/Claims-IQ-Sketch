@@ -34,6 +34,14 @@ function notifyCompletion() {
   completionSubscribers.forEach((cb) => cb());
 }
 
+export interface PageProgress {
+  totalPages: number;
+  pagesProcessed: number;
+  currentPage: number;
+  percentComplete: number;
+  stage: 'extracting' | 'finalizing' | 'completed' | 'pending';
+}
+
 export interface UploadQueueItem {
   id: string;
   file: File;
@@ -48,6 +56,7 @@ export interface UploadQueueItem {
   error?: string;
   documentId?: string; // Set after successful upload
   processingStatus?: ProcessingStatus; // Set after upload, tracks AI processing
+  pageProgress?: PageProgress; // Page-by-page extraction progress
   retryCount: number;
   addedAt: number;
   startedAt?: number;
@@ -468,11 +477,23 @@ async function pollProcessingStatus(itemId: string, documentId: string): Promise
       }
 
       const doc = await response.json();
+      
+      // Extract page progress from extractedData._progress
+      const extractedData = doc.extractedData || doc.extracted_data;
+      const rawProgress = extractedData?._progress;
+      const pageProgress: PageProgress | undefined = rawProgress ? {
+        totalPages: rawProgress.totalPages || 0,
+        pagesProcessed: rawProgress.pagesProcessed || 0,
+        currentPage: rawProgress.currentPage || 0,
+        percentComplete: rawProgress.percentComplete || 0,
+        stage: rawProgress.stage || 'pending',
+      } : undefined;
 
       if (doc.processingStatus === 'completed') {
         store._updateItem(itemId, {
           status: 'completed',
           processingStatus: 'completed',
+          pageProgress: pageProgress ? { ...pageProgress, stage: 'completed' } : undefined,
           completedAt: Date.now(),
         });
         return;
@@ -482,14 +503,16 @@ async function pollProcessingStatus(itemId: string, documentId: string): Promise
         store._updateItem(itemId, {
           status: 'completed', // Upload succeeded, just processing failed
           processingStatus: 'failed',
+          pageProgress,
           completedAt: Date.now(),
         });
         return;
       }
 
-      // Still processing, continue polling
+      // Still processing, update with page progress
       store._updateItem(itemId, {
         processingStatus: doc.processingStatus as ProcessingStatus,
+        pageProgress,
       });
 
       setTimeout(poll, POLL_INTERVAL);
