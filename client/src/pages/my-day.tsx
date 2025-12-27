@@ -1437,74 +1437,79 @@ export default function MyDay() {
   const [localWeather, setLocalWeather] = useState<StopWeatherData | undefined>();
   const [weatherLocation, setWeatherLocation] = useState<string>("Loading...");
 
-  // Fetch current location weather - fetch immediately with defaults, update with geolocation
+  // Fetch current location weather using IP-based geolocation
   useEffect(() => {
-    async function reverseGeocode(lat: number, lng: number): Promise<string> {
+    async function fetchLocationAndWeather() {
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county;
-          const state = data.address?.state;
-          if (city && state) {
-            return `${city}, ${state}`;
+        // Use IP-based geolocation - works automatically without permission
+        console.log('[MyDay] Getting location from IP...');
+        const geoResponse = await fetch('https://ipapi.co/json/');
+        
+        if (geoResponse.ok) {
+          const geoData = await geoResponse.json();
+          const lat = geoData.latitude;
+          const lng = geoData.longitude;
+          const city = geoData.city;
+          const region = geoData.region;
+          const country = geoData.country_name;
+          
+          console.log('[MyDay] IP location:', city, region, country, lat, lng);
+          
+          // Set location name
+          if (city && region) {
+            setWeatherLocation(`${city}, ${region}`);
           } else if (city) {
-            return city;
-          } else if (state) {
-            return state;
+            setWeatherLocation(city);
+          } else {
+            setWeatherLocation(country || "Unknown Location");
           }
+          
+          // Fetch weather for this location
+          const weatherResponse = await fetch('/api/weather/locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              locations: [{ lat, lng, stopId: 'current-location' }],
+            }),
+          });
+          
+          if (weatherResponse.ok) {
+            const weatherData = await weatherResponse.json();
+            console.log('[MyDay] Weather response:', weatherData);
+            if (weatherData.weather && weatherData.weather.length > 0) {
+              setLocalWeather(weatherData.weather[0]);
+            }
+          }
+        } else {
+          throw new Error('IP geolocation failed');
         }
       } catch (err) {
-        console.error('[MyDay] Reverse geocode failed:', err);
-      }
-      return "Unknown Location";
-    }
-
-    async function fetchLocalWeather(lat: number, lng: number, isDefault: boolean = false) {
-      try {
-        console.log('[MyDay] Fetching weather for:', lat, lng, isDefault ? '(default)' : '(geolocation)');
-        const response = await fetch('/api/weather/locations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            locations: [{ lat, lng, stopId: 'current-location' }],
-          }),
-        });
-        if (response.ok) {
-          const data = await response.json();
-          console.log('[MyDay] Weather response:', data);
-          if (data.weather && data.weather.length > 0) {
-            setLocalWeather(data.weather[0]);
-            const locationName = await reverseGeocode(lat, lng);
-            setWeatherLocation(locationName);
+        console.error('[MyDay] Location/weather fetch failed:', err);
+        // Fallback to Austin, TX
+        setWeatherLocation("Austin, TX (fallback)");
+        try {
+          const response = await fetch('/api/weather/locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              locations: [{ lat: 30.2672, lng: -97.7431, stopId: 'current-location' }],
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.weather && data.weather.length > 0) {
+              setLocalWeather(data.weather[0]);
+            }
           }
+        } catch (fallbackErr) {
+          console.error('[MyDay] Fallback weather also failed:', fallbackErr);
         }
-      } catch (err) {
-        console.error('[MyDay] Failed to fetch local weather:', err);
       }
     }
 
-    // Fetch immediately with Austin, TX as default
-    setWeatherLocation("Austin, TX (default)");
-    fetchLocalWeather(30.2672, -97.7431, true);
-
-    // Then try to get actual location and update
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          // Got real location - update weather
-          fetchLocalWeather(position.coords.latitude, position.coords.longitude, false);
-        },
-        (error) => {
-          console.warn('[MyDay] Geolocation failed:', error.message);
-          // Already have default weather, no action needed
-        },
-        { timeout: 5000, maximumAge: 300000 }
-      );
-    }
+    fetchLocationAndWeather();
   }, []);
 
   const userDisplayName = useMemo(() => {
