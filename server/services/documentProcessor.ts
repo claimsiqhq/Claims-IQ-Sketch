@@ -1176,8 +1176,27 @@ export async function processDocument(
         if (!claimId) {
           console.log(`[FNOL] No claim linked - creating claim from FNOL extraction for document ${documentId}`);
           try {
-            claimId = await createClaimFromDocuments(organizationId, [documentId]);
-            console.log(`[FNOL] Created claim ${claimId} from FNOL document ${documentId}`);
+            // Find related policy/endorsement documents that were uploaded recently without a claim
+            // These are likely from the same bulk upload batch
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const { data: relatedDocs } = await supabaseAdmin
+              .from('documents')
+              .select('id, type, extracted_data')
+              .eq('organization_id', organizationId)
+              .is('claim_id', null)
+              .in('type', ['policy', 'endorsement'])
+              .gte('created_at', fiveMinutesAgo)
+              .neq('id', documentId);
+
+            // Include FNOL document and any related policy/endorsement documents
+            const allDocIds = [documentId];
+            if (relatedDocs && relatedDocs.length > 0) {
+              allDocIds.push(...relatedDocs.map(d => d.id));
+              console.log(`[FNOL] Found ${relatedDocs.length} related policy/endorsement documents to include`);
+            }
+
+            claimId = await createClaimFromDocuments(organizationId, allDocIds);
+            console.log(`[FNOL] Created claim ${claimId} from FNOL document ${documentId} with ${allDocIds.length - 1} related documents`);
           } catch (createError) {
             console.error(`[FNOL] Failed to create claim from FNOL:`, createError);
             // Update document with error info but keep extraction data
@@ -1185,9 +1204,9 @@ export async function processDocument(
               .from('documents')
               .update({
                 processing_status: 'failed',
-                extracted_data: { 
-                  ...fnolExtraction, 
-                  claimCreationError: (createError as Error).message 
+                extracted_data: {
+                  ...fnolExtraction,
+                  claimCreationError: (createError as Error).message
                 },
                 updated_at: new Date().toISOString()
               })
@@ -1210,7 +1229,7 @@ export async function processDocument(
       case 'policy': {
         const policyExtraction = transformToPolicyExtraction(rawExtraction);
 
-        const finalPolicyData = existingProgress 
+        const finalPolicyData = existingProgress
           ? { ...policyExtraction, _progress: { ...existingProgress, stage: 'completed' } }
           : policyExtraction;
 
@@ -1225,21 +1244,49 @@ export async function processDocument(
           })
           .eq('id', documentId);
 
-        await storePolicy(policyExtraction, documentId, doc.claim_id, organizationId);
+        // If no claim_id, try to find a recently created claim to link to
+        let claimIdToUse = doc.claim_id;
+
+        if (!claimIdToUse) {
+          // Try to find a recently created claim from the same organization
+          const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+          const { data: recentClaim } = await supabaseAdmin
+            .from('claims')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .gte('created_at', fiveMinutesAgo)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (recentClaim) {
+            claimIdToUse = recentClaim.id;
+            // Update the document to link to this claim
+            await supabaseAdmin
+              .from('documents')
+              .update({ claim_id: claimIdToUse, updated_at: new Date().toISOString() })
+              .eq('id', documentId);
+            console.log(`[Policy] Linked document ${documentId} to recently created claim ${claimIdToUse}`);
+          }
+        }
+
+        await storePolicy(policyExtraction, documentId, claimIdToUse, organizationId);
 
         // Trigger effective policy recomputation
-        if (doc.claim_id) {
+        if (claimIdToUse) {
           try {
-            await recomputeEffectivePolicyIfNeeded(doc.claim_id, organizationId);
-            console.log(`[EffectivePolicy] Triggered recomputation for claim ${doc.claim_id}`);
+            await recomputeEffectivePolicyIfNeeded(claimIdToUse, organizationId);
+            console.log(`[EffectivePolicy] Triggered recomputation for claim ${claimIdToUse}`);
           } catch (e) {
             console.error('[EffectivePolicy] Recomputation error:', e);
           }
-          
+
           // Auto-trigger AI generation pipeline (async, non-blocking)
-          triggerAIGenerationPipeline(doc.claim_id, organizationId, 'policy').catch(err => {
+          triggerAIGenerationPipeline(claimIdToUse, organizationId, 'policy').catch(err => {
             console.error('[AI Pipeline] Background error:', err);
           });
+        } else {
+          console.log(`[Policy] No claim found to link document ${documentId} - will be linked by createClaimFromDocuments later`);
         }
 
         console.log(`[Policy] Extraction completed for document ${documentId}`);
@@ -1249,7 +1296,7 @@ export async function processDocument(
       case 'endorsement': {
         const endorsementExtractions = transformToEndorsementExtraction(rawExtraction);
 
-        const finalEndorsementData = existingProgress 
+        const finalEndorsementData = existingProgress
           ? { ...endorsementExtractions, _progress: { ...existingProgress, stage: 'completed' } }
           : endorsementExtractions;
 
@@ -1264,21 +1311,52 @@ export async function processDocument(
           })
           .eq('id', documentId);
 
-        if (doc.claim_id) {
-          await storeEndorsements(endorsementExtractions, doc.claim_id, organizationId, documentId);
+        // Always store endorsement extractions, even without claim_id
+        // If no claim_id, they'll be linked later by createClaimFromDocuments
+        // or we can try to find a recently created claim to link to
+        let claimIdToUse = doc.claim_id;
+
+        if (!claimIdToUse) {
+          // Try to find a recently created claim from the same organization
+          // that this endorsement might belong to
+          const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+          const { data: recentClaim } = await supabaseAdmin
+            .from('claims')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .gte('created_at', fiveMinutesAgo)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (recentClaim) {
+            claimIdToUse = recentClaim.id;
+            // Update the document to link to this claim
+            await supabaseAdmin
+              .from('documents')
+              .update({ claim_id: claimIdToUse, updated_at: new Date().toISOString() })
+              .eq('id', documentId);
+            console.log(`[Endorsement] Linked document ${documentId} to recently created claim ${claimIdToUse}`);
+          }
+        }
+
+        if (claimIdToUse) {
+          await storeEndorsements(endorsementExtractions, claimIdToUse, organizationId, documentId);
 
           // Trigger effective policy recomputation
           try {
-            await recomputeEffectivePolicyIfNeeded(doc.claim_id, organizationId);
-            console.log(`[EffectivePolicy] Triggered recomputation for claim ${doc.claim_id}`);
+            await recomputeEffectivePolicyIfNeeded(claimIdToUse, organizationId);
+            console.log(`[EffectivePolicy] Triggered recomputation for claim ${claimIdToUse}`);
           } catch (e) {
             console.error('[EffectivePolicy] Recomputation error:', e);
           }
-          
+
           // Auto-trigger AI generation pipeline (async, non-blocking)
-          triggerAIGenerationPipeline(doc.claim_id, organizationId, 'endorsement').catch(err => {
+          triggerAIGenerationPipeline(claimIdToUse, organizationId, 'endorsement').catch(err => {
             console.error('[AI Pipeline] Background error:', err);
           });
+        } else {
+          console.log(`[Endorsement] No claim found to link document ${documentId} - will be linked by createClaimFromDocuments later`);
         }
 
         console.log(`[Endorsement] Extraction completed for document ${documentId}`);
@@ -1454,10 +1532,32 @@ export async function createClaimFromDocuments(
       .eq('id', docId);
   }
 
+  // Process any policy documents - store extractions with correct claim_id
+  const policyDocs = docs.filter(d => d.type === 'policy');
+  for (const policyDoc of policyDocs) {
+    if (policyDoc.extracted_data && !policyDoc.extracted_data._progress) {
+      // Check if this looks like a valid PolicyFormExtraction
+      const extraction = policyDoc.extracted_data as PolicyFormExtraction;
+      if (extraction.formCode || extraction.formName || extraction.structure) {
+        await storePolicy(extraction, policyDoc.id, claimId, organizationId);
+        console.log(`[ClaimCreation] Stored policy extraction for document ${policyDoc.id}`);
+      }
+    }
+  }
+
+  // Also update any existing policy_form_extractions that were stored with null claim_id
+  for (const policyDoc of policyDocs) {
+    await supabaseAdmin
+      .from('policy_form_extractions')
+      .update({ claim_id: claimId, updated_at: new Date().toISOString() })
+      .eq('document_id', policyDoc.id)
+      .is('claim_id', null);
+  }
+
   // Process any endorsement documents
   const endorsementDocs = docs.filter(d => d.type === 'endorsement');
   for (const endDoc of endorsementDocs) {
-    if (endDoc.extracted_data) {
+    if (endDoc.extracted_data && !endDoc.extracted_data._progress) {
       const extractions = Array.isArray(endDoc.extracted_data)
         ? endDoc.extracted_data
         : [endDoc.extracted_data];
@@ -1465,8 +1565,17 @@ export async function createClaimFromDocuments(
     }
   }
 
-  // Trigger effective policy recomputation if endorsements present
-  if (endorsementDocs.length > 0) {
+  // Also update any existing endorsement_extractions that were stored with null claim_id
+  for (const endDoc of endorsementDocs) {
+    await supabaseAdmin
+      .from('endorsement_extractions')
+      .update({ claim_id: claimId, updated_at: new Date().toISOString() })
+      .eq('document_id', endDoc.id)
+      .is('claim_id', null);
+  }
+
+  // Trigger effective policy recomputation if policy or endorsement documents present
+  if (policyDocs.length > 0 || endorsementDocs.length > 0) {
     try {
       await recomputeEffectivePolicyIfNeeded(claimId, organizationId);
       console.log(`[EffectivePolicy] Triggered recomputation for claim ${claimId}`);
