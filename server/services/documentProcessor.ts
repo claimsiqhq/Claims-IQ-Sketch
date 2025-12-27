@@ -630,16 +630,33 @@ async function storePolicy(
   claimId: string | null,
   organizationId: string
 ): Promise<void> {
+  console.log(`[PolicyExtraction] Starting storePolicy for document ${documentId}, org ${organizationId}, claimId: ${claimId}`);
+  console.log(`[PolicyExtraction] Extraction data: formCode=${extraction.formCode}, formName=${extraction.formName}`);
+
   // If existing canonical extraction exists for same claim + form, mark it non-canonical
   if (claimId && extraction.formCode) {
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from('policy_form_extractions')
       .update({ is_canonical: false, updated_at: new Date().toISOString() })
       .eq('organization_id', organizationId)
       .eq('claim_id', claimId)
       .eq('policy_form_code', extraction.formCode)
       .eq('is_canonical', true);
+
+    if (updateError) {
+      console.warn(`[PolicyExtraction] Warning: Failed to mark existing canonical as non-canonical: ${updateError.message}`);
+    }
   }
+
+  // Safely filter conditions - handle case where conditions may be objects instead of strings
+  const conditions = extraction.structure.conditions || [];
+  const filteredConditions = conditions.filter(c => {
+    if (typeof c === 'string') {
+      return !c.toLowerCase().includes('liability');
+    }
+    // If it's an object, keep it (can't filter by string content)
+    return true;
+  });
 
   // Build the extraction data payload
   const policyExtractionRow = {
@@ -649,6 +666,7 @@ async function storePolicy(
     policy_form_code: extraction.formCode || null,
     policy_form_name: extraction.formName || null,
     edition_date: extraction.editionDate || null,
+    document_type: 'policy',
     // Store the complete extraction as JSONB
     extraction_data: extraction,
     extraction_version: 1,
@@ -663,34 +681,59 @@ async function storePolicy(
       propertyCoverage: extraction.structure.coverages,
       perils: extraction.structure.perils,
       exclusions: extraction.structure.exclusions,
-      conditions: extraction.structure.conditions.filter(c => !c.includes('liability')),
+      conditions: filteredConditions,
       lossSettlement: extraction.structure.lossSettlement,
       additionalCoverages: extraction.structure.additionalCoverages,
     },
     section_ii: {
-      liabilityCoverages: extraction.structure.coverages.liability,
-      exclusions: extraction.structure.exclusions.liabilityExclusions,
+      liabilityCoverages: extraction.structure.coverages?.liability,
+      exclusions: extraction.structure.exclusions?.liabilityExclusions,
     },
+    general_conditions: extraction.structure.conditions || [],
     raw_page_text: extraction.rawText || null,
     status: 'completed',
   };
 
+  console.log(`[PolicyExtraction] Built extraction row, checking for existing document extraction...`);
+
   // Check for existing extraction for this document
-  const { data: existing } = await supabaseAdmin
+  const { data: existing, error: selectError } = await supabaseAdmin
     .from('policy_form_extractions')
     .select('id')
     .eq('document_id', documentId)
     .limit(1);
 
+  if (selectError) {
+    console.error(`[PolicyExtraction] Error checking for existing extraction: ${selectError.message}`);
+    throw new Error(`Failed to check for existing extraction: ${selectError.message}`);
+  }
+
   if (existing && existing.length > 0) {
-    await supabaseAdmin
+    console.log(`[PolicyExtraction] Found existing extraction ${existing[0].id}, updating...`);
+    const { error: updateError } = await supabaseAdmin
       .from('policy_form_extractions')
       .update({ ...policyExtractionRow, updated_at: new Date().toISOString() })
       .eq('id', existing[0].id);
+
+    if (updateError) {
+      console.error(`[PolicyExtraction] Update failed: ${updateError.message}`, updateError);
+      throw new Error(`Failed to update policy extraction: ${updateError.message}`);
+    }
+    console.log(`[PolicyExtraction] Successfully updated extraction ${existing[0].id}`);
   } else {
-    await supabaseAdmin
+    console.log(`[PolicyExtraction] No existing extraction, inserting new record...`);
+    const { data: insertData, error: insertError } = await supabaseAdmin
       .from('policy_form_extractions')
-      .insert(policyExtractionRow);
+      .insert(policyExtractionRow)
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.error(`[PolicyExtraction] Insert failed: ${insertError.message}`, insertError);
+      console.error(`[PolicyExtraction] Insert row data:`, JSON.stringify(policyExtractionRow, null, 2));
+      throw new Error(`Failed to insert policy extraction: ${insertError.message}`);
+    }
+    console.log(`[PolicyExtraction] Successfully inserted new extraction: ${insertData?.id}`);
   }
 
   console.log(`[PolicyExtraction] Saved canonical extraction for document ${documentId}, form ${extraction.formCode}`);
@@ -1095,6 +1138,7 @@ export async function processDocument(
   }
 
   const documentType = doc.type as DocumentType;
+  console.log(`[ProcessDocument] Starting processing for document ${documentId}, type: ${documentType}, storage_path: ${doc.storage_path}`);
 
   // Update status to processing
   await supabaseAdmin
@@ -1141,6 +1185,8 @@ export async function processDocument(
       .eq('id', documentId)
       .single();
     const existingProgress = (currentDocData?.extracted_data as any)?._progress;
+
+    console.log(`[ProcessDocument] Entering switch for documentType: '${documentType}' (raw type: ${typeof documentType})`);
 
     // SIMPLIFIED CONTROL FLOW - one path per document type
     switch (documentType) {
@@ -1216,13 +1262,18 @@ export async function processDocument(
       }
 
       case 'policy': {
+        console.log(`[Policy] Processing policy document ${documentId}`);
+        console.log(`[Policy] Raw extraction keys: ${Object.keys(rawExtraction || {}).join(', ')}`);
+
         const policyExtraction = transformToPolicyExtraction(rawExtraction);
+        console.log(`[Policy] Transformed extraction: formCode=${policyExtraction.formCode}, formName=${policyExtraction.formName}`);
 
         const finalPolicyData = existingProgress
           ? { ...policyExtraction, _progress: { ...existingProgress, stage: 'completed' } }
           : policyExtraction;
 
-        await supabaseAdmin
+        console.log(`[Policy] Updating documents table with extracted_data...`);
+        const { error: docUpdateError } = await supabaseAdmin
           .from('documents')
           .update({
             extracted_data: finalPolicyData,
@@ -1233,8 +1284,15 @@ export async function processDocument(
           })
           .eq('id', documentId);
 
+        if (docUpdateError) {
+          console.error(`[Policy] Failed to update documents table: ${docUpdateError.message}`);
+        } else {
+          console.log(`[Policy] Successfully updated documents table`);
+        }
+
         // If no claim_id, try to find a recently created claim to link to
         let claimIdToUse = doc.claim_id;
+        console.log(`[Policy] Initial claimIdToUse: ${claimIdToUse}`)
 
         if (!claimIdToUse) {
           // Try to find a recently created claim from the same organization
@@ -1259,7 +1317,9 @@ export async function processDocument(
           }
         }
 
+        console.log(`[Policy] Calling storePolicy with documentId=${documentId}, claimIdToUse=${claimIdToUse}, orgId=${organizationId}`);
         await storePolicy(policyExtraction, documentId, claimIdToUse, organizationId);
+        console.log(`[Policy] storePolicy completed successfully`);
 
         // Trigger effective policy recomputation
         if (claimIdToUse) {

@@ -217,7 +217,7 @@ async function processItemAsync(item: QueueItem): Promise<void> {
       console.log(`[DocumentQueue] Document ${documentId} classified as: ${classification.documentType} (confidence: ${classification.confidence})`);
 
       // Update document with classified type
-      await supabaseAdmin
+      const { error: classifyUpdateError } = await supabaseAdmin
         .from('documents')
         .update({
           type: classification.documentType,
@@ -236,6 +236,12 @@ async function processItemAsync(item: QueueItem): Promise<void> {
           updated_at: new Date().toISOString(),
         })
         .eq('id', documentId);
+
+      if (classifyUpdateError) {
+        console.error(`[DocumentQueue] Failed to update document type after classification: ${classifyUpdateError.message}`);
+      } else {
+        console.log(`[DocumentQueue] Successfully updated document ${documentId} type to: ${classification.documentType}`);
+      }
 
       // Skip AI extraction for photos and correspondence - they don't need it
       if (classification.documentType === 'photo' || classification.documentType === 'correspondence') {
@@ -257,7 +263,9 @@ async function processItemAsync(item: QueueItem): Promise<void> {
     }
 
     // Step 2: AI Extraction
-    await processDocumentAI(documentId, organizationId);
+    console.log(`[DocumentQueue] Starting AI extraction for document ${documentId}...`);
+    const extractionResult = await processDocumentAI(documentId, organizationId);
+    console.log(`[DocumentQueue] AI extraction completed for document ${documentId}, result type: ${typeof extractionResult}`);
 
     // Success
     processing.delete(documentId);
