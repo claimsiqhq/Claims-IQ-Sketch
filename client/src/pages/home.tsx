@@ -354,8 +354,8 @@ export default function Home() {
                 <FileText className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">FNOL</p>
-                <p className="text-lg font-bold">{stats?.byStatus.fnol || 0}</p>
+                <p className="text-xs text-muted-foreground">Claims</p>
+                <p className="text-lg font-bold">{stats?.total || 0}</p>
               </div>
             </div>
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
@@ -522,9 +522,9 @@ export default function Home() {
               <FileText className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">FNOL</p>
+              <p className="text-sm font-medium text-muted-foreground">Claims</p>
               <p className="text-3xl font-display font-bold text-slate-900">
-                {stats?.byStatus.fnol || 0}
+                {stats?.total || 0}
               </p>
             </div>
           </div>
