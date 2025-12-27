@@ -241,9 +241,46 @@ npm install      # Install dependencies
 npm run dev      # Start development server
 npm run build    # Production build
 npm run start    # Run production
-npm run db:push  # Push schema to database
 npm run check    # Type checking
 ```
+
+---
+
+## Database Migration Workflow
+
+**CRITICAL: Replit cannot run database migrations directly.**
+
+Replit blocks outbound connections on port 5432, which means:
+- `npm run db:push` will NOT work from Replit
+- Direct Postgres connections fail silently
+- Schema validation scripts cannot run
+
+**The app works because** it uses Supabase's HTTP API for queries, not direct Postgres.
+
+### Running Migrations (from local machine)
+
+```bash
+# 1. Clone repo locally
+git clone <repo-url>
+cd Claims-IQ-Sketch
+
+# 2. Set environment variable
+export SUPABASE_DATABASE_URL="postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres"
+
+# 3. Push schema changes
+npm run db:push
+
+# 4. Validate schema sync
+node scripts/check-db-columns.cjs
+```
+
+### After Schema Changes in shared/schema.ts
+
+1. Commit schema changes to git
+2. Pull changes to local machine
+3. Run `npm run db:push` locally
+4. Run validation script to confirm sync
+5. Push any migration files back to repo
 
 ---
 
