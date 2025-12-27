@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date, index, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -307,53 +307,6 @@ export const insertClaimSchema = createInsertSchema(claims).omit({
 export type InsertClaim = z.infer<typeof insertClaimSchema>;
 export type Claim = typeof claims.$inferSelect;
 
-// ============================================
-// POLICY FORMS TABLE
-// ============================================
-// @deprecated This table is DEPRECATED and will be removed.
-// Use policy_form_extractions table instead.
-// All policy data should flow through:
-// - policy_form_extractions (for base policy)
-// - endorsement_extractions (for endorsements)
-// - EffectivePolicy service (for merged policy rules)
-
-export const policyForms = pgTable("policy_forms", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  organizationId: uuid("organization_id").notNull(),
-  claimId: uuid("claim_id"), // Link to claim
-
-  // Form identification
-  formType: varchar("form_type", { length: 50 }).notNull().default("Policy Form"),
-  formNumber: varchar("form_number", { length: 50 }).notNull(), // e.g., "HO 80 03 01 14"
-  documentTitle: varchar("document_title", { length: 255 }), // e.g., "HOMEOWNERS FORM"
-  description: text("description"),
-
-  // Key provisions stored as JSONB for flexibility
-  keyProvisions: jsonb("key_provisions").default(sql`'{}'::jsonb`),
-  // Structure: {
-  //   sections: string[],
-  //   loss_settlement_roofing_system_wind_hail: string,
-  //   dwelling_unoccupied_exclusion_period: string,
-  //   ...other provisions
-  // }
-
-  // Timestamps
-  createdAt: timestamp("created_at").default(sql`NOW()`),
-  updatedAt: timestamp("updated_at").default(sql`NOW()`),
-}, (table) => ({
-  orgIdx: index("policy_forms_org_idx").on(table.organizationId),
-  claimIdx: index("policy_forms_claim_idx").on(table.claimId),
-  formNumberIdx: index("policy_forms_form_number_idx").on(table.formNumber),
-}));
-
-export const insertPolicyFormSchema = createInsertSchema(policyForms).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export type InsertPolicyForm = z.infer<typeof insertPolicyFormSchema>;
-export type PolicyForm = typeof policyForms.$inferSelect;
 
 // ============================================
 // POLICY FORM EXTRACTIONS TABLE (Comprehensive)
@@ -532,55 +485,6 @@ export interface PolicyStructure {
   agreement?: string;
 }
 
-// ============================================
-// ENDORSEMENTS TABLE
-// ============================================
-// @deprecated This table is DEPRECATED and will be removed.
-// Use endorsement_extractions table instead.
-// All endorsement data should flow through:
-// - endorsement_extractions (for comprehensive endorsement data)
-// - EffectivePolicy service (for merged policy rules)
-
-export const endorsements = pgTable("endorsements", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  organizationId: uuid("organization_id").notNull(),
-  claimId: uuid("claim_id"), // Link to claim
-
-  // Endorsement identification
-  formType: varchar("form_type", { length: 50 }).notNull().default("Endorsement"),
-  formNumber: varchar("form_number", { length: 50 }).notNull(), // e.g., "HO 81 53 12 22"
-  documentTitle: varchar("document_title", { length: 255 }), // e.g., "WISCONSIN AMENDATORY ENDORSEMENT"
-  description: text("description"),
-
-  // Key changes stored as JSONB for flexibility
-  keyChanges: jsonb("key_changes").default(sql`'{}'::jsonb`),
-  // Structure: {
-  //   actual_cash_value_definition: string,
-  //   dwelling_unoccupied_exclusion_period: string,
-  //   metal_siding_and_trim_loss_settlement_wind_hail: string,
-  //   loss_settlement_wind_hail: string,
-  //   roofing_schedule_application: string,
-  //   metal_roofing_loss_settlement: string,
-  //   ...other changes
-  // }
-
-  // Timestamps
-  createdAt: timestamp("created_at").default(sql`NOW()`),
-  updatedAt: timestamp("updated_at").default(sql`NOW()`),
-}, (table) => ({
-  orgIdx: index("endorsements_org_idx").on(table.organizationId),
-  claimIdx: index("endorsements_claim_idx").on(table.claimId),
-  formNumberIdx: index("endorsements_form_number_idx").on(table.formNumber),
-}));
-
-export const insertEndorsementSchema = createInsertSchema(endorsements).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export type InsertEndorsement = z.infer<typeof insertEndorsementSchema>;
-export type Endorsement = typeof endorsements.$inferSelect;
 
 // ============================================
 // ENDORSEMENT EXTRACTIONS TABLE
@@ -3139,3 +3043,175 @@ export interface EffectivePolicyFeatureFlags {
   enableInspectionIntegration: boolean;
   enableEstimateValidation: boolean;
 }
+
+// ============================================
+// DRIZZLE RELATIONS (Type-safe Joins)
+// ============================================
+
+export const organizationsRelations = relations(organizations, ({ many }) => ({
+  memberships: many(organizationMemberships),
+  claims: many(claims),
+  documents: many(documents),
+  estimates: many(estimates),
+  policyFormExtractions: many(policyFormExtractions),
+  endorsementExtractions: many(endorsementExtractions),
+}));
+
+export const usersRelations = relations(users, ({ many, one }) => ({
+  memberships: many(organizationMemberships),
+  currentOrganization: one(organizations, {
+    fields: [users.currentOrganizationId],
+    references: [organizations.id],
+  }),
+}));
+
+export const organizationMembershipsRelations = relations(organizationMemberships, ({ one }) => ({
+  user: one(users, {
+    fields: [organizationMemberships.userId],
+    references: [users.id],
+  }),
+  organization: one(organizations, {
+    fields: [organizationMemberships.organizationId],
+    references: [organizations.id],
+  }),
+}));
+
+export const claimsRelations = relations(claims, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [claims.organizationId],
+    references: [organizations.id],
+  }),
+  documents: many(documents),
+  estimates: many(estimates),
+  policyFormExtractions: many(policyFormExtractions),
+  endorsementExtractions: many(endorsementExtractions),
+  claimBriefings: many(claimBriefings),
+  claimStructures: many(claimStructures),
+  claimPhotos: many(claimPhotos),
+}));
+
+export const documentsRelations = relations(documents, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [documents.organizationId],
+    references: [organizations.id],
+  }),
+  claim: one(claims, {
+    fields: [documents.claimId],
+    references: [claims.id],
+  }),
+}));
+
+export const estimatesRelations = relations(estimates, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [estimates.organizationId],
+    references: [organizations.id],
+  }),
+  claim: one(claims, {
+    fields: [estimates.claimId],
+    references: [claims.id],
+  }),
+  structures: many(estimateStructures),
+  lineItems: many(estimateLineItems),
+}));
+
+export const estimateStructuresRelations = relations(estimateStructures, ({ one, many }) => ({
+  estimate: one(estimates, {
+    fields: [estimateStructures.estimateId],
+    references: [estimates.id],
+  }),
+  areas: many(estimateAreas),
+}));
+
+export const estimateAreasRelations = relations(estimateAreas, ({ one, many }) => ({
+  structure: one(estimateStructures, {
+    fields: [estimateAreas.structureId],
+    references: [estimateStructures.id],
+  }),
+  zones: many(estimateZones),
+}));
+
+export const estimateZonesRelations = relations(estimateZones, ({ one, many }) => ({
+  area: one(estimateAreas, {
+    fields: [estimateZones.areaId],
+    references: [estimateAreas.id],
+  }),
+  lineItems: many(estimateLineItems),
+}));
+
+export const estimateLineItemsRelations = relations(estimateLineItems, ({ one }) => ({
+  estimate: one(estimates, {
+    fields: [estimateLineItems.estimateId],
+    references: [estimates.id],
+  }),
+  damageZone: one(damageZones, {
+    fields: [estimateLineItems.damageZoneId],
+    references: [damageZones.id],
+  }),
+}));
+
+export const policyFormExtractionsRelations = relations(policyFormExtractions, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [policyFormExtractions.organizationId],
+    references: [organizations.id],
+  }),
+  claim: one(claims, {
+    fields: [policyFormExtractions.claimId],
+    references: [claims.id],
+  }),
+  document: one(documents, {
+    fields: [policyFormExtractions.documentId],
+    references: [documents.id],
+  }),
+}));
+
+export const endorsementExtractionsRelations = relations(endorsementExtractions, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [endorsementExtractions.organizationId],
+    references: [organizations.id],
+  }),
+  claim: one(claims, {
+    fields: [endorsementExtractions.claimId],
+    references: [claims.id],
+  }),
+  document: one(documents, {
+    fields: [endorsementExtractions.documentId],
+    references: [documents.id],
+  }),
+}));
+
+export const claimBriefingsRelations = relations(claimBriefings, ({ one }) => ({
+  claim: one(claims, {
+    fields: [claimBriefings.claimId],
+    references: [claims.id],
+  }),
+}));
+
+export const claimStructuresRelations = relations(claimStructures, ({ one, many }) => ({
+  claim: one(claims, {
+    fields: [claimStructures.claimId],
+    references: [claims.id],
+  }),
+  rooms: many(claimRooms),
+}));
+
+export const claimRoomsRelations = relations(claimRooms, ({ one, many }) => ({
+  structure: one(claimStructures, {
+    fields: [claimRooms.structureId],
+    references: [claimStructures.id],
+  }),
+  damageZones: many(claimDamageZones),
+}));
+
+export const claimDamageZonesRelations = relations(claimDamageZones, ({ one }) => ({
+  room: one(claimRooms, {
+    fields: [claimDamageZones.roomId],
+    references: [claimRooms.id],
+  }),
+}));
+
+export const claimPhotosRelations = relations(claimPhotos, ({ one }) => ({
+  claim: one(claims, {
+    fields: [claimPhotos.claimId],
+    references: [claims.id],
+  }),
+}));
