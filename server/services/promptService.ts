@@ -517,8 +517,7 @@ OUTPUT STRUCTURE
       "rawText": "STRING (Complete verbatim text of the endorsement)"
     }
   ],
-  "policyNumber": "Policy number if visible",
-  "endorsementsListed": ["Array of all endorsement form codes found"]
+  "policyNumber": "Policy number if visible"
 }`,
     model: 'gpt-4.1-2025-04-14',
     temperature: 0.1,

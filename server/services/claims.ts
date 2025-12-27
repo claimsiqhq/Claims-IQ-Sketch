@@ -6,7 +6,9 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
  * Canonical data sources:
  * - primaryPeril, secondaryPerils: Normalized peril data
  * - lossContext: FNOL truth from claims.loss_context
- * - endorsementsListed: LEGACY - use endorsement_extractions instead
+ * - Endorsement data: Use endorsement_extractions table (NOT claims.endorsements_listed)
+ * - Policy data: Use policy_form_extractions table
+ * - Effective Policy: Use EffectivePolicy service for merged policy+endorsement rules
  */
 export interface ClaimWithDocuments {
   id: string;
@@ -34,7 +36,6 @@ export interface ClaimWithDocuments {
   yearRoofInstall?: string;
   windHailDeductible?: string;
   dwellingLimit?: string;
-  endorsementsListed?: string[];  // LEGACY - use endorsement_extractions
   coverageA?: string;
   coverageB?: string;
   coverageC?: string;
@@ -130,7 +131,6 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
     yearRoofInstall: row.year_roof_install,
     windHailDeductible: row.wind_hail_deductible,
     dwellingLimit: row.dwelling_limit,
-    endorsementsListed: row.endorsements_listed,  // LEGACY - kept for backward compatibility
     coverageA: row.coverage_a,
     coverageB: row.coverage_b,
     coverageC: row.coverage_c,
@@ -189,7 +189,6 @@ export async function createClaim(
     yearRoofInstall?: string;
     windHailDeductible?: string;
     dwellingLimit?: string;
-    endorsementsListed?: string[];
     coverageA?: number;
     coverageB?: number;
     coverageC?: number;
@@ -220,7 +219,6 @@ export async function createClaim(
       year_roof_install: data.yearRoofInstall || null,
       wind_hail_deductible: data.windHailDeductible || null,
       dwelling_limit: data.dwellingLimit || null,
-      endorsements_listed: data.endorsementsListed || [],
       coverage_a: data.coverageA || null,
       coverage_b: data.coverageB || null,
       coverage_c: data.coverageC || null,
@@ -336,7 +334,6 @@ export async function updateClaim(
     yearRoofInstall: string;
     windHailDeductible: string;
     dwellingLimit: string;
-    endorsementsListed: string[];
     assignedAdjusterId: string;
     totalRcv: string;
     totalAcv: string;
@@ -388,10 +385,6 @@ export async function updateClaim(
     if ((updates as any)[key] !== undefined) {
       updateData[column] = (updates as any)[key];
     }
-  }
-
-  if (updates.endorsementsListed !== undefined) {
-    updateData.endorsements_listed = updates.endorsementsListed;
   }
 
   if (updates.metadata !== undefined) {
