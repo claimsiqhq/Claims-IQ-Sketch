@@ -1208,12 +1208,8 @@ export async function processDocument(
           }
         }
 
-        // Auto-trigger AI generation pipeline (async, non-blocking)
-        if (claimId) {
-          triggerAIGenerationPipeline(claimId, organizationId, 'fnol').catch(err => {
-            console.error('[AI Pipeline] Background error:', err);
-          });
-        }
+        // NOTE: AI Pipeline is now triggered ONLY inside createClaimFromDocuments
+        // to prevent duplicate pipeline runs that cause performance issues
 
         console.log(`[FNOL] Extraction completed for document ${documentId}, claimId: ${claimId}`);
         return fnolExtraction;
