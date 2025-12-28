@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,17 +13,29 @@ export default function Profile() {
   const authUser = useStore((state) => state.authUser);
   const checkAuth = useStore((state) => state.checkAuth);
   
-  const displayName = authUser?.name || authUser?.username || 'User';
+  const displayName = authUser?.name || 
+    [authUser?.firstName, authUser?.lastName].filter(Boolean).join(' ') || 
+    authUser?.username || '';
   const displayEmail = authUser?.email || '';
-  const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
+  const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName || 'User')}`;
 
   const [formData, setFormData] = useState({
-    displayName: displayName,
-    email: displayEmail,
+    displayName: '',
+    email: '',
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
+
+  useEffect(() => {
+    if (authUser) {
+      setFormData(prev => ({
+        ...prev,
+        displayName: displayName,
+        email: displayEmail,
+      }));
+    }
+  }, [authUser, displayName, displayEmail]);
   
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
