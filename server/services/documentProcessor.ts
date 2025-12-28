@@ -73,6 +73,34 @@ const DOCUMENTS_BUCKET = 'documents';
 // ============================================
 
 /**
+ * Deep merge extraction objects from multiple pages
+ * - Arrays are concatenated
+ * - Objects are recursively merged
+ * - Scalars take first non-null value
+ */
+function deepMergeExtractionObjects(target: any, source: any): any {
+  const result = { ...target };
+
+  for (const [key, value] of Object.entries(source)) {
+    if (value === null || value === undefined || value === '') continue;
+
+    if (result[key] === undefined || result[key] === null) {
+      // Target doesn't have this key, just set it
+      result[key] = value;
+    } else if (Array.isArray(value) && Array.isArray(result[key])) {
+      // Concatenate arrays
+      result[key] = [...result[key], ...value];
+    } else if (typeof value === 'object' && typeof result[key] === 'object' && !Array.isArray(value)) {
+      // Recursively merge objects
+      result[key] = deepMergeExtractionObjects(result[key], value);
+    }
+    // For scalars, keep the existing value (first page takes precedence)
+  }
+
+  return result;
+}
+
+/**
  * Parse currency string to numeric value
  * Handles formats like "$500,000", "500000", "$1,000.00", "2%", etc.
  * Returns null if parsing fails or value is percentage
@@ -1131,12 +1159,25 @@ async function extractFromPDF(
       }
     }
 
-    // For multi-page documents, merge results (first page takes precedence for scalars)
+    // For multi-page documents, intelligently merge results
+    // - Arrays are concatenated (definitions, conditions, exclusions, etc.)
+    // - Objects are deep merged
+    // - Scalars take first non-null value
     const merged = pageResults.reduce((acc, curr) => {
       for (const [key, value] of Object.entries(curr)) {
-        if (value !== null && value !== undefined && value !== '' && acc[key] === undefined) {
+        if (value === null || value === undefined || value === '') continue;
+
+        if (acc[key] === undefined) {
+          // First occurrence - just set it
           acc[key] = value;
+        } else if (Array.isArray(value) && Array.isArray(acc[key])) {
+          // Concatenate arrays (e.g., definitions, conditions, exclusions)
+          acc[key] = [...acc[key], ...value];
+        } else if (typeof value === 'object' && typeof acc[key] === 'object' && !Array.isArray(value)) {
+          // Deep merge objects (e.g., sectionI, sectionII)
+          acc[key] = deepMergeExtractionObjects(acc[key], value);
         }
+        // For scalars, keep the first non-null value (already set)
       }
       return acc;
     }, {});
