@@ -52,7 +52,8 @@ interface EndorsementExtractionRow {
   jurisdiction?: string;
   page_count?: number;
   applies_to_policy_forms?: string[];
-  modifications?: EndorsementModifications;
+  modifications?: EndorsementModifications; // Legacy field
+  extraction_data?: any; // Canonical structure (preferred)
   tables?: EndorsementTable[];
   raw_text?: string;
   precedence_priority?: number;
@@ -63,46 +64,38 @@ interface EndorsementExtractionRow {
 }
 
 /**
- * Endorsement modifications structure
+ * Endorsement modifications structure (canonical schema only)
  */
 interface EndorsementModifications {
   definitions?: {
     added?: { term: string; definition: string }[];
     deleted?: string[];
-    replaced?: { term: string; newDefinition: string }[];
-  };
-  coverages?: {
-    added?: string[];
-    deleted?: string[];
-    modified?: { coverage: string; changeType: string; details: string }[];
-  };
-  perils?: {
-    added?: string[];
-    deleted?: string[];
-    modified?: string[];
+    replaced?: { term: string; new_definition: string }[];
   };
   exclusions?: {
     added?: string[];
     deleted?: string[];
-    modified?: string[];
   };
-  conditions?: {
-    added?: string[];
-    deleted?: string[];
-    modified?: string[];
-  };
-  lossSettlement?: {
-    replacedSections?: { policySection: string; newRule: string }[];
+  loss_settlement?: {
+    replaces?: Array<{
+      section: string;
+      new_rule: {
+        basis?: string;
+        repair_time_limit_months?: number;
+        fallback_basis?: string;
+        conditions?: string[];
+      };
+    }>;
   };
 }
 
 /**
- * Endorsement table structure
+ * Endorsement table structure (canonical schema only)
  */
 interface EndorsementTable {
-  tableType: string;
-  appliesWhen?: { coverage?: string[]; peril?: string[] };
-  data?: Record<string, unknown>;
+  table_type: string;
+  applies_when?: { coverage?: string[]; peril?: string[] };
+  schedule?: any[];
 }
 
 /**
@@ -118,6 +111,7 @@ interface PolicyFormExtractionRow {
   policy_form_name?: string;
   edition_date?: string;
   page_count?: number;
+  extraction_data?: any; // Canonical structure (preferred)
   policy_structure?: {
     tableOfContents?: string[];
     policyStatement?: string;
@@ -128,8 +122,8 @@ interface PolicyFormExtractionRow {
     definition: string;
     subClauses?: string[];
     exceptions?: string[];
-  }>;
-  section_i?: PolicySectionI;
+  }> | Record<string, any>; // Canonical uses Record<string, {...}>
+  section_i?: PolicySectionI; // Legacy field
   section_ii?: Record<string, unknown>;
   general_conditions?: string[];
   raw_page_text?: string;
@@ -515,14 +509,16 @@ function initializeCoverageFromClaim(
 
 /**
  * Apply provisions from a base policy form extraction
+ * Uses canonical structure only: extraction_data.structure
  */
 function applyBasePolicyProvisions(
   policy: EffectivePolicy,
   basePolicy: PolicyFormExtractionRow,
   sourceMap: Record<string, string[]>
 ): EffectivePolicy {
-  const sectionI = basePolicy.section_i;
-  if (!sectionI) {
+  // Use canonical structure from extraction_data only
+  const structure = basePolicy.extraction_data?.structure;
+  if (!structure) {
     return policy;
   }
 
@@ -530,51 +526,23 @@ function applyBasePolicyProvisions(
   const basePolicyId = basePolicy.id;
 
   // Apply loss settlement from base policy
-  if (sectionI.lossSettlement) {
-    const ls = sectionI.lossSettlement;
-
-    // Dwelling and structures loss settlement
-    if (ls.dwellingAndStructures && !policy.lossSettlement.dwellingAndStructures) {
+  // Canonical format: structure.loss_settlement.default
+  if (structure.loss_settlement?.default) {
+    const ls = structure.loss_settlement.default;
+    if (!policy.lossSettlement.dwellingAndStructures) {
       policy.lossSettlement.dwellingAndStructures = {
-        basis: parseLossSettlementBasis(ls.dwellingAndStructures.basis) || 'RCV',
-        repairRequirements: ls.dwellingAndStructures.repairRequirements,
-        timeLimit: ls.dwellingAndStructures.timeLimit,
-        matchingRules: ls.dwellingAndStructures.matchingRules,
+        basis: parseLossSettlementBasis(ls.basis) || 'RCV',
+        repairTimeLimitMonths: ls.repair_time_limit_months,
       };
       addToSourceMap(sourceMap, 'lossSettlement.dwellingAndStructures', basePolicyId);
-    }
-
-    // Roofing system rules from base policy
-    if (ls.roofingSystem && !policy.lossSettlement.roofingSystem) {
-      policy.lossSettlement.roofingSystem = {
-        applies: true,
-        basis: 'RCV', // Default, usually overridden by endorsements
-        sourceEndorsement: undefined,
-      };
-      addToSourceMap(sourceMap, 'lossSettlement.roofingSystem', basePolicyId);
-    }
-
-    // Personal property
-    if (ls.personalProperty && !policy.lossSettlement.personalProperty) {
-      const basis = ls.personalProperty.settlementBasis?.[0];
-      policy.lossSettlement.personalProperty = {
-        settlementBasis: parseLossSettlementBasis(basis) || 'ACV',
-        specialHandling: ls.personalProperty.specialHandling
-          ? [ls.personalProperty.specialHandling]
-          : undefined,
-      };
-      addToSourceMap(sourceMap, 'lossSettlement.personalProperty', basePolicyId);
     }
   }
 
   // Apply exclusions from base policy
-  if (sectionI.exclusions) {
-    const globalExclusions = sectionI.exclusions.global || [];
-    const specificExclusions = sectionI.exclusions.coverageA_B_specific || [];
-    const newExclusions = [...globalExclusions, ...specificExclusions];
-
-    for (const exclusion of newExclusions) {
-      if (!policy.exclusions.includes(exclusion)) {
+  // Canonical format: structure.exclusions (array)
+  if (Array.isArray(structure.exclusions)) {
+    for (const exclusion of structure.exclusions) {
+      if (typeof exclusion === 'string' && !policy.exclusions.includes(exclusion)) {
         policy.exclusions.push(exclusion);
         addToSourceMap(sourceMap, `exclusion:${exclusion.substring(0, 50)}`, basePolicyId);
       }
@@ -582,9 +550,10 @@ function applyBasePolicyProvisions(
   }
 
   // Apply conditions from base policy
-  if (sectionI.conditions) {
-    for (const condition of sectionI.conditions) {
-      if (!policy.conditions.includes(condition)) {
+  // Canonical format: structure.conditions (array)
+  if (Array.isArray(structure.conditions)) {
+    for (const condition of structure.conditions) {
+      if (typeof condition === 'string' && !policy.conditions.includes(condition)) {
         policy.conditions.push(condition);
         addToSourceMap(sourceMap, `condition:${condition.substring(0, 50)}`, basePolicyId);
       }
@@ -612,55 +581,58 @@ function applyEndorsementModifications(
   endorsement: EndorsementExtractionRow,
   sourceMap: Record<string, string[]>
 ): EffectivePolicy {
-  const modifications = endorsement.modifications;
-  const tables = endorsement.tables;
+  // Use extraction_data (canonical structure) - no fallbacks
+  const canonicalData = endorsement.extraction_data || {};
+  const modifications = canonicalData.modifications || endorsement.modifications || {};
+  const tables = canonicalData.tables || endorsement.tables || [];
   const endorsementId = endorsement.id;
   const formCode = endorsement.form_code;
 
   // Apply loss settlement modifications (highest precedence)
-  if (modifications?.lossSettlement?.replacedSections) {
-    for (const replaced of modifications.lossSettlement.replacedSections) {
-      const section = replaced.policySection.toLowerCase();
-      const newRule = replaced.newRule;
+  // Canonical format: loss_settlement.replaces
+  if (modifications.loss_settlement?.replaces) {
+    for (const replaced of modifications.loss_settlement.replaces) {
+      const section = replaced.section.toLowerCase();
+      const newRule = replaced.new_rule;
 
       // Roofing system loss settlement
-      if (section.includes('roof') || section.includes('hail')) {
-        // Parse roofing schedule from the new rule text
-        const roofingRules = parseRoofingLossSettlement(newRule, formCode);
-        if (roofingRules) {
-          policy.lossSettlement.roofingSystem = {
-            ...roofingRules,
-            sourceEndorsement: formCode,
-          };
-          addToSourceMap(sourceMap, 'lossSettlement.roofingSystem', endorsementId);
-        }
+      if (section.includes('roof') || section.includes('hail') || section.includes('roofing')) {
+        const roofingRules = {
+          applies: true,
+          basis: (newRule.basis === 'RCV' ? 'RCV' : newRule.basis === 'ACV' ? 'ACV' : 'RCV_WITH_CONDITIONS') as LossSettlementBasis,
+          repairTimeLimitMonths: newRule.repair_time_limit_months || 12,
+          fallbackBasis: newRule.fallback_basis as LossSettlementBasis | undefined,
+          conditions: newRule.conditions || [],
+        };
+        
+        policy.lossSettlement.roofingSystem = {
+          ...roofingRules,
+          sourceEndorsement: formCode,
+        };
+        addToSourceMap(sourceMap, 'lossSettlement.roofingSystem', endorsementId);
       }
 
       // Dwelling and structures
       if (section.includes('dwelling') || section.includes('structure')) {
-        const basis = extractSettlementBasis(newRule);
-        if (basis) {
-          policy.lossSettlement.dwellingAndStructures = {
-            ...policy.lossSettlement.dwellingAndStructures,
-            basis,
-            sourceEndorsement: formCode,
-          };
-          addToSourceMap(sourceMap, 'lossSettlement.dwellingAndStructures', endorsementId);
-        }
+        const basis = newRule.basis || 'RCV';
+        policy.lossSettlement.dwellingAndStructures = {
+          ...policy.lossSettlement.dwellingAndStructures,
+          basis: basis as LossSettlementBasis,
+          sourceEndorsement: formCode,
+        };
+        addToSourceMap(sourceMap, 'lossSettlement.dwellingAndStructures', endorsementId);
       }
     }
   }
 
-  // Apply schedule tables (roofing schedules)
-  if (tables) {
-    for (const table of tables) {
-      if (table.tableType === 'roofSchedule' || table.tableType === 'depreciationSchedule') {
-        const ageBasedSchedule = parseAgeBasedSchedule(table.data);
-        if (ageBasedSchedule && policy.lossSettlement.roofingSystem) {
-          policy.lossSettlement.roofingSystem.ageBasedSchedule = ageBasedSchedule;
-          policy.lossSettlement.roofingSystem.basis = 'SCHEDULED';
-          addToSourceMap(sourceMap, 'lossSettlement.roofingSystem.schedule', endorsementId);
-        }
+  // Apply schedule tables (roofing schedules) - canonical format only
+  for (const table of tables) {
+    if (table.table_type && (table.table_type.includes('roof') || table.table_type.includes('schedule'))) {
+      const ageBasedSchedule = parseAgeBasedSchedule(table.schedule);
+      if (ageBasedSchedule && policy.lossSettlement.roofingSystem) {
+        policy.lossSettlement.roofingSystem.ageBasedSchedule = ageBasedSchedule;
+        policy.lossSettlement.roofingSystem.basis = 'SCHEDULED';
+        addToSourceMap(sourceMap, 'lossSettlement.roofingSystem.schedule', endorsementId);
       }
     }
   }

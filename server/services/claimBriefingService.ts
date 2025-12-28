@@ -111,41 +111,43 @@ function buildFnolFactsSection(context: PerilAwareClaimContext): string {
 
   const lines: string[] = ['FNOL FACTS:'];
 
-  // FNOL reporting info
+  // FNOL reporting info (canonical schema - snake_case)
   if (lossContext.fnol) {
-    if (lossContext.fnol.reportDate) lines.push(`- Report Date: ${lossContext.fnol.reportDate}`);
-    if (lossContext.fnol.reportedBy) lines.push(`- Reported By: ${lossContext.fnol.reportedBy}`);
-    if (lossContext.fnol.occupiedAtTimeOfLoss !== undefined) {
-      lines.push(`- Occupied at Time of Loss: ${lossContext.fnol.occupiedAtTimeOfLoss ? 'Yes' : 'No'}`);
+    if (lossContext.fnol.reported_date) lines.push(`- Report Date: ${lossContext.fnol.reported_date}`);
+    if (lossContext.fnol.reported_by) lines.push(`- Reported By: ${lossContext.fnol.reported_by}`);
+    if (lossContext.fnol.drone_eligible !== undefined) {
+      lines.push(`- Drone Eligible: ${lossContext.fnol.drone_eligible ? 'Yes' : 'No'}`);
     }
-    if (lossContext.fnol.temporaryRepairsMade !== undefined) {
-      lines.push(`- Temporary Repairs Made: ${lossContext.fnol.temporaryRepairsMade ? 'Yes' : 'No'}`);
-    }
-    if (lossContext.fnol.mitigationSteps && lossContext.fnol.mitigationSteps.length > 0) {
-      lines.push(`- Mitigation Steps: ${lossContext.fnol.mitigationSteps.join(', ')}`);
+    if (lossContext.fnol.weather) {
+      lines.push(`- Weather Lookup: ${lossContext.fnol.weather.lookup_status || 'Unknown'}`);
+      if (lossContext.fnol.weather.message) {
+        lines.push(`- Weather Message: ${lossContext.fnol.weather.message}`);
+      }
     }
   }
 
-  // Property info
+  // Property info (canonical schema - snake_case)
   if (lossContext.property) {
-    if (lossContext.property.yearBuilt) lines.push(`- Year Built: ${lossContext.property.yearBuilt}`);
-    if (lossContext.property.roofType) lines.push(`- Roof Type: ${lossContext.property.roofType}`);
-    if (lossContext.property.constructionType) lines.push(`- Construction: ${lossContext.property.constructionType}`);
+    if (lossContext.property.year_built) lines.push(`- Year Built: ${lossContext.property.year_built}`);
     if (lossContext.property.stories) lines.push(`- Stories: ${lossContext.property.stories}`);
-    if (lossContext.property.hasBasement) lines.push(`- Has Basement: Yes (Finished: ${lossContext.property.basementFinished ? 'Yes' : 'No'})`);
+    if (lossContext.property.occupancy) lines.push(`- Occupancy: ${lossContext.property.occupancy}`);
+    if (lossContext.property.roof) {
+      if (lossContext.property.roof.material) lines.push(`- Roof Material: ${lossContext.property.roof.material}`);
+      if (lossContext.property.roof.year_installed) lines.push(`- Roof Year Installed: ${lossContext.property.roof.year_installed}`);
+      if (lossContext.property.roof.damage_scope) lines.push(`- Roof Damage Scope: ${lossContext.property.roof.damage_scope}`);
+      if (lossContext.property.roof.wood_roof !== undefined) {
+        lines.push(`- Wood Roof: ${lossContext.property.roof.wood_roof ? 'Yes' : 'No'}`);
+      }
+    }
   }
 
-  // Damage summary
+  // Damage summary (canonical schema - snake_case)
   if (lossContext.damage_summary) {
     const ds = lossContext.damage_summary;
-    if (ds.areasAffected && ds.areasAffected.length > 0) {
-      lines.push(`- Areas Affected: ${ds.areasAffected.join(', ')}`);
-    }
-    if (ds.waterSource) lines.push(`- Water Source: ${ds.waterSource}`);
-    if (ds.waterCategory) lines.push(`- Water Category: ${ds.waterCategory}`);
-    if (ds.moldVisible) lines.push('- Mold Visible: Yes');
-    if (ds.structuralConcerns) lines.push('- Structural Concerns: Yes');
-    if (ds.habitability) lines.push(`- Habitability: ${ds.habitability}`);
+    if (ds.coverage_a) lines.push(`- Coverage A: ${ds.coverage_a}`);
+    if (ds.coverage_b) lines.push(`- Coverage B: ${ds.coverage_b}`);
+    if (ds.coverage_c) lines.push(`- Coverage C: ${ds.coverage_c}`);
+    if (ds.coverage_d) lines.push(`- Coverage D: ${ds.coverage_d}`);
   }
 
   return lines.length > 1 ? lines.join('\n') : 'FNOL FACTS:\n- No structured FNOL data available';
@@ -283,6 +285,12 @@ function buildBriefingPromptWithTemplate(
     const propertyDetails = (context as any).propertyDetails || {};
     const policyholderInfo = (context as any).policyholderInfo || {};
     const documentText = (context as any).documentText || '';
+    
+    // Extract from loss_context (canonical schema)
+    const lossContext = context.lossContext || {};
+    const lossContextFnol = lossContext.fnol || {};
+    const lossContextProperty = lossContext.property || {};
+    const lossContextRoof = lossContextProperty.roof || {};
 
     const variables = {
       // Basic claim info
@@ -290,7 +298,8 @@ function buildBriefingPromptWithTemplate(
       primaryPeril: context.primaryPeril,
       secondaryPerils: context.secondaryPerils.join(', ') || 'None',
       dateOfLoss: context.dateOfLoss || 'Unknown',
-      reportDate: (context as any).reportDate || 'Unknown',
+      reportDate: lossContextFnol.reported_date || (context as any).reportDate || 'Unknown',
+      reportedBy: lossContextFnol.reported_by || 'Unknown',
       lossDescription: context.lossDescription || 'No description provided',
       propertyLocation: [context.propertyAddress, context.propertyCity, context.propertyState, context.propertyZip].filter(Boolean).join(', ') || 'Unknown',
 
@@ -310,13 +319,13 @@ function buildBriefingPromptWithTemplate(
       deductible: context.policyContext.deductible || 'Unknown',
       windHailDeductible: context.policyContext.windHailDeductible || 'Unknown',
 
-      // Property details
-      yearBuilt: propertyDetails.yearBuilt || context.policyContext.yearBuilt || 'Unknown',
-      yearRoofInstall: context.policyContext.yearRoofInstall || 'Unknown',
-      roofType: propertyDetails.roofType || context.policyContext.roofType || 'Unknown',
-      constructionType: propertyDetails.constructionType || context.policyContext.constructionType || 'Unknown',
-      stories: propertyDetails.stories || context.policyContext.stories || 'Unknown',
-      squareFootage: propertyDetails.squareFootage || context.policyContext.squareFootage || 'Unknown',
+      // Property details (from loss_context canonical schema)
+      yearBuilt: lossContextProperty.year_built?.toString() || context.policyContext.yearBuilt || 'Unknown',
+      yearRoofInstall: lossContextRoof.year_installed?.toString() || context.policyContext.yearRoofInstall || 'Unknown',
+      roofType: lossContextRoof.material || context.policyContext.roofType || 'Unknown',
+      roofDamageScope: lossContextRoof.damage_scope || 'Unknown',
+      occupancy: lossContextProperty.occupancy || 'Unknown',
+      stories: lossContextProperty.stories?.toString() || context.policyContext.stories?.toString() || 'Unknown',
 
       // Endorsements (from endorsement_extractions table)
       endorsementsDetail: context.endorsements.length > 0

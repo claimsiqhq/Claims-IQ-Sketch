@@ -418,62 +418,15 @@ function getPromptKeyForDocumentType(documentType: DocumentType): PromptKey {
  * Strict mapping - no fallbacks, no inference
  */
 function transformToFNOLExtraction(raw: any): FNOLExtraction {
-  // OpenAI should return canonical structure directly (snake_case)
-  // Just validate and normalize, with minimal fallback handling
+  // OpenAI returns canonical structure directly (snake_case)
+  // No fallbacks - if structure is wrong, fail loudly
   
-  // Handle legacy formats for backward compatibility
-  const source = raw.claims?.[0] || raw;
-  
-  // Build extraction - prefer canonical structure, fallback to legacy if needed
   const extraction: FNOLExtraction = {
-    fnol: raw.fnol || source.fnol || {
-      reported_by: source.reportedBy || source.reported_by,
-      reported_date: source.reportedDate || source.reported_date,
-      drone_eligible: typeof (source.droneEligible || source.drone_eligible) === 'boolean'
-        ? (source.droneEligible || source.drone_eligible)
-        : (source.droneEligible === 'Yes' || source.drone_eligible === 'Yes'),
-      weather: raw.fnol?.weather || source.weather ? {
-        lookup_status: (raw.fnol?.weather?.lookup_status || source.weather?.lookup_status || source.weather?.status || 'failed') === 'ok' ? 'ok' : 'failed',
-        message: raw.fnol?.weather?.message || source.weather?.message,
-      } : undefined,
-    },
-    claim: raw.claim || {
-      claim_number: source.claim?.claim_number || source.claimNumber || source.claim_number || source.claim_id || '',
-      date_of_loss: source.claim?.date_of_loss || source.dateOfLoss || source.date_of_loss || '',
-      primary_peril: source.claim?.primary_peril || source.primaryPeril || source.primary_peril || source.causeOfLoss || '',
-      secondary_perils: source.claim?.secondary_perils || source.secondaryPerils || source.secondary_perils || [],
-      loss_description: source.claim?.loss_description || source.lossDescription || source.loss_description || '',
-    },
-    insured: raw.insured || {
-      primary_name: source.insured?.primary_name || source.primary_name || source.policyholderName1 || source.name1 || '',
-      secondary_name: source.insured?.secondary_name || source.secondary_name || source.name2,
-      email: source.insured?.email || source.email || source.contactEmail,
-      phone: source.insured?.phone || source.phone || source.contactPhone || source.mobilePhone,
-    },
-    property: raw.property || {
-      address: {
-        full: source.property?.address?.full || source.propertyAddress?.full || source.fullAddress || 
-              [source.streetAddress, source.city, source.state, source.zipCode].filter(Boolean).join(', ') || '',
-        city: source.property?.address?.city || source.propertyAddress?.city || source.city || '',
-        state: source.property?.address?.state || source.propertyAddress?.state || source.state || '',
-        zip: source.property?.address?.zip || source.propertyAddress?.zip || source.zipCode || '',
-      },
-      year_built: source.property?.year_built || source.year_built || (source.yearBuilt ? parseInt(String(source.yearBuilt), 10) : undefined),
-      stories: source.property?.stories || source.stories || (source.numberOfStories ? parseInt(String(source.numberOfStories), 10) : undefined),
-      occupancy: source.property?.occupancy || source.occupancy,
-      roof: source.property?.roof || (source.roofMaterial || source.yearRoofInstall ? {
-        material: source.roofMaterial,
-        year_installed: source.yearRoofInstall ? parseInt(String(source.yearRoofInstall), 10) : undefined,
-        damage_scope: source.damageScope as "Exterior Only" | "Interior" | "Both" | undefined,
-        wood_roof: source.woodRoof === true || source.wood_roof === true,
-      } : undefined),
-    },
-    damage_summary: raw.damage_summary || {
-      coverage_a: source.damage_summary?.coverage_a || source.coverageA || source.coverage_a,
-      coverage_b: source.damage_summary?.coverage_b || source.coverageB || source.coverage_b,
-      coverage_c: source.damage_summary?.coverage_c || source.coverageC || source.coverage_c,
-      coverage_d: source.damage_summary?.coverage_d || source.coverageD || source.coverage_d,
-    },
+    fnol: raw.fnol || {},
+    claim: raw.claim || { claim_number: '', date_of_loss: '', primary_peril: '', loss_description: '' },
+    insured: raw.insured || { primary_name: '' },
+    property: raw.property || { address: { full: '', city: '', state: '', zip: '' } },
+    damage_summary: raw.damage_summary || {},
   };
   
   // Validate required fields
@@ -528,34 +481,24 @@ function validateFNOLExtraction(extraction: FNOLExtraction): void {
  * - Missing data remains NULL
  */
 function transformToPolicyExtraction(raw: any): PolicyFormExtraction {
-  // OpenAI should return canonical structure directly (snake_case)
-  // Handle multi-page merging - raw should already be merged
-  // Fallback to legacy formats for backward compatibility
+  // OpenAI returns canonical structure directly (snake_case)
+  // Multi-page merging already handled in extractFromPDF
   
   const extraction: PolicyFormExtraction = {
-    form_code: raw.form_code || raw.documentMetadata?.policyFormCode || raw.formCode || raw.policyFormCode || '',
-    form_name: raw.form_name || raw.documentMetadata?.policyFormName || raw.formName || raw.policyFormName,
-    edition_date: raw.edition_date || raw.documentMetadata?.editionDate || raw.editionDate,
+    form_code: raw.form_code || '',
+    form_name: raw.form_name,
+    edition_date: raw.edition_date,
     jurisdiction: raw.jurisdiction,
     structure: raw.structure || {
-      definitions: raw.definitions ? (Array.isArray(raw.definitions) 
-        ? raw.definitions.reduce((acc: any, d: any) => {
-            const term = d.term || d.term_name;
-            if (term) acc[term.toLowerCase().replace(/\s+/g, '_')] = {
-              definition: d.definition || d.definition_text,
-              depreciation_includes: d.depreciation_includes || d.subClauses,
-            };
-            return acc;
-          }, {})
-        : raw.definitions) : {},
-      coverages: raw.coverages || raw.sectionI?.propertyCoverage || {},
-      perils: raw.perils || raw.sectionI?.perils || {},
-      exclusions: Array.isArray(raw.exclusions) ? raw.exclusions : (raw.exclusions?.global || []),
-      conditions: Array.isArray(raw.conditions) ? raw.conditions : [],
-      loss_settlement: raw.loss_settlement || raw.sectionI?.lossSettlement || {},
-      additional_coverages: Array.isArray(raw.additional_coverages) ? raw.additional_coverages : [],
+      definitions: {},
+      coverages: {},
+      perils: {},
+      exclusions: [],
+      conditions: [],
+      loss_settlement: {},
+      additional_coverages: [],
     },
-    raw_text: raw.raw_text || raw.fullText || raw.rawPageText || raw.pageTexts?.join('\n\n--- Page Break ---\n\n') || raw.pageText || '',
+    raw_text: raw.raw_text || raw.full_text || '',
   };
 
   return extraction;
@@ -732,32 +675,26 @@ function inferEndorsementTypeAndPriority(
  */
 function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
   const endorsements = raw.endorsements || [raw];
-  // Get full_text from multi-page extraction as fallback for raw_text
-  const fullTextFallback = raw.full_text || raw.fullText || '';
+  const fullTextFallback = raw.full_text || '';
 
-  // First pass: transform each endorsement entry
+  // Transform each endorsement entry - canonical structure only
   const transformed = endorsements.map((e: any) => {
-    // Prefer canonical structure, fallback to legacy formats
-    const formCode = e.form_code || e.endorsementMetadata?.formCode || e.formCode || e.formNumber || '';
-    const title = e.title || e.endorsementMetadata?.title || e.documentTitle || e.name;
-    const rawText = e.raw_text || e.rawText || e.pageText || '';
-
     const extraction: EndorsementExtraction = {
-      form_code: formCode,
-      title,
-      edition_date: e.edition_date || e.endorsementMetadata?.editionDate || e.editionDate,
-      jurisdiction: e.jurisdiction || e.endorsementMetadata?.jurisdiction || e.appliesToState,
-      applies_to_forms: e.applies_to_forms || e.endorsementMetadata?.appliesToPolicyForms || e.appliesToForms || [],
-      applies_to_coverages: e.applies_to_coverages || e.appliesToCoverages || [],
+      form_code: e.form_code || '',
+      title: e.title,
+      edition_date: e.edition_date,
+      jurisdiction: e.jurisdiction,
+      applies_to_forms: e.applies_to_forms || [],
+      applies_to_coverages: e.applies_to_coverages || [],
       endorsement_type: e.endorsement_type,
       precedence_priority: e.precedence_priority,
       modifications: e.modifications || {},
       tables: e.tables ? e.tables.map((t: any) => ({
-        table_type: t.table_type || t.tableType,
-        applies_when: t.applies_when || t.appliesWhen,
-        schedule: t.schedule || t.data,
+        table_type: t.table_type,
+        applies_when: t.applies_when,
+        schedule: t.schedule,
       })) : [],
-      raw_text: rawText,
+      raw_text: e.raw_text || fullTextFallback,
     };
 
     return extraction;

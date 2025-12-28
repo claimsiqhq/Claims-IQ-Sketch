@@ -89,38 +89,34 @@ export interface PerilAwareClaimContext {
 
 /**
  * Loss context data structure (from claims.loss_context)
+ * Matches canonical FNOL schema (snake_case)
  */
 export interface LossContextData {
   fnol?: {
-    reportDate?: string;
-    reportedBy?: string;
-    reportMethod?: string;
-    lossDescription?: string;
-    dateOfLoss?: string;
-    timeOfLoss?: string;
-    occupiedAtTimeOfLoss?: boolean;
-    temporaryRepairsMade?: boolean;
-    mitigationSteps?: string[];
+    reported_by?: string;
+    reported_date?: string;
+    drone_eligible?: boolean;
+    weather?: {
+      lookup_status?: "ok" | "failed";
+      message?: string;
+    };
   };
   property?: {
-    yearBuilt?: string;
-    constructionType?: string;
-    roofType?: string;
+    year_built?: number;
     stories?: number;
-    squareFootage?: number;
-    occupancyType?: string;
-    hasBasement?: boolean;
-    basementFinished?: boolean;
+    occupancy?: string;
+    roof?: {
+      material?: string;
+      year_installed?: number;
+      damage_scope?: string;
+      wood_roof?: boolean;
+    };
   };
   damage_summary?: {
-    areasAffected?: string[];
-    waterSource?: string;
-    waterCategory?: number;
-    moldVisible?: boolean;
-    structuralConcerns?: boolean;
-    habitability?: string;
-    contentsDamage?: boolean;
-    additionalLivingExpenses?: boolean;
+    coverage_a?: string;
+    coverage_b?: string;
+    coverage_c?: string;
+    coverage_d?: string;
   };
 }
 
@@ -454,8 +450,9 @@ export async function buildPerilAwareClaimContext(
     endorsements
   );
 
-  // Extract property info from loss_context if available
+  // Extract property info from loss_context if available (canonical schema)
   const lossContextProperty = claim.lossContext?.property || {};
+  const lossContextRoof = lossContextProperty.roof;
 
   // Build policy context with extended fields from loss_context
   const policyContext: PolicyContext = {
@@ -470,12 +467,11 @@ export async function buildPerilAwareClaimContext(
     deductible: claim.deductible,
     yearRoofInstall: claim.yearRoofInstall,
 
-    // Extended fields from loss_context
-    yearBuilt: lossContextProperty.yearBuilt,
-    roofType: lossContextProperty.roofType,
-    constructionType: lossContextProperty.constructionType,
+    // Extended fields from loss_context (canonical schema)
+    yearBuilt: lossContextProperty.year_built?.toString(),
+    roofType: lossContextRoof?.material,
     stories: lossContextProperty.stories,
-    squareFootage: lossContextProperty.squareFootage,
+    occupancy: lossContextProperty.occupancy,
   };
 
   // Build full context
