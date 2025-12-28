@@ -69,6 +69,34 @@ const TEMP_DIR = path.join(os.tmpdir(), 'claimsiq-pdf');
 const DOCUMENTS_BUCKET = 'documents';
 
 // ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+/**
+ * Parse currency string to numeric value
+ * Handles formats like "$500,000", "500000", "$1,000.00", "2%", etc.
+ * Returns null if parsing fails or value is percentage
+ */
+function parseCurrencyToNumber(value: string | null | undefined): number | null {
+  if (!value) return null;
+
+  // Skip percentage values - they shouldn't be stored as numeric amounts
+  if (value.includes('%')) return null;
+
+  // Remove currency symbols, commas, and whitespace
+  const cleaned = value.replace(/[$,\s]/g, '').trim();
+
+  // Parse the number
+  const parsed = parseFloat(cleaned);
+
+  // Return null if not a valid number
+  if (isNaN(parsed) || !isFinite(parsed)) return null;
+
+  // Return the parsed value (rounded to 2 decimal places for currency)
+  return Math.round(parsed * 100) / 100;
+}
+
+// ============================================
 // AUTHORITATIVE TYPE DEFINITIONS
 // ============================================
 
@@ -120,12 +148,14 @@ export interface FNOLExtraction {
     coverageA?: string;
     coverageB?: string;
     coverageC?: string;
+    coverageD?: string;
   };
 
   policy?: {
     policyNumber?: string;
     dwellingLimit?: string;
     windHailDeductible?: string;
+    deductible?: string;
   };
 }
 
@@ -155,6 +185,7 @@ export interface LossContext {
     coverage_a?: string;
     coverage_b?: string;
     coverage_c?: string;
+    coverage_d?: string;
   };
 }
 
@@ -448,6 +479,7 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
       coverageA: coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling'))?.limit || undefined,
       coverageB: coverages.find((c: any) => c.coverageCode === 'B' || c.coverageName?.toLowerCase().includes('other structure'))?.limit || undefined,
       coverageC: coverages.find((c: any) => c.coverageCode === 'C' || c.coverageName?.toLowerCase().includes('personal property'))?.limit || undefined,
+      coverageD: coverages.find((c: any) => c.coverageCode === 'D' || c.coverageName?.toLowerCase().includes('loss of use') || c.coverageName?.toLowerCase().includes('additional living'))?.limit || undefined,
     },
     policy: {
       policyNumber: claimInfo.policyNumber || source.policyNumber || source.policy?.policyNumber || undefined,
@@ -508,6 +540,61 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
         
         return undefined;
       })(),
+      deductible: (() => {
+        const deductibles = source.deductibles;
+        if (!deductibles) return undefined;
+
+        // Handle scalar string/number value directly as general deductible
+        if (typeof deductibles === 'string') return deductibles;
+        if (typeof deductibles === 'number') return `$${deductibles.toLocaleString()}`;
+
+        // Handle array of deductibles - find general/standard/all perils deductible
+        if (Array.isArray(deductibles)) {
+          const general = deductibles.find((d: any) =>
+            d.type?.toLowerCase().includes('all') ||
+            d.type?.toLowerCase().includes('standard') ||
+            d.type?.toLowerCase().includes('general') ||
+            d.name?.toLowerCase().includes('all') ||
+            d.name?.toLowerCase().includes('standard') ||
+            d.name?.toLowerCase().includes('general') ||
+            // If no specific type, use the first one that's not wind/hail
+            (!d.type?.toLowerCase().includes('wind') && !d.type?.toLowerCase().includes('hail'))
+          );
+          if (general?.amount) return String(general.amount);
+          if (general?.value) return String(general.value);
+          // Fallback to first deductible if no specific match
+          if (deductibles.length > 0) {
+            const first = deductibles[0];
+            if (first?.amount) return String(first.amount);
+            if (first?.value) return String(first.value);
+          }
+          return undefined;
+        }
+
+        // Handle object with keys
+        if (typeof deductibles === 'object' && deductibles !== null) {
+          // Look for general/standard/all perils deductible
+          if (typeof deductibles.all === 'string') return deductibles.all;
+          if (typeof deductibles.standard === 'string') return deductibles.standard;
+          if (typeof deductibles.general === 'string') return deductibles.general;
+          if (typeof deductibles.allPerils === 'string') return deductibles.allPerils;
+          if (typeof deductibles['all perils'] === 'string') return deductibles['all perils'];
+          if (typeof deductibles.aop === 'string') return deductibles.aop;
+          if (typeof deductibles.AOP === 'string') return deductibles.AOP;
+
+          // Numeric values - convert to string
+          for (const key of Object.keys(deductibles)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('all') || lowerKey.includes('standard') || lowerKey.includes('general') || lowerKey === 'aop') {
+              const val = deductibles[key];
+              if (typeof val === 'number') return `$${val.toLocaleString()}`;
+              if (typeof val === 'string') return val;
+            }
+          }
+        }
+
+        return undefined;
+      })(),
     },
   };
 
@@ -539,6 +626,7 @@ function buildLossContext(extraction: FNOLExtraction): LossContext {
       coverage_a: extraction.damageSummary.coverageA,
       coverage_b: extraction.damageSummary.coverageB,
       coverage_c: extraction.damageSummary.coverageC,
+      coverage_d: extraction.damageSummary.coverageD,
     },
   };
 
@@ -1511,6 +1599,11 @@ export async function createClaimFromDocuments(
     policyNumber: fnolExtraction.policy?.policyNumber || null,
     dwellingLimit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
     windHailDeductible: fnolExtraction.policy?.windHailDeductible || null,
+    deductible: fnolExtraction.policy?.deductible || null,
+    coverageA: fnolExtraction.damageSummary.coverageA || null,
+    coverageB: fnolExtraction.damageSummary.coverageB || null,
+    coverageC: fnolExtraction.damageSummary.coverageC || null,
+    coverageD: fnolExtraction.damageSummary.coverageD || null,
   });
 
   // CREATE CLAIM - STRICT SCALAR MAPPING
@@ -1545,6 +1638,13 @@ export async function createClaimFromDocuments(
       policy_number: fnolExtraction.policy?.policyNumber || null,
       dwelling_limit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
       wind_hail_deductible: fnolExtraction.policy?.windHailDeductible || null,
+
+      // Coverage amounts (numeric) - parsed from damageSummary strings
+      coverage_a: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageA),
+      coverage_b: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageB),
+      coverage_c: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageC),
+      coverage_d: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageD),
+      deductible: parseCurrencyToNumber(fnolExtraction.policy?.deductible),
 
       // Peril inference
       secondary_perils: perilInference.secondaryPerils,
