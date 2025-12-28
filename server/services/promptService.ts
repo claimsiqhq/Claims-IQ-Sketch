@@ -630,7 +630,8 @@ OUTPUT STRUCTURE
       "rawText": "STRING (Complete verbatim text of the endorsement)"
     }
   ],
-  "policyNumber": "Policy number if visible"
+  "policyNumber": "Policy number if visible",
+  "pageText": "STRING (Complete verbatim text visible on this page - REQUIRED for multi-page documents)"
 }`,
     model: 'gpt-4.1-2025-04-14',
     temperature: 0.1,
