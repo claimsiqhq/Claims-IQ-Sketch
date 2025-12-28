@@ -563,7 +563,7 @@ async function storePolicy(
     is_canonical: true,
     extraction_status: 'completed',
     extraction_model: 'gpt-4o',
-    // Also store structured fields for backward compatibility with existing queries
+    // Also store structured fields (database columns exist, but we read from extraction_data only)
     definitions: extraction.structure?.definitions || {},
     section_i: {
       propertyCoverage: extraction.structure?.coverages || {},
@@ -786,7 +786,7 @@ async function storeEndorsements(
       // Type and priority - MANDATORY
       endorsement_type: endorsementType,
       precedence_priority: precedencePriority,
-      // Legacy fields for backward compatibility
+      // Also store in legacy columns (database columns exist, but we read from extraction_data only)
       modifications: endorsement.modifications || {},
       tables: endorsement.tables || [],
       raw_text: endorsement.raw_text || null,
