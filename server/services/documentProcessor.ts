@@ -117,8 +117,16 @@ function deepMergeObjects(target: Record<string, any>, source: Record<string, an
                typeof result[key] === 'object' && !Array.isArray(result[key])) {
       // Recursively merge objects
       result[key] = deepMergeObjects(result[key], value);
+    } else if (typeof value !== 'object') {
+      // For scalars, override if existing value is empty/falsy and new value has content
+      // This ensures later pages can provide values when earlier pages had empty strings
+      const existingIsEmpty = result[key] === '' || result[key] === null || result[key] === undefined;
+      const newHasContent = value !== '' && value !== null && value !== undefined;
+      if (existingIsEmpty && newHasContent) {
+        result[key] = value;
+      }
+      // Otherwise keep existing value (first non-empty value wins)
     }
-    // For scalars, keep the existing value
   }
 
   return result;
@@ -971,8 +979,14 @@ async function extractFromPDF(
                    typeof acc[key] === 'object' && !Array.isArray(acc[key])) {
           // Deep merge objects (modifications, etc.)
           acc[key] = deepMergeObjects(acc[key], value);
+        } else if (typeof value !== 'object') {
+          // For scalars, override if existing value is empty/falsy and new value has content
+          const existingIsEmpty = acc[key] === '' || acc[key] === null || acc[key] === undefined;
+          if (existingIsEmpty) {
+            acc[key] = value;
+          }
+          // Otherwise keep existing value (first non-empty value wins)
         }
-        // For scalars, keep the first value (already set)
       }
       return acc;
     }, {} as Record<string, any>);
