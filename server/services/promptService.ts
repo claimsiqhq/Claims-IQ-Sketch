@@ -342,70 +342,64 @@ export const FALLBACK_PROMPTS: Record<string, { system: string; user?: string; m
   [PromptKey.DOCUMENT_EXTRACTION_FNOL]: {
     system: `You are an insurance document data extractor. Extract ALL information from this FNOL (First Notice of Loss) report into structured JSON.
 
-RULES:
+CRITICAL RULES:
 - Extract every piece of information present in the document
 - Use null for any field not found
 - Preserve exact values (don't reformat currency, dates, or percentages)
-- Include all endorsements and all coverages
+- Use snake_case for all field names
+- Dates must be in ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ)
+- Return ONLY valid JSON matching this exact structure
 
+OUTPUT STRUCTURE (MUST MATCH EXACTLY):
 {
-  "claim": {
-    "claimNumber": "",
-    "endorsementAlert": "",
-    "dateOfLoss": "",
-    "policyNumber": "",
-    "policyholders": "",
-    "status": "",
-    "operatingCompany": ""
+  "fnol": {
+    "reported_by": "Insured | Agent | Third Party | Mobile App | Phone",
+    "reported_date": "2025-05-28T13:29:00Z",
+    "drone_eligible": false,
+    "weather": {
+      "lookup_status": "ok | failed",
+      "message": "Unable to retrieve Weather Data from Decision Hub"
+    }
   },
-  "loss": {
-    "cause": "",
-    "location": "",
-    "description": "",
-    "weatherData": "",
-    "droneEligible": ""
+  "claim": {
+    "claim_number": "01-009-019074",
+    "date_of_loss": "2025-05-24T13:29:00Z",
+    "primary_peril": "Hail",
+    "secondary_perils": [],
+    "loss_description": "Hail storm, roofing company says damage to roof, gutters, hot tub cover"
   },
   "insured": {
-    "name1": "",
-    "name2": "",
-    "address": "",
-    "mobilePhone": "",
-    "primaryPhoneType": "",
-    "email": ""
+    "primary_name": "BRAD GILTAS",
+    "secondary_name": "KHRIS GILTAS",
+    "email": "bgrad@yahoo.com",
+    "phone": "719-555-4509"
   },
-  "propertyDamage": {
-    "dwellingDamages": "",
-    "roofDamage": "",
-    "damages": "",
-    "woodRoof": "",
-    "roofInstallYear": "",
-    "yearBuilt": ""
-  },
-  "policy": {
-    "producer": {
-      "name": "",
-      "address": "",
-      "phone": "",
-      "email": ""
+  "property": {
+    "address": {
+      "full": "2215 Bright Spot Loop, Castle Rock, CO 80109-3747",
+      "city": "Castle Rock",
+      "state": "CO",
+      "zip": "80109"
     },
-    "propertyAddress": "",
-    "type": "",
-    "status": "",
-    "inceptionDate": "",
-    "legalDescription": "",
-    "thirdPartyInterest": ""
+    "year_built": 2013,
+    "stories": 2,
+    "occupancy": "Primary Residence",
+    "roof": {
+      "material": "Asphalt Shingles",
+      "year_installed": 2016,
+      "damage_scope": "Exterior Only",
+      "wood_roof": false
+    }
   },
-  "deductibles": {},
-  "endorsements": [],
-  "coverages": [],
-  "comments": {
-    "assignment": "",
-    "reportedBy": "",
-    "enteredBy": ""
+  "damage_summary": {
+    "coverage_a": "Damage to roof and gutters",
+    "coverage_b": "None reported",
+    "coverage_c": "Hot tub cover damage",
+    "coverage_d": null
   }
 }
 
-Extract all data from the document now.`,
+Extract all data from the document now. Return ONLY valid JSON matching this exact structure.`,
     model: 'gpt-4o',
     temperature: 0.1,
     maxTokens: 4000,
@@ -417,133 +411,78 @@ Extract all data from the document now.`,
 
 Your task is to perform a COMPLETE, LOSSLESS extraction of all policy provisions from this homeowners policy form.
 
--------------------------
-CRITICAL RULES
--------------------------
+CRITICAL RULES:
 1. Output MUST be a single JSON object following the exact structure below.
 2. Extract ALL definitions, coverages, perils, exclusions, conditions, and loss settlement provisions.
 3. Preserve original policy language VERBATIM - do NOT summarize or paraphrase.
 4. Include ALL sub-clauses, exceptions, and special conditions.
-5. If a section is not present in the document, use empty array [] or empty object {}.
-6. Extract the COMPLETE text of each definition and provision.
+5. Use snake_case for all field names.
+6. If a section is not present in the document, use empty object {} or empty array [].
+7. Extract the COMPLETE text of each definition and provision.
 
--------------------------
-OUTPUT STRUCTURE
--------------------------
+OUTPUT STRUCTURE (MUST MATCH EXACTLY):
 {
-  "documentMetadata": {
-    "policyFormCode": "STRING (e.g., HO 80 03)",
-    "policyFormName": "STRING (e.g., Homeowners Form)",
-    "editionDate": "STRING (e.g., 01 14)",
-    "pageCount": NUMBER
-  },
-  "jurisdiction": "STRING | null (State abbreviation if state-specific)",
-
-  "definitions": [
-    {
-      "term": "STRING (The defined term, e.g., 'Actual cash value')",
-      "definition": "STRING (Complete verbatim definition text)",
-      "subClauses": ["ARRAY of STRING (any sub-points a, b, c, etc.)"],
-      "exceptions": ["ARRAY of STRING (any 'does not mean' or exception clauses)"]
-    }
-  ],
-
-  "sectionI": {
-    "propertyCoverage": {
-      "coverageA": {
-        "name": "STRING (e.g., Dwelling)",
-        "covers": ["ARRAY of STRING (what is covered)"],
-        "excludes": ["ARRAY of STRING (what is not covered)"]
+  "form_code": "HO 80 03 01 14",
+  "form_name": "Homeowners Form",
+  "edition_date": "01/14",
+  "jurisdiction": "CO",
+  "structure": {
+    "definitions": {
+      "actual_cash_value": {
+        "definition": "The value of the covered damaged property at the time of loss...",
+        "depreciation_includes": ["materials", "labor", "overhead", "profit", "taxes"]
+      }
+    },
+    "coverages": {
+      "A": {
+        "name": "Coverage A - Dwelling",
+        "valuation": "Replacement Cost",
+        "includes": ["dwelling", "attached structures", "materials on premises"]
       },
-      "coverageB": {
-        "name": "STRING (e.g., Other Structures)",
-        "covers": ["ARRAY of STRING"],
-        "excludes": ["ARRAY of STRING"],
-        "specialConditions": ["ARRAY of STRING (e.g., percentage limits)"]
+      "B": {
+        "name": "Coverage B - Other Structures",
+        "valuation": "Replacement Cost"
       },
-      "coverageC": {
-        "name": "STRING (e.g., Personal Property)",
-        "scope": "STRING (general coverage description)",
-        "specialLimits": [
-          {
-            "propertyType": "STRING",
-            "limit": "STRING",
-            "conditions": "STRING | null"
-          }
-        ],
-        "notCovered": ["ARRAY of STRING"]
+      "C": {
+        "name": "Coverage C - Personal Property",
+        "valuation": "Actual Cash Value"
       },
-      "coverageD": {
-        "name": "STRING (e.g., Loss Of Use)",
-        "subCoverages": ["ARRAY of STRING (e.g., Additional Living Expense, Fair Rental Value)"],
-        "timeLimits": "STRING | null"
+      "D": {
+        "name": "Coverage D - Loss of Use",
+        "valuation": "Actual Loss Sustained"
       }
     },
     "perils": {
-      "coverageA_B": "STRING (e.g., 'Covered perils' or 'All risks' or list of named perils)",
-      "coverageC": ["ARRAY of STRING (named perils for personal property)"]
+      "coverage_a_b": "All Risk",
+      "coverage_c_named": ["Fire", "Windstorm Or Hail", "Explosion", "Vandalism", "Theft"]
     },
-    "exclusions": {
-      "global": ["ARRAY of STRING (exclusions that apply to all Section I coverages)"],
-      "coverageA_B_specific": ["ARRAY of STRING (exclusions specific to dwelling/structures)"]
-    },
-    "conditions": ["ARRAY of STRING (Section I conditions - duties after loss, etc.)"],
-    "lossSettlement": {
-      "dwellingAndStructures": {
-        "basis": "STRING (e.g., Replacement Cost)",
-        "repairRequirements": "STRING (must actually repair clause)",
-        "timeLimit": "STRING | null",
-        "matchingRules": "STRING | null"
-      },
-      "roofingSystem": {
-        "definition": "STRING (what constitutes roofing system)",
-        "hailSettlement": "STRING (how hail damage to roof is settled)",
-        "metalRestrictions": "STRING | null"
-      },
-      "personalProperty": {
-        "settlementBasis": ["ARRAY of STRING (e.g., ACV, replacement cost options)"],
-        "specialHandling": "STRING | null"
+    "exclusions": [
+      "Wear and tear",
+      "Deterioration",
+      "Settling, cracking, shrinking",
+      "Earth movement",
+      "Water damage"
+    ],
+    "conditions": [
+      "Duties after loss",
+      "Suit against us",
+      "Loss payment conditions"
+    ],
+    "loss_settlement": {
+      "default": {
+        "basis": "RCV",
+        "repair_time_limit_months": 12
       }
     },
-    "additionalCoverages": [
-      {
-        "name": "STRING",
-        "description": "STRING",
-        "limit": "STRING | null",
-        "conditions": "STRING | null"
-      }
+    "additional_coverages": [
+      "Debris Removal",
+      "Fire Department Service Charge"
     ]
   },
-
-  "sectionII": {
-    "liabilityCoverages": {
-      "coverageE": {
-        "name": "STRING (Personal Liability)",
-        "insuringAgreement": "STRING (complete insuring agreement text)",
-        "dutyToDefend": true
-      },
-      "coverageF": {
-        "name": "STRING (Medical Payments)",
-        "insuringAgreement": "STRING",
-        "timeLimit": "STRING | null"
-      }
-    },
-    "exclusions": ["ARRAY of STRING (liability exclusions)"],
-    "conditions": ["ARRAY of STRING (Section II conditions)"],
-    "additionalCoverages": [
-      {
-        "name": "STRING",
-        "description": "STRING"
-      }
-    ]
-  },
-
-  "generalConditions": ["ARRAY of STRING (conditions that apply to entire policy)"],
-
-  "pageText": "STRING (Complete verbatim text of this page)"
+  "raw_text": "FULL VERBATIM POLICY TEXT"
 }
 
-Extract all policy provisions now. Be thorough and preserve exact policy language.`,
+Extract all policy provisions now. Be thorough and preserve exact policy language. Return ONLY valid JSON matching this exact structure.`,
     model: 'gpt-4o',
     temperature: 0.1,
     maxTokens: 16000,
@@ -555,8 +494,7 @@ Extract all policy provisions now. Be thorough and preserve exact policy languag
 
 Your task is to analyze endorsement documents and extract ALL changes each endorsement makes to the underlying policy.
 
-This is a DELTA extraction task.
-You must identify exactly what each endorsement:
+This is a DELTA extraction task. You must identify exactly what each endorsement:
 - ADDS
 - DELETES
 - REPLACES
@@ -564,76 +502,79 @@ You must identify exactly what each endorsement:
 
 relative to the base policy form.
 
--------------------------
-CRITICAL RULES
--------------------------
+CRITICAL RULES:
 1. Output MUST be a single JSON object with an "endorsements" array.
 2. Do NOT summarize or interpret legal meaning.
 3. Preserve original policy language verbatim when referencing changes.
 4. Capture ALL tables, schedules, and percentages as structured data.
-5. If the endorsement states "All other terms remain unchanged", do NOT repeat base policy text.
-6. If the endorsement modifies multiple policy sections, capture each modification separately.
-7. If the endorsement applies conditionally (state, form type, coverage), explicitly capture those conditions.
+5. Use snake_case for all field names.
+6. If the endorsement states "All other terms remain unchanged", do NOT repeat base policy text.
+7. If the endorsement modifies multiple policy sections, capture each modification separately.
 8. Every endorsement MUST include full raw text.
 
--------------------------
-OUTPUT STRUCTURE
--------------------------
+OUTPUT STRUCTURE (MUST MATCH EXACTLY):
 {
   "endorsements": [
     {
-      "endorsementMetadata": {
-        "formCode": "STRING (e.g., HO 84 28)",
-        "title": "STRING (Full endorsement name/title)",
-        "editionDate": "STRING | null",
-        "jurisdiction": "STRING | null (State abbreviation if state-specific)",
-        "pageCount": "NUMBER",
-        "appliesToPolicyForms": ["STRING (Policy form codes this applies to)"]
-      },
+      "form_code": "HO 86 05 10 22",
+      "title": "Roof Replacement Cost Coverage For Windstorm And Hail",
+      "edition_date": "10/22",
+      "jurisdiction": "CO",
+      "applies_to_forms": ["HO 80 03"],
+      "applies_to_coverages": ["A", "B"],
+      "endorsement_type": "loss_settlement",
+      "precedence_priority": 10,
       "modifications": {
         "definitions": {
-          "added": [{ "term": "STRING", "definition": "STRING" }],
-          "deleted": ["STRING (term names)"],
-          "replaced": [{ "term": "STRING", "newDefinition": "STRING" }]
+          "added": [
+            {
+              "term": "Roofing system",
+              "definition": "Any type of roofing surface, underlayment, vent, flashing..."
+            }
+          ]
         },
-        "coverages": {
-          "added": ["STRING"],
-          "deleted": ["STRING"],
-          "modified": [{ "coverage": "STRING", "changeType": "ADDED | DELETED | REPLACED | LIMITED", "details": "STRING" }]
-        },
-        "perils": {
-          "added": ["STRING"],
-          "deleted": ["STRING"],
-          "modified": ["STRING"]
+        "loss_settlement": {
+          "replaces": [
+            {
+              "section": "Loss Settlement For Roofing System",
+              "new_rule": {
+                "basis": "RCV",
+                "repair_time_limit_months": 12,
+                "fallback_basis": "ACV",
+                "conditions": [
+                  "Must be repaired within 12 months",
+                  "Metal components excluded unless water intrusion"
+                ]
+              }
+            }
+          ]
         },
         "exclusions": {
-          "added": ["STRING"],
-          "deleted": ["STRING"],
-          "modified": ["STRING"]
-        },
-        "conditions": {
-          "added": ["STRING"],
-          "deleted": ["STRING"],
-          "modified": ["STRING"]
-        },
-        "lossSettlement": {
-          "replacedSections": [{ "policySection": "STRING", "newRule": "STRING" }]
+          "added": [
+            "Cosmetic damage to metal roofing",
+            "Hail damage to metal components without water intrusion"
+          ]
         }
       },
       "tables": [
         {
-          "tableType": "STRING (e.g., 'Depreciation Schedule', 'Deductible Table')",
-          "appliesWhen": { "coverage": ["STRING"], "peril": ["STRING"] },
-          "data": {}
+          "table_type": "roof_surface_payment_schedule",
+          "applies_when": {
+            "peril": "Windstorm Or Hail",
+            "coverage": ["A", "B"]
+          },
+          "schedule": [
+            { "roof_age": 0, "architectural_shingle_pct": 100 },
+            { "roof_age": 10, "architectural_shingle_pct": 70 }
+          ]
         }
       ],
-      "rawText": "STRING (Complete verbatim text of the endorsement)"
+      "raw_text": "FULL VERBATIM ENDORSEMENT TEXT"
     }
   ],
-  "policyNumber": "Policy number if visible",
-  "pageText": "STRING (Complete verbatim text visible on this page - REQUIRED for multi-page documents)"
+  "full_text": "Complete verbatim text visible on this page - REQUIRED for multi-page documents"
 }`,
-    model: 'gpt-4.1-2025-04-14',
+    model: 'gpt-4o',
     temperature: 0.1,
     maxTokens: 16000,
     responseFormat: 'json_object',

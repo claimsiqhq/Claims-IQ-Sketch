@@ -133,17 +133,29 @@ function deepMergeObjects(target: Record<string, any>, source: Record<string, an
  * This is the ONLY accepted FNOL shape. No legacy formats.
  */
 export interface FNOLExtraction {
+  fnol: {
+    reported_by?: string;
+    reported_date?: string;
+    drone_eligible?: boolean;
+    weather?: {
+      lookup_status: "ok" | "failed";
+      message?: string;
+    };
+  };
+
   claim: {
-    claimNumber: string;
-    dateOfLoss: string;
-    primaryPeril: string;
-    lossDescription: string;
+    claim_number: string;
+    date_of_loss: string;
+    primary_peril: string;
+    secondary_perils?: string[];
+    loss_description: string;
   };
 
   insured: {
-    name: string;
-    phone?: string;
+    primary_name: string;
+    secondary_name?: string;
     email?: string;
+    phone?: string;
   };
 
   property: {
@@ -153,42 +165,28 @@ export interface FNOLExtraction {
       state: string;
       zip: string;
     };
-    yearBuilt?: number;
+    year_built?: number;
     stories?: number;
+    occupancy?: string;
     roof?: {
       material?: string;
-      yearInstalled?: number;
-      damageScope?: "Exterior Only" | "Interior" | "Both";
+      year_installed?: number;
+      damage_scope?: "Exterior Only" | "Interior" | "Both";
+      wood_roof?: boolean;
     };
   };
 
-  fnol: {
-    reportedBy?: string;
-    reportedDate?: string;
-    droneEligible?: boolean;
-    weather?: {
-      status: "ok" | "failed";
-      message?: string;
-    };
-  };
-
-  damageSummary: {
-    coverageA?: string;
-    coverageB?: string;
-    coverageC?: string;
-    coverageD?: string;
-  };
-
-  policy?: {
-    policyNumber?: string;
-    dwellingLimit?: string;
-    windHailDeductible?: string;
-    deductible?: string;
+  damage_summary: {
+    coverage_a?: string;
+    coverage_b?: string;
+    coverage_c?: string;
+    coverage_d?: string;
   };
 }
 
 /**
  * Loss Context structure - stored in claims.loss_context
+ * Matches canonical FNOL structure (snake_case)
  */
 export interface LossContext {
   fnol: {
@@ -196,17 +194,19 @@ export interface LossContext {
     reported_date?: string;
     drone_eligible?: boolean;
     weather?: {
-      status: "ok" | "failed";
+      lookup_status: "ok" | "failed";
       message?: string;
     };
   };
   property: {
     year_built?: number;
     stories?: number;
+    occupancy?: string;
     roof?: {
       material?: string;
       year_installed?: number;
       damage_scope?: string;
+      wood_roof?: boolean;
     };
   };
   damage_summary: {
@@ -219,124 +219,106 @@ export interface LossContext {
 
 /**
  * AUTHORITATIVE Policy Form Extraction Interface
- * This is the ONLY accepted policy extraction shape. No legacy formats.
+ * This is the ONLY accepted policy extraction shape. Matches canonical schema.
  *
  * Rules:
  * - Lossless extraction of policy language
  * - NO summarization
  * - NO interpretation
- * - rawText must contain full verbatim policy text
+ * - raw_text must contain full verbatim policy text
+ * - Uses snake_case to match canonical schema
  */
 export interface PolicyFormExtraction {
-  // Form identification
-  formCode: string;
-  formName: string;
-  editionDate?: string;
+  form_code: string;
+  form_name?: string;
+  edition_date?: string;
   jurisdiction?: string;
 
-  // Complete policy structure - lossless
   structure: {
-    definitions: Array<{
-      term: string;
+    definitions?: Record<string, {
       definition: string;
-      subClauses?: string[];
-      exceptions?: string[];
+      depreciation_includes?: string[];
     }>;
-    coverages: {
-      coverageA?: { name?: string; covers?: string[]; excludes?: string[] };
-      coverageB?: { name?: string; covers?: string[]; excludes?: string[]; specialConditions?: string[] };
-      coverageC?: { name?: string; scope?: string; specialLimits?: { propertyType: string; limit: string; conditions?: string }[]; notCovered?: string[] };
-      coverageD?: { name?: string; subCoverages?: string[]; timeLimits?: string };
-      liability?: {
-        coverageE?: { name?: string; insuringAgreement?: string; dutyToDefend?: boolean };
-        coverageF?: { name?: string; insuringAgreement?: string; timeLimit?: string };
+    coverages?: {
+      A?: { name?: string; valuation?: string; includes?: string[] };
+      B?: { name?: string; valuation?: string };
+      C?: { name?: string; valuation?: string };
+      D?: { name?: string; valuation?: string };
+    };
+    perils?: {
+      coverage_a_b?: string;
+      coverage_c_named?: string[];
+    };
+    exclusions?: string[];
+    conditions?: string[];
+    loss_settlement?: {
+      default?: {
+        basis?: string;
+        repair_time_limit_months?: number;
       };
     };
-    perils: {
-      coverageA_B?: string;
-      coverageC?: string[];
-    };
-    exclusions: {
-      global?: string[];
-      coverageA_B_specific?: string[];
-      liabilityExclusions?: string[];
-    };
-    conditions: string[];
-    lossSettlement: {
-      dwellingAndStructures?: { basis?: string; repairRequirements?: string; timeLimit?: string; matchingRules?: string };
-      roofingSystem?: { definition?: string; hailSettlement?: string; metalRestrictions?: string };
-      personalProperty?: { settlementBasis?: string[]; specialHandling?: string };
-    };
-    additionalCoverages?: Array<{ name: string; description?: string; limit?: string; conditions?: string }>;
+    additional_coverages?: string[];
   };
 
-  // Full verbatim policy text - MANDATORY
-  rawText: string;
+  raw_text: string;
 }
 
 /**
  * AUTHORITATIVE Endorsement Extraction Interface
- * This is the ONLY accepted endorsement extraction shape. No legacy formats.
+ * This is the ONLY accepted endorsement extraction shape. Matches canonical schema.
  *
  * Rules:
  * - Extraction MUST be delta-only (what the endorsement changes)
  * - NEVER reprint base policy language
  * - NEVER merge with other endorsements
  * - NEVER interpret impact
- * - rawText must contain full endorsement text
+ * - raw_text must contain full endorsement text
+ * - Uses snake_case to match canonical schema
  */
 export interface EndorsementExtraction {
-  // Endorsement identification
-  formCode: string;
-  title: string;
-  editionDate?: string;
+  form_code: string;
+  title?: string;
+  edition_date?: string;
   jurisdiction?: string;
+  applies_to_forms?: string[];
+  applies_to_coverages?: string[];
+  endorsement_type?: string;
+  precedence_priority?: number;
 
-  // What this endorsement applies to
-  appliesToForms: string[];
-  appliesToCoverages: string[];
-
-  // Delta modifications only
-  modifications: {
+  modifications?: {
     definitions?: {
       added?: Array<{ term: string; definition: string }>;
       deleted?: string[];
-      replaced?: Array<{ term: string; newDefinition: string }>;
+      replaced?: Array<{ term: string; new_definition: string }>;
     };
-    coverages?: {
-      added?: string[];
-      deleted?: string[];
-      modified?: Array<{ coverage: string; changeType: string; details: string }>;
-    };
-    perils?: {
-      added?: string[];
-      deleted?: string[];
-      modified?: string[];
+    loss_settlement?: {
+      replaces?: Array<{
+        section: string;
+        new_rule: {
+          basis?: string;
+          repair_time_limit_months?: number;
+          fallback_basis?: string;
+          conditions?: string[];
+        };
+      }>;
     };
     exclusions?: {
       added?: string[];
       deleted?: string[];
-      modified?: string[];
-    };
-    conditions?: {
-      added?: string[];
-      deleted?: string[];
-      modified?: string[];
-    };
-    lossSettlement?: {
-      replacedSections?: Array<{ policySection: string; newRule: string }>;
     };
   };
 
-  // Tables (depreciation schedules, etc.)
   tables?: Array<{
-    tableType: string;
-    appliesWhen?: { coverage?: string[]; peril?: string[] };
+    table_type: string;
+    applies_when?: {
+      peril?: string;
+      coverage?: string[];
+    };
     data?: Record<string, unknown>;
+    schedule?: any[];
   }>;
 
-  // Full verbatim endorsement text - MANDATORY
-  rawText: string;
+  raw_text: string;
 }
 
 /**
@@ -436,236 +418,99 @@ function getPromptKeyForDocumentType(documentType: DocumentType): PromptKey {
  * Strict mapping - no fallbacks, no inference
  */
 function transformToFNOLExtraction(raw: any): FNOLExtraction {
-  // Handle claims array wrapper
-  const source = raw.claims?.[0] || raw;
-
-  // Extract from new format structure
-  const claimInfo = source.claimInformation || source.claim || {};
-  const propAddr = source.propertyAddress || {};
-  const insuredInfo = source.insuredInformation || source.insured || {};
-  const propDetails = source.propertyDetails || {};
-  const propDmg = source.propertyDamageDetails || source.propertyDamage || {};
-  const roofDetails = propDetails.roof || {};
-  const fnolInfo = source.fnol || {};
-  // Normalize coverages to array - handle both array and object formats
-  const rawCoverages = source.coverages;
-  const coverages: any[] = Array.isArray(rawCoverages) 
-    ? rawCoverages 
-    : (rawCoverages && typeof rawCoverages === 'object')
-      ? Object.entries(rawCoverages).map(([k, v]) => typeof v === 'object' ? { ...v, coverageCode: k } : { coverageCode: k, limit: v })
-      : [];
+  // OpenAI should return canonical structure directly (snake_case)
+  // Just validate and normalize, with minimal fallback handling
   
-  // Debug: Log policy-related raw values
-  console.log('[FNOL Transform] Policy extraction debug:', {
-    'claimInfo.policyNumber': claimInfo.policyNumber,
-    'source.policyNumber': source.policyNumber,
-    'source.deductibles': source.deductibles,
-    'coverages.length': coverages.length,
-    'coverageA': Array.isArray(coverages) ? coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling')) : undefined,
-  });
-
-  // Build the clean extraction - NULL for missing, no inference
+  // Handle legacy formats for backward compatibility
+  const source = raw.claims?.[0] || raw;
+  
+  // Build extraction - prefer canonical structure, fallback to legacy if needed
   const extraction: FNOLExtraction = {
-    claim: {
-      claimNumber: claimInfo.claimNumber || claimInfo.claimId || '',
-      dateOfLoss: claimInfo.dateOfLoss || '',
-      primaryPeril: claimInfo.causeOfLoss || claimInfo.primaryPeril || '',
-      lossDescription: claimInfo.lossDescription || propDmg.dwellingDamageDescription || '',
+    fnol: raw.fnol || source.fnol || {
+      reported_by: source.reportedBy || source.reported_by,
+      reported_date: source.reportedDate || source.reported_date,
+      drone_eligible: typeof (source.droneEligible || source.drone_eligible) === 'boolean'
+        ? (source.droneEligible || source.drone_eligible)
+        : (source.droneEligible === 'Yes' || source.drone_eligible === 'Yes'),
+      weather: raw.fnol?.weather || source.weather ? {
+        lookup_status: (raw.fnol?.weather?.lookup_status || source.weather?.lookup_status || source.weather?.status || 'failed') === 'ok' ? 'ok' : 'failed',
+        message: raw.fnol?.weather?.message || source.weather?.message,
+      } : undefined,
     },
-    insured: {
-      name: insuredInfo.policyholderName1 || insuredInfo.name1 || '',
-      phone: insuredInfo.contactPhone || insuredInfo.contactMobilePhone || insuredInfo.mobilePhone || undefined,
-      email: insuredInfo.contactEmail || insuredInfo.email || undefined,
+    claim: raw.claim || {
+      claim_number: source.claim?.claim_number || source.claimNumber || source.claim_number || source.claim_id || '',
+      date_of_loss: source.claim?.date_of_loss || source.dateOfLoss || source.date_of_loss || '',
+      primary_peril: source.claim?.primary_peril || source.primaryPeril || source.primary_peril || source.causeOfLoss || '',
+      secondary_perils: source.claim?.secondary_perils || source.secondaryPerils || source.secondary_perils || [],
+      loss_description: source.claim?.loss_description || source.lossDescription || source.loss_description || '',
     },
-    property: {
+    insured: raw.insured || {
+      primary_name: source.insured?.primary_name || source.primary_name || source.policyholderName1 || source.name1 || '',
+      secondary_name: source.insured?.secondary_name || source.secondary_name || source.name2,
+      email: source.insured?.email || source.email || source.contactEmail,
+      phone: source.insured?.phone || source.phone || source.contactPhone || source.mobilePhone,
+    },
+    property: raw.property || {
       address: {
-        full: propAddr.fullAddress || [propAddr.streetAddress, propAddr.city, propAddr.state, propAddr.zipCode].filter(Boolean).join(', ') || '',
-        city: propAddr.city || '',
-        state: propAddr.state || '',
-        zip: propAddr.zipCode || '',
+        full: source.property?.address?.full || source.propertyAddress?.full || source.fullAddress || 
+              [source.streetAddress, source.city, source.state, source.zipCode].filter(Boolean).join(', ') || '',
+        city: source.property?.address?.city || source.propertyAddress?.city || source.city || '',
+        state: source.property?.address?.state || source.propertyAddress?.state || source.state || '',
+        zip: source.property?.address?.zip || source.propertyAddress?.zip || source.zipCode || '',
       },
-      yearBuilt: propDetails.yearBuilt ? parseInt(propDetails.yearBuilt, 10) || undefined : undefined,
-      stories: propDetails.numberOfStories ? parseInt(propDetails.numberOfStories, 10) || undefined : undefined,
-      roof: roofDetails.roofMaterial || roofDetails.yearRoofInstall ? {
-        material: roofDetails.roofMaterial || undefined,
-        yearInstalled: roofDetails.yearRoofInstall ? parseInt(roofDetails.yearRoofInstall, 10) || undefined : undefined,
-        damageScope: roofDetails.damageScope as "Exterior Only" | "Interior" | "Both" || undefined,
-      } : undefined,
+      year_built: source.property?.year_built || source.year_built || (source.yearBuilt ? parseInt(String(source.yearBuilt), 10) : undefined),
+      stories: source.property?.stories || source.stories || (source.numberOfStories ? parseInt(String(source.numberOfStories), 10) : undefined),
+      occupancy: source.property?.occupancy || source.occupancy,
+      roof: source.property?.roof || (source.roofMaterial || source.yearRoofInstall ? {
+        material: source.roofMaterial,
+        year_installed: source.yearRoofInstall ? parseInt(String(source.yearRoofInstall), 10) : undefined,
+        damage_scope: source.damageScope as "Exterior Only" | "Interior" | "Both" | undefined,
+        wood_roof: source.woodRoof === true || source.wood_roof === true,
+      } : undefined),
     },
-    fnol: {
-      reportedBy: insuredInfo.reportedBy || undefined,
-      reportedDate: insuredInfo.reportedDate || undefined,
-      droneEligible: typeof claimInfo.droneEligibleAtFNOL === 'boolean'
-        ? claimInfo.droneEligibleAtFNOL
-        : (claimInfo.droneEligibleAtFNOL === 'Yes' || claimInfo.droneEligibleAtFNOL === 'true'),
-      weather: claimInfo.weatherData ? {
-        status: claimInfo.weatherData.status === 'ok' ? 'ok' : 'failed',
-        message: claimInfo.weatherData.message || undefined,
-      } : undefined,
-    },
-    damageSummary: {
-      coverageA: coverages.find((c: any) => c.coverageCode === 'A' || c.coverageName?.toLowerCase().includes('dwelling'))?.limit || undefined,
-      coverageB: coverages.find((c: any) => c.coverageCode === 'B' || c.coverageName?.toLowerCase().includes('other structure'))?.limit || undefined,
-      coverageC: coverages.find((c: any) => c.coverageCode === 'C' || c.coverageName?.toLowerCase().includes('personal property'))?.limit || undefined,
-      coverageD: coverages.find((c: any) => c.coverageCode === 'D' || c.coverageName?.toLowerCase().includes('loss of use') || c.coverageName?.toLowerCase().includes('additional living'))?.limit || undefined,
-    },
-    policy: {
-      policyNumber: claimInfo.policyNumber || source.policyNumber || source.policy?.policyNumber || undefined,
-      dwellingLimit: (() => {
-        // First check coverages array for Coverage A
-        const coverageA = coverages.find((c: any) => 
-          c.coverageCode === 'A' || 
-          c.code === 'A' ||
-          c.coverageName?.toLowerCase().includes('dwelling') ||
-          c.name?.toLowerCase().includes('dwelling')
-        );
-        if (coverageA?.limit) return coverageA.limit;
-        if (coverageA?.amount) return coverageA.amount;
-        // Check for direct Coverage A fields
-        if (source.coverageA) return source.coverageA;
-        if (source.CoverageA) return source.CoverageA;
-        if (source['Coverage A']) return source['Coverage A'];
-        return undefined;
-      })(),
-      windHailDeductible: (() => {
-        const deductibles = source.deductibles;
-        if (!deductibles) return undefined;
-        
-        // Handle scalar string value (e.g., "2%", "$1,000")
-        if (typeof deductibles === 'string') return deductibles;
-        if (typeof deductibles === 'number') return `$${deductibles.toLocaleString()}`;
-        
-        // Handle array of deductibles - check FIRST before object checks
-        if (Array.isArray(deductibles)) {
-          const windHail = deductibles.find((d: any) => 
-            d.type?.toLowerCase().includes('wind') || d.type?.toLowerCase().includes('hail') || 
-            d.name?.toLowerCase().includes('wind') || d.name?.toLowerCase().includes('hail')
-          );
-          if (windHail?.amount) return String(windHail.amount);
-          if (windHail?.value) return String(windHail.value);
-          return undefined;
-        }
-        
-        // Handle object with keys (non-array)
-        if (typeof deductibles === 'object' && deductibles !== null) {
-          // Direct property access - try common key variations
-          if (typeof deductibles.windHail === 'string') return deductibles.windHail;
-          if (typeof deductibles['wind/hail'] === 'string') return deductibles['wind/hail'];
-          if (typeof deductibles.windHailDeductible === 'string') return deductibles.windHailDeductible;
-          if (typeof deductibles['Wind/Hail'] === 'string') return deductibles['Wind/Hail'];
-          if (typeof deductibles.wind === 'string') return deductibles.wind;
-          if (typeof deductibles.hail === 'string') return deductibles.hail;
-          
-          // Numeric values - convert to string
-          for (const key of Object.keys(deductibles)) {
-            if (key.toLowerCase().includes('wind') || key.toLowerCase().includes('hail')) {
-              const val = deductibles[key];
-              if (typeof val === 'number') return `$${val.toLocaleString()}`;
-              if (typeof val === 'string') return val;
-            }
-          }
-        }
-        
-        return undefined;
-      })(),
-      deductible: (() => {
-        const deductibles = source.deductibles;
-        if (!deductibles) return undefined;
-
-        // Handle scalar string/number value directly as general deductible
-        if (typeof deductibles === 'string') return deductibles;
-        if (typeof deductibles === 'number') return `$${deductibles.toLocaleString()}`;
-
-        // Handle array of deductibles - find general/standard/all perils deductible
-        if (Array.isArray(deductibles)) {
-          const general = deductibles.find((d: any) =>
-            d.type?.toLowerCase().includes('all') ||
-            d.type?.toLowerCase().includes('standard') ||
-            d.type?.toLowerCase().includes('general') ||
-            d.name?.toLowerCase().includes('all') ||
-            d.name?.toLowerCase().includes('standard') ||
-            d.name?.toLowerCase().includes('general') ||
-            // If no specific type, use the first one that's not wind/hail
-            (!d.type?.toLowerCase().includes('wind') && !d.type?.toLowerCase().includes('hail'))
-          );
-          if (general?.amount) return String(general.amount);
-          if (general?.value) return String(general.value);
-          // Fallback to first deductible if no specific match
-          if (deductibles.length > 0) {
-            const first = deductibles[0];
-            if (first?.amount) return String(first.amount);
-            if (first?.value) return String(first.value);
-          }
-          return undefined;
-        }
-
-        // Handle object with keys
-        if (typeof deductibles === 'object' && deductibles !== null) {
-          // Look for general/standard/all perils deductible
-          if (typeof deductibles.all === 'string') return deductibles.all;
-          if (typeof deductibles.standard === 'string') return deductibles.standard;
-          if (typeof deductibles.general === 'string') return deductibles.general;
-          if (typeof deductibles.allPerils === 'string') return deductibles.allPerils;
-          if (typeof deductibles['all perils'] === 'string') return deductibles['all perils'];
-          if (typeof deductibles.aop === 'string') return deductibles.aop;
-          if (typeof deductibles.AOP === 'string') return deductibles.AOP;
-
-          // Numeric values - convert to string
-          for (const key of Object.keys(deductibles)) {
-            const lowerKey = key.toLowerCase();
-            if (lowerKey.includes('all') || lowerKey.includes('standard') || lowerKey.includes('general') || lowerKey === 'aop') {
-              const val = deductibles[key];
-              if (typeof val === 'number') return `$${val.toLocaleString()}`;
-              if (typeof val === 'string') return val;
-            }
-          }
-        }
-
-        return undefined;
-      })(),
+    damage_summary: raw.damage_summary || {
+      coverage_a: source.damage_summary?.coverage_a || source.coverageA || source.coverage_a,
+      coverage_b: source.damage_summary?.coverage_b || source.coverageB || source.coverage_b,
+      coverage_c: source.damage_summary?.coverage_c || source.coverageC || source.coverage_c,
+      coverage_d: source.damage_summary?.coverage_d || source.coverageD || source.coverage_d,
     },
   };
-
+  
+  // Validate required fields
+  if (!extraction.claim.claim_number && !extraction.claim.date_of_loss && !extraction.insured.primary_name) {
+    console.warn('[FNOL Transform] Missing critical fields:', {
+      claim_number: extraction.claim.claim_number,
+      date_of_loss: extraction.claim.date_of_loss,
+      primary_name: extraction.insured.primary_name,
+    });
+  }
+  
   return extraction;
 }
 
 /**
  * Build loss_context from FNOLExtraction
  * This is the canonical storage for FNOL truth
+ * Matches canonical schema structure (snake_case)
  */
 function buildLossContext(extraction: FNOLExtraction): LossContext {
-  const lossContext: LossContext = {
-    fnol: {
-      reported_by: extraction.fnol.reportedBy,
-      reported_date: extraction.fnol.reportedDate,
-      drone_eligible: extraction.fnol.droneEligible,
-      weather: extraction.fnol.weather,
-    },
+  return {
+    fnol: extraction.fnol,
     property: {
-      year_built: extraction.property.yearBuilt,
+      year_built: extraction.property.year_built,
       stories: extraction.property.stories,
-      roof: extraction.property.roof ? {
-        material: extraction.property.roof.material,
-        year_installed: extraction.property.roof.yearInstalled,
-        damage_scope: extraction.property.roof.damageScope,
-      } : undefined,
+      occupancy: extraction.property.occupancy,
+      roof: extraction.property.roof,
     },
-    damage_summary: {
-      coverage_a: extraction.damageSummary.coverageA,
-      coverage_b: extraction.damageSummary.coverageB,
-      coverage_c: extraction.damageSummary.coverageC,
-      coverage_d: extraction.damageSummary.coverageD,
-    },
+    damage_summary: extraction.damage_summary,
   };
-
-  return lossContext;
 }
 
 /**
  * Validate FNOL extraction - fail loudly if malformed
  */
 function validateFNOLExtraction(extraction: FNOLExtraction): void {
-  if (!extraction.claim.claimNumber && !extraction.claim.dateOfLoss && !extraction.insured.name) {
+  if (!extraction.claim.claim_number && !extraction.claim.date_of_loss && !extraction.insured.primary_name) {
     throw new Error('FNOL extraction failed: No claim number, date of loss, or insured name found. Document may not be a valid FNOL.');
   }
 }
@@ -683,50 +528,34 @@ function validateFNOLExtraction(extraction: FNOLExtraction): void {
  * - Missing data remains NULL
  */
 function transformToPolicyExtraction(raw: any): PolicyFormExtraction {
-  // Extract form identification
-  const formCode = raw.documentMetadata?.policyFormCode ||
-                   raw.formCode ||
-                   raw.policyFormCode || '';
-  const formName = raw.documentMetadata?.policyFormName ||
-                   raw.formName ||
-                   raw.policyFormName || '';
-
-  // Build the lossless structure
+  // OpenAI should return canonical structure directly (snake_case)
+  // Handle multi-page merging - raw should already be merged
+  // Fallback to legacy formats for backward compatibility
+  
   const extraction: PolicyFormExtraction = {
-    formCode,
-    formName,
-    editionDate: raw.documentMetadata?.editionDate || raw.editionDate || undefined,
-    jurisdiction: raw.jurisdiction || undefined,
-
-    structure: {
-      definitions: raw.definitions || [],
-      coverages: {
-        coverageA: raw.sectionI?.propertyCoverage?.coverageA || undefined,
-        coverageB: raw.sectionI?.propertyCoverage?.coverageB || undefined,
-        coverageC: raw.sectionI?.propertyCoverage?.coverageC || undefined,
-        coverageD: raw.sectionI?.propertyCoverage?.coverageD || undefined,
-        liability: raw.sectionII?.liabilityCoverages || undefined,
-      },
-      perils: raw.sectionI?.perils || {},
-      exclusions: {
-        global: raw.sectionI?.exclusions?.global || [],
-        coverageA_B_specific: raw.sectionI?.exclusions?.coverageA_B_specific || [],
-        liabilityExclusions: raw.sectionII?.exclusions || [],
-      },
-      conditions: [
-        ...(raw.sectionI?.conditions || []),
-        ...(raw.sectionII?.conditions || []),
-        ...(raw.generalConditions || []),
-      ],
-      lossSettlement: raw.sectionI?.lossSettlement || {},
-      additionalCoverages: [
-        ...(raw.sectionI?.additionalCoverages || []),
-        ...(raw.sectionII?.additionalCoverages || []),
-      ],
+    form_code: raw.form_code || raw.documentMetadata?.policyFormCode || raw.formCode || raw.policyFormCode || '',
+    form_name: raw.form_name || raw.documentMetadata?.policyFormName || raw.formName || raw.policyFormName,
+    edition_date: raw.edition_date || raw.documentMetadata?.editionDate || raw.editionDate,
+    jurisdiction: raw.jurisdiction,
+    structure: raw.structure || {
+      definitions: raw.definitions ? (Array.isArray(raw.definitions) 
+        ? raw.definitions.reduce((acc: any, d: any) => {
+            const term = d.term || d.term_name;
+            if (term) acc[term.toLowerCase().replace(/\s+/g, '_')] = {
+              definition: d.definition || d.definition_text,
+              depreciation_includes: d.depreciation_includes || d.subClauses,
+            };
+            return acc;
+          }, {})
+        : raw.definitions) : {},
+      coverages: raw.coverages || raw.sectionI?.propertyCoverage || {},
+      perils: raw.perils || raw.sectionI?.perils || {},
+      exclusions: Array.isArray(raw.exclusions) ? raw.exclusions : (raw.exclusions?.global || []),
+      conditions: Array.isArray(raw.conditions) ? raw.conditions : [],
+      loss_settlement: raw.loss_settlement || raw.sectionI?.lossSettlement || {},
+      additional_coverages: Array.isArray(raw.additional_coverages) ? raw.additional_coverages : [],
     },
-
-    // Full verbatim text - MANDATORY
-    rawText: raw.fullText || raw.rawPageText || raw.pageTexts?.join('\n\n--- Page Break ---\n\n') || '',
+    raw_text: raw.raw_text || raw.fullText || raw.rawPageText || raw.pageTexts?.join('\n\n--- Page Break ---\n\n') || raw.pageText || '',
   };
 
   return extraction;
@@ -747,16 +576,16 @@ async function storePolicy(
   organizationId: string
 ): Promise<void> {
   console.log(`[PolicyExtraction] Starting storePolicy for document ${documentId}, org ${organizationId}, claimId: ${claimId}`);
-  console.log(`[PolicyExtraction] Extraction data: formCode=${extraction.formCode}, formName=${extraction.formName}`);
+  console.log(`[PolicyExtraction] Extraction data: form_code=${extraction.form_code}, form_name=${extraction.form_name}`);
 
   // If existing canonical extraction exists for same claim + form, mark it non-canonical
-  if (claimId && extraction.formCode) {
+  if (claimId && extraction.form_code) {
     const { error: updateError } = await supabaseAdmin
       .from('policy_form_extractions')
       .update({ is_canonical: false, updated_at: new Date().toISOString() })
       .eq('organization_id', organizationId)
       .eq('claim_id', claimId)
-      .eq('policy_form_code', extraction.formCode)
+      .eq('policy_form_code', extraction.form_code)
       .eq('is_canonical', true);
 
     if (updateError) {
@@ -765,7 +594,7 @@ async function storePolicy(
   }
 
   // Safely filter conditions - handle case where conditions may be objects instead of strings
-  const conditions = extraction.structure.conditions || [];
+  const conditions = extraction.structure?.conditions || [];
   const filteredConditions = conditions.filter(c => {
     if (typeof c === 'string') {
       return !c.toLowerCase().includes('liability');
@@ -779,34 +608,31 @@ async function storePolicy(
     organization_id: organizationId,
     claim_id: claimId,
     document_id: documentId,
-    policy_form_code: extraction.formCode || null,
-    policy_form_name: extraction.formName || null,
-    edition_date: extraction.editionDate || null,
+    policy_form_code: extraction.form_code || null,
+    policy_form_name: extraction.form_name || null,
+    edition_date: extraction.edition_date || null,
     document_type: 'policy',
-    // Store the complete extraction as JSONB
+    // Store the complete extraction as JSONB (canonical structure)
     extraction_data: extraction,
     extraction_version: 1,
-    source_form_code: extraction.formCode || null,
+    source_form_code: extraction.form_code || null,
     jurisdiction: extraction.jurisdiction || null,
     is_canonical: true,
     extraction_status: 'completed',
     extraction_model: 'gpt-4o',
     // Also store structured fields for backward compatibility with existing queries
-    definitions: extraction.structure.definitions || [],
+    definitions: extraction.structure?.definitions || {},
     section_i: {
-      propertyCoverage: extraction.structure.coverages,
-      perils: extraction.structure.perils,
-      exclusions: extraction.structure.exclusions,
+      propertyCoverage: extraction.structure?.coverages || {},
+      perils: extraction.structure?.perils || {},
+      exclusions: extraction.structure?.exclusions || [],
       conditions: filteredConditions,
-      lossSettlement: extraction.structure.lossSettlement,
-      additionalCoverages: extraction.structure.additionalCoverages,
+      lossSettlement: extraction.structure?.loss_settlement || {},
+      additionalCoverages: extraction.structure?.additional_coverages || [],
     },
-    section_ii: {
-      liabilityCoverages: extraction.structure.coverages?.liability,
-      exclusions: extraction.structure.exclusions?.liabilityExclusions,
-    },
-    general_conditions: extraction.structure.conditions || [],
-    raw_page_text: extraction.rawText || null,
+    section_ii: {},
+    general_conditions: filteredConditions,
+    raw_page_text: extraction.raw_text || null,
     status: 'completed',
   };
 
@@ -852,7 +678,7 @@ async function storePolicy(
     console.log(`[PolicyExtraction] Successfully inserted new extraction: ${insertData?.id}`);
   }
 
-  console.log(`[PolicyExtraction] Saved canonical extraction for document ${documentId}, form ${extraction.formCode}`);
+  console.log(`[PolicyExtraction] Saved canonical extraction for document ${documentId}, form ${extraction.form_code}`);
 }
 
 // ============================================
@@ -876,22 +702,19 @@ function inferEndorsementTypeAndPriority(
   // Loss settlement endorsements (highest priority)
   if (lowerFormCode.includes('81') || // Roof schedules
       lowerFormCode.includes('84') || // Hidden water / loss settlement
-      modifications.lossSettlement?.replacedSections?.length) {
+      modifications?.loss_settlement?.replaces?.length) {
     return { endorsementType: 'loss_settlement', precedencePriority: 5 };
   }
 
   // Coverage-specific endorsements
   if (lowerFormCode.includes('04') || // Coverage modifications
-      lowerFormCode.includes('06') || // Equipment breakdown
-      modifications.coverages?.added?.length ||
-      modifications.coverages?.modified?.length) {
+      lowerFormCode.includes('06')) { // Equipment breakdown
     return { endorsementType: 'coverage_specific', precedencePriority: 20 };
   }
 
   // State amendatory endorsements
   if (lowerFormCode.includes('53') || // State amendatory
-      lowerFormCode.includes('amendatory') ||
-      modifications.conditions?.modified?.length) {
+      lowerFormCode.includes('amendatory')) {
     return { endorsementType: 'state_amendatory', precedencePriority: 40 };
   }
 
@@ -909,78 +732,68 @@ function inferEndorsementTypeAndPriority(
  */
 function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
   const endorsements = raw.endorsements || [raw];
-  // Get fullText from multi-page extraction as fallback for rawText
-  const fullTextFallback = raw.fullText || '';
+  // Get full_text from multi-page extraction as fallback for raw_text
+  const fullTextFallback = raw.full_text || raw.fullText || '';
 
   // First pass: transform each endorsement entry
   const transformed = endorsements.map((e: any) => {
-    const formCode = e.endorsementMetadata?.formCode ||
-                     e.formCode ||
-                     e.formNumber || '';
-    const title = e.endorsementMetadata?.title ||
-                  e.title ||
-                  e.documentTitle ||
-                  e.name || '';
-
-    // For multi-page endorsements, use the captured fullText if individual rawText is empty
-    // This ensures we capture the complete endorsement text even when split across pages
-    const rawText = e.rawText || e.pageText || '';
+    // Prefer canonical structure, fallback to legacy formats
+    const formCode = e.form_code || e.endorsementMetadata?.formCode || e.formCode || e.formNumber || '';
+    const title = e.title || e.endorsementMetadata?.title || e.documentTitle || e.name;
+    const rawText = e.raw_text || e.rawText || e.pageText || '';
 
     const extraction: EndorsementExtraction = {
-      // Endorsement identification
-      formCode,
+      form_code: formCode,
       title,
-      editionDate: e.endorsementMetadata?.editionDate || e.editionDate || undefined,
-      jurisdiction: e.endorsementMetadata?.jurisdiction || e.jurisdiction || e.appliesToState || undefined,
-
-      // What this endorsement applies to
-      appliesToForms: e.endorsementMetadata?.appliesToPolicyForms || e.appliesToForms || [],
-      appliesToCoverages: e.appliesToCoverages || [],
-
-      // Delta modifications only
+      edition_date: e.edition_date || e.endorsementMetadata?.editionDate || e.editionDate,
+      jurisdiction: e.jurisdiction || e.endorsementMetadata?.jurisdiction || e.appliesToState,
+      applies_to_forms: e.applies_to_forms || e.endorsementMetadata?.appliesToPolicyForms || e.appliesToForms || [],
+      applies_to_coverages: e.applies_to_coverages || e.appliesToCoverages || [],
+      endorsement_type: e.endorsement_type,
+      precedence_priority: e.precedence_priority,
       modifications: e.modifications || {},
-
-      // Tables (depreciation schedules, etc.)
-      tables: e.tables || [],
-
-      // Full verbatim endorsement text
-      rawText,
+      tables: e.tables ? e.tables.map((t: any) => ({
+        table_type: t.table_type || t.tableType,
+        applies_when: t.applies_when || t.appliesWhen,
+        schedule: t.schedule || t.data,
+      })) : [],
+      raw_text: rawText,
     };
 
     return extraction;
   });
 
-  // Second pass: deduplicate and merge endorsements with same formCode
+  // Second pass: deduplicate and merge endorsements with same form_code
   // This handles multi-page documents where each page returns the same endorsement partially
   const mergedByFormCode = new Map<string, EndorsementExtraction>();
 
   for (const endorsement of transformed) {
-    const key = endorsement.formCode || 'unknown';
+    const key = endorsement.form_code || 'unknown';
     const existing = mergedByFormCode.get(key);
 
     if (!existing) {
       mergedByFormCode.set(key, endorsement);
     } else {
-      // Merge: concatenate rawText, merge modifications, concat tables
+      // Merge: concatenate raw_text, merge modifications, concat tables
       const merged: EndorsementExtraction = {
         ...existing,
         title: existing.title || endorsement.title,
-        editionDate: existing.editionDate || endorsement.editionDate,
+        edition_date: existing.edition_date || endorsement.edition_date,
         jurisdiction: existing.jurisdiction || endorsement.jurisdiction,
-        appliesToForms: [...new Set([...existing.appliesToForms, ...endorsement.appliesToForms])],
-        appliesToCoverages: [...new Set([...existing.appliesToCoverages, ...endorsement.appliesToCoverages])],
-        modifications: deepMergeObjects(existing.modifications, endorsement.modifications),
-        tables: [...existing.tables, ...endorsement.tables],
-        rawText: [existing.rawText, endorsement.rawText].filter(Boolean).join('\n\n'),
+        applies_to_forms: [...new Set([...(existing.applies_to_forms || []), ...(endorsement.applies_to_forms || [])])],
+        applies_to_coverages: [...new Set([...(existing.applies_to_coverages || []), ...(endorsement.applies_to_coverages || [])])],
+        modifications: deepMergeObjects(existing.modifications || {}, endorsement.modifications || {}),
+        tables: [...(existing.tables || []), ...(endorsement.tables || [])],
+        raw_text: [existing.raw_text, endorsement.raw_text].filter(Boolean).join('\n\n'),
       };
       mergedByFormCode.set(key, merged);
     }
   }
 
-  // Apply fullText fallback to any endorsement with empty rawText
+  // Apply full_text fallback to any endorsement with empty raw_text
   const result = Array.from(mergedByFormCode.values()).map(e => ({
     ...e,
-    rawText: e.rawText || fullTextFallback,
+    raw_text: e.raw_text || fullTextFallback,
   }));
 
   return result;
@@ -1003,7 +816,7 @@ async function storeEndorsements(
   documentId?: string
 ): Promise<void> {
   for (const endorsement of extractions) {
-    const formCode = endorsement.formCode;
+    const formCode = endorsement.form_code;
     if (!formCode) continue;
 
     // Infer type and priority
@@ -1026,10 +839,10 @@ async function storeEndorsements(
       document_id: documentId || null,
       form_code: formCode,
       title: endorsement.title || null,
-      edition_date: endorsement.editionDate || null,
+      edition_date: endorsement.edition_date || null,
       jurisdiction: endorsement.jurisdiction || null,
-      applies_to_policy_forms: endorsement.appliesToForms || [],
-      applies_to_coverages: endorsement.appliesToCoverages || [],
+      applies_to_policy_forms: endorsement.applies_to_forms || [],
+      applies_to_coverages: endorsement.applies_to_coverages || [],
       // Store the complete extraction as JSONB
       extraction_data: endorsement,
       extraction_version: 1,
@@ -1039,7 +852,7 @@ async function storeEndorsements(
       // Legacy fields for backward compatibility
       modifications: endorsement.modifications || {},
       tables: endorsement.tables || [],
-      raw_text: endorsement.rawText || null,
+      raw_text: endorsement.raw_text || null,
       extraction_model: 'gpt-4o',
       extraction_status: 'completed',
       status: 'completed',
@@ -1440,7 +1253,7 @@ export async function processDocument(
         console.log(`[Policy] Raw extraction keys: ${Object.keys(rawExtraction || {}).join(', ')}`);
 
         const policyExtraction = transformToPolicyExtraction(rawExtraction);
-        console.log(`[Policy] Transformed extraction: formCode=${policyExtraction.formCode}, formName=${policyExtraction.formName}`);
+        console.log(`[Policy] Transformed extraction: form_code=${policyExtraction.form_code}, form_name=${policyExtraction.form_name}`);
 
         const finalPolicyData = existingProgress
           ? { ...policyExtraction, _progress: { ...existingProgress, stage: 'completed' } }
@@ -1451,7 +1264,7 @@ export async function processDocument(
           .from('documents')
           .update({
             extracted_data: finalPolicyData,
-            full_text: rawExtraction.fullText || policyExtraction.rawText || null,
+            full_text: rawExtraction.full_text || policyExtraction.raw_text || null,
             page_texts: rawExtraction.pageTexts || [],
             processing_status: 'completed',
             updated_at: new Date().toISOString()
@@ -1525,7 +1338,7 @@ export async function processDocument(
 
         console.log(`[Endorsement] Transformed ${endorsementExtractions.length} endorsement(s)`);
         for (const e of endorsementExtractions) {
-          console.log(`[Endorsement]   - ${e.formCode}: title="${e.title}", rawText=${e.rawText?.length || 0} chars, tables=${e.tables?.length || 0}, modifications keys=${Object.keys(e.modifications || {}).join(',') || 'none'}`);
+          console.log(`[Endorsement]   - ${e.form_code}: title="${e.title}", raw_text=${e.raw_text?.length || 0} chars, tables=${e.tables?.length || 0}, modifications keys=${Object.keys(e.modifications || {}).join(',') || 'none'}`);
         }
 
         const finalEndorsementData = existingProgress
@@ -1649,7 +1462,7 @@ export async function createClaimFromDocuments(
   let fnolExtraction: FNOLExtraction;
   const extractedData = fnolDoc.extracted_data as any;
 
-  // Check if already in FNOLExtraction format
+  // Check if already in FNOLExtraction format (canonical structure)
   if (extractedData.claim && extractedData.insured && extractedData.property) {
     fnolExtraction = extractedData as FNOLExtraction;
   } else {
@@ -1673,12 +1486,12 @@ export async function createClaimFromDocuments(
   }
 
   // Generate claim number
-  const claimNumber = fnolExtraction.claim.claimNumber || await generateClaimId(organizationId);
+  const claimNumber = fnolExtraction.claim.claim_number || await generateClaimId(organizationId);
 
   // PERIL NORMALIZATION
   const perilInput: PerilInferenceInput = {
-    causeOfLoss: fnolExtraction.claim.primaryPeril,
-    lossDescription: fnolExtraction.claim.lossDescription,
+    causeOfLoss: fnolExtraction.claim.primary_peril,
+    lossDescription: fnolExtraction.claim.loss_description,
   };
 
   const perilInference = inferPeril(perilInput);
@@ -1691,14 +1504,10 @@ export async function createClaimFromDocuments(
 
   // Debug: Log policy values being stored
   console.log(`[ClaimCreation] Policy values for claim ${claimNumber}:`, {
-    policyNumber: fnolExtraction.policy?.policyNumber || null,
-    dwellingLimit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
-    windHailDeductible: fnolExtraction.policy?.windHailDeductible || null,
-    deductible: fnolExtraction.policy?.deductible || null,
-    coverageA: fnolExtraction.damageSummary.coverageA || null,
-    coverageB: fnolExtraction.damageSummary.coverageB || null,
-    coverageC: fnolExtraction.damageSummary.coverageC || null,
-    coverageD: fnolExtraction.damageSummary.coverageD || null,
+    coverageA: fnolExtraction.damage_summary.coverage_a || null,
+    coverageB: fnolExtraction.damage_summary.coverage_b || null,
+    coverageC: fnolExtraction.damage_summary.coverage_c || null,
+    coverageD: fnolExtraction.damage_summary.coverage_d || null,
   });
 
   // CREATE CLAIM - STRICT SCALAR MAPPING
@@ -1711,7 +1520,8 @@ export async function createClaimFromDocuments(
       claim_number: claimNumber,
 
       // Insured info
-      insured_name: fnolExtraction.insured.name || null,
+      insured_name: fnolExtraction.insured.primary_name + 
+        (fnolExtraction.insured.secondary_name ? ` ${fnolExtraction.insured.secondary_name}` : '') || null,
       insured_phone: fnolExtraction.insured.phone || null,
       insured_email: fnolExtraction.insured.email || null,
 
@@ -1722,27 +1532,21 @@ export async function createClaimFromDocuments(
       property_zip: fnolExtraction.property.address.zip || null,
 
       // Loss details
-      date_of_loss: fnolExtraction.claim.dateOfLoss || null,
+      date_of_loss: fnolExtraction.claim.date_of_loss || null,
       primary_peril: perilInference.primaryPeril,
-      loss_description: fnolExtraction.claim.lossDescription || null,
+      loss_description: fnolExtraction.claim.loss_description || null,
 
       // Roof
-      year_roof_install: fnolExtraction.property.roof?.yearInstalled?.toString() || null,
+      year_roof_install: fnolExtraction.property.roof?.year_installed?.toString() || null,
 
-      // Policy details from FNOL
-      policy_number: fnolExtraction.policy?.policyNumber || null,
-      dwelling_limit: fnolExtraction.policy?.dwellingLimit || fnolExtraction.damageSummary.coverageA || null,
-      wind_hail_deductible: fnolExtraction.policy?.windHailDeductible || null,
+      // Coverage amounts (numeric) - parsed from damage_summary strings
+      coverage_a: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_a),
+      coverage_b: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_b),
+      coverage_c: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_c),
+      coverage_d: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_d),
 
-      // Coverage amounts (numeric) - parsed from damageSummary strings
-      coverage_a: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageA),
-      coverage_b: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageB),
-      coverage_c: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageC),
-      coverage_d: parseCurrencyToNumber(fnolExtraction.damageSummary.coverageD),
-      deductible: parseCurrencyToNumber(fnolExtraction.policy?.deductible),
-
-      // Peril inference
-      secondary_perils: perilInference.secondaryPerils,
+      // Peril inference (merge FNOL secondary_perils with inferred ones)
+      secondary_perils: [...(fnolExtraction.claim.secondary_perils || []), ...perilInference.secondaryPerils],
       peril_confidence: perilInference.confidence,
       peril_metadata: perilInference.perilMetadata,
 
@@ -1780,7 +1584,7 @@ export async function createClaimFromDocuments(
     if (policyDoc.extracted_data && !policyDoc.extracted_data._progress) {
       // Check if this looks like a valid PolicyFormExtraction
       const extraction = policyDoc.extracted_data as PolicyFormExtraction;
-      if (extraction.formCode || extraction.formName || extraction.structure) {
+      if (extraction.form_code || extraction.form_name || extraction.structure) {
         await storePolicy(extraction, policyDoc.id, claimId, organizationId);
         console.log(`[ClaimCreation] Stored policy extraction for document ${policyDoc.id}`);
       }
