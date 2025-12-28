@@ -413,27 +413,140 @@ Extract all data from the document now.`,
   },
 
   [PromptKey.DOCUMENT_EXTRACTION_POLICY]: {
-    system: `You are an expert insurance document analyzer. Analyze the provided base Homeowners Policy Form (HO 80 03) and extract its structural metadata and default policy provisions. This task focuses on the generic policy form content, not policyholder-specific data.
-Output Rules:
-1. The output MUST be a single JSON object.
-2. Strictly adhere to the field names and data types specified in the template below.
-JSON Template:
+    system: `You are an expert insurance policy analyst specializing in homeowners insurance forms.
+
+Your task is to perform a COMPLETE, LOSSLESS extraction of all policy provisions from this homeowners policy form.
+
+-------------------------
+CRITICAL RULES
+-------------------------
+1. Output MUST be a single JSON object following the exact structure below.
+2. Extract ALL definitions, coverages, perils, exclusions, conditions, and loss settlement provisions.
+3. Preserve original policy language VERBATIM - do NOT summarize or paraphrase.
+4. Include ALL sub-clauses, exceptions, and special conditions.
+5. If a section is not present in the document, use empty array [] or empty object {}.
+6. Extract the COMPLETE text of each definition and provision.
+
+-------------------------
+OUTPUT STRUCTURE
+-------------------------
 {
-  "documentType": "STRING (Policy Form)",
-  "formNumber": "STRING",
-  "documentTitle": "STRING",
-  "baseStructure": {
-    "sectionHeadings": ["ARRAY of STRING (Major Section Headings)"],
-    "definitionOfACV": "STRING (Extract the key components of the Actual Cash Value definition from the Definitions section.)"
+  "documentMetadata": {
+    "policyFormCode": "STRING (e.g., HO 80 03)",
+    "policyFormName": "STRING (e.g., Homeowners Form)",
+    "editionDate": "STRING (e.g., 01 14)",
+    "pageCount": NUMBER
   },
-  "defaultPolicyProvisionSummary": {
-    "windHailLossSettlement": "STRING (Summarize the default loss settlement for roofing systems under Coverage A/B for Windstorm Or Hail, before any endorsements.)",
-    "unoccupiedExclusionPeriod": "STRING (State the default number of consecutive days a dwelling can be 'uninhabited' before exclusions like Theft and Vandalism apply.)"
-  }
-}`,
+  "jurisdiction": "STRING | null (State abbreviation if state-specific)",
+
+  "definitions": [
+    {
+      "term": "STRING (The defined term, e.g., 'Actual cash value')",
+      "definition": "STRING (Complete verbatim definition text)",
+      "subClauses": ["ARRAY of STRING (any sub-points a, b, c, etc.)"],
+      "exceptions": ["ARRAY of STRING (any 'does not mean' or exception clauses)"]
+    }
+  ],
+
+  "sectionI": {
+    "propertyCoverage": {
+      "coverageA": {
+        "name": "STRING (e.g., Dwelling)",
+        "covers": ["ARRAY of STRING (what is covered)"],
+        "excludes": ["ARRAY of STRING (what is not covered)"]
+      },
+      "coverageB": {
+        "name": "STRING (e.g., Other Structures)",
+        "covers": ["ARRAY of STRING"],
+        "excludes": ["ARRAY of STRING"],
+        "specialConditions": ["ARRAY of STRING (e.g., percentage limits)"]
+      },
+      "coverageC": {
+        "name": "STRING (e.g., Personal Property)",
+        "scope": "STRING (general coverage description)",
+        "specialLimits": [
+          {
+            "propertyType": "STRING",
+            "limit": "STRING",
+            "conditions": "STRING | null"
+          }
+        ],
+        "notCovered": ["ARRAY of STRING"]
+      },
+      "coverageD": {
+        "name": "STRING (e.g., Loss Of Use)",
+        "subCoverages": ["ARRAY of STRING (e.g., Additional Living Expense, Fair Rental Value)"],
+        "timeLimits": "STRING | null"
+      }
+    },
+    "perils": {
+      "coverageA_B": "STRING (e.g., 'Covered perils' or 'All risks' or list of named perils)",
+      "coverageC": ["ARRAY of STRING (named perils for personal property)"]
+    },
+    "exclusions": {
+      "global": ["ARRAY of STRING (exclusions that apply to all Section I coverages)"],
+      "coverageA_B_specific": ["ARRAY of STRING (exclusions specific to dwelling/structures)"]
+    },
+    "conditions": ["ARRAY of STRING (Section I conditions - duties after loss, etc.)"],
+    "lossSettlement": {
+      "dwellingAndStructures": {
+        "basis": "STRING (e.g., Replacement Cost)",
+        "repairRequirements": "STRING (must actually repair clause)",
+        "timeLimit": "STRING | null",
+        "matchingRules": "STRING | null"
+      },
+      "roofingSystem": {
+        "definition": "STRING (what constitutes roofing system)",
+        "hailSettlement": "STRING (how hail damage to roof is settled)",
+        "metalRestrictions": "STRING | null"
+      },
+      "personalProperty": {
+        "settlementBasis": ["ARRAY of STRING (e.g., ACV, replacement cost options)"],
+        "specialHandling": "STRING | null"
+      }
+    },
+    "additionalCoverages": [
+      {
+        "name": "STRING",
+        "description": "STRING",
+        "limit": "STRING | null",
+        "conditions": "STRING | null"
+      }
+    ]
+  },
+
+  "sectionII": {
+    "liabilityCoverages": {
+      "coverageE": {
+        "name": "STRING (Personal Liability)",
+        "insuringAgreement": "STRING (complete insuring agreement text)",
+        "dutyToDefend": true
+      },
+      "coverageF": {
+        "name": "STRING (Medical Payments)",
+        "insuringAgreement": "STRING",
+        "timeLimit": "STRING | null"
+      }
+    },
+    "exclusions": ["ARRAY of STRING (liability exclusions)"],
+    "conditions": ["ARRAY of STRING (Section II conditions)"],
+    "additionalCoverages": [
+      {
+        "name": "STRING",
+        "description": "STRING"
+      }
+    ]
+  },
+
+  "generalConditions": ["ARRAY of STRING (conditions that apply to entire policy)"],
+
+  "pageText": "STRING (Complete verbatim text of this page)"
+}
+
+Extract all policy provisions now. Be thorough and preserve exact policy language.`,
     model: 'gpt-4o',
     temperature: 0.1,
-    maxTokens: 4000,
+    maxTokens: 16000,
     responseFormat: 'json_object',
   },
 
