@@ -96,6 +96,34 @@ function parseCurrencyToNumber(value: string | null | undefined): number | null 
   return Math.round(parsed * 100) / 100;
 }
 
+/**
+ * Deep merge two objects, handling arrays and nested objects
+ * Used for merging multi-page extraction results (modifications, etc.)
+ */
+function deepMergeObjects(target: Record<string, any>, source: Record<string, any>): Record<string, any> {
+  const result = { ...target };
+
+  for (const [key, value] of Object.entries(source)) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    if (result[key] === undefined) {
+      result[key] = value;
+    } else if (Array.isArray(value) && Array.isArray(result[key])) {
+      // Concatenate arrays
+      result[key] = [...result[key], ...value];
+    } else if (typeof value === 'object' && !Array.isArray(value) &&
+               typeof result[key] === 'object' && !Array.isArray(result[key])) {
+      // Recursively merge objects
+      result[key] = deepMergeObjects(result[key], value);
+    }
+    // For scalars, keep the existing value
+  }
+
+  return result;
+}
+
 // ============================================
 // AUTHORITATIVE TYPE DEFINITIONS
 // ============================================
@@ -881,8 +909,11 @@ function inferEndorsementTypeAndPriority(
  */
 function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
   const endorsements = raw.endorsements || [raw];
+  // Get fullText from multi-page extraction as fallback for rawText
+  const fullTextFallback = raw.fullText || '';
 
-  return endorsements.map((e: any) => {
+  // First pass: transform each endorsement entry
+  const transformed = endorsements.map((e: any) => {
     const formCode = e.endorsementMetadata?.formCode ||
                      e.formCode ||
                      e.formNumber || '';
@@ -890,6 +921,10 @@ function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
                   e.title ||
                   e.documentTitle ||
                   e.name || '';
+
+    // For multi-page endorsements, use the captured fullText if individual rawText is empty
+    // This ensures we capture the complete endorsement text even when split across pages
+    const rawText = e.rawText || e.pageText || '';
 
     const extraction: EndorsementExtraction = {
       // Endorsement identification
@@ -908,12 +943,47 @@ function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
       // Tables (depreciation schedules, etc.)
       tables: e.tables || [],
 
-      // Full verbatim endorsement text - MANDATORY
-      rawText: e.rawText || '',
+      // Full verbatim endorsement text
+      rawText,
     };
 
     return extraction;
   });
+
+  // Second pass: deduplicate and merge endorsements with same formCode
+  // This handles multi-page documents where each page returns the same endorsement partially
+  const mergedByFormCode = new Map<string, EndorsementExtraction>();
+
+  for (const endorsement of transformed) {
+    const key = endorsement.formCode || 'unknown';
+    const existing = mergedByFormCode.get(key);
+
+    if (!existing) {
+      mergedByFormCode.set(key, endorsement);
+    } else {
+      // Merge: concatenate rawText, merge modifications, concat tables
+      const merged: EndorsementExtraction = {
+        ...existing,
+        title: existing.title || endorsement.title,
+        editionDate: existing.editionDate || endorsement.editionDate,
+        jurisdiction: existing.jurisdiction || endorsement.jurisdiction,
+        appliesToForms: [...new Set([...existing.appliesToForms, ...endorsement.appliesToForms])],
+        appliesToCoverages: [...new Set([...existing.appliesToCoverages, ...endorsement.appliesToCoverages])],
+        modifications: deepMergeObjects(existing.modifications, endorsement.modifications),
+        tables: [...existing.tables, ...endorsement.tables],
+        rawText: [existing.rawText, endorsement.rawText].filter(Boolean).join('\n\n'),
+      };
+      mergedByFormCode.set(key, merged);
+    }
+  }
+
+  // Apply fullText fallback to any endorsement with empty rawText
+  const result = Array.from(mergedByFormCode.values()).map(e => ({
+    ...e,
+    rawText: e.rawText || fullTextFallback,
+  }));
+
+  return result;
 }
 
 /**
@@ -1131,15 +1201,31 @@ async function extractFromPDF(
       }
     }
 
-    // For multi-page documents, merge results (first page takes precedence for scalars)
+    // For multi-page documents, merge results intelligently
+    // - Arrays are concatenated (endorsements, tables, etc.)
+    // - Objects are deep merged (modifications, etc.)
+    // - Scalars use first non-empty value
     const merged = pageResults.reduce((acc, curr) => {
       for (const [key, value] of Object.entries(curr)) {
-        if (value !== null && value !== undefined && value !== '' && acc[key] === undefined) {
-          acc[key] = value;
+        if (value === null || value === undefined || value === '') {
+          continue;
         }
+
+        if (acc[key] === undefined) {
+          // First occurrence, just set it
+          acc[key] = value;
+        } else if (Array.isArray(value) && Array.isArray(acc[key])) {
+          // Concatenate arrays (endorsements, tables, etc.)
+          acc[key] = [...acc[key], ...value];
+        } else if (typeof value === 'object' && !Array.isArray(value) &&
+                   typeof acc[key] === 'object' && !Array.isArray(acc[key])) {
+          // Deep merge objects (modifications, etc.)
+          acc[key] = deepMergeObjects(acc[key], value);
+        }
+        // For scalars, keep the first value (already set)
       }
       return acc;
-    }, {});
+    }, {} as Record<string, any>);
 
     merged.pageTexts = pageTexts;
     merged.fullText = pageTexts.join('\n\n--- Page Break ---\n\n');
@@ -1431,7 +1517,16 @@ export async function processDocument(
       }
 
       case 'endorsement': {
+        console.log(`[Endorsement] Raw extraction keys: ${Object.keys(rawExtraction || {}).join(', ')}`);
+        console.log(`[Endorsement] Endorsements array length: ${rawExtraction?.endorsements?.length || 'N/A (using raw as single)'}`);
+        console.log(`[Endorsement] fullText length: ${rawExtraction?.fullText?.length || 0} chars`);
+
         const endorsementExtractions = transformToEndorsementExtraction(rawExtraction);
+
+        console.log(`[Endorsement] Transformed ${endorsementExtractions.length} endorsement(s)`);
+        for (const e of endorsementExtractions) {
+          console.log(`[Endorsement]   - ${e.formCode}: title="${e.title}", rawText=${e.rawText?.length || 0} chars, tables=${e.tables?.length || 0}, modifications keys=${Object.keys(e.modifications || {}).join(',') || 'none'}`);
+        }
 
         const finalEndorsementData = existingProgress
           ? { ...endorsementExtractions, _progress: { ...existingProgress, stage: 'completed' } }
