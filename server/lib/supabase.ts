@@ -81,29 +81,12 @@ function isValidSupabaseUrl(url: string | undefined): boolean {
 // Flag to check if Supabase is configured with valid URLs and keys
 export const isSupabaseConfigured = !!(isValidSupabaseUrl(supabaseUrl) && supabasePublishableKey);
 
-// Log configuration status and key types
-if (process.env.NODE_ENV !== 'test') {
-  const publishableKeyType = detectKeyType(supabasePublishableKey);
-  const secretKeyType = detectKeyType(supabaseSecretKey);
-
-  if (isSupabaseConfigured) {
-    console.log(`[supabase] Configured with ${publishableKeyType} publishable key`);
-    if (supabaseSecretKey) {
-      console.log(`[supabase] Admin client configured with ${secretKeyType} secret key`);
-    }
-
-    // Warn about legacy keys
-    if (publishableKeyType === 'legacy' || secretKeyType === 'legacy') {
-      console.warn('[supabase] ⚠️  Using legacy API keys. Consider migrating to new sb_publishable_/sb_secret_ keys.');
-      console.warn('[supabase] See: https://supabase.com/docs/guides/api/api-keys');
-    }
+// Only log warnings for misconfiguration, not normal startup info
+if (process.env.NODE_ENV !== 'test' && !isSupabaseConfigured) {
+  if (supabaseUrl && !isValidSupabaseUrl(supabaseUrl)) {
+    console.warn('[supabase] SUPABASE_URL is not a valid HTTP/HTTPS URL. Supabase features will be disabled.');
   } else {
-    if (supabaseUrl && !isValidSupabaseUrl(supabaseUrl)) {
-      console.warn('[supabase] SUPABASE_URL is not a valid HTTP/HTTPS URL. Supabase features will be disabled.');
-      console.warn('[supabase] SUPABASE_URL should be like: https://xxxxx.supabase.co');
-    } else {
-      console.warn('[supabase] Missing SUPABASE_URL or SUPABASE_PUBLISHABLE_API_KEY. Supabase features will be disabled.');
-    }
+    console.warn('[supabase] Missing SUPABASE_URL or SUPABASE_PUBLISHABLE_API_KEY. Supabase features will be disabled.');
   }
 }
 
