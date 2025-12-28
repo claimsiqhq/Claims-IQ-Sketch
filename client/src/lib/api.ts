@@ -718,9 +718,9 @@ export interface Claim {
   propertyCity?: string;
   propertyState?: string;
   propertyZip?: string;
-  yearRoofInstall?: string; // Format: MM-DD-YYYY
-  windHailDeductible?: string; // Format: $X,XXX X%
   dwellingLimit?: string; // Format: $XXX,XXX
+  perilSpecificDeductibles?: Record<string, string>; // { "wind_hail": "$7,932 1%", etc. }
+  // yearRoofInstall is now in lossContext.property.roof.year_installed
   coverageA?: string;
   coverageB?: string;
   coverageC?: string;
@@ -760,7 +760,7 @@ export interface Claim {
     personalLiabilityLimit?: string;
     medicalPaymentsLimit?: string;
     deductible?: string;
-    windHailDeductible?: string;
+    perilSpecificDeductibles?: Record<string, string>;
     namedInsured?: string;
     mailingAddress?: string;
     propertyAddress?: string;

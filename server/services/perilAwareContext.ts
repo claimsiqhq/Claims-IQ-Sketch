@@ -124,13 +124,12 @@ export interface PolicyContext {
   policyNumber: string | null;
   state: string | null;
   dwellingLimit: string | null;
-  windHailDeductible: string | null;
+  perilSpecificDeductibles: Record<string, string>; // { "wind_hail": "$7,932 1%", etc. }
   coverageA: string | null;
   coverageB: string | null;
   coverageC: string | null;
   coverageD: string | null;
   deductible: string | null;
-  yearRoofInstall: string | null;
 
   // Extended fields from loss_context / effective policy
   carrier?: string;
@@ -271,13 +270,12 @@ export async function buildPerilAwareClaimContext(
     propertyZip: claimData.property_zip,
     policyNumber: claimData.policy_number,
     dwellingLimit: claimData.dwelling_limit,
-    windHailDeductible: claimData.wind_hail_deductible,
+    perilSpecificDeductibles: claimData.peril_specific_deductibles || {},
     coverageA: claimData.coverage_a,
     coverageB: claimData.coverage_b,
     coverageC: claimData.coverage_c,
     coverageD: claimData.coverage_d,
     deductible: claimData.deductible,
-    yearRoofInstall: claimData.year_roof_install,
     lossContext: claimData.loss_context,  // Canonical FNOL truth
     createdAt: claimData.created_at,
     updatedAt: claimData.updated_at,
@@ -459,13 +457,12 @@ export async function buildPerilAwareClaimContext(
     policyNumber: claim.policyNumber,
     state: claim.propertyState,
     dwellingLimit: claim.dwellingLimit,
-    windHailDeductible: claim.windHailDeductible,
+    perilSpecificDeductibles: claim.perilSpecificDeductibles || {},
     coverageA: claim.coverageA,
     coverageB: claim.coverageB,
     coverageC: claim.coverageC,
     coverageD: claim.coverageD,
     deductible: claim.deductible,
-    yearRoofInstall: claim.yearRoofInstall,
 
     // Extended fields from loss_context (canonical schema)
     yearBuilt: lossContextProperty.year_built?.toString(),

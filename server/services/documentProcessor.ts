@@ -1473,8 +1473,9 @@ export async function createClaimFromDocuments(
       primary_peril: perilInference.primaryPeril,
       loss_description: fnolExtraction.claim.loss_description || null,
 
-      // Roof
-      year_roof_install: fnolExtraction.property.roof?.year_installed?.toString() || null,
+      // Peril-specific deductibles (will be populated from policy/endorsements if needed)
+      // Note: year_roof_install is stored in loss_context.property.roof.year_installed
+      peril_specific_deductibles: {},
 
       // Coverage amounts (numeric) - parsed from damage_summary strings
       coverage_a: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_a),

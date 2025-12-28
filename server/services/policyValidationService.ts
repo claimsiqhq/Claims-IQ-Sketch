@@ -138,11 +138,12 @@ export async function validateEstimateAgainstPolicy(
     // Get roof age from claim
     const { data: claimData } = await supabaseAdmin
       .from('claims')
-      .select('year_roof_install')
+      .select('loss_context')
       .eq('id', claimId)
       .single();
 
-    const roofAge = calculateRoofAge(claimData?.year_roof_install);
+    const roofYear = claimData?.loss_context?.property?.roof?.year_installed;
+    const roofAge = calculateRoofAge(roofYear?.toString());
 
     // Build validation context
     const context: ValidationContext = {

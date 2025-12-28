@@ -168,8 +168,17 @@ function buildBasicPolicyContext(context: PerilAwareClaimContext): string {
   if (context.policyContext.coverageC) lines.push(`- Coverage C: ${context.policyContext.coverageC}`);
   if (context.policyContext.coverageD) lines.push(`- Coverage D: ${context.policyContext.coverageD}`);
   if (context.policyContext.deductible) lines.push(`- Deductible: ${context.policyContext.deductible}`);
-  if (context.policyContext.windHailDeductible) lines.push(`- Wind/Hail Deductible: ${context.policyContext.windHailDeductible}`);
-  if (context.policyContext.yearRoofInstall) lines.push(`- Year Roof Installed: ${context.policyContext.yearRoofInstall}`);
+  // Peril-specific deductibles
+  if (context.policyContext.perilSpecificDeductibles && Object.keys(context.policyContext.perilSpecificDeductibles).length > 0) {
+    for (const [peril, deductible] of Object.entries(context.policyContext.perilSpecificDeductibles)) {
+      const perilLabel = peril.replace('_', ' ').toUpperCase();
+      lines.push(`- ${perilLabel} Deductible: ${deductible}`);
+    }
+  }
+  // Year roof installed from loss_context
+  if (context.lossContext?.property?.roof?.year_installed) {
+    lines.push(`- Year Roof Installed: ${context.lossContext.property.roof.year_installed}`);
+  }
 
   return lines.join('\n');
 }
@@ -317,11 +326,11 @@ function buildBriefingPromptWithTemplate(
       personalPropertyLimit: context.policyContext.personalPropertyLimit || 'Unknown',
       lossOfUseLimit: context.policyContext.lossOfUseLimit || 'Unknown',
       deductible: context.policyContext.deductible || 'Unknown',
-      windHailDeductible: context.policyContext.windHailDeductible || 'Unknown',
+      perilSpecificDeductibles: context.policyContext.perilSpecificDeductibles || {},
 
       // Property details (from loss_context canonical schema)
       yearBuilt: lossContextProperty.year_built?.toString() || context.policyContext.yearBuilt || 'Unknown',
-      yearRoofInstall: lossContextRoof.year_installed?.toString() || context.policyContext.yearRoofInstall || 'Unknown',
+      yearRoofInstall: lossContextRoof.year_installed?.toString() || 'Unknown',
       roofType: lossContextRoof.material || context.policyContext.roofType || 'Unknown',
       roofDamageScope: lossContextRoof.damage_scope || 'Unknown',
       occupancy: lossContextProperty.occupancy || 'Unknown',

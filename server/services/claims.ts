@@ -33,9 +33,8 @@ export interface ClaimWithDocuments {
   policyNumber?: string;
   claimType?: string;
   state?: string;
-  yearRoofInstall?: string;
-  windHailDeductible?: string;
   dwellingLimit?: string;
+  perilSpecificDeductibles?: Record<string, string>; // { "wind_hail": "$7,932 1%", etc. }
   coverageA?: string;
   coverageB?: string;
   coverageC?: string;
@@ -75,7 +74,7 @@ export interface ClaimWithDocuments {
     personalLiabilityLimit?: string;
     medicalPaymentsLimit?: string;
     deductible?: string;
-    windHailDeductible?: string;
+    perilSpecificDeductibles?: Record<string, string>;
     namedInsured?: string;
     mailingAddress?: string;
     propertyAddress?: string;
@@ -164,9 +163,10 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
     policyNumber: row.policy_number,
     claimType: row.claim_type,
     state: row.property_state,
-    yearRoofInstall: row.year_roof_install,
-    windHailDeductible: row.wind_hail_deductible,
     dwellingLimit: row.dwelling_limit,
+    perilSpecificDeductibles: row.peril_specific_deductibles || {},
+    // yearRoofInstall is now in lossContext.property.roof.year_installed
+    // windHailDeductible is now in perilSpecificDeductibles.wind_hail
     coverageA: row.coverage_a,
     coverageB: row.coverage_b,
     coverageC: row.coverage_c,
@@ -222,9 +222,8 @@ export async function createClaim(
     propertyCity?: string;
     propertyState?: string;
     propertyZip?: string;
-    yearRoofInstall?: string;
-    windHailDeductible?: string;
     dwellingLimit?: string;
+    perilSpecificDeductibles?: Record<string, string>;
     coverageA?: number;
     coverageB?: number;
     coverageC?: number;
@@ -252,9 +251,8 @@ export async function createClaim(
       property_city: data.propertyCity || null,
       property_state: data.propertyState || null,
       property_zip: data.propertyZip || null,
-      year_roof_install: data.yearRoofInstall || null,
-      wind_hail_deductible: data.windHailDeductible || null,
       dwelling_limit: data.dwellingLimit || null,
+      peril_specific_deductibles: data.perilSpecificDeductibles || {},
       coverage_a: data.coverageA || null,
       coverage_b: data.coverageB || null,
       coverage_c: data.coverageC || null,
@@ -341,7 +339,7 @@ export async function getClaim(
       personalLiabilityLimit: coverageLimits.personalLiabilityCoverageE || coverageLimits.coverageE,
       medicalPaymentsLimit: coverageLimits.medicalPaymentsCoverageF || coverageLimits.coverageF,
       deductible: coverageLimits.deductible || declarations?.deductible,
-      windHailDeductible: coverageLimits.windHailDeductible || declarations?.windHailDeductible,
+      perilSpecificDeductibles: coverageLimits.perilSpecificDeductibles || declarations?.perilSpecificDeductibles || {},
       namedInsured: insuredInfo.namedInsured || declarations?.namedInsured,
       mailingAddress: insuredInfo.mailingAddress,
       propertyAddress: propertyInfo.address || declarations?.propertyAddress,
@@ -442,9 +440,8 @@ export async function updateClaim(
     causeOfLoss: string;
     lossDescription: string;
     state: string;
-    yearRoofInstall: string;
-    windHailDeductible: string;
     dwellingLimit: string;
+    perilSpecificDeductibles: Record<string, string>;
     assignedAdjusterId: string;
     totalRcv: string;
     totalAcv: string;
@@ -478,9 +475,8 @@ export async function updateClaim(
     propertyCity: 'property_city',
     propertyState: 'property_state',
     propertyZip: 'property_zip',
-    yearRoofInstall: 'year_roof_install',
-    windHailDeductible: 'wind_hail_deductible',
     dwellingLimit: 'dwelling_limit',
+    perilSpecificDeductibles: 'peril_specific_deductibles',
     coverageA: 'coverage_a',
     coverageB: 'coverage_b',
     coverageC: 'coverage_c',

@@ -1193,7 +1193,7 @@ export default function ClaimDetail() {
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground uppercase">Wind/Hail Deductible</Label>
                           <p className="text-lg font-bold text-amber-600" data-testid="wind-hail-deductible">
-                            {apiClaim?.extractedPolicy?.windHailDeductible || apiClaim?.windHailDeductible || '-'}
+                            {apiClaim?.extractedPolicy?.perilSpecificDeductibles?.wind_hail || apiClaim?.perilSpecificDeductibles?.wind_hail || '-'}
                           </p>
                         </div>
                       </div>
@@ -1231,7 +1231,7 @@ export default function ClaimDetail() {
                       )}
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground uppercase">Year Roof Installed</Label>
-                        <p className="font-medium">{apiClaim?.yearRoofInstall || apiClaim?.lossContext?.property?.roof?.year_installed || '-'}</p>
+                        <p className="font-medium">{apiClaim?.lossContext?.property?.roof?.year_installed || '-'}</p>
                       </div>
                     </CardContent>
                   </Card>

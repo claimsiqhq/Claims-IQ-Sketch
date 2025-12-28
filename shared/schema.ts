@@ -252,10 +252,12 @@ export const claims = pgTable("claims", {
   policyNumber: varchar("policy_number", { length: 50 }), // "070269410955"
   claimType: varchar("claim_type", { length: 50 }),
 
-  // FNOL Policy fields (new - to be added)
-  yearRoofInstall: varchar("year_roof_install", { length: 20 }), // "01-01-2016"
-  windHailDeductible: varchar("wind_hail_deductible", { length: 50 }), // "$7,932 1%"
+  // Policy limits and deductibles
   dwellingLimit: varchar("dwelling_limit", { length: 50 }), // "$793,200"
+  // Peril-specific deductibles (e.g., wind/hail percentage deductibles)
+  // Structure: { "wind_hail": "$7,932 1%", "flood": "$5,000", etc. }
+  // Note: year_roof_install is stored in loss_context.property.roof.year_installed
+  perilSpecificDeductibles: jsonb("peril_specific_deductibles").default(sql`'{}'::jsonb`),
   // @deprecated Use endorsement_extractions table instead
   endorsementsListed: jsonb("endorsements_listed").default(sql`'[]'::jsonb`),
 

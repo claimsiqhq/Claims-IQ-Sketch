@@ -146,9 +146,8 @@ interface ClaimRow {
   coverage_c?: string;
   coverage_d?: string;
   deductible?: string;
-  wind_hail_deductible?: string;
   dwelling_limit?: string;
-  year_roof_install?: string;
+  peril_specific_deductibles?: Record<string, string>;
 }
 
 /**
@@ -453,7 +452,7 @@ function buildEffectivePolicy(
 
     deductibles: {
       standard: claim.deductible || undefined,
-      windHail: claim.wind_hail_deductible || undefined,
+      windHail: claim.peril_specific_deductibles?.wind_hail || undefined,
       sourceEndorsements: [],
     },
 
