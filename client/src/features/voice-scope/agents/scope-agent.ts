@@ -13,71 +13,41 @@ let cachedInstructions: string | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache
 
-// Fallback instructions if API fails - kept in sync with database version
-const FALLBACK_INSTRUCTIONS = `You are an estimate building assistant for property insurance claims adjusters. Your job is to help them add line items to an estimate by voice.
-
-PERSONALITY:
-- Be concise and professional—adjusters are working in the field
-- Confirm each item briefly before moving on
-- Suggest related items when appropriate
-
-WORKFLOW:
-1. Listen for line item descriptions or requests
-2. ALWAYS call search_line_items to find the correct code
-3. Match descriptions to search results and get quantity/unit confirmation
-4. Add to estimate using the exact code from search results
-5. Suggest related items if relevant
-
-CRITICAL - NO GUESSING: You do NOT have the line item database in your memory. You MUST search for every line item using search_line_items before adding it. Never invent a code.
-
-XACTIMATE CATEGORY CODES:
-- WTR: Water Extraction & Remediation
-- DRY: Drywall
-- PNT: Painting
-- CLN: Cleaning
-- PLM: Plumbing
-- ELE: Electrical
-- RFG: Roofing
-
-ERROR HANDLING:
-- If can't find item: "I couldn't find an exact match. Did you mean [alternative]?"
-- If quantity unclear: "What quantity for that?"
-- If unit unclear: "Is that per square foot or linear foot?"`;
-
 /**
  * Fetch prompt instructions from the database API
  * Returns cached version if available and not expired
+ * Throws error if prompt not available - database is the ONLY source
  */
-async function fetchInstructionsFromAPI(): Promise<string | null> {
+async function fetchInstructionsFromAPI(): Promise<string> {
   // Check cache first
   const now = Date.now();
   if (cachedInstructions && (now - cacheTimestamp) < CACHE_TTL_MS) {
     return cachedInstructions;
   }
 
-  try {
-    const response = await fetch('/api/prompts/voice.scope/config', {
-      credentials: 'include',
-    });
+  const response = await fetch('/api/prompts/voice.scope/config', {
+    credentials: 'include',
+  });
 
-    if (!response.ok) {
-      console.warn('[ScopeAgent] Failed to fetch prompt from API:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    if (data.config?.systemPrompt) {
-      cachedInstructions = data.config.systemPrompt;
-      cacheTimestamp = now;
-      console.log('[ScopeAgent] Loaded instructions from database');
-      return cachedInstructions;
-    }
-
-    return null;
-  } catch (error) {
-    console.warn('[ScopeAgent] Error fetching prompt from API:', error);
-    return null;
+  if (!response.ok) {
+    throw new Error(
+      `[ScopeAgent] Failed to fetch prompt from database (HTTP ${response.status}). ` +
+      `The prompt "voice.scope" must exist in the ai_prompts table.`
+    );
   }
+
+  const data = await response.json();
+  if (!data.config?.systemPrompt) {
+    throw new Error(
+      `[ScopeAgent] No systemPrompt found in database response. ` +
+      `Check that the "voice.scope" prompt is properly configured in ai_prompts.`
+    );
+  }
+
+  cachedInstructions = data.config.systemPrompt;
+  cacheTimestamp = now;
+  console.log('[ScopeAgent] Loaded instructions from database');
+  return cachedInstructions;
 }
 
 // Tool: Add a line item
@@ -295,55 +265,16 @@ const agentTools = [
 
 /**
  * Create a scope agent with instructions loaded from database
- * This is the preferred way to create an agent - it fetches prompts from Supabase
+ * Database is the ONLY source - throws if prompt not available
  */
 export async function createScopeAgentAsync(): Promise<RealtimeAgent> {
-  // Try to fetch instructions from database
-  const dbInstructions = await fetchInstructionsFromAPI();
-
-  // Use database instructions or fall back to local template
-  const instructions = dbInstructions || FALLBACK_INSTRUCTIONS;
-
-  if (!dbInstructions) {
-    console.warn('[ScopeAgent] Using fallback instructions - database prompt not available');
-  }
+  const instructions = await fetchInstructionsFromAPI();
 
   return new RealtimeAgent({
     name: 'ScopeAgent',
     instructions,
     tools: agentTools,
   });
-}
-
-/**
- * Create scope agent synchronously (uses cached or fallback instructions)
- * @deprecated Use createScopeAgentAsync for database-loaded prompts
- */
-export function createScopeAgent(): RealtimeAgent {
-  // Use cached instructions if available, otherwise use fallback
-  const instructions = cachedInstructions || FALLBACK_INSTRUCTIONS;
-
-  return new RealtimeAgent({
-    name: 'ScopeAgent',
-    instructions,
-    tools: agentTools,
-  });
-}
-
-// Default agent (backwards compatible) - uses fallback instructions initially
-// Call initializeScopeAgent() to load from database
-export const scopeAgent = new RealtimeAgent({
-  name: 'ScopeAgent',
-  instructions: FALLBACK_INSTRUCTIONS,
-  tools: agentTools,
-});
-
-/**
- * Initialize the scope agent by pre-fetching instructions from database
- * Call this during app initialization to warm the cache
- */
-export async function initializeScopeAgent(): Promise<void> {
-  await fetchInstructionsFromAPI();
 }
 
 // Export individual tools for testing

@@ -14,77 +14,41 @@ let cachedInstructions: string | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache
 
-// Fallback instructions if API fails - kept in sync with database version
-const FALLBACK_INSTRUCTIONS_TEMPLATE = `You are a field sketching assistant for property insurance claims adjusters. Your job is to help them create room sketches by voice.
-
-IMPORTANT: The adjuster's name is {userName}. Address them by name occasionally (especially when greeting or confirming completion of major actions), but don't overuse it.
-
-PERSONALITY:
-- Be concise and professional—adjusters are working in the field
-- Greet the adjuster by name when they start: "Hi {userName}, ready to sketch. What room are we working on?"
-- Confirm each element briefly before moving on
-- Ask ONE clarifying question when information is ambiguous
-
-ROOM CREATION FLOW:
-1. Establish room name/type and basic shape
-2. Get overall dimensions (ask unit preference if unclear)
-3. For L-shaped, T-shaped, or U-shaped rooms, get the cutout/extension details
-4. Ask about flooring type (carpet, hardwood, tile, vinyl, laminate, concrete)
-5. Add openings (doors, windows) wall by wall
-6. Add features (closets, pantries, alcoves, bump-outs)
-7. Mark damage zones if applicable
-8. Confirm and finalize
-
-WALL ORIENTATION:
-- North wall is at the top of the sketch
-- South wall is at the bottom
-- East wall is on the right
-- West wall is on the left
-
-COMMON ROOM TYPES:
-- Living Room, Family Room, Great Room
-- Kitchen, Dining Room, Breakfast Nook
-- Master Bedroom, Bedroom 2/3/4, Guest Room
-- Master Bathroom, Full Bath, Half Bath, Powder Room
-- Laundry Room, Utility Room, Mudroom
-- Office, Study, Den
-- Garage, Workshop
-- Hallway, Foyer, Entry`;
-
 /**
  * Fetch prompt instructions from the database API
  * Returns cached version if available and not expired
+ * Throws error if prompt not available - database is the ONLY source
  */
-async function fetchInstructionsFromAPI(): Promise<string | null> {
+async function fetchInstructionsFromAPI(): Promise<string> {
   // Check cache first
   const now = Date.now();
   if (cachedInstructions && (now - cacheTimestamp) < CACHE_TTL_MS) {
     return cachedInstructions;
   }
 
-  try {
-    const response = await fetch('/api/prompts/voice.room_sketch/config', {
-      credentials: 'include',
-    });
+  const response = await fetch('/api/prompts/voice.room_sketch/config', {
+    credentials: 'include',
+  });
 
-    if (!response.ok) {
-      console.warn('[RoomSketchAgent] Failed to fetch prompt from API:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    if (data.config?.systemPrompt) {
-      cachedInstructions = data.config.systemPrompt;
-      cacheTimestamp = now;
-      console.log('[RoomSketchAgent] Loaded instructions from database');
-      return cachedInstructions;
-    }
-
-    return null;
-  } catch (error) {
-    console.warn('[RoomSketchAgent] Error fetching prompt from API:', error);
-    return null;
+  if (!response.ok) {
+    throw new Error(
+      `[RoomSketchAgent] Failed to fetch prompt from database (HTTP ${response.status}). ` +
+      `The prompt "voice.room_sketch" must exist in the ai_prompts table.`
+    );
   }
+
+  const data = await response.json();
+  if (!data.config?.systemPrompt) {
+    throw new Error(
+      `[RoomSketchAgent] No systemPrompt found in database response. ` +
+      `Check that the "voice.room_sketch" prompt is properly configured in ai_prompts.`
+    );
+  }
+
+  cachedInstructions = data.config.systemPrompt;
+  cacheTimestamp = now;
+  console.log('[RoomSketchAgent] Loaded instructions from database');
+  return cachedInstructions;
 }
 
 /**
@@ -557,19 +521,10 @@ const agentTools = [
 
 /**
  * Create a personalized room sketch agent with instructions loaded from database
- * This is the preferred way to create an agent - it fetches prompts from Supabase
+ * Database is the ONLY source - throws if prompt not available
  */
 export async function createRoomSketchAgentAsync(userName?: string): Promise<RealtimeAgent> {
-  // Try to fetch instructions from database
-  const dbInstructions = await fetchInstructionsFromAPI();
-
-  // Use database instructions or fall back to local template
-  const baseInstructions = dbInstructions || FALLBACK_INSTRUCTIONS_TEMPLATE;
-
-  if (!dbInstructions) {
-    console.warn('[RoomSketchAgent] Using fallback instructions - database prompt not available');
-  }
-
+  const baseInstructions = await fetchInstructionsFromAPI();
   const personalizedInstructions = personalizeInstructions(baseInstructions, userName);
 
   return new RealtimeAgent({
@@ -577,38 +532,6 @@ export async function createRoomSketchAgentAsync(userName?: string): Promise<Rea
     instructions: personalizedInstructions,
     tools: agentTools,
   });
-}
-
-/**
- * Create personalized agent synchronously (uses cached or fallback instructions)
- * @deprecated Use createRoomSketchAgentAsync for database-loaded prompts
- */
-export function createRoomSketchAgent(userName?: string): RealtimeAgent {
-  // Use cached instructions if available, otherwise use fallback
-  const baseInstructions = cachedInstructions || FALLBACK_INSTRUCTIONS_TEMPLATE;
-  const personalizedInstructions = personalizeInstructions(baseInstructions, userName);
-
-  return new RealtimeAgent({
-    name: 'RoomSketchAgent',
-    instructions: personalizedInstructions,
-    tools: agentTools,
-  });
-}
-
-// Default agent (backwards compatible) - uses fallback instructions initially
-// Call initializeRoomSketchAgent() to load from database
-export const roomSketchAgent = new RealtimeAgent({
-  name: 'RoomSketchAgent',
-  instructions: personalizeInstructions(FALLBACK_INSTRUCTIONS_TEMPLATE),
-  tools: agentTools,
-});
-
-/**
- * Initialize the room sketch agent by pre-fetching instructions from database
- * Call this during app initialization to warm the cache
- */
-export async function initializeRoomSketchAgent(): Promise<void> {
-  await fetchInstructionsFromAPI();
 }
 
 // Export individual tools for testing
