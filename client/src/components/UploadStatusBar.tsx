@@ -2,7 +2,7 @@
  * Upload Status Bar - Global floating component for tracking background uploads
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Upload,
   X,
@@ -25,17 +25,42 @@ import { UploadQueueRow } from './UploadQueueRow';
 export function UploadStatusBar() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const autoClearTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const queue = useUploadQueue((state) => state.queue);
   const { clearCompleted, clearFailed, retryAllFailed, retryFailed, removeFromQueue, clearAll } = useUploadQueue();
   const stats = useUploadQueueStats();
+
+  const { pending, uploading, classifying, processing, completed, failed, isActive } = stats;
+
+  // Auto-clear completed items after 3 seconds when all processing is done
+  useEffect(() => {
+    // Clear any existing timer
+    if (autoClearTimerRef.current) {
+      clearTimeout(autoClearTimerRef.current);
+      autoClearTimerRef.current = null;
+    }
+
+    // If no active uploads and we have completed items (and no failures), auto-clear
+    if (!isActive && completed > 0 && failed === 0 && queue.length > 0) {
+      autoClearTimerRef.current = setTimeout(() => {
+        clearAll();
+      }, 3000);
+    }
+
+    return () => {
+      if (autoClearTimerRef.current) {
+        clearTimeout(autoClearTimerRef.current);
+      }
+    };
+  }, [isActive, completed, failed, queue.length, clearAll]);
 
   // Don't render if queue is empty
   if (queue.length === 0) {
     return null;
   }
 
-  const { pending, uploading, classifying, processing, completed, failed, overallProgress, isActive } = stats;
+  const { overallProgress } = stats;
   const activeCount = pending + uploading + classifying + processing;
 
   // Minimized view - just a small floating indicator
