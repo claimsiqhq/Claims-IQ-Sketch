@@ -89,6 +89,8 @@ import {
   addScopeItem,
   updateScopeItem as apiUpdateScopeItem,
   deleteScopeItem as apiDeleteScopeItem,
+  getClaimContext,
+  getCoverageAnalysisSummary,
   type Claim,
   type Document,
   type EndorsementExtraction,
@@ -96,6 +98,9 @@ import {
   type ValidationIssue,
   type EstimateLockStatus,
   type ScopeItem,
+  type UnifiedClaimContext,
+  type CoverageAnalysisSummary,
+  type CoverageAlert,
 } from "@/lib/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -156,6 +161,10 @@ export default function ClaimDetail() {
   const [loadingApiData, setLoadingApiData] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [savingScopeItem, setSavingScopeItem] = useState(false);
+
+  // Unified Claim Context (merged FNOL + Policy + Endorsements)
+  const [claimContext, setClaimContext] = useState<UnifiedClaimContext | null>(null);
+  const [coverageSummary, setCoverageSummary] = useState<CoverageAnalysisSummary | null>(null);
 
   // Bulk upload queue integration
   const { addToQueue } = useUploadQueue();
@@ -238,12 +247,14 @@ export default function ClaimDetail() {
     setApiError(null);
 
     try {
-      const [claimData, docsData, endorsementsData, scopeData, roomsData] = await Promise.all([
+      const [claimData, docsData, endorsementsData, scopeData, roomsData, contextData, coverageData] = await Promise.all([
         getClaim(params.id),
         getClaimDocuments(params.id),
         getClaimEndorsementExtractions(params.id).catch(() => []), // Don't fail if endorsements fail
         getScopeItems(params.id).catch(() => []), // Don't fail if scope items fail
-        getClaimRooms(params.id).catch(() => ({ rooms: [], damageZones: [] })) // Don't fail if rooms fail
+        getClaimRooms(params.id).catch(() => ({ rooms: [], damageZones: [] })), // Don't fail if rooms fail
+        getClaimContext(params.id).catch(() => null), // Don't fail if context not available
+        getCoverageAnalysisSummary(params.id).catch(() => null), // Don't fail if coverage analysis not available
       ]);
       setApiClaim(claimData);
       setDocuments(docsData);
@@ -251,6 +262,8 @@ export default function ClaimDetail() {
       setScopeItems(scopeData);
       setSavedRooms(roomsData.rooms || []);
       setSavedDamageZones(roomsData.damageZones || []);
+      setClaimContext(contextData);
+      setCoverageSummary(coverageData);
       // Ensure the claim exists in the store for sketch operations
       // Cast the API Claim to the store's Partial<Claim> type (status field is compatible)
       ensureClaim(params.id, claimData as any);
@@ -1231,10 +1244,301 @@ export default function ClaimDetail() {
                       )}
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground uppercase">Year Roof Installed</Label>
-                        <p className="font-medium">{apiClaim?.lossContext?.property?.roof?.year_installed || '-'}</p>
+                        <p className="font-medium">{claimContext?.property?.roof?.yearInstalled || apiClaim?.lossContext?.property?.roof?.year_installed || '-'}</p>
                       </div>
+                      {/* Roof Material from Context */}
+                      {claimContext?.property?.roof?.material && (
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Roof Material</Label>
+                          <p className="font-medium">{claimContext.property.roof.material}</p>
+                        </div>
+                      )}
+                      {/* Roof Age from Context */}
+                      {claimContext?.property?.roof?.age !== undefined && (
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Roof Age</Label>
+                          <p className="font-medium">{claimContext.property.roof.age} years</p>
+                        </div>
+                      )}
+                      {/* Applicable Deductible from Context */}
+                      {claimContext?.deductibles?.applicableForPeril && (
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Applicable Deductible</Label>
+                          <p className="font-medium text-amber-600">{claimContext.deductibles.applicableForPeril.formatted}</p>
+                        </div>
+                      )}
+                      {/* Loss Settlement Basis from Context */}
+                      {claimContext?.lossSettlement?.dwelling && (
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Dwelling Settlement</Label>
+                          <p className="font-medium capitalize">{claimContext.lossSettlement.dwelling.basis.replace(/_/g, ' ')}</p>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
+
+                  {/* Coverage Alerts Card - Show if there are alerts */}
+                  {claimContext?.alerts && claimContext.alerts.length > 0 && (
+                    <Card className="lg:col-span-2">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <AlertCircle className="w-5 h-5" />
+                          Coverage Alerts
+                          <Badge variant={claimContext.alerts.some(a => a.severity === 'critical') ? 'destructive' : 'secondary'} className="ml-2">
+                            {claimContext.alerts.length}
+                          </Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {claimContext.alerts.map((alert, idx) => (
+                          <div
+                            key={idx}
+                            className={cn(
+                              "rounded-lg p-3 border",
+                              alert.severity === 'critical' && "bg-red-50 border-red-200",
+                              alert.severity === 'warning' && "bg-amber-50 border-amber-200",
+                              alert.severity === 'info' && "bg-blue-50 border-blue-200"
+                            )}
+                          >
+                            <div className="flex items-start gap-2">
+                              {alert.severity === 'critical' && <XCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />}
+                              {alert.severity === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />}
+                              {alert.severity === 'info' && <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />}
+                              <div className="flex-1 min-w-0">
+                                <p className={cn(
+                                  "font-medium text-sm",
+                                  alert.severity === 'critical' && "text-red-700",
+                                  alert.severity === 'warning' && "text-amber-700",
+                                  alert.severity === 'info' && "text-blue-700"
+                                )}>
+                                  {alert.title}
+                                </p>
+                                <p className={cn(
+                                  "text-xs mt-1",
+                                  alert.severity === 'critical' && "text-red-600",
+                                  alert.severity === 'warning' && "text-amber-600",
+                                  alert.severity === 'info' && "text-blue-600"
+                                )}>
+                                  {alert.description}
+                                </p>
+                                {alert.actionRequired && (
+                                  <p className="text-xs mt-2 font-medium text-gray-700">
+                                    Action: {alert.actionRequired}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Coverage Analysis Summary Card */}
+                  {coverageSummary && (
+                    <Card className="lg:col-span-2">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Calculator className="w-5 h-5" />
+                          Coverage Analysis
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {/* Alert Counts */}
+                          <div className="text-center p-3 bg-muted/50 rounded-lg">
+                            <p className="text-2xl font-bold text-red-600">{coverageSummary.criticalAlerts}</p>
+                            <p className="text-xs text-muted-foreground">Critical</p>
+                          </div>
+                          <div className="text-center p-3 bg-muted/50 rounded-lg">
+                            <p className="text-2xl font-bold text-amber-600">{coverageSummary.warningAlerts}</p>
+                            <p className="text-xs text-muted-foreground">Warnings</p>
+                          </div>
+                          <div className="text-center p-3 bg-muted/50 rounded-lg">
+                            <p className="text-2xl font-bold text-blue-600">{coverageSummary.infoAlerts}</p>
+                            <p className="text-xs text-muted-foreground">Info</p>
+                          </div>
+                          {/* Roof Payment Percentage */}
+                          {coverageSummary.roofPaymentPct !== undefined && (
+                            <div className="text-center p-3 bg-muted/50 rounded-lg">
+                              <p className="text-2xl font-bold text-green-600">{coverageSummary.roofPaymentPct}%</p>
+                              <p className="text-xs text-muted-foreground">Roof Payment</p>
+                            </div>
+                          )}
+                        </div>
+                        {/* Applicable Deductible */}
+                        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-sm font-medium text-amber-800">
+                            Applicable Deductible: {coverageSummary.applicableDeductible}
+                          </p>
+                        </div>
+                        {/* Top Recommendations */}
+                        {coverageSummary.topRecommendations.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-sm font-medium text-muted-foreground mb-2">Key Recommendations</p>
+                            <ul className="space-y-1">
+                              {coverageSummary.topRecommendations.slice(0, 3).map((rec, idx) => (
+                                <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                                  <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                                  {rec}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Endorsement Impacts Card - Show if context has endorsement impacts */}
+                  {claimContext?.endorsements?.extracted && claimContext.endorsements.extracted.length > 0 && (
+                    <Card className="lg:col-span-2">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <FileText className="w-5 h-5" />
+                          Endorsement Impact Analysis
+                          <Badge variant="outline" className="ml-2 text-xs text-green-600 border-green-300">
+                            {claimContext.endorsements.extracted.length} analyzed
+                          </Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {claimContext.endorsements.extracted.slice(0, 5).map((impact, idx) => (
+                          <div key={idx} className="bg-muted/50 rounded-lg p-4 border border-muted">
+                            <div className="flex items-start gap-3">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                                impact.hasRoofSchedule ? "bg-amber-100" : "bg-primary/10"
+                              )}>
+                                <FileText className={cn(
+                                  "w-4 h-4",
+                                  impact.hasRoofSchedule ? "text-amber-600" : "text-primary"
+                                )} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-mono font-semibold text-sm">{impact.formCode}</p>
+                                  <Badge variant="secondary" className="text-xs capitalize">
+                                    {impact.category.replace(/_/g, ' ')}
+                                  </Badge>
+                                  {impact.hasRoofSchedule && (
+                                    <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                                      Roof Schedule
+                                    </Badge>
+                                  )}
+                                  {impact.hasMetalFunctionalLanguage && (
+                                    <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                                      Metal Functional
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-1">{impact.title}</p>
+
+                                {/* Impacts */}
+                                {impact.impacts.length > 0 && (
+                                  <div className="mt-2">
+                                    <p className="text-xs font-medium text-muted-foreground">Key Impacts:</p>
+                                    <ul className="mt-1 space-y-0.5">
+                                      {impact.impacts.slice(0, 2).map((imp, i) => (
+                                        <li key={i} className="text-xs text-gray-600">• {imp}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {/* Inspection Requirements */}
+                                {impact.inspectionRequirements.length > 0 && (
+                                  <div className="mt-2">
+                                    <p className="text-xs font-medium text-amber-700">Inspection Requirements:</p>
+                                    <ul className="mt-1 space-y-0.5">
+                                      {impact.inspectionRequirements.slice(0, 2).map((req, i) => (
+                                        <li key={i} className="text-xs text-amber-600">• {req}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {claimContext.endorsements.extracted.length > 5 && (
+                          <p className="text-xs text-muted-foreground text-center">
+                            +{claimContext.endorsements.extracted.length - 5} more endorsements analyzed
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Roof Depreciation Card - Show if scheduled basis */}
+                  {claimContext?.lossSettlement?.roofing?.isScheduled && (
+                    <Card className="lg:col-span-2">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Home className="w-5 h-5" />
+                          Roof Depreciation Schedule
+                          <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">
+                            Scheduled Basis
+                          </Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="text-xs text-amber-700 font-medium">Roof Age</p>
+                              <p className="text-lg font-bold text-amber-900">{claimContext.property.roof.age || '-'} years</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-amber-700 font-medium">Material</p>
+                              <p className="text-lg font-bold text-amber-900">{claimContext.property.roof.material || 'Unknown'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-amber-700 font-medium">Schedule Form</p>
+                              <p className="text-lg font-bold text-amber-900">{claimContext.lossSettlement.roofing.scheduleFormCode || '-'}</p>
+                            </div>
+                            {claimContext.insights?.estimatedRoofPaymentPct && (
+                              <div>
+                                <p className="text-xs text-amber-700 font-medium">Est. Payment</p>
+                                <p className="text-lg font-bold text-amber-900">{claimContext.insights.estimatedRoofPaymentPct}%</p>
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-xs text-amber-600 mt-3">
+                            This policy uses a roof payment schedule that adjusts payments based on roof age and material.
+                            Verify roof age with permit records or manufacturer date stamps.
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Metal Functional Requirement Card - Show if applicable */}
+                  {claimContext?.lossSettlement?.roofing?.metalFunctionalRequirement && (
+                    <Card className="lg:col-span-2">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-blue-600" />
+                          Metal Component Requirement
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <p className="text-sm text-blue-800 font-medium">Functional Damage Required</p>
+                          <p className="text-xs text-blue-600 mt-2">
+                            This policy requires metal components (gutters, vents, flashing, etc.) to have <span className="font-medium">functional damage</span> -
+                            not just cosmetic dents. Document actual penetration, water intrusion, or impaired function before including in scope.
+                          </p>
+                          <ul className="mt-3 space-y-1 text-xs text-blue-700">
+                            <li>• Take close-up photos showing any penetration</li>
+                            <li>• Document water staining or intrusion evidence</li>
+                            <li>• Note if components still function properly</li>
+                            <li>• Cosmetic denting alone may not be covered</li>
+                          </ul>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {/* Endorsements Card */}
                   <Card className="lg:col-span-2">
