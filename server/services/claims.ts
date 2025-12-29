@@ -319,39 +319,58 @@ export async function getClaim(
   const policyExtraction = policyExtractionResult.data;
   const endorsementExtractions = endorsementExtractionsResult.data || [];
 
-  // Map policy extraction to extractedPolicy format
-  let extractedPolicy: ClaimWithDocuments['extractedPolicy'] = undefined;
-  if (policyExtraction) {
-    const declarations = policyExtraction.declarations as Record<string, any> | null;
-    const coverageLimits = declarations?.coverageLimits || {};
-    const propertyInfo = declarations?.propertyInfo || {};
-    const insuredInfo = declarations?.insuredInfo || {};
+  // Get loss_context from the claim (contains FNOL extraction with all coverage info)
+  const lossContext = claim.loss_context as Record<string, any> | null;
+  const policyCoverage = lossContext?.policy_coverage?.coverages || {};
+  const policyInfo = lossContext?.policy_information || {};
+  const insuredInfo = lossContext?.insured_information || {};
 
+  // Map policy extraction to extractedPolicy format
+  // Coverage limits come from FNOL's loss_context (declarations data)
+  // Policy form details (form code, edition date) come from policy_form_extractions
+  let extractedPolicy: ClaimWithDocuments['extractedPolicy'] = undefined;
+
+  // Build extractedPolicy from FNOL loss_context + policy form extraction metadata
+  if (lossContext || policyExtraction) {
     extractedPolicy = {
-      policyNumber: policyExtraction.policy_number,
-      policyFormCode: policyExtraction.policy_form_code,
-      effectiveDate: declarations?.effectiveDate,
-      expirationDate: declarations?.expirationDate,
-      dwellingLimit: coverageLimits.dwellingCoverageA || coverageLimits.coverageA,
-      otherStructuresLimit: coverageLimits.otherStructuresCoverageB || coverageLimits.coverageB,
-      personalPropertyLimit: coverageLimits.personalPropertyCoverageC || coverageLimits.coverageC,
-      lossOfUseLimit: coverageLimits.lossOfUseCoverageD || coverageLimits.coverageD,
-      personalLiabilityLimit: coverageLimits.personalLiabilityCoverageE || coverageLimits.coverageE,
-      medicalPaymentsLimit: coverageLimits.medicalPaymentsCoverageF || coverageLimits.coverageF,
-      deductible: coverageLimits.deductible || declarations?.deductible,
-      perilSpecificDeductibles: coverageLimits.perilSpecificDeductibles || declarations?.perilSpecificDeductibles || {},
-      namedInsured: insuredInfo.namedInsured || declarations?.namedInsured,
-      mailingAddress: insuredInfo.mailingAddress,
-      propertyAddress: propertyInfo.address || declarations?.propertyAddress,
-      constructionType: propertyInfo.constructionType,
-      yearBuilt: propertyInfo.yearBuilt,
-      protectionClass: propertyInfo.protectionClass,
-      distanceToFireStation: propertyInfo.distanceToFireStation,
-      distanceToFireHydrant: propertyInfo.distanceToFireHydrant,
+      // Policy form metadata from policy_form_extractions
+      policyNumber: policyExtraction?.policy_number || claim.policy_number,
+      policyFormCode: policyExtraction?.policy_form_code,
+      effectiveDate: policyInfo?.inception_date,
+      expirationDate: policyInfo?.expiration_date,
+
+      // Coverage limits from FNOL's loss_context.policy_coverage
+      dwellingLimit: policyCoverage.coverage_a_dwelling?.limit,
+      otherStructuresLimit: policyCoverage.coverage_b_scheduled_structures?.limit || policyCoverage.coverage_b_unscheduled_structures?.limit,
+      personalPropertyLimit: policyCoverage.coverage_c_personal_property?.limit,
+      lossOfUseLimit: policyCoverage.coverage_d_loss_of_use?.limit,
+      personalLiabilityLimit: policyCoverage.coverage_e_personal_liability?.limit,
+      medicalPaymentsLimit: policyCoverage.coverage_f_medical_expense?.limit,
+
+      // Deductibles from FNOL's loss_context.policy_information
+      deductible: policyInfo?.deductibles?.policy_deductible,
+      perilSpecificDeductibles: {
+        wind_hail: policyInfo?.deductibles?.wind_hail_deductible,
+        hurricane: policyInfo?.deductibles?.hurricane_deductible,
+        flood: policyInfo?.deductibles?.flood_deductible,
+        earthquake: policyInfo?.deductibles?.earthquake_deductible,
+      },
+
+      // Insured info from FNOL's loss_context.insured_information
+      namedInsured: insuredInfo?.name_1 ? `${insuredInfo.name_1}${insuredInfo.name_2 ? ` & ${insuredInfo.name_2}` : ''}` : undefined,
+      mailingAddress: insuredInfo?.name_1_address,
+      propertyAddress: lossContext?.policy_coverage?.location || policyInfo?.risk_address,
+
+      // Property info from FNOL's loss_context.property_damage_information
+      constructionType: undefined, // Not in FNOL
+      yearBuilt: lossContext?.property_damage_information?.year_built,
+      protectionClass: undefined, // Not in FNOL
+      distanceToFireStation: undefined, // Not in FNOL
+      distanceToFireHydrant: undefined, // Not in FNOL
     };
   }
 
-  // Map endorsement extractions
+  // Map endorsement extractions from endorsement_extractions table
   const extractedEndorsements = endorsementExtractions.map((e: any) => ({
     id: e.id,
     formCode: e.form_code,
@@ -359,9 +378,27 @@ export async function getClaim(
     editionDate: e.edition_date,
     endorsementType: e.endorsement_type,
     summary: e.summary,
-    modifications: e.modifications,
+    modifications: e.modifications || e.extraction_data?.modifications,
     extractionStatus: e.extraction_status,
   }));
+
+  // Also include endorsements listed in FNOL if no detailed extractions exist
+  const fnolEndorsements = lossContext?.policy_level_endorsements || [];
+  const fnolEndorsementsMapped = fnolEndorsements.map((e: any, idx: number) => ({
+    id: `fnol-${idx}`,
+    formCode: e.code,
+    title: e.description,
+    editionDate: undefined,
+    endorsementType: 'fnol_listed',
+    summary: e.description,
+    modifications: undefined,
+    extractionStatus: 'fnol_source',
+  }));
+
+  // Merge: use detailed extractions when available, fall back to FNOL list
+  const mergedEndorsements = extractedEndorsements.length > 0
+    ? extractedEndorsements
+    : fnolEndorsementsMapped;
 
   const baseClaim = mapRowToClaim({
     ...claim,
@@ -372,7 +409,7 @@ export async function getClaim(
   return {
     ...baseClaim,
     extractedPolicy,
-    extractedEndorsements: extractedEndorsements.length > 0 ? extractedEndorsements : undefined,
+    extractedEndorsements: mergedEndorsements.length > 0 ? mergedEndorsements : undefined,
   };
 }
 
