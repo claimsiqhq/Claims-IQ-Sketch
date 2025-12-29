@@ -63,6 +63,7 @@ import {
   expandWorkflowRooms,
   addWorkflowStep,
   getClaim,
+  uploadPhoto,
   type FullWorkflow,
   type InspectionWorkflowStep,
   type InspectionPhase,
@@ -285,6 +286,36 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
     setIsSubmittingStep(true);
 
     try {
+      // Find the step to get room context
+      const step = workflow.steps.find(s => s.id === data.stepId);
+      const roomName = step?.roomName || step?.title || 'Workflow Step';
+
+      // Upload photos if any were captured
+      if (data.photos && data.photos.length > 0) {
+        const photoUploadPromises = data.photos.map(async (photo) => {
+          try {
+            // Create a file from the captured photo
+            const file = photo.file || await fetch(photo.dataUrl)
+              .then(r => r.blob())
+              .then(blob => new File([blob], `workflow-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+
+            await uploadPhoto({
+              claimId,
+              file,
+              label: photo.label || `${step?.title || 'Step'} - ${roomName}`,
+              hierarchyPath: `Workflow / ${step?.phase || 'unknown'} / ${roomName}`,
+            });
+          } catch (photoErr) {
+            console.error('Failed to upload photo:', photoErr);
+            // Don't fail the whole step if photo upload fails
+          }
+        });
+
+        // Wait for all photos to upload (but don't block step completion on failures)
+        await Promise.allSettled(photoUploadPromises);
+        toast.success(`${data.photos.length} photo(s) uploaded`);
+      }
+
       await updateWorkflowStep(workflow.workflow.id, data.stepId, {
         status: data.status,
         notes: data.findings,

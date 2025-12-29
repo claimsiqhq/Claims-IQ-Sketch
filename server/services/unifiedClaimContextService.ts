@@ -276,12 +276,37 @@ function calculateRoofPaymentPercentage(
 
 /**
  * Analyze endorsement for inspection requirements
+ *
+ * Handles both flat content structure and nested extraction structure:
+ * - Flat: content.complete_schedule
+ * - Nested: content.roof_surface_payment_schedule.complete_schedule
  */
 function analyzeEndorsementInspectionRequirements(formCode: string, content: any): string[] {
   const requirements: string[] = [];
 
+  // Helper to check nested paths
+  const hasRoofSchedule = content?.complete_schedule ||
+    content?.roof_surface_payment_schedule?.complete_schedule ||
+    content?.extractionData?.roof_surface_payment_schedule?.complete_schedule;
+
+  const hasMetalFunctional = content?.hail_functional_requirement ||
+    content?.roof_surface_payment_schedule?.hail_functional_requirement ||
+    content?.roof_surface_payment_schedule_examples ||
+    content?.extractionData?.roof_surface_payment_schedule?.hail_functional_requirement;
+
+  const hasOandL = formCode.includes('84 16') || formCode.includes('8416') ||
+    content?.coverage_a_increased_cost ||
+    content?.ordinance_or_law_coverage?.coverage_a_increased_cost;
+
+  const hasFungiLimit = content?.liability_modifications?.fungi_bacteria_limit ||
+    content?.wisconsin_amendatory_endorsement?.liability_modifications?.fungi_bacteria_limit;
+
+  const hasPersonalPropertyRCV = formCode.includes('04 90') || formCode.includes('0490') ||
+    content?.settlement_basis === 'Replacement Cost Value' ||
+    content?.personal_property_replacement_cost?.settlement_basis === 'Replacement Cost Value';
+
   // Roof schedule endorsement
-  if (content?.complete_schedule) {
+  if (hasRoofSchedule) {
     requirements.push('Document roof material type for schedule lookup');
     requirements.push('Photograph manufacturer date stamps for age verification');
     requirements.push('Measure each roof plane separately');
@@ -289,25 +314,25 @@ function analyzeEndorsementInspectionRequirements(formCode: string, content: any
   }
 
   // Metal functional requirement
-  if (content?.hail_functional_requirement || content?.roof_surface_payment_schedule_examples) {
+  if (hasMetalFunctional) {
     requirements.push('For metal damage: Document if water intrusion is occurring');
     requirements.push('Photo any actual holes/openings vs cosmetic dents');
   }
 
   // O&L coverage
-  if (formCode.includes('84 16') || content?.coverage_a_increased_cost) {
+  if (hasOandL) {
     requirements.push('Note any visible code violations');
     requirements.push('Check for non-conforming materials that may require upgrade');
     requirements.push('Document if partial vs total loss (triggers O&L)');
   }
 
   // State amendatory - fungi limit
-  if (content?.liability_modifications?.fungi_bacteria_limit) {
+  if (hasFungiLimit) {
     requirements.push('Document any mold/fungi presence for liability cap awareness');
   }
 
   // Personal property RCV
-  if (formCode.includes('04 90') || content?.settlement_basis === 'Replacement Cost Value') {
+  if (hasPersonalPropertyRCV) {
     requirements.push('Document intent to replace personal property items');
   }
 
@@ -316,35 +341,55 @@ function analyzeEndorsementInspectionRequirements(formCode: string, content: any
 
 /**
  * Analyze endorsement for estimate considerations
+ *
+ * Handles both flat content structure and nested extraction structure
  */
 function analyzeEndorsementEstimateConsiderations(formCode: string, content: any): string[] {
   const considerations: string[] = [];
 
+  // Helper to check nested paths
+  const hasRoofSchedule = content?.complete_schedule ||
+    content?.roof_surface_payment_schedule?.complete_schedule ||
+    content?.extractionData?.roof_surface_payment_schedule?.complete_schedule;
+
+  const hasMetalFunctional = content?.hail_functional_requirement ||
+    content?.roof_surface_payment_schedule?.hail_functional_requirement ||
+    content?.extractionData?.roof_surface_payment_schedule?.hail_functional_requirement;
+
+  const settlementMethod = content?.settlement_method ||
+    content?.roof_surface_payment_schedule?.settlement_calculation ||
+    content?.extractionData?.roof_surface_payment_schedule?.settlement_calculation;
+
+  const hasTotalLossProvision = content?.settlement_and_conditions?.total_loss_provision ||
+    content?.wisconsin_amendatory_endorsement?.settlement_and_conditions?.total_loss_provision;
+
+  const fungiLimit = content?.liability_modifications?.fungi_bacteria_limit ||
+    content?.wisconsin_amendatory_endorsement?.liability_modifications?.fungi_bacteria_limit;
+
   // Roof schedule
-  if (content?.complete_schedule) {
+  if (hasRoofSchedule) {
     considerations.push('Apply scheduled depreciation based on roof age and material');
     considerations.push('Different materials may have different payment percentages');
   }
 
   // Metal functional requirement
-  if (content?.hail_functional_requirement) {
+  if (hasMetalFunctional) {
     considerations.push('Metal components only payable if functional damage (water intrusion) is documented');
   }
 
   // ACV roofing
-  if (content?.settlement_method?.toLowerCase().includes('actual cash value')) {
+  if (settlementMethod?.toLowerCase().includes('actual cash value')) {
     considerations.push('Roofing paid on ACV basis - calculate depreciation');
   }
 
   // State-specific rules
-  if (content?.settlement_and_conditions?.total_loss_provision) {
+  if (hasTotalLossProvision) {
     considerations.push('Total loss provision may affect settlement calculation');
   }
 
   // Fungi limits
-  if (content?.liability_modifications?.fungi_bacteria_limit) {
-    const limit = content.liability_modifications.fungi_bacteria_limit;
-    considerations.push(`Fungi/bacteria coverage capped at ${limit}`);
+  if (fungiLimit) {
+    considerations.push(`Fungi/bacteria coverage capped at ${fungiLimit}`);
   }
 
   return considerations;

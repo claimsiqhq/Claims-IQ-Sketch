@@ -448,8 +448,8 @@ export function StepCompletionDialog({
   if (!isDesktop) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="max-h-[90dvh]">
-          <DrawerHeader className="text-left">
+        <DrawerContent className="max-h-[85dvh] flex flex-col">
+          <DrawerHeader className="text-left flex-shrink-0">
             <DrawerTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-primary" />
               {step.title}
@@ -458,10 +458,10 @@ export function StepCompletionDialog({
               Complete this step by documenting your findings
             </DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 overflow-y-auto flex-1">
+          <div className="px-4 overflow-y-auto flex-1 min-h-0">
             {content}
           </div>
-          <DrawerFooter className="pt-2">
+          <DrawerFooter className="pt-2 flex-shrink-0 border-t bg-background">
             {footer}
           </DrawerFooter>
         </DrawerContent>
