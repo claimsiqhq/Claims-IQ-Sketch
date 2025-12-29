@@ -3358,11 +3358,87 @@ export interface LossSettlementRules {
  */
 export interface CoverageAlert {
   severity: 'info' | 'warning' | 'critical';
-  category: 'deductible' | 'limit' | 'exclusion' | 'depreciation' | 'documentation';
+  category: 'deductible' | 'limit' | 'exclusion' | 'depreciation' | 'documentation' | 'coverage' | 'policy_validation';
   title: string;
   description: string;
   actionRequired?: string;
   relatedEndorsement?: string;
+}
+
+/**
+ * Policy validation - checks if policy was active at loss date
+ */
+export interface PolicyValidation {
+  policyType?: string;           // HO-3, HO-5, etc.
+  status?: string;               // active, cancelled, expired
+  inceptionDate?: string;        // Policy start date
+  expirationDate?: string;       // Policy end date
+  wasActiveAtLoss: boolean;      // Computed: was policy active on date of loss?
+  validationMessage?: string;    // Any validation warnings
+}
+
+/**
+ * Coverage scope details from policy extraction
+ */
+export interface CoverageScope {
+  dwelling?: {
+    included?: string[];
+    excluded?: string[];
+  };
+  otherStructures?: {
+    definition?: string;
+    excludedTypes?: string[];
+  };
+  personalProperty?: {
+    scope?: string;
+    limitAwayFromPremises?: string;
+  };
+  lossOfUse?: {
+    additionalLivingExpense?: string;
+    civilAuthorityProhibitsUse?: string;
+  };
+}
+
+/**
+ * Perils insured against from policy
+ */
+export interface PerilsCovered {
+  dwellingPerils?: string[];
+  personalPropertyPerils?: string[];
+  isOpenPeril?: boolean;        // Open peril = all risks except excluded
+  isNamedPeril?: boolean;       // Named peril = only listed perils covered
+}
+
+/**
+ * Loss details from FNOL
+ */
+export interface LossDetails {
+  description?: string;          // Full loss narrative
+  dwellingIncidentDamages?: string;
+  cause?: string;
+  location?: string;
+  weatherDataStatus?: string;
+  droneEligibleAtFnol?: boolean;
+}
+
+/**
+ * Third party interests (mortgagees, additional insureds)
+ */
+export interface ThirdPartyInterest {
+  type?: string;                 // mortgagee, additional_insured, loss_payee
+  name?: string;
+  details?: string;
+}
+
+/**
+ * Settlement rules for dwelling and other structures from policy
+ */
+export interface DwellingSettlementRules {
+  initialPayment?: string;
+  replacementCost?: string;
+  hailDamageMetalSiding?: string;
+  matchingRules?: string;
+  repairTimeLimit?: string;
 }
 
 /**
@@ -3427,19 +3503,33 @@ export interface UnifiedClaimContext {
   insured: {
     name: string;
     name2?: string;
+    policyholders?: string[];      // All named policyholders from FNOL
     email?: string;
     phone?: string;
     mailingAddress?: string;
+    secondaryAddress?: string;     // name_2_address
   };
 
   // === PROPERTY ===
   property: PropertyDetails;
+
+  // === LOSS DETAILS (from FNOL) ===
+  lossDetails: LossDetails;
+
+  // === POLICY VALIDATION ===
+  policyValidation: PolicyValidation;
+
+  // === THIRD PARTY INTERESTS ===
+  thirdPartyInterests?: ThirdPartyInterest[];
 
   // === PRODUCER ===
   producer?: ProducerInfo;
 
   // === PERIL ANALYSIS ===
   peril: PerilAnalysis;
+
+  // === PERILS COVERED (from Policy) ===
+  perilsCovered?: PerilsCovered;
 
   // === COVERAGE LIMITS ===
   coverages: {
@@ -3451,6 +3541,12 @@ export interface UnifiedClaimContext {
     medicalPayments?: CoverageLimit;
     additionalCoverages: Record<string, CoverageLimit>;
   };
+
+  // === COVERAGE SCOPE (from Policy) ===
+  coverageScope?: CoverageScope;
+
+  // === DWELLING SETTLEMENT RULES (from Policy) ===
+  dwellingSettlementRules?: DwellingSettlementRules;
 
   // === SPECIAL LIMITS ===
   specialLimits: SpecialLimitsOfLiability;
@@ -3464,6 +3560,7 @@ export interface UnifiedClaimContext {
   // === EXCLUSIONS ===
   exclusions: {
     general: string[];
+    liability: string[];           // Section II liability exclusions
     endorsementAdded: string[];
     endorsementRemoved: string[];
     applicableToPeril: string[];
