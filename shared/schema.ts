@@ -289,6 +289,9 @@ export const claims = pgTable("claims", {
   // Structure: { fnol: {...}, property: {...}, damage_summary: {...} }
   lossContext: jsonb("loss_context").notNull().default(sql`'{}'::jsonb`),
 
+  // Raw OpenAI response - stored before any transformation for debugging/auditing
+  rawOpenaiResponse: jsonb("raw_openai_response"),
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
@@ -373,6 +376,9 @@ export const policyFormExtractions = pgTable("policy_form_extractions", {
   // Status
   status: varchar("status", { length: 30 }).default("completed"),
   errorMessage: text("error_message"),
+
+  // Raw OpenAI response - stored before any transformation for debugging/auditing
+  rawOpenaiResponse: jsonb("raw_openai_response"),
 
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
@@ -536,6 +542,9 @@ export const endorsementExtractions = pgTable("endorsement_extractions", {
   extractionStatus: varchar("extraction_status", { length: 30 }).default("completed"),
   status: varchar("status", { length: 30 }).default("completed"),
   errorMessage: text("error_message"),
+
+  // Raw OpenAI response - stored before any transformation for debugging/auditing
+  rawOpenaiResponse: jsonb("raw_openai_response"),
 
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
