@@ -59,7 +59,10 @@ import {
   ArrowLeft,
   Archive,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  User,
+  Shield,
+  Clock
 } from "lucide-react";
 import {
   useEstimateBuilder,
@@ -1171,111 +1174,365 @@ export default function ClaimDetail() {
                     </CardContent>
                   </Card>
 
-                  {/* Policy Details Card */}
-                  <Card>
+                  {/* ============================================ */}
+                  {/* INSURED INFORMATION CARD */}
+                  {/* ============================================ */}
+                  {apiClaim?.extractedPolicy && (apiClaim.extractedPolicy.namedInsured || apiClaim.extractedPolicy.insuredEmail || apiClaim.extractedPolicy.insuredPhone) && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <User className="w-5 h-5" />
+                          Insured Information
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {apiClaim.extractedPolicy.namedInsured && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Named Insured</Label>
+                              <p className="font-medium">{apiClaim.extractedPolicy.namedInsured}</p>
+                            </div>
+                          )}
+                          {apiClaim.extractedPolicy.insuredName2 && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Co-Insured</Label>
+                              <p className="font-medium">{apiClaim.extractedPolicy.insuredName2}</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {apiClaim.extractedPolicy.insuredPhone && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Phone</Label>
+                              <p className="font-medium">{apiClaim.extractedPolicy.insuredPhone}</p>
+                            </div>
+                          )}
+                          {apiClaim.extractedPolicy.insuredEmail && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Email</Label>
+                              <p className="font-medium text-sm break-all">{apiClaim.extractedPolicy.insuredEmail}</p>
+                            </div>
+                          )}
+                        </div>
+                        {apiClaim.extractedPolicy.mailingAddress && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground uppercase">Mailing Address</Label>
+                            <p className="font-medium text-sm">{apiClaim.extractedPolicy.mailingAddress}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* ============================================ */}
+                  {/* POLICY & COVERAGE DETAILS CARD */}
+                  {/* ============================================ */}
+                  <Card className="lg:col-span-2">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-lg flex items-center gap-2">
-                        <Home className="w-5 h-5" />
-                        Policy Details
+                        <Shield className="w-5 h-5" />
+                        Policy & Coverage Details
                         {apiClaim?.extractedPolicy && (
-                          <Badge variant="outline" className="ml-2 text-xs text-green-600 border-green-300">From Policy Doc</Badge>
+                          <Badge variant="outline" className="ml-2 text-xs text-green-600 border-green-300">Extracted</Badge>
                         )}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      {/* Policy Info Row */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground uppercase">Policy Number</Label>
-                          <p className="font-mono font-medium" data-testid="policy-number">
+                          <p className="font-mono font-medium text-sm" data-testid="policy-number">
                             {apiClaim?.extractedPolicy?.policyNumber || apiClaim?.policyNumber || '-'}
                           </p>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">State</Label>
-                          <p className="font-medium">{apiClaim?.state || '-'}</p>
+                          <Label className="text-xs text-muted-foreground uppercase">Policy Type</Label>
+                          <p className="font-medium text-sm">{apiClaim?.extractedPolicy?.policyType || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Effective</Label>
+                          <p className="font-medium text-sm">{apiClaim?.extractedPolicy?.effectiveDate || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Status</Label>
+                          <p className="font-medium text-sm">{apiClaim?.extractedPolicy?.policyStatus || '-'}</p>
                         </div>
                       </div>
+
                       <Separator />
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Dwelling Limit (Coverage A)</Label>
-                          <p className="text-lg font-bold text-green-600" data-testid="dwelling-limit">
-                            {apiClaim?.extractedPolicy?.dwellingLimit || apiClaim?.dwellingLimit || '-'}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Wind/Hail Deductible</Label>
-                          <p className="text-lg font-bold text-amber-600" data-testid="wind-hail-deductible">
-                            {apiClaim?.extractedPolicy?.perilSpecificDeductibles?.wind_hail || apiClaim?.perilSpecificDeductibles?.wind_hail || '-'}
-                          </p>
+
+                      {/* Primary Coverages (A-F) */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">PRIMARY COVERAGES</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                            <Label className="text-xs text-green-700 uppercase">Coverage A</Label>
+                            <p className="text-lg font-bold text-green-700" data-testid="dwelling-limit">
+                              {apiClaim?.extractedPolicy?.dwellingLimit || '-'}
+                            </p>
+                            <p className="text-xs text-green-600">Dwelling</p>
+                          </div>
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <Label className="text-xs text-blue-700 uppercase">Coverage B</Label>
+                            <p className="text-lg font-bold text-blue-700" data-testid="coverage-b">
+                              {apiClaim?.extractedPolicy?.otherStructuresLimit || '-'}
+                            </p>
+                            <p className="text-xs text-blue-600">Other Structures</p>
+                          </div>
+                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                            <Label className="text-xs text-purple-700 uppercase">Coverage C</Label>
+                            <p className="text-lg font-bold text-purple-700" data-testid="coverage-c">
+                              {apiClaim?.extractedPolicy?.personalPropertyLimit || '-'}
+                            </p>
+                            <p className="text-xs text-purple-600">Personal Property</p>
+                          </div>
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                            <Label className="text-xs text-orange-700 uppercase">Coverage D</Label>
+                            <p className="text-lg font-bold text-orange-700" data-testid="coverage-d">
+                              {apiClaim?.extractedPolicy?.lossOfUseLimit || '-'}
+                            </p>
+                            <p className="text-xs text-orange-600">Loss of Use</p>
+                          </div>
+                          <div className="bg-teal-50 border border-teal-200 rounded-lg p-3">
+                            <Label className="text-xs text-teal-700 uppercase">Coverage E</Label>
+                            <p className="text-lg font-bold text-teal-700">
+                              {apiClaim?.extractedPolicy?.personalLiabilityLimit || '-'}
+                            </p>
+                            <p className="text-xs text-teal-600">Liability</p>
+                          </div>
+                          <div className="bg-pink-50 border border-pink-200 rounded-lg p-3">
+                            <Label className="text-xs text-pink-700 uppercase">Coverage F</Label>
+                            <p className="text-lg font-bold text-pink-700">
+                              {apiClaim?.extractedPolicy?.medicalPaymentsLimit || '-'}
+                            </p>
+                            <p className="text-xs text-pink-600">Medical</p>
+                          </div>
                         </div>
                       </div>
-                      {/* Additional coverages from extracted policy */}
-                      {apiClaim?.extractedPolicy && (
+
+                      {/* Deductibles */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-3">DEDUCTIBLES</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <Label className="text-xs text-amber-700 uppercase">AOP Deductible</Label>
+                            <p className="text-lg font-bold text-amber-700" data-testid="deductible">
+                              {apiClaim?.extractedPolicy?.deductible || '-'}
+                            </p>
+                          </div>
+                          {apiClaim?.extractedPolicy?.perilSpecificDeductibles?.wind_hail && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                              <Label className="text-xs text-red-700 uppercase">Wind/Hail</Label>
+                              <p className="text-lg font-bold text-red-700" data-testid="wind-hail-deductible">
+                                {apiClaim.extractedPolicy.perilSpecificDeductibles.wind_hail}
+                              </p>
+                            </div>
+                          )}
+                          {apiClaim?.extractedPolicy?.perilSpecificDeductibles?.hurricane && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                              <Label className="text-xs text-red-700 uppercase">Hurricane</Label>
+                              <p className="text-lg font-bold text-red-700">
+                                {apiClaim.extractedPolicy.perilSpecificDeductibles.hurricane}
+                              </p>
+                            </div>
+                          )}
+                          {apiClaim?.extractedPolicy?.perilSpecificDeductibles?.flood && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                              <Label className="text-xs text-blue-700 uppercase">Flood</Label>
+                              <p className="text-lg font-bold text-blue-700">
+                                {apiClaim.extractedPolicy.perilSpecificDeductibles.flood}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Additional Coverages */}
+                      {apiClaim?.extractedPolicy?.additionalCoverages && Object.keys(apiClaim.extractedPolicy.additionalCoverages).length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-muted-foreground mb-3">ADDITIONAL COVERAGES</h4>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {Object.entries(apiClaim.extractedPolicy.additionalCoverages).map(([key, value]) => (
+                              <div key={key} className="bg-gray-50 border rounded-lg p-2">
+                                <Label className="text-xs text-muted-foreground uppercase">
+                                  {key.replace(/_/g, ' ')}
+                                </Label>
+                                <p className="font-semibold text-sm">
+                                  {value.limit || value.percentage || '-'}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Third Party Interest */}
+                      {apiClaim?.extractedPolicy?.thirdPartyInterest && (
                         <>
                           <Separator />
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {apiClaim.extractedPolicy.otherStructuresLimit && (
-                              <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground uppercase">Coverage B</Label>
-                                <p className="font-medium text-sm" data-testid="coverage-b">{apiClaim.extractedPolicy.otherStructuresLimit}</p>
-                              </div>
-                            )}
-                            {apiClaim.extractedPolicy.personalPropertyLimit && (
-                              <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground uppercase">Coverage C</Label>
-                                <p className="font-medium text-sm" data-testid="coverage-c">{apiClaim.extractedPolicy.personalPropertyLimit}</p>
-                              </div>
-                            )}
-                            {apiClaim.extractedPolicy.lossOfUseLimit && (
-                              <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground uppercase">Coverage D</Label>
-                                <p className="font-medium text-sm" data-testid="coverage-d">{apiClaim.extractedPolicy.lossOfUseLimit}</p>
-                              </div>
-                            )}
-                            {apiClaim.extractedPolicy.deductible && (
-                              <div className="space-y-1">
-                                <Label className="text-xs text-muted-foreground uppercase">Deductible</Label>
-                                <p className="font-medium text-sm" data-testid="deductible">{apiClaim.extractedPolicy.deductible}</p>
-                              </div>
-                            )}
+                          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                            <Label className="text-xs text-yellow-700 uppercase">Mortgagee / Third Party Interest</Label>
+                            <p className="font-medium text-sm text-yellow-800">{apiClaim.extractedPolicy.thirdPartyInterest}</p>
                           </div>
                         </>
                       )}
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground uppercase">Year Roof Installed</Label>
-                        <p className="font-medium">{claimContext?.property?.roof?.yearInstalled || apiClaim?.lossContext?.property?.roof?.year_installed || '-'}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* ============================================ */}
+                  {/* PROPERTY DETAILS CARD */}
+                  {/* ============================================ */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Home className="w-5 h-5" />
+                        Property Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {apiClaim?.extractedPolicy?.propertyAddress && (
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Risk Address</Label>
+                          <p className="font-medium text-sm">{apiClaim.extractedPolicy.propertyAddress}</p>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Year Built</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.yearBuilt || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Stories</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.numberOfStories || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground uppercase">Year Roof Installed</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.yearRoofInstalled || '-'}</p>
+                        </div>
                       </div>
-                      {/* Roof Material from Context */}
-                      {claimContext?.property?.roof?.material && (
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Roof Material</Label>
-                          <p className="font-medium">{claimContext.property.roof.material}</p>
+                          <Label className="text-xs text-muted-foreground uppercase">Roof Damage</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.roofDamage || '-'}</p>
                         </div>
-                      )}
-                      {/* Roof Age from Context */}
-                      {claimContext?.property?.roof?.age !== undefined && (
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Roof Age</Label>
-                          <p className="font-medium">{claimContext.property.roof.age} years</p>
+                          <Label className="text-xs text-muted-foreground uppercase">Wood Roof</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.woodRoof || '-'}</p>
                         </div>
-                      )}
-                      {/* Applicable Deductible from Context */}
-                      {claimContext?.deductibles?.applicableForPeril && (
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Applicable Deductible</Label>
-                          <p className="font-medium text-amber-600">{claimContext.deductibles.applicableForPeril.formatted}</p>
+                          <Label className="text-xs text-muted-foreground uppercase">Exterior Damages</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.exteriorDamages || '-'}</p>
                         </div>
-                      )}
-                      {/* Loss Settlement Basis from Context */}
-                      {claimContext?.lossSettlement?.dwelling && (
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground uppercase">Dwelling Settlement</Label>
-                          <p className="font-medium capitalize">{claimContext.lossSettlement.dwelling.basis.replace(/_/g, ' ')}</p>
+                          <Label className="text-xs text-muted-foreground uppercase">Interior Damages</Label>
+                          <p className="font-medium">{apiClaim?.extractedPolicy?.interiorDamages || '-'}</p>
+                        </div>
+                      </div>
+                      {apiClaim?.extractedPolicy?.droneEligible && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2">
+                          <Label className="text-xs text-blue-700 uppercase">Drone Eligible at FNOL</Label>
+                          <p className="font-medium text-blue-800">{apiClaim.extractedPolicy.droneEligible}</p>
                         </div>
                       )}
                     </CardContent>
                   </Card>
+
+                  {/* ============================================ */}
+                  {/* DAMAGE DESCRIPTION CARD */}
+                  {/* ============================================ */}
+                  {apiClaim?.extractedPolicy?.damageDescription && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5" />
+                          Loss Description
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-gray-700">{apiClaim.extractedPolicy.damageDescription}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* ============================================ */}
+                  {/* PRODUCER / AGENT CARD */}
+                  {/* ============================================ */}
+                  {apiClaim?.extractedPolicy?.producer && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Building2 className="w-5 h-5" />
+                          Producer / Agent
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {apiClaim.extractedPolicy.producer.name && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground uppercase">Name</Label>
+                            <p className="font-medium">{apiClaim.extractedPolicy.producer.name}</p>
+                          </div>
+                        )}
+                        {apiClaim.extractedPolicy.producer.phone && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground uppercase">Phone</Label>
+                            <p className="font-medium">{apiClaim.extractedPolicy.producer.phone}</p>
+                          </div>
+                        )}
+                        {apiClaim.extractedPolicy.producer.email && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground uppercase">Email</Label>
+                            <p className="font-medium text-sm break-all">{apiClaim.extractedPolicy.producer.email}</p>
+                          </div>
+                        )}
+                        {apiClaim.extractedPolicy.producer.address && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground uppercase">Address</Label>
+                            <p className="font-medium text-sm">{apiClaim.extractedPolicy.producer.address}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* ============================================ */}
+                  {/* REPORT METADATA CARD */}
+                  {/* ============================================ */}
+                  {(apiClaim?.extractedPolicy?.reportedBy || apiClaim?.extractedPolicy?.reportedDate) && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Clock className="w-5 h-5" />
+                          Report Information
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {apiClaim.extractedPolicy.reportedBy && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Reported By</Label>
+                              <p className="font-medium">{apiClaim.extractedPolicy.reportedBy}</p>
+                            </div>
+                          )}
+                          {apiClaim.extractedPolicy.reportedDate && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Reported Date</Label>
+                              <p className="font-medium">{apiClaim.extractedPolicy.reportedDate}</p>
+                            </div>
+                          )}
+                          {apiClaim.extractedPolicy.reportMethod && (
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground uppercase">Report Method</Label>
+                              <p className="font-medium">{apiClaim.extractedPolicy.reportMethod}</p>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {/* Coverage Alerts Card - Show if there are alerts */}
                   {claimContext?.alerts && claimContext.alerts.length > 0 && (
@@ -1652,6 +1909,45 @@ export default function ClaimDetail() {
                                                 </p>
                                               ))}
                                             </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {/* Roof Payment Schedule from extractionData */}
+                                      {endorsement.extractionData?.roof_surface_payment_schedule?.complete_schedule && (
+                                        <div className="mt-3 bg-amber-50 rounded-md p-3 border border-amber-200">
+                                          <p className="text-xs font-medium text-amber-700 uppercase mb-2">Roof Payment Schedule</p>
+                                          <p className="text-xs text-amber-600 mb-2">{endorsement.extractionData.roof_surface_payment_schedule.scope}</p>
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-xs">
+                                              <thead>
+                                                <tr className="border-b border-amber-200">
+                                                  <th className="text-left py-1 pr-2 text-amber-700">Age</th>
+                                                  <th className="text-right py-1 px-1 text-amber-700">Arch.</th>
+                                                  <th className="text-right py-1 px-1 text-amber-700">Other</th>
+                                                  <th className="text-right py-1 px-1 text-amber-700">Metal</th>
+                                                  <th className="text-right py-1 px-1 text-amber-700">Tile</th>
+                                                  <th className="text-right py-1 pl-1 text-amber-700">Wood</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {endorsement.extractionData.roof_surface_payment_schedule.complete_schedule.slice(0, 6).map((row: any, idx: number) => (
+                                                  <tr key={idx} className="border-b border-amber-100">
+                                                    <td className="py-1 pr-2 font-medium">{row.roof_age_years}yr</td>
+                                                    <td className="text-right py-1 px-1">{row.architectural_shingle_pct}%</td>
+                                                    <td className="text-right py-1 px-1">{row.other_composition_pct}%</td>
+                                                    <td className="text-right py-1 px-1">{row.metal_pct}%</td>
+                                                    <td className="text-right py-1 px-1">{row.tile_pct}%</td>
+                                                    <td className="text-right py-1 pl-1">{row.wood_pct}%</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                          {endorsement.extractionData.roof_surface_payment_schedule.hail_functional_requirement && (
+                                            <p className="text-xs text-amber-700 mt-2 font-medium">
+                                              Metal Requirement: {endorsement.extractionData.roof_surface_payment_schedule.hail_functional_requirement}
+                                            </p>
                                           )}
                                         </div>
                                       )}

@@ -61,31 +61,79 @@ export interface ClaimWithDocuments {
   // Canonical FNOL truth
   lossContext?: LossContext;
 
-  // Extracted policy data from policy_form_extractions
+  // Extracted policy data - comprehensive coverage info from FNOL + policy form
   extractedPolicy?: {
+    // Basic policy info
     policyNumber?: string;
     policyFormCode?: string;
+    policyFormName?: string;
     effectiveDate?: string;
     expirationDate?: string;
+    policyType?: string;
+    policyStatus?: string;
+    operatingCompany?: string;
+
+    // Primary coverages
     dwellingLimit?: string;
     otherStructuresLimit?: string;
+    otherStructuresScheduledLimit?: string;
+    otherStructuresUnscheduledLimit?: string;
     personalPropertyLimit?: string;
     lossOfUseLimit?: string;
     personalLiabilityLimit?: string;
     medicalPaymentsLimit?: string;
+
+    // Deductibles
     deductible?: string;
     perilSpecificDeductibles?: Record<string, string>;
+
+    // Additional coverages from FNOL
+    additionalCoverages?: Record<string, { limit?: string; percentage?: string }>;
+
+    // Insured information
     namedInsured?: string;
+    insuredName2?: string;
+    insuredEmail?: string;
+    insuredPhone?: string;
     mailingAddress?: string;
     propertyAddress?: string;
+
+    // Producer/Agent info
+    producer?: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      email?: string;
+    };
+
+    // Third party interest (mortgagee)
+    thirdPartyInterest?: string;
+    legalDescription?: string;
+
+    // Property info
     constructionType?: string;
     yearBuilt?: string;
+    numberOfStories?: number;
     protectionClass?: string;
     distanceToFireStation?: string;
     distanceToFireHydrant?: string;
+
+    // Damage info from FNOL
+    damageDescription?: string;
+    exteriorDamages?: string;
+    interiorDamages?: string;
+    roofDamage?: string;
+    yearRoofInstalled?: string;
+    woodRoof?: string;
+    droneEligible?: string;
+
+    // Report metadata
+    reportedBy?: string;
+    reportedDate?: string;
+    reportMethod?: string;
   };
 
-  // Extracted endorsements from endorsement_extractions
+  // Extracted endorsements from endorsement_extractions - with full extraction data
   extractedEndorsements?: Array<{
     id: string;
     formCode: string;
@@ -95,7 +143,21 @@ export interface ClaimWithDocuments {
     summary?: string;
     modifications?: Record<string, any>;
     extractionStatus?: string;
+    // Full extraction data for detailed display
+    extractionData?: Record<string, any>;
   }>;
+
+  // Policy form extraction data (definitions, exclusions, loss settlement rules)
+  extractedPolicyForm?: {
+    formCode?: string;
+    formName?: string;
+    editionDate?: string;
+    definitions?: Record<string, any>;
+    sectionI?: Record<string, any>;
+    sectionII?: Record<string, any>;
+    generalConditions?: any[];
+    extractionData?: Record<string, any>;
+  };
 }
 
 /**
@@ -319,39 +381,114 @@ export async function getClaim(
   const policyExtraction = policyExtractionResult.data;
   const endorsementExtractions = endorsementExtractionsResult.data || [];
 
-  // Map policy extraction to extractedPolicy format
-  let extractedPolicy: ClaimWithDocuments['extractedPolicy'] = undefined;
-  if (policyExtraction) {
-    const declarations = policyExtraction.declarations as Record<string, any> | null;
-    const coverageLimits = declarations?.coverageLimits || {};
-    const propertyInfo = declarations?.propertyInfo || {};
-    const insuredInfo = declarations?.insuredInfo || {};
+  // Get loss_context from the claim (contains FNOL extraction with all coverage info)
+  const lossContext = claim.loss_context as Record<string, any> | null;
+  const claimInfo = lossContext?.claim_information_report || {};
+  const policyCoverage = lossContext?.policy_coverage?.coverages || {};
+  const policyInfo = lossContext?.policy_information || {};
+  const insuredInfo = lossContext?.insured_information || {};
+  const propertyDamageInfo = lossContext?.property_damage_information || {};
+  const reportMetadata = lossContext?.report_metadata || {};
 
+  // Build additional coverages map (everything beyond A-F)
+  const additionalCoverages: Record<string, { limit?: string; percentage?: string }> = {};
+  if (policyCoverage) {
+    const standardCoverages = [
+      'coverage_a_dwelling', 'coverage_b_scheduled_structures', 'coverage_b_unscheduled_structures',
+      'coverage_c_personal_property', 'coverage_d_loss_of_use',
+      'coverage_e_personal_liability', 'coverage_f_medical_expense'
+    ];
+    for (const [key, value] of Object.entries(policyCoverage)) {
+      if (!standardCoverages.includes(key) && value && typeof value === 'object') {
+        const coverageData = value as { limit?: string; percentage?: string };
+        if (coverageData.limit || coverageData.percentage) {
+          additionalCoverages[key] = coverageData;
+        }
+      }
+    }
+  }
+
+  // Map policy extraction to extractedPolicy format
+  // Coverage limits come from FNOL's loss_context (declarations data)
+  // Policy form details (form code, edition date) come from policy_form_extractions
+  let extractedPolicy: ClaimWithDocuments['extractedPolicy'] = undefined;
+
+  // Build extractedPolicy from FNOL loss_context + policy form extraction metadata
+  if (lossContext || policyExtraction) {
     extractedPolicy = {
-      policyNumber: policyExtraction.policy_number,
-      policyFormCode: policyExtraction.policy_form_code,
-      effectiveDate: declarations?.effectiveDate,
-      expirationDate: declarations?.expirationDate,
-      dwellingLimit: coverageLimits.dwellingCoverageA || coverageLimits.coverageA,
-      otherStructuresLimit: coverageLimits.otherStructuresCoverageB || coverageLimits.coverageB,
-      personalPropertyLimit: coverageLimits.personalPropertyCoverageC || coverageLimits.coverageC,
-      lossOfUseLimit: coverageLimits.lossOfUseCoverageD || coverageLimits.coverageD,
-      personalLiabilityLimit: coverageLimits.personalLiabilityCoverageE || coverageLimits.coverageE,
-      medicalPaymentsLimit: coverageLimits.medicalPaymentsCoverageF || coverageLimits.coverageF,
-      deductible: coverageLimits.deductible || declarations?.deductible,
-      perilSpecificDeductibles: coverageLimits.perilSpecificDeductibles || declarations?.perilSpecificDeductibles || {},
-      namedInsured: insuredInfo.namedInsured || declarations?.namedInsured,
-      mailingAddress: insuredInfo.mailingAddress,
-      propertyAddress: propertyInfo.address || declarations?.propertyAddress,
-      constructionType: propertyInfo.constructionType,
-      yearBuilt: propertyInfo.yearBuilt,
-      protectionClass: propertyInfo.protectionClass,
-      distanceToFireStation: propertyInfo.distanceToFireStation,
-      distanceToFireHydrant: propertyInfo.distanceToFireHydrant,
+      // Basic policy info
+      policyNumber: policyExtraction?.policy_number || claim.policy_number,
+      policyFormCode: policyExtraction?.policy_form_code,
+      policyFormName: policyExtraction?.policy_form_name,
+      effectiveDate: policyInfo?.inception_date,
+      expirationDate: policyInfo?.expiration_date,
+      policyType: policyInfo?.policy_type,
+      policyStatus: policyInfo?.status,
+      operatingCompany: claimInfo?.operating_company,
+
+      // Primary coverage limits from FNOL's loss_context.policy_coverage
+      dwellingLimit: policyCoverage.coverage_a_dwelling?.limit,
+      otherStructuresLimit: policyCoverage.coverage_b_scheduled_structures?.limit || policyCoverage.coverage_b_unscheduled_structures?.limit,
+      otherStructuresScheduledLimit: policyCoverage.coverage_b_scheduled_structures?.limit,
+      otherStructuresUnscheduledLimit: policyCoverage.coverage_b_unscheduled_structures?.limit,
+      personalPropertyLimit: policyCoverage.coverage_c_personal_property?.limit,
+      lossOfUseLimit: policyCoverage.coverage_d_loss_of_use?.limit,
+      personalLiabilityLimit: policyCoverage.coverage_e_personal_liability?.limit,
+      medicalPaymentsLimit: policyCoverage.coverage_f_medical_expense?.limit,
+
+      // Deductibles from FNOL's loss_context.policy_information
+      deductible: policyInfo?.deductibles?.policy_deductible,
+      perilSpecificDeductibles: {
+        wind_hail: policyInfo?.deductibles?.wind_hail_deductible,
+        hurricane: policyInfo?.deductibles?.hurricane_deductible,
+        flood: policyInfo?.deductibles?.flood_deductible,
+        earthquake: policyInfo?.deductibles?.earthquake_deductible,
+      },
+
+      // Additional coverages (fungi, O&L, fire dept, etc.)
+      additionalCoverages: Object.keys(additionalCoverages).length > 0 ? additionalCoverages : undefined,
+
+      // Insured info from FNOL's loss_context.insured_information
+      namedInsured: insuredInfo?.name_1,
+      insuredName2: insuredInfo?.name_2,
+      insuredEmail: insuredInfo?.email,
+      insuredPhone: insuredInfo?.phone,
+      mailingAddress: insuredInfo?.name_1_address,
+      propertyAddress: lossContext?.policy_coverage?.location || policyInfo?.risk_address,
+
+      // Producer/Agent info
+      producer: policyInfo?.producer ? {
+        name: policyInfo.producer.name,
+        address: policyInfo.producer.address,
+        phone: policyInfo.producer.phone,
+        email: policyInfo.producer.email,
+      } : undefined,
+
+      // Third party interest and legal
+      thirdPartyInterest: policyInfo?.third_party_interest,
+      legalDescription: policyInfo?.legal_description,
+
+      // Property info from FNOL
+      yearBuilt: propertyDamageInfo?.year_built,
+      numberOfStories: propertyDamageInfo?.number_of_stories,
+
+      // Damage info from FNOL
+      damageDescription: claimInfo?.loss_details?.description || propertyDamageInfo?.dwelling_incident_damages,
+      exteriorDamages: propertyDamageInfo?.exterior_damages,
+      interiorDamages: propertyDamageInfo?.interior_damages,
+      roofDamage: propertyDamageInfo?.roof_damage,
+      yearRoofInstalled: propertyDamageInfo?.year_roof_installed,
+      woodRoof: propertyDamageInfo?.wood_roof,
+      droneEligible: claimInfo?.loss_details?.drone_eligible_at_fnol,
+
+      // Report metadata
+      reportedBy: reportMetadata?.reported_by,
+      reportedDate: reportMetadata?.reported_date,
+      reportMethod: reportMetadata?.report_method,
     };
   }
 
-  // Map endorsement extractions
+  // Map endorsement extractions from endorsement_extractions table - include full extraction data
   const extractedEndorsements = endorsementExtractions.map((e: any) => ({
     id: e.id,
     formCode: e.form_code,
@@ -359,9 +496,45 @@ export async function getClaim(
     editionDate: e.edition_date,
     endorsementType: e.endorsement_type,
     summary: e.summary,
-    modifications: e.modifications,
+    modifications: e.modifications || e.extraction_data?.modifications,
     extractionStatus: e.extraction_status,
+    // Include full extraction data for detailed UI display
+    extractionData: e.extraction_data,
   }));
+
+  // Also include endorsements listed in FNOL if no detailed extractions exist
+  const fnolEndorsements = lossContext?.policy_level_endorsements || [];
+  const fnolEndorsementsMapped = fnolEndorsements.map((e: any, idx: number) => ({
+    id: `fnol-${idx}`,
+    formCode: e.code,
+    title: e.description,
+    editionDate: undefined,
+    endorsementType: 'fnol_listed',
+    summary: e.description,
+    modifications: undefined,
+    extractionStatus: 'fnol_source',
+    extractionData: undefined,
+  }));
+
+  // Merge: use detailed extractions when available, fall back to FNOL list
+  const mergedEndorsements = extractedEndorsements.length > 0
+    ? extractedEndorsements
+    : fnolEndorsementsMapped;
+
+  // Build policy form extraction data (definitions, exclusions, loss settlement rules)
+  let extractedPolicyForm: ClaimWithDocuments['extractedPolicyForm'] = undefined;
+  if (policyExtraction) {
+    extractedPolicyForm = {
+      formCode: policyExtraction.policy_form_code,
+      formName: policyExtraction.policy_form_name,
+      editionDate: policyExtraction.edition_date,
+      definitions: policyExtraction.definitions,
+      sectionI: policyExtraction.section_i,
+      sectionII: policyExtraction.section_ii,
+      generalConditions: policyExtraction.general_conditions,
+      extractionData: policyExtraction.extraction_data,
+    };
+  }
 
   const baseClaim = mapRowToClaim({
     ...claim,
@@ -372,7 +545,8 @@ export async function getClaim(
   return {
     ...baseClaim,
     extractedPolicy,
-    extractedEndorsements: extractedEndorsements.length > 0 ? extractedEndorsements : undefined,
+    extractedEndorsements: mergedEndorsements.length > 0 ? mergedEndorsements : undefined,
+    extractedPolicyForm,
   };
 }
 
