@@ -2992,8 +2992,12 @@ export async function registerRoutes(
 
   // Purge ALL claims - permanently delete all claims and related data
   // NOTE: Must be defined BEFORE /api/claims/:id to avoid :id matching "purge-all"
-  app.delete('/api/claims/purge-all', requireAuth, requireOrganization, requireOrgRole('owner'), async (req, res) => {
+  app.delete('/api/claims/purge-all', (req, res, next) => {
+    console.log('[Purge] Request received - isAuthenticated:', req.isAuthenticated(), 'userId:', req.user?.id, 'orgId:', req.organizationId, 'memberRole:', req.membershipRole);
+    next();
+  }, requireAuth, requireOrganization, requireOrgRole('owner'), async (req, res) => {
     try {
+      console.log('[Purge] Passed all auth checks, deleting claims for org:', req.organizationId);
       const result = await purgeAllClaims(req.organizationId!);
       res.json({
         success: true,
