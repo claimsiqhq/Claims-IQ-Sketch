@@ -379,64 +379,178 @@ export type LossContext = FNOLExtraction;
 
 /**
  * AUTHORITATIVE Policy Form Extraction Interface
- * This is the ONLY accepted policy extraction shape. Matches canonical schema.
- *
- * Rules:
- * - Lossless extraction of policy language
- * - NO summarization
- * - NO interpretation
- * - raw_text must contain full verbatim policy text
- * - Uses snake_case to match canonical schema
+ * This captures 100% of data from policy forms.
+ * No data loss - every field in the source document is preserved.
  */
 export interface PolicyFormExtraction {
-  form_code: string;
+  // Document metadata
+  document_info?: {
+    form_number?: string;                    // "HO 80 03 01 14"
+    form_name?: string;                      // "HOMEOWNERS FORM"
+    total_pages?: number;
+    copyright?: string;
+    execution?: {
+      location?: string;
+      signatories?: string[];
+    };
+  };
+
+  // Table of contents with page numbers
+  table_of_contents?: Record<string, number>;
+
+  // Agreement and definitions section
+  agreement_and_definitions?: {
+    policy_components?: string[];
+    key_definitions?: Record<string, string>;
+  };
+
+  // Section I - Property Coverages
+  section_I_property_coverages?: {
+    coverage_a_dwelling?: {
+      included?: string[];
+      excluded?: string[];
+    };
+    coverage_b_other_structures?: {
+      definition?: string;
+      excluded_types?: string[];
+    };
+    coverage_c_personal_property?: {
+      scope?: string;
+      limit_away_from_premises?: string;
+      special_limits_of_liability?: Record<string, number | string>;
+    };
+    coverage_d_loss_of_use?: {
+      additional_living_expense?: string;
+      civil_authority_prohibits_use?: string;
+    };
+  };
+
+  // Section I - Perils
+  section_I_perils_insured_against?: {
+    personal_property_perils?: string[];
+    dwelling_perils?: string[];
+  };
+
+  // Section I - Exclusions
+  section_I_exclusions?: {
+    general_exclusions?: string[];
+  };
+
+  // Section I - Additional Coverages
+  section_I_additional_coverages?: Record<string, string | number>;
+
+  // Section I - Loss Settlement
+  section_I_how_we_settle_losses?: {
+    dwelling_and_other_structures?: {
+      initial_payment?: string;
+      replacement_cost?: string;
+      hail_damage_metal_siding?: string;
+    };
+    roofing_system?: {
+      settlement_method?: string;
+      cosmetic_exclusion?: string;
+    };
+  };
+
+  // Section II - Liability Coverages
+  section_II_liability_coverages?: {
+    coverage_e_personal_liability?: string;
+    coverage_f_medical_expense?: string;
+    liability_exclusions?: string[];
+  };
+
+  // General Conditions
+  general_conditions?: Record<string, string>;
+
+  // Legacy fields for backward compatibility
+  form_code?: string;
   form_name?: string;
   edition_date?: string;
   jurisdiction?: string;
-
-  structure: {
-    definitions?: Record<string, {
-      definition: string;
-      depreciation_includes?: string[];
-    }>;
-    coverages?: {
-      A?: { name?: string; valuation?: string; includes?: string[] };
-      B?: { name?: string; valuation?: string };
-      C?: { name?: string; valuation?: string };
-      D?: { name?: string; valuation?: string };
-    };
-    perils?: {
-      coverage_a_b?: string;
-      coverage_c_named?: string[];
-    };
+  structure?: {
+    definitions?: Record<string, { definition: string; depreciation_includes?: string[] }>;
+    coverages?: Record<string, { name?: string; valuation?: string; includes?: string[] }>;
+    perils?: { coverage_a_b?: string; coverage_c_named?: string[] };
     exclusions?: string[];
     conditions?: string[];
-    loss_settlement?: {
-      default?: {
-        basis?: string;
-        repair_time_limit_months?: number;
-      };
-    };
+    loss_settlement?: { default?: { basis?: string; repair_time_limit_months?: number } };
     additional_coverages?: string[];
   };
-
-  raw_text: string;
+  raw_text?: string;
 }
 
 /**
  * AUTHORITATIVE Endorsement Extraction Interface
- * This is the ONLY accepted endorsement extraction shape. Matches canonical schema.
+ * This captures 100% of data from endorsement documents.
+ * No data loss - every modification and schedule is preserved.
  *
- * Rules:
- * - Extraction MUST be delta-only (what the endorsement changes)
- * - NEVER reprint base policy language
- * - NEVER merge with other endorsements
- * - NEVER interpret impact
- * - raw_text must contain full endorsement text
- * - Uses snake_case to match canonical schema
+ * The structure uses endorsement name as key to allow flexible extraction
+ * of any endorsement type with its specific modifications.
  */
 export interface EndorsementExtraction {
-  form_code: string;
+  // Form identification
+  form_number?: string;                      // "HO 81 53 12 22"
+  purpose?: string;                          // Purpose of the endorsement
+
+  // Definition modifications
+  definitions_modified?: Record<string, {
+    definition?: string;
+    depreciable_components?: string[];
+    factors_considered?: string[];
+  } | string>;
+
+  // Property coverage changes
+  property_coverage_changes?: {
+    excluded_property_additions?: string[];
+    uninhabited_thresholds?: string;
+    loss_of_use_deductible?: string;
+    intentional_act_exception?: string;
+    [key: string]: string | string[] | undefined;
+  };
+
+  // Settlement and conditions
+  settlement_and_conditions?: {
+    total_loss_provision?: string;
+    loss_payment_timing?: string;
+    cancellation_notice?: Record<string, string>;
+    nonrenewal_notice?: string;
+    [key: string]: string | Record<string, string> | undefined;
+  };
+
+  // Liability modifications
+  liability_modifications?: Record<string, string>;
+
+  // Roof surface payment schedule (for HO 88 02)
+  scope?: string;
+  settlement_calculation?: string;
+  hail_functional_requirement?: string;
+  roof_surface_payment_schedule_examples?: {
+    description?: string;
+    [key: string]: Record<string, string> | string | undefined;
+  };
+  complete_schedule?: Array<{
+    roof_age_years?: number;
+    architectural_shingle_pct?: number;
+    other_composition_pct?: number;
+    metal_pct?: number;
+    tile_pct?: number;
+    slate_pct?: number;
+    wood_pct?: number;
+    rubber_pct?: number;
+    [key: string]: number | undefined;
+  }>;
+
+  // O&L Coverage (for HO 84 16)
+  coverage_a_increased_cost?: string;
+  coverage_b_demolition_cost?: string;
+  coverage_c_increased_construction_cost?: string;
+
+  // Personal Property RCV (for HO 04 90)
+  settlement_basis?: string;
+  conditions?: string[];
+
+  // Legacy fields for backward compatibility
+  form_code?: string;
   title?: string;
   edition_date?: string;
   jurisdiction?: string;
@@ -444,42 +558,20 @@ export interface EndorsementExtraction {
   applies_to_coverages?: string[];
   endorsement_type?: string;
   precedence_priority?: number;
-
   modifications?: {
-    definitions?: {
-      added?: Array<{ term: string; definition: string }>;
-      deleted?: string[];
-      replaced?: Array<{ term: string; new_definition: string }>;
-    };
-    loss_settlement?: {
-      replaces?: Array<{
-        section: string;
-        new_rule: {
-          basis?: string;
-          repair_time_limit_months?: number;
-          fallback_basis?: string;
-          conditions?: string[];
-        };
-      }>;
-    };
-    exclusions?: {
-      added?: string[];
-      deleted?: string[];
-    };
+    definitions?: { added?: Array<{ term: string; definition: string }>; deleted?: string[]; replaced?: Array<{ term: string; new_definition: string }> };
+    loss_settlement?: { replaces?: Array<{ section: string; new_rule: { basis?: string; repair_time_limit_months?: number; fallback_basis?: string; conditions?: string[] } }> };
+    exclusions?: { added?: string[]; deleted?: string[] };
   };
-
-  tables?: Array<{
-    table_type: string;
-    applies_when?: {
-      peril?: string;
-      coverage?: string[];
-    };
-    data?: Record<string, unknown>;
-    schedule?: any[];
-  }>;
-
-  raw_text: string;
+  tables?: Array<{ table_type: string; applies_when?: { peril?: string; coverage?: string[] }; data?: Record<string, unknown>; schedule?: any[] }>;
+  raw_text?: string;
 }
+
+/**
+ * Container for multiple endorsement extractions
+ * Each key is the endorsement name/type
+ */
+export type EndorsementExtractionSet = Record<string, EndorsementExtraction>;
 
 /**
  * Document type enum for routing

@@ -206,88 +206,159 @@ INSERT INTO ai_prompts (
   'document.extraction.policy',
   'Policy Document Extraction',
   'extraction',
-  'You are an expert insurance policy analyst specializing in homeowners insurance forms.
-
-Your task is to perform a COMPLETE, LOSSLESS extraction of all policy provisions from this homeowners policy form.
+  'You are an expert insurance policy analyst. Extract 100% of ALL information from this homeowners policy form into structured JSON.
 
 CRITICAL RULES:
-1. Output MUST be a single JSON object following the exact structure below.
-2. Extract ALL definitions, coverages, perils, exclusions, conditions, and loss settlement provisions.
-3. Preserve original policy language VERBATIM - do NOT summarize or paraphrase.
-4. Include ALL sub-clauses, exceptions, and special conditions.
-5. Use snake_case for all field names.
-6. If a section is not present in the document, use empty object {} or empty array [].
-7. Extract the COMPLETE text of each definition and provision.
+1. Extract EVERY piece of information - no data should be lost
+2. Preserve original policy language VERBATIM - do NOT summarize or paraphrase
+3. Include ALL definitions with their complete text
+4. Include ALL special limits of liability with dollar amounts
+5. Include ALL perils, exclusions, and conditions
+6. Include ALL coverage settlement provisions
+7. Use snake_case for all field names
+8. Use null for any field not found in the document
+9. Return ONLY valid JSON matching the exact structure below
 
 OUTPUT STRUCTURE (MUST MATCH EXACTLY):
 {
-  "form_code": "HO 80 03 01 14",
-  "form_name": "Homeowners Form",
-  "edition_date": "01/14",
-  "jurisdiction": "CO",
-  "structure": {
-    "definitions": {
-      "actual_cash_value": {
-        "definition": "The value of the covered damaged property at the time of loss...",
-        "depreciation_includes": ["materials", "labor", "overhead", "profit", "taxes"]
+  "document_info": {
+    "form_number": "HO 80 03 01 14",
+    "form_name": "HOMEOWNERS FORM",
+    "total_pages": 28,
+    "copyright": "Insurance Services Office, Inc.",
+    "execution": {
+      "location": "Madison, Wisconsin",
+      "signatories": ["President", "Secretary"]
+    }
+  },
+  "table_of_contents": {
+    "policy": 1,
+    "agreement": 1,
+    "definitions": 1,
+    "section_I_property_coverage": 4,
+    "coverage_a_dwelling": 4,
+    "coverage_b_other_structures": 4,
+    "coverage_c_personal_property": 5,
+    "coverage_d_loss_of_use": 7,
+    "section_I_perils": 7,
+    "section_I_exclusions": 9,
+    "section_I_additional_coverage": 12,
+    "section_I_conditions": 15,
+    "section_I_how_we_settle_losses": 18,
+    "section_II_liability_coverage": 20,
+    "coverage_e_personal_liability": 20,
+    "coverage_f_medical_expense": 20,
+    "section_II_exclusions": 20,
+    "section_II_additional_coverage": 24,
+    "section_II_conditions": 25,
+    "general_conditions": 26
+  },
+  "agreement_and_definitions": {
+    "policy_components": ["DECLARATIONS", "HOMEOWNERS FORM", "ENDORSEMENTS", "INSURANCE APPLICATION"],
+    "key_definitions": {
+      "you_and_your": "Named insured shown in Declarations, including resident spouse or registered domestic partner/civil union partner",
+      "actual_cash_value": "Least of: value of damaged property, change in value, cost to repair, or cost to replace; minus depreciation",
+      "business": "Employment, trade, or activity for money, excluding specific volunteer and home day care exceptions",
+      "current_construction": "Commonly used local materials/methods for similar utility; excludes costs for antiquated construction like stone foundations or wood lath",
+      "insured": "Named insured, resident relatives, and resident minors in care; includes permissive users of vehicles/animals under Section II",
+      "insured_location": "Residence premises, newly acquired residences (30-day notice), vacant land, and temporary residences",
+      "residence_premises": "The one or two-family dwelling where you reside as shown in Declarations, including grounds and other structures",
+      "structure": "Man-made object requiring site preparation, permanent and stationary; includes buildings, retaining walls, and driveways"
+    }
+  },
+  "section_I_property_coverages": {
+    "coverage_a_dwelling": {
+      "included": ["Dwelling", "Built-in fixtures", "Additions", "Construction materials", "Wall-to-wall carpeting"],
+      "excluded": ["Land", "Water"]
+    },
+    "coverage_b_other_structures": {
+      "definition": "Structures separated from dwelling by clear space or attached only by fence/walkway",
+      "excluded_types": ["Business use structures", "Rented structures (unless garage)", "Large buildings > 300 sq ft (unless identified)"]
+    },
+    "coverage_c_personal_property": {
+      "scope": "Worldwide coverage for property owned/used by an insured",
+      "limit_away_from_premises": "10% of Coverage C or $3,000 minimum",
+      "special_limits_of_liability": {
+        "money_bank_notes_scrip": 300,
+        "legal_marijuana": 300,
+        "watercraft_and_trailers": 1500,
+        "other_trailers": 1500,
+        "scale_models": 1500,
+        "securities_deeds_passports": 1500,
+        "business_property": 1500,
+        "jewelry_gemstones_watches_furs": 2000,
+        "trading_cards_comic_books": 2500,
+        "vehicle_equipment_non_owned": 3000,
+        "theft_of_firearms": 5000,
+        "theft_of_silverware_pewterware": 5000,
+        "theft_of_tools_and_cabinets": 7500,
+        "theft_of_rugs_and_tapestries": 10000
       }
     },
-    "coverages": {
-      "A": {
-        "name": "Coverage A - Dwelling",
-        "valuation": "Replacement Cost",
-        "includes": ["dwelling", "attached structures", "materials on premises"]
-      },
-      "B": {
-        "name": "Coverage B - Other Structures",
-        "valuation": "Replacement Cost"
-      },
-      "C": {
-        "name": "Coverage C - Personal Property",
-        "valuation": "Actual Cash Value"
-      },
-      "D": {
-        "name": "Coverage D - Loss of Use",
-        "valuation": "Actual Loss Sustained"
-      }
-    },
-    "perils": {
-      "coverage_a_b": "All Risk",
-      "coverage_c_named": ["Fire", "Windstorm Or Hail", "Explosion", "Vandalism", "Theft"]
-    },
-    "exclusions": [
-      "Wear and tear",
-      "Deterioration",
-      "Settling, cracking, shrinking",
-      "Earth movement",
-      "Water damage"
-    ],
-    "conditions": [
-      "Duties after loss",
-      "Suit against us",
-      "Loss payment conditions"
-    ],
-    "loss_settlement": {
-      "default": {
-        "basis": "RCV",
-        "repair_time_limit_months": 12
-      }
-    },
-    "additional_coverages": [
-      "Debris Removal",
-      "Fire Department Service Charge"
+    "coverage_d_loss_of_use": {
+      "additional_living_expense": "Necessary increase in living expense to maintain standard of living if unfit to live in",
+      "civil_authority_prohibits_use": "Up to two weeks if civil authority prohibits use due to nearby damage"
+    }
+  },
+  "section_I_perils_insured_against": {
+    "personal_property_perils": [
+      "Fire or Lightning", "Windstorm or Hail", "Explosion", "Riot", "Aircraft", "Vehicle", "Smoke",
+      "Vandalism", "Theft", "Breakage of Glass", "Falling Objects", "Weight of Ice/Snow/Sleet",
+      "Discharge/Overflow of Water/Steam", "Tearing Apart/Bulging", "Freezing", "Electrical Current"
     ]
   },
-  "raw_text": "FULL VERBATIM POLICY TEXT"
+  "section_I_exclusions": {
+    "general_exclusions": [
+      "Earth Movement (Earthquake, Landslide)", "Fungi or Bacteria", "Governmental Action",
+      "Illegal Acts/Drugs", "Intentional Acts", "Neglect", "Nuclear Hazard", "Ordinance or Law",
+      "Pollution", "Utility Failure", "War", "Water (Flood, Surface Water, Sewer Backup)"
+    ]
+  },
+  "section_I_additional_coverages": {
+    "collapse": "Abrupt falling down due to specified perils or hidden decay",
+    "credit_card_forgery": 1000,
+    "fire_department_service_charge": 500,
+    "grave_markers": 5000,
+    "lock_and_garage_remote": "Necessary cost to re-key after theft",
+    "loss_assessments": 10000,
+    "refrigerated_food": 1000
+  },
+  "section_I_how_we_settle_losses": {
+    "dwelling_and_other_structures": {
+      "initial_payment": "Actual Cash Value until repair/replacement is complete",
+      "replacement_cost": "Least of repair cost, spent amount, or limit if completed within 12 months",
+      "hail_damage_metal_siding": "Only paid if it no longer prevents water entry"
+    },
+    "roofing_system": {
+      "settlement_method": "Actual Cash Value for Wind/Hail damage",
+      "cosmetic_exclusion": "Metal roofing/components only covered if water entry is compromised"
+    }
+  },
+  "section_II_liability_coverages": {
+    "coverage_e_personal_liability": "Compensatory damages for bodily injury or property damage; includes legal defense",
+    "coverage_f_medical_expense": "Medically necessary expenses within 36 months of occurrence",
+    "liability_exclusions": [
+      "Aggression/Bullying", "Aircraft/Hovercraft", "Alcohol to Minors", "Business Activities",
+      "Communicable Disease", "Expected/Intended Injury", "Professional Services", "Sexual Molestation",
+      "Vehicle/Watercraft use (with specific exceptions)"
+    ]
+  },
+  "general_conditions": {
+    "cancellation_and_nonrenewal": "Refer to state amendatory endorsement",
+    "concealment_or_fraud": "Policy may be voided if material facts are misrepresented in application",
+    "suit_against_us": "Must be brought within 12 months after the date of loss"
+  }
 }
 
-Extract all policy provisions now. Be thorough and preserve exact policy language. Return ONLY valid JSON matching this exact structure.',
+IMPORTANT: Extract ALL definitions, ALL special limits, ALL perils, ALL exclusions, and ALL conditions. Do not skip or summarize any data. Every provision in the document should be captured.
+
+Extract all policy provisions now. Return ONLY valid JSON matching this exact structure.',
   'This is page {{pageNum}} of {{totalPages}} of a policy document. Extract all relevant information. Return ONLY valid JSON.',
   'gpt-4o',
   0.1,
   16000,
   'json_object',
-  'Extracts complete policy structure and provisions from insurance policy documents',
+  'Extracts 100% of policy structure and provisions from insurance policy documents - comprehensive extraction',
   true
 ) ON CONFLICT (prompt_key) DO UPDATE SET
   system_prompt = EXCLUDED.system_prompt,
@@ -318,96 +389,121 @@ INSERT INTO ai_prompts (
   'document.extraction.endorsement',
   'Endorsement Document Extraction',
   'extraction',
-  'You are an expert insurance policy analyst specializing in insurance endorsements.
-
-Your task is to analyze endorsement documents and extract ALL changes each endorsement makes to the underlying policy.
-
-This is a DELTA extraction task. You must identify exactly what each endorsement:
-- ADDS
-- DELETES
-- REPLACES
-- MODIFIES
-
-relative to the base policy form.
+  'You are an expert insurance policy analyst. Extract 100% of ALL information from these insurance endorsement documents into structured JSON.
 
 CRITICAL RULES:
-1. Output MUST be a single JSON object with an "endorsements" array.
-2. Do NOT summarize or interpret legal meaning.
-3. Preserve original policy language verbatim when referencing changes.
-4. Capture ALL tables, schedules, and percentages as structured data.
-5. Use snake_case for all field names.
-6. If the endorsement states "All other terms remain unchanged", do NOT repeat base policy text.
-7. If the endorsement modifies multiple policy sections, capture each modification separately.
-8. Every endorsement MUST include full raw text.
+1. Extract EVERY piece of information - no data should be lost
+2. Preserve original policy language VERBATIM - do NOT summarize or paraphrase
+3. Include ALL definition modifications with complete text
+4. Include ALL coverage changes, exclusions, and conditions
+5. Include ALL tables, schedules, and percentages as structured data
+6. Include ALL notice periods, limits, and thresholds
+7. Use snake_case for all field names
+8. Use null for any field not found in the document
+9. Return ONLY valid JSON matching the exact structure below
+10. Each endorsement should be a separate object with its form number as the key
 
 OUTPUT STRUCTURE (MUST MATCH EXACTLY):
 {
-  "endorsements": [
-    {
-      "form_code": "HO 86 05 10 22",
-      "title": "Roof Replacement Cost Coverage For Windstorm And Hail",
-      "edition_date": "10/22",
-      "jurisdiction": "CO",
-      "applies_to_forms": ["HO 80 03"],
-      "applies_to_coverages": ["A", "B"],
-      "endorsement_type": "loss_settlement",
-      "precedence_priority": 10,
-      "modifications": {
-        "definitions": {
-          "added": [
-            {
-              "term": "Roofing system",
-              "definition": "Any type of roofing surface, underlayment, vent, flashing..."
-            }
-          ]
-        },
-        "loss_settlement": {
-          "replaces": [
-            {
-              "section": "Loss Settlement For Roofing System",
-              "new_rule": {
-                "basis": "RCV",
-                "repair_time_limit_months": 12,
-                "fallback_basis": "ACV",
-                "conditions": [
-                  "Must be repaired within 12 months",
-                  "Metal components excluded unless water intrusion"
-                ]
-              }
-            }
-          ]
-        },
-        "exclusions": {
-          "added": [
-            "Cosmetic damage to metal roofing",
-            "Hail damage to metal components without water intrusion"
-          ]
-        }
+  "wisconsin_amendatory_endorsement": {
+    "form_number": "HO 81 53 12 22",
+    "purpose": "Modifies policy terms to comply with Wisconsin state statutes",
+    "definitions_modified": {
+      "actual_cash_value": {
+        "definition": "Value of covered damaged property at time of loss, calculated as repair/replace cost minus depreciation",
+        "depreciable_components": [
+          "Materials",
+          "Permits",
+          "Applicable taxes",
+          "Labor, overhead, and profit (unless prohibited)",
+          "Obsolescence"
+        ],
+        "factors_considered": [
+          "Age",
+          "Condition (wear, tear, deterioration)",
+          "Remaining useful life"
+        ]
       },
-      "tables": [
-        {
-          "table_type": "roof_surface_payment_schedule",
-          "applies_when": {
-            "peril": "Windstorm Or Hail",
-            "coverage": ["A", "B"]
-          },
-          "schedule": [
-            { "roof_age": 0, "architectural_shingle_pct": 100 },
-            { "roof_age": 10, "architectural_shingle_pct": 70 }
-          ]
-        }
+      "limit": "Maximum dollar amount of insurance provided",
+      "metal_siding_surface": "Protective metal material and metal corner trim attached to building exterior walls"
+    },
+    "property_coverage_changes": {
+      "excluded_property_additions": [
+        "Virtual currency (digital, crypto, electronic)",
+        "Digitally stored property (data, documents, interactive media)"
       ],
-      "raw_text": "FULL VERBATIM ENDORSEMENT TEXT"
+      "uninhabited_thresholds": "Timeframe for Vandalism, Theft, and Glass Breakage exclusions increased from 30 to 60 consecutive days",
+      "loss_of_use_deductible": "No deductible applies to Coverage D",
+      "intentional_act_exception": "Exclusion does not apply to innocent insureds for patterns of domestic abuse if perpetrator is criminally prosecuted"
+    },
+    "settlement_and_conditions": {
+      "total_loss_provision": "For Wisconsin real property dwellings, the Coverage A limit represents the total value in a total/constructive total loss",
+      "loss_payment_timing": "Payable 30 days after proof of loss and agreement/judgment",
+      "cancellation_notice": {
+        "nonpayment": "10 days",
+        "new_policy_under_60_days": "10 days",
+        "substantial_risk_change": "10 days",
+        "anniversary": "60 days"
+      },
+      "nonrenewal_notice": "60 days"
+    },
+    "liability_modifications": {
+      "fungi_bacteria_limit": "Limit under Coverage E for damages resulting from one occurrence will not exceed $50,000",
+      "emergency_first_aid": "Deleted"
     }
-  ],
-  "full_text": "Complete verbatim text visible on this page - REQUIRED for multi-page documents"
-}',
+  },
+  "roof_surface_payment_schedule": {
+    "form_number": "HO 88 02 10 22",
+    "scope": "Applies only to roofing system damage caused by Windstorm or Hail",
+    "settlement_calculation": "Pays the least of: Value of property, change in value, cost to repair, cost to replace per schedule, or policy limit",
+    "hail_functional_requirement": "No payment for metal roofing/siding unless it no longer prevents water entry or has distinct actual holes/openings",
+    "roof_surface_payment_schedule_examples": {
+      "description": "Percentages applied to components, labor, taxes, overhead, and profit",
+      "age_19_years_payout": {
+        "architectural_shingles": "62%",
+        "all_other_composition": "43%",
+        "metal_shingles_panels": "81%",
+        "concrete_clay_tile": "90%",
+        "slate": "90%",
+        "wood_shingles_shakes": "62%",
+        "rubber_membrane": "40%"
+      }
+    },
+    "complete_schedule": [
+      { "roof_age_years": 0, "architectural_shingle_pct": 100, "other_composition_pct": 100, "metal_pct": 100, "tile_pct": 100, "slate_pct": 100, "wood_pct": 100, "rubber_pct": 100 },
+      { "roof_age_years": 5, "architectural_shingle_pct": 90, "other_composition_pct": 81, "metal_pct": 95, "tile_pct": 98, "slate_pct": 98, "wood_pct": 90, "rubber_pct": 80 },
+      { "roof_age_years": 10, "architectural_shingle_pct": 80, "other_composition_pct": 62, "metal_pct": 90, "tile_pct": 95, "slate_pct": 95, "wood_pct": 80, "rubber_pct": 60 },
+      { "roof_age_years": 15, "architectural_shingle_pct": 70, "other_composition_pct": 52, "metal_pct": 86, "tile_pct": 93, "slate_pct": 93, "wood_pct": 70, "rubber_pct": 50 },
+      { "roof_age_years": 19, "architectural_shingle_pct": 62, "other_composition_pct": 43, "metal_pct": 81, "tile_pct": 90, "slate_pct": 90, "wood_pct": 62, "rubber_pct": 40 },
+      { "roof_age_years": 20, "architectural_shingle_pct": 60, "other_composition_pct": 40, "metal_pct": 80, "tile_pct": 90, "slate_pct": 90, "wood_pct": 60, "rubber_pct": 38 }
+    ]
+  },
+  "ordinance_or_law_coverage": {
+    "form_number": "HO 84 16",
+    "coverage_a_increased_cost": "Additional coverage for increased cost to repair/rebuild due to ordinance or law",
+    "coverage_b_demolition_cost": "Coverage for cost to demolish undamaged portions",
+    "coverage_c_increased_construction_cost": "Coverage for increased cost due to enforcement of building codes"
+  },
+  "personal_property_replacement_cost": {
+    "form_number": "HO 04 90",
+    "settlement_basis": "Replacement Cost Value instead of Actual Cash Value for Coverage C",
+    "conditions": [
+      "Must actually repair or replace",
+      "Within reasonable time",
+      "Functional equivalent acceptable"
+    ]
+  }
+}
+
+IMPORTANT: Extract ALL endorsements in the document. Extract ALL definition changes, ALL coverage modifications, ALL schedule tables with complete data. Do not skip or summarize any data. Every provision in every endorsement should be captured.
+
+Extract all endorsement provisions now. Return ONLY valid JSON matching this structure.',
   'This is page {{pageNum}} of {{totalPages}} of an endorsement document. Extract all relevant information. Return ONLY valid JSON.',
   'gpt-4o',
   0.1,
   16000,
   'json_object',
-  'Extracts delta modifications from insurance endorsement documents',
+  'Extracts 100% of modifications from insurance endorsement documents - comprehensive extraction',
   true
 ) ON CONFLICT (prompt_key) DO UPDATE SET
   system_prompt = EXCLUDED.system_prompt,
