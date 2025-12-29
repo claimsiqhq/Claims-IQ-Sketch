@@ -524,7 +524,8 @@ async function storePolicy(
   extraction: PolicyFormExtraction,
   documentId: string,
   claimId: string | null,
-  organizationId: string
+  organizationId: string,
+  rawOpenaiResponse?: any
 ): Promise<void> {
   console.log(`[PolicyExtraction] Starting storePolicy for document ${documentId}, org ${organizationId}, claimId: ${claimId}`);
   console.log(`[PolicyExtraction] Extraction data: form_code=${extraction.form_code}, form_name=${extraction.form_name}`);
@@ -584,6 +585,8 @@ async function storePolicy(
     section_ii: {},
     general_conditions: filteredConditions,
     raw_page_text: extraction.raw_text || null,
+    // Raw OpenAI response - stored BEFORE any transformation for debugging/auditing
+    raw_openai_response: rawOpenaiResponse || null,
     status: 'completed',
   };
 
@@ -758,7 +761,8 @@ async function storeEndorsements(
   extractions: EndorsementExtraction[],
   claimId: string,
   organizationId: string,
-  documentId?: string
+  documentId?: string,
+  rawOpenaiResponse?: any
 ): Promise<void> {
   for (const endorsement of extractions) {
     const formCode = endorsement.form_code;
@@ -798,6 +802,8 @@ async function storeEndorsements(
       modifications: endorsement.modifications || {},
       tables: endorsement.tables || [],
       raw_text: endorsement.raw_text || null,
+      // Raw OpenAI response - stored BEFORE any transformation for debugging/auditing
+      raw_openai_response: rawOpenaiResponse || null,
       extraction_model: 'gpt-4o',
       extraction_status: 'completed',
       status: 'completed',
@@ -1133,9 +1139,10 @@ export async function processDocument(
         validateFNOLExtraction(fnolExtraction);
 
         // Store extracted data, preserving progress info
-        const finalExtractedData = existingProgress 
-          ? { ...fnolExtraction, _progress: { ...existingProgress, stage: 'completed' } }
-          : fnolExtraction;
+        // Also store _raw_openai_response for passing to claims table later
+        const finalExtractedData = existingProgress
+          ? { ...fnolExtraction, _progress: { ...existingProgress, stage: 'completed' }, _raw_openai_response: rawExtraction }
+          : { ...fnolExtraction, _raw_openai_response: rawExtraction };
 
         await supabaseAdmin
           .from('documents')
@@ -1256,7 +1263,7 @@ export async function processDocument(
         }
 
         console.log(`[Policy] Calling storePolicy with documentId=${documentId}, claimIdToUse=${claimIdToUse}, orgId=${organizationId}`);
-        await storePolicy(policyExtraction, documentId, claimIdToUse, organizationId);
+        await storePolicy(policyExtraction, documentId, claimIdToUse, organizationId, rawExtraction);
         console.log(`[Policy] storePolicy completed successfully`);
 
         // Trigger effective policy recomputation
@@ -1337,7 +1344,7 @@ export async function processDocument(
         }
 
         if (claimIdToUse) {
-          await storeEndorsements(endorsementExtractions, claimIdToUse, organizationId, documentId);
+          await storeEndorsements(endorsementExtractions, claimIdToUse, organizationId, documentId, rawExtraction);
 
           // Trigger effective policy recomputation
           try {
@@ -1412,6 +1419,9 @@ export async function createClaimFromDocuments(
   // Transform to FNOLExtraction if needed
   let fnolExtraction: FNOLExtraction;
   const extractedData = fnolDoc.extracted_data as any;
+
+  // Extract raw OpenAI response stored during document processing
+  const rawOpenaiResponse = extractedData._raw_openai_response || null;
 
   // Check if already in FNOLExtraction format (canonical structure)
   if (extractedData.claim && extractedData.insured && extractedData.property) {
@@ -1504,6 +1514,9 @@ export async function createClaimFromDocuments(
 
       // LOSS CONTEXT - ALL FNOL TRUTH GOES HERE
       loss_context: lossContext,
+
+      // Raw OpenAI response - stored BEFORE any transformation for debugging/auditing
+      raw_openai_response: rawOpenaiResponse,
 
       // Status
       status: 'fnol',

@@ -1,86 +1,54 @@
 // Scope Voice Agent
 // RealtimeAgent for voice-driven estimate building with OpenAI Agents SDK
 //
-// NOTE: The system instructions for this agent are also stored in the database
-// under the key "voice.scope" for easy editing. Future enhancement:
-// dynamically load instructions from /api/prompts/voice.scope/config
-// at agent initialization time.
+// Prompts are loaded dynamically from the database via /api/prompts/voice.scope/config
+// This ensures the database is the single source of truth for all AI prompts.
 
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 import { z } from 'zod';
 import { scopeEngine } from '../services/scope-engine';
 
-// System instructions for the voice agent
-const SCOPE_AGENT_INSTRUCTIONS = `You are an estimate building assistant for property insurance claims adjusters. Your job is to help them add line items to an estimate by voice.
+// Prompt cache to avoid repeated API calls
+let cachedInstructions: string | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache
 
-PERSONALITY:
-- Be concise and professional—adjusters are working in the field
-- Confirm each item briefly before moving on
-- Suggest related items when appropriate
+/**
+ * Fetch prompt instructions from the database API
+ * Returns cached version if available and not expired
+ * Throws error if prompt not available - database is the ONLY source
+ */
+async function fetchInstructionsFromAPI(): Promise<string> {
+  // Check cache first
+  const now = Date.now();
+  if (cachedInstructions && (now - cacheTimestamp) < CACHE_TTL_MS) {
+    return cachedInstructions;
+  }
 
-WORKFLOW:
-1. Listen for line item descriptions or requests
-2. ALWAYS call search_line_items to find the correct code - infer the 3-letter category code from the description (e.g., 'DRW' for drywall, 'WTR' for water, 'RFG' for roofing, 'DEM' for demolition) and pass it to the category parameter to improve search accuracy
-3. Match descriptions to search results and get quantity/unit confirmation
-4. Add to estimate using the exact code from search results
-5. Suggest related items if relevant
+  const response = await fetch('/api/prompts/voice.scope/config', {
+    credentials: 'include',
+  });
 
-UNDERSTANDING REQUESTS:
-- "Add drywall demo, 200 square feet" → find drywall demolition line item, quantity 200 SF
-- "Tear out carpet in the bedroom" → flooring demolition, ask for square footage
-- "Water extraction for the whole room" → water extraction, calculate based on room size
-- "Standard paint job" → interior paint, ask for wall area
+  if (!response.ok) {
+    throw new Error(
+      `[ScopeAgent] Failed to fetch prompt from database (HTTP ${response.status}). ` +
+      `The prompt "voice.scope" must exist in the ai_prompts table.`
+    );
+  }
 
-QUANTITY HANDLING:
-- Accept natural speech: "about two hundred" = 200, "a dozen" = 12
-- If unit is ambiguous, confirm: "Is that square feet or linear feet?"
-- Round to reasonable increments
+  const data = await response.json();
+  if (!data.config?.systemPrompt) {
+    throw new Error(
+      `[ScopeAgent] No systemPrompt found in database response. ` +
+      `Check that the "voice.scope" prompt is properly configured in ai_prompts.`
+    );
+  }
 
-LINE ITEM MATCHING:
-CRITICAL - NO GUESSING: You do NOT have the line item database in your memory. You MUST search for every line item using search_line_items before adding it, unless the user explicitly provides the exact code (e.g., 'WTR EXT'). Never invent a code.
-- ALWAYS call search_line_items first to find the correct code
-- Match user descriptions to search results only
-- Offer alternatives from search results if exact match not found
-- If search returns no results, ask the user to rephrase or provide the code
-
-EXAMPLE FLOW:
-User: "Add drywall demolition, 200 square feet for the master bedroom"
-You: [call add_line_item tool] "Added drywall demo, 200 SF for master bedroom. Need anything else for this room?"
-
-User: "Water extraction too"
-You: "How many square feet for water extraction?"
-User: "Same, 200"
-You: [call add_line_item tool] "Added water extraction, 200 SF. Do you also need drying equipment?"
-
-User: "Yeah, add 5 days of dehumidifiers"
-You: [call add_line_item tool] "Added 5 days of dehumidifier rental. Anything else?"
-
-User: "Remove the drywall demo"
-You: [call remove_line_item tool] "Removed drywall demolition from the estimate."
-
-User: "Change the extraction to 250 square feet"
-You: [call set_quantity tool] "Updated water extraction to 250 square feet."
-
-XACTIMATE CATEGORY CODES:
-- WTR: Water Extraction & Remediation (extraction, drying equipment, dehumidifiers)
-- DRY: Drywall (installation, finishing, texturing)
-- PNT: Painting
-- CLN: Cleaning
-- PLM: Plumbing
-- ELE: Electrical
-- RFG: Roofing
-- FRM: Framing & Rough Carpentry
-- CAB: Cabinetry
-- DOR: Doors
-- APP: Appliances
-- APM: Appliances - Major (without install)
-
-CODE FORMAT: Xactimate codes follow pattern like "WTR DEHU" (category + selector). Use the full_code returned from search.
-
-ERROR HANDLING:
-- If can't find item: "I couldn't find an exact match. Did you mean [alternative]?"
-- If quantity unclear: "What quantity for that?"
-- If unit unclear: "Is that per square foot or linear foot?"`;
+  cachedInstructions = data.config.systemPrompt;
+  cacheTimestamp = now;
+  console.log('[ScopeAgent] Loaded instructions from database');
+  return cachedInstructions;
+}
 
 // Tool: Add a line item
 const addLineItemTool = tool({
@@ -279,25 +247,35 @@ const rejectSuggestionsTool = tool({
   },
 });
 
-// Create the RealtimeAgent with all tools
-export const scopeAgent = new RealtimeAgent({
-  name: 'ScopeAgent',
-  instructions: SCOPE_AGENT_INSTRUCTIONS,
-  tools: [
-    addLineItemTool,
-    removeLineItemTool,
-    setQuantityTool,
-    updateLineItemTool,
-    setContextTool,
-    searchLineItemsTool,
-    getEstimateSummaryTool,
-    suggestRelatedTool,
-    undoTool,
-    clearAllTool,
-    confirmSuggestionsTool,
-    rejectSuggestionsTool,
-  ],
-});
+// Tool list for agent creation
+const agentTools = [
+  addLineItemTool,
+  removeLineItemTool,
+  setQuantityTool,
+  updateLineItemTool,
+  setContextTool,
+  searchLineItemsTool,
+  getEstimateSummaryTool,
+  suggestRelatedTool,
+  undoTool,
+  clearAllTool,
+  confirmSuggestionsTool,
+  rejectSuggestionsTool,
+];
+
+/**
+ * Create a scope agent with instructions loaded from database
+ * Database is the ONLY source - throws if prompt not available
+ */
+export async function createScopeAgentAsync(): Promise<RealtimeAgent> {
+  const instructions = await fetchInstructionsFromAPI();
+
+  return new RealtimeAgent({
+    name: 'ScopeAgent',
+    instructions,
+    tools: agentTools,
+  });
+}
 
 // Export individual tools for testing
 export const tools = {

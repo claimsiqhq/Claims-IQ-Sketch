@@ -4,7 +4,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { RealtimeSession } from '@openai/agents/realtime';
 import type { RealtimeItem } from '@openai/agents/realtime';
-import { scopeAgent } from '../agents/scope-agent';
+import { createScopeAgentAsync } from '../agents/scope-agent';
 import { useScopeEngine } from '../services/scope-engine';
 
 interface UseVoiceScopeSessionOptions {
@@ -124,7 +124,10 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
       }
       const { ephemeral_key } = await response.json();
 
-      // 2. Create RealtimeSession with the scope agent
+      // 2. Create scope agent with instructions from database
+      const scopeAgent = await createScopeAgentAsync();
+
+      // 3. Create RealtimeSession with the scope agent
       const session = new RealtimeSession(scopeAgent, {
         transport: 'webrtc',
         config: {
@@ -135,7 +138,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
         },
       });
 
-      // 3. Set up event listeners
+      // 4. Set up event listeners
 
       // Audio events
       session.on('audio_start', () => {
@@ -219,7 +222,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
         options.onError?.(new Error(errorMessage));
       });
 
-      // 4. Connect
+      // 5. Connect
       await session.connect({ apiKey: ephemeral_key });
 
       sessionRef.current = session;

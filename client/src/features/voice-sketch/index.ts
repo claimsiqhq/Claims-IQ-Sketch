@@ -9,7 +9,7 @@ export { default as VoiceSketchPage } from './VoiceSketchPage';
 
 export { useVoiceSession } from './hooks/useVoiceSession';
 export { useGeometryEngine, geometryEngine } from './services/geometry-engine';
-export { roomSketchAgent, tools } from './agents/room-sketch-agent';
+export { createRoomSketchAgentAsync, tools } from './agents/room-sketch-agent';
 
 export * from './types/geometry';
 export * from './utils/polygon-math';

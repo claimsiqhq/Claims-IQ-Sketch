@@ -4,7 +4,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { RealtimeSession } from '@openai/agents/realtime';
 import type { RealtimeItem } from '@openai/agents/realtime';
-import { createRoomSketchAgent } from '../agents/room-sketch-agent';
+import { createRoomSketchAgentAsync } from '../agents/room-sketch-agent';
 import { useGeometryEngine } from '../services/geometry-engine';
 
 interface UseVoiceSessionOptions {
@@ -74,9 +74,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
       }
       const { ephemeral_key } = await response.json();
 
-      // 2. Create RealtimeSession with personalized agent
-      const personalizedAgent = createRoomSketchAgent(options.userName);
-      const session = new RealtimeSession(personalizedAgent, {
+      // 2. Create room sketch agent with instructions from database
+      const roomSketchAgent = await createRoomSketchAgentAsync(options.userName);
+
+      // 3. Create RealtimeSession with the agent
+      const session = new RealtimeSession(roomSketchAgent, {
         transport: 'webrtc',
         config: {
           inputAudioTranscription: { model: 'gpt-4o-mini-transcribe' },
@@ -86,7 +88,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
         },
       });
 
-      // 3. Set up event listeners
+      // 4. Set up event listeners
 
       // Audio events
       session.on('audio_start', () => {
@@ -173,7 +175,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
         options.onError?.(new Error(errorMessage));
       });
 
-      // 4. Connect - WebRTC in browser automatically handles mic/speaker
+      // 5. Connect - WebRTC in browser automatically handles mic/speaker
       await session.connect({ apiKey: ephemeral_key });
 
       sessionRef.current = session;
