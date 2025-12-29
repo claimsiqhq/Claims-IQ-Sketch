@@ -747,31 +747,79 @@ export interface Claim {
   // Canonical FNOL truth (snake_case JSON from backend)
   lossContext?: LossContext;
 
-  // Extracted policy data from policy_form_extractions
+  // Extracted policy data - comprehensive coverage info from FNOL + policy form
   extractedPolicy?: {
+    // Basic policy info
     policyNumber?: string;
     policyFormCode?: string;
+    policyFormName?: string;
     effectiveDate?: string;
     expirationDate?: string;
+    policyType?: string;
+    policyStatus?: string;
+    operatingCompany?: string;
+
+    // Primary coverages
     dwellingLimit?: string;
     otherStructuresLimit?: string;
+    otherStructuresScheduledLimit?: string;
+    otherStructuresUnscheduledLimit?: string;
     personalPropertyLimit?: string;
     lossOfUseLimit?: string;
     personalLiabilityLimit?: string;
     medicalPaymentsLimit?: string;
+
+    // Deductibles
     deductible?: string;
     perilSpecificDeductibles?: Record<string, string>;
+
+    // Additional coverages from FNOL (fungi, O&L, fire dept, etc.)
+    additionalCoverages?: Record<string, { limit?: string; percentage?: string }>;
+
+    // Insured information
     namedInsured?: string;
+    insuredName2?: string;
+    insuredEmail?: string;
+    insuredPhone?: string;
     mailingAddress?: string;
     propertyAddress?: string;
+
+    // Producer/Agent info
+    producer?: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      email?: string;
+    };
+
+    // Third party interest (mortgagee)
+    thirdPartyInterest?: string;
+    legalDescription?: string;
+
+    // Property info
     constructionType?: string;
     yearBuilt?: string;
+    numberOfStories?: number;
     protectionClass?: string;
     distanceToFireStation?: string;
     distanceToFireHydrant?: string;
+
+    // Damage info from FNOL
+    damageDescription?: string;
+    exteriorDamages?: string;
+    interiorDamages?: string;
+    roofDamage?: string;
+    yearRoofInstalled?: string;
+    woodRoof?: string;
+    droneEligible?: string;
+
+    // Report metadata
+    reportedBy?: string;
+    reportedDate?: string;
+    reportMethod?: string;
   };
 
-  // Extracted endorsements from endorsement_extractions
+  // Extracted endorsements from endorsement_extractions - with full extraction data
   extractedEndorsements?: Array<{
     id: string;
     formCode: string;
@@ -781,7 +829,21 @@ export interface Claim {
     summary?: string;
     modifications?: Record<string, any>;
     extractionStatus?: string;
+    // Full extraction data for detailed display
+    extractionData?: Record<string, any>;
   }>;
+
+  // Policy form extraction data (definitions, exclusions, loss settlement rules)
+  extractedPolicyForm?: {
+    formCode?: string;
+    formName?: string;
+    editionDate?: string;
+    definitions?: Record<string, any>;
+    sectionI?: Record<string, any>;
+    sectionII?: Record<string, any>;
+    generalConditions?: any[];
+    extractionData?: Record<string, any>;
+  };
 }
 
 export interface ClaimStats {
