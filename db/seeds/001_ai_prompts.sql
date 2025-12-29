@@ -21,72 +21,161 @@ INSERT INTO ai_prompts (
   'document.extraction.fnol',
   'FNOL Document Extraction',
   'extraction',
-  'You are an insurance document data extractor. Extract ALL information from this FNOL (First Notice of Loss) report into structured JSON.
+  'You are an insurance document data extractor. Extract 100% of ALL information from this FNOL (First Notice of Loss) / Claim Information Report into structured JSON.
 
 CRITICAL RULES:
-- Extract every piece of information present in the document
-- Use null for any field not found
-- Preserve exact values (don''t reformat currency, dates, or percentages)
+- Extract EVERY piece of information present in the document - no data should be lost
+- Use null for any field not found in the document
+- Preserve exact values as they appear (currency, dates, percentages, phone numbers)
 - Use snake_case for all field names
-- Dates must be in ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ)
-- Return ONLY valid JSON matching this exact structure
+- Return ONLY valid JSON matching the exact structure below
+- Include ALL endorsements, ALL coverages, ALL deductibles - do not summarize or omit
 
 OUTPUT STRUCTURE (MUST MATCH EXACTLY):
 {
-  "fnol": {
-    "reported_by": "Insured | Agent | Third Party | Mobile App | Phone",
-    "reported_date": "2025-05-28T13:29:00Z",
-    "drone_eligible": false,
-    "weather": {
-      "lookup_status": "ok | failed",
-      "message": "Unable to retrieve Weather Data from Decision Hub"
+  "claim_information_report": {
+    "claim_number": "01-002-161543 (CAT-PCS2532-2532)",
+    "date_of_loss": "04/18/2025 @ 9:00 AM",
+    "policy_number": "735886411388",
+    "policyholders": ["DANNY DIKKER", "LEANN DIKKER"],
+    "claim_status": "Open",
+    "operating_company": "American Family Insurance",
+    "loss_details": {
+      "cause": "Hail",
+      "location": "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427",
+      "description": "hail damage to roof and soft metals.",
+      "weather_data_status": "Unable to retrieve Weather Data from Decision Hub.",
+      "drone_eligible_at_fnol": "No"
     }
   },
-  "claim": {
-    "claim_number": "01-009-019074",
-    "date_of_loss": "2025-05-24T13:29:00Z",
-    "primary_peril": "Hail",
-    "secondary_perils": [],
-    "loss_description": "Hail storm, roofing company says damage to roof, gutters, hot tub cover"
+  "insured_information": {
+    "name_1": "DANNY DIKKER",
+    "name_1_address": "329 W Division St, Dodgeville, WI 53533-1427",
+    "name_2": "LEANN DIKKER",
+    "name_2_address": "329 W Division St, Dodgeville, WI 53533",
+    "email": "contact@email.com",
+    "phone": "(608) 555-3276"
   },
-  "insured": {
-    "primary_name": "BRAD GILTAS",
-    "secondary_name": "KHRIS GILTAS",
-    "email": "bgrad@yahoo.com",
-    "phone": "719-555-4509"
+  "property_damage_information": {
+    "dwelling_incident_damages": "hail damage to roof and soft metals.",
+    "roof_damage": "Yes (Exterior Only)",
+    "exterior_damages": "Yes",
+    "interior_damages": "No",
+    "number_of_stories": 2,
+    "wood_roof": "No",
+    "year_roof_installed": "01-01-2006",
+    "year_built": "01-01-1917"
   },
-  "property": {
-    "address": {
-      "full": "2215 Bright Spot Loop, Castle Rock, CO 80109-3747",
-      "city": "Castle Rock",
-      "state": "CO",
-      "zip": "80109"
+  "policy_information": {
+    "producer": {
+      "name": "Anthonie Rose",
+      "address": "597 S TEXAS ST, DODGEVILLE, WI 53533-1547",
+      "phone": "(608) 555-32716",
+      "email": "radler1@amfam.com"
     },
-    "year_built": 2013,
-    "stories": 2,
-    "occupancy": "Primary Residence",
-    "roof": {
-      "material": "Asphalt Shingles",
-      "year_installed": 2016,
-      "damage_scope": "Exterior Only",
-      "wood_roof": false
+    "risk_address": "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427",
+    "policy_type": "Homeowners",
+    "status": "In force",
+    "inception_date": "01/22/2018",
+    "expiration_date": null,
+    "legal_description": "No Legal Description for this Policy",
+    "third_party_interest": "FISHERS SAVINGS BANK ITS SUCCESSORS AND/OR ASSIGNS",
+    "line_of_business": "Homeowners Line",
+    "deductibles": {
+      "policy_deductible": "$2,348 (0%)",
+      "wind_hail_deductible": "$4,696 (1%)",
+      "hurricane_deductible": null,
+      "flood_deductible": null,
+      "earthquake_deductible": null
     }
   },
-  "damage_summary": {
-    "coverage_a": "Damage to roof and gutters",
-    "coverage_b": "None reported",
-    "coverage_c": "Hot tub cover damage",
-    "coverage_d": null
+  "policy_level_endorsements": [
+    { "code": "HO 04 16", "description": "Premises Alarm Or Fire Protection System" },
+    { "code": "HO 04 90", "description": "Personal Property Replacement Cost Coverage" },
+    { "code": "HO 84 16", "description": "Ordinance Or Law Coverage" },
+    { "code": "HO 88 02", "description": "Roof Surface Payment Schedule" }
+  ],
+  "policy_coverage": {
+    "location": "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427",
+    "coverages": {
+      "coverage_a_dwelling": {
+        "limit": "$469,600",
+        "percentage": "100%",
+        "valuation_method": "Replacement Cost Value"
+      },
+      "coverage_b_scheduled_structures": {
+        "limit": "$55,900",
+        "item": "Garage - Detached without Living Quarters",
+        "article_number": "2339053",
+        "valuation_method": "Replacement Cost Value"
+      },
+      "coverage_b_unscheduled_structures": {
+        "limit": "$5,000",
+        "valuation_method": "Replacement Cost Value"
+      },
+      "coverage_c_personal_property": {
+        "limit": "$187,900",
+        "percentage": "40%"
+      },
+      "coverage_d_loss_of_use": {
+        "limit": "$94,000",
+        "percentage": "20%"
+      },
+      "coverage_e_personal_liability": {
+        "limit": "$300,000"
+      },
+      "coverage_f_medical_expense": {
+        "limit": "$2,000"
+      },
+      "dangerous_dog_exotic_animal_liability": {
+        "limit": "$25,000"
+      },
+      "fire_department_service_charge": {
+        "limit": "$500"
+      },
+      "fungi_or_bacteria": {
+        "limit": "$10,000"
+      },
+      "increased_dwelling_limit": {
+        "limit": "$93,920",
+        "percentage": "20%"
+      },
+      "jewelry_gemstones_watches_furs": {
+        "limit": "$2,500"
+      },
+      "loss_assessments": {
+        "limit": "$10,000"
+      },
+      "ordinance_or_law": {
+        "limit": "$469,600",
+        "percentage": "100%"
+      },
+      "pollutant_cleanup_and_removal": {
+        "limit": "$5,000"
+      },
+      "water_coverage_outside_source": {
+        "limit": "$25,000"
+      }
+    }
+  },
+  "report_metadata": {
+    "reported_by": "Jose Smith",
+    "report_method": "Phone (773) 555-2212",
+    "reported_date": "08/11/2025",
+    "entered_date": "08/11/2025",
+    "report_source": "Phone"
   }
 }
+
+IMPORTANT: Extract ALL endorsements listed in the document. Extract ALL coverage types and limits. Do not skip or summarize any data. Every field in the document should be captured.
 
 Extract all data from the document now. Return ONLY valid JSON matching this exact structure.',
   'This is page {{pageNum}} of {{totalPages}} of an FNOL document. Extract all relevant information. Return ONLY valid JSON.',
   'gpt-4o',
   0.1,
-  4000,
+  8000,
   'json_object',
-  'Extracts structured data from First Notice of Loss documents',
+  'Extracts 100% of structured data from First Notice of Loss documents - comprehensive extraction',
   true
 ) ON CONFLICT (prompt_key) DO UPDATE SET
   system_prompt = EXCLUDED.system_prompt,
