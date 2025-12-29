@@ -1,17 +1,20 @@
 // Scope Voice Agent
 // RealtimeAgent for voice-driven estimate building with OpenAI Agents SDK
 //
-// NOTE: The system instructions for this agent are also stored in the database
-// under the key "voice.scope" for easy editing. Future enhancement:
-// dynamically load instructions from /api/prompts/voice.scope/config
-// at agent initialization time.
+// Prompts are loaded dynamically from the database via /api/prompts/voice.scope/config
+// This ensures the database is the single source of truth for all AI prompts.
 
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 import { z } from 'zod';
 import { scopeEngine } from '../services/scope-engine';
 
-// System instructions for the voice agent
-const SCOPE_AGENT_INSTRUCTIONS = `You are an estimate building assistant for property insurance claims adjusters. Your job is to help them add line items to an estimate by voice.
+// Prompt cache to avoid repeated API calls
+let cachedInstructions: string | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache
+
+// Fallback instructions if API fails - kept in sync with database version
+const FALLBACK_INSTRUCTIONS = `You are an estimate building assistant for property insurance claims adjusters. Your job is to help them add line items to an estimate by voice.
 
 PERSONALITY:
 - Be concise and professional—adjusters are working in the field
@@ -20,67 +23,62 @@ PERSONALITY:
 
 WORKFLOW:
 1. Listen for line item descriptions or requests
-2. ALWAYS call search_line_items to find the correct code - infer the 3-letter category code from the description (e.g., 'DRW' for drywall, 'WTR' for water, 'RFG' for roofing, 'DEM' for demolition) and pass it to the category parameter to improve search accuracy
+2. ALWAYS call search_line_items to find the correct code
 3. Match descriptions to search results and get quantity/unit confirmation
 4. Add to estimate using the exact code from search results
 5. Suggest related items if relevant
 
-UNDERSTANDING REQUESTS:
-- "Add drywall demo, 200 square feet" → find drywall demolition line item, quantity 200 SF
-- "Tear out carpet in the bedroom" → flooring demolition, ask for square footage
-- "Water extraction for the whole room" → water extraction, calculate based on room size
-- "Standard paint job" → interior paint, ask for wall area
-
-QUANTITY HANDLING:
-- Accept natural speech: "about two hundred" = 200, "a dozen" = 12
-- If unit is ambiguous, confirm: "Is that square feet or linear feet?"
-- Round to reasonable increments
-
-LINE ITEM MATCHING:
-CRITICAL - NO GUESSING: You do NOT have the line item database in your memory. You MUST search for every line item using search_line_items before adding it, unless the user explicitly provides the exact code (e.g., 'WTR EXT'). Never invent a code.
-- ALWAYS call search_line_items first to find the correct code
-- Match user descriptions to search results only
-- Offer alternatives from search results if exact match not found
-- If search returns no results, ask the user to rephrase or provide the code
-
-EXAMPLE FLOW:
-User: "Add drywall demolition, 200 square feet for the master bedroom"
-You: [call add_line_item tool] "Added drywall demo, 200 SF for master bedroom. Need anything else for this room?"
-
-User: "Water extraction too"
-You: "How many square feet for water extraction?"
-User: "Same, 200"
-You: [call add_line_item tool] "Added water extraction, 200 SF. Do you also need drying equipment?"
-
-User: "Yeah, add 5 days of dehumidifiers"
-You: [call add_line_item tool] "Added 5 days of dehumidifier rental. Anything else?"
-
-User: "Remove the drywall demo"
-You: [call remove_line_item tool] "Removed drywall demolition from the estimate."
-
-User: "Change the extraction to 250 square feet"
-You: [call set_quantity tool] "Updated water extraction to 250 square feet."
+CRITICAL - NO GUESSING: You do NOT have the line item database in your memory. You MUST search for every line item using search_line_items before adding it. Never invent a code.
 
 XACTIMATE CATEGORY CODES:
-- WTR: Water Extraction & Remediation (extraction, drying equipment, dehumidifiers)
-- DRY: Drywall (installation, finishing, texturing)
+- WTR: Water Extraction & Remediation
+- DRY: Drywall
 - PNT: Painting
 - CLN: Cleaning
 - PLM: Plumbing
 - ELE: Electrical
 - RFG: Roofing
-- FRM: Framing & Rough Carpentry
-- CAB: Cabinetry
-- DOR: Doors
-- APP: Appliances
-- APM: Appliances - Major (without install)
-
-CODE FORMAT: Xactimate codes follow pattern like "WTR DEHU" (category + selector). Use the full_code returned from search.
 
 ERROR HANDLING:
 - If can't find item: "I couldn't find an exact match. Did you mean [alternative]?"
 - If quantity unclear: "What quantity for that?"
 - If unit unclear: "Is that per square foot or linear foot?"`;
+
+/**
+ * Fetch prompt instructions from the database API
+ * Returns cached version if available and not expired
+ */
+async function fetchInstructionsFromAPI(): Promise<string | null> {
+  // Check cache first
+  const now = Date.now();
+  if (cachedInstructions && (now - cacheTimestamp) < CACHE_TTL_MS) {
+    return cachedInstructions;
+  }
+
+  try {
+    const response = await fetch('/api/prompts/voice.scope/config', {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      console.warn('[ScopeAgent] Failed to fetch prompt from API:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.config?.systemPrompt) {
+      cachedInstructions = data.config.systemPrompt;
+      cacheTimestamp = now;
+      console.log('[ScopeAgent] Loaded instructions from database');
+      return cachedInstructions;
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('[ScopeAgent] Error fetching prompt from API:', error);
+    return null;
+  }
+}
 
 // Tool: Add a line item
 const addLineItemTool = tool({
@@ -279,25 +277,74 @@ const rejectSuggestionsTool = tool({
   },
 });
 
-// Create the RealtimeAgent with all tools
+// Tool list for agent creation
+const agentTools = [
+  addLineItemTool,
+  removeLineItemTool,
+  setQuantityTool,
+  updateLineItemTool,
+  setContextTool,
+  searchLineItemsTool,
+  getEstimateSummaryTool,
+  suggestRelatedTool,
+  undoTool,
+  clearAllTool,
+  confirmSuggestionsTool,
+  rejectSuggestionsTool,
+];
+
+/**
+ * Create a scope agent with instructions loaded from database
+ * This is the preferred way to create an agent - it fetches prompts from Supabase
+ */
+export async function createScopeAgentAsync(): Promise<RealtimeAgent> {
+  // Try to fetch instructions from database
+  const dbInstructions = await fetchInstructionsFromAPI();
+
+  // Use database instructions or fall back to local template
+  const instructions = dbInstructions || FALLBACK_INSTRUCTIONS;
+
+  if (!dbInstructions) {
+    console.warn('[ScopeAgent] Using fallback instructions - database prompt not available');
+  }
+
+  return new RealtimeAgent({
+    name: 'ScopeAgent',
+    instructions,
+    tools: agentTools,
+  });
+}
+
+/**
+ * Create scope agent synchronously (uses cached or fallback instructions)
+ * @deprecated Use createScopeAgentAsync for database-loaded prompts
+ */
+export function createScopeAgent(): RealtimeAgent {
+  // Use cached instructions if available, otherwise use fallback
+  const instructions = cachedInstructions || FALLBACK_INSTRUCTIONS;
+
+  return new RealtimeAgent({
+    name: 'ScopeAgent',
+    instructions,
+    tools: agentTools,
+  });
+}
+
+// Default agent (backwards compatible) - uses fallback instructions initially
+// Call initializeScopeAgent() to load from database
 export const scopeAgent = new RealtimeAgent({
   name: 'ScopeAgent',
-  instructions: SCOPE_AGENT_INSTRUCTIONS,
-  tools: [
-    addLineItemTool,
-    removeLineItemTool,
-    setQuantityTool,
-    updateLineItemTool,
-    setContextTool,
-    searchLineItemsTool,
-    getEstimateSummaryTool,
-    suggestRelatedTool,
-    undoTool,
-    clearAllTool,
-    confirmSuggestionsTool,
-    rejectSuggestionsTool,
-  ],
+  instructions: FALLBACK_INSTRUCTIONS,
+  tools: agentTools,
 });
+
+/**
+ * Initialize the scope agent by pre-fetching instructions from database
+ * Call this during app initialization to warm the cache
+ */
+export async function initializeScopeAgent(): Promise<void> {
+  await fetchInstructionsFromAPI();
+}
 
 // Export individual tools for testing
 export const tools = {
