@@ -3056,6 +3056,488 @@ export interface EffectivePolicyFeatureFlags {
 }
 
 // ============================================
+// UNIFIED CLAIM CONTEXT (Rich Data Integration)
+// ============================================
+// This unified context merges FNOL + Policy + Endorsements into a single
+// rich data structure that powers AI briefing, workflow generation,
+// coverage analysis, and UI display.
+
+/**
+ * Raw FNOL extraction structure (matches AI prompt output)
+ * This is what the AI returns - 100% of FNOL data
+ */
+export interface FNOLExtractionRaw {
+  claim_information_report?: {
+    claim_number?: string;
+    date_of_loss?: string;
+    policy_number?: string;
+    policyholders?: string[];
+    claim_status?: string;
+    operating_company?: string;
+    loss_details?: {
+      cause?: string;
+      location?: string;
+      description?: string;
+      weather_data_status?: string;
+      drone_eligible_at_fnol?: string;
+    };
+  };
+  insured_information?: {
+    name_1?: string;
+    name_1_address?: string;
+    name_2?: string;
+    name_2_address?: string;
+    email?: string;
+    phone?: string;
+  };
+  property_damage_information?: {
+    dwelling_incident_damages?: string;
+    roof_damage?: string;
+    exterior_damages?: string;
+    interior_damages?: string;
+    number_of_stories?: number;
+    wood_roof?: string;
+    year_roof_installed?: string;
+    year_built?: string;
+  };
+  policy_information?: {
+    producer?: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      email?: string;
+    };
+    risk_address?: string;
+    policy_type?: string;
+    status?: string;
+    inception_date?: string;
+    expiration_date?: string;
+    legal_description?: string;
+    third_party_interest?: string;
+    line_of_business?: string;
+    deductibles?: {
+      policy_deductible?: string;
+      wind_hail_deductible?: string;
+      hurricane_deductible?: string;
+      flood_deductible?: string;
+      earthquake_deductible?: string;
+    };
+  };
+  policy_level_endorsements?: Array<{
+    code?: string;
+    description?: string;
+  }>;
+  policy_coverage?: {
+    location?: string;
+    coverages?: {
+      coverage_a_dwelling?: { limit?: string; percentage?: string; valuation_method?: string };
+      coverage_b_scheduled_structures?: { limit?: string; item?: string; article_number?: string; valuation_method?: string };
+      coverage_b_unscheduled_structures?: { limit?: string; valuation_method?: string };
+      coverage_c_personal_property?: { limit?: string; percentage?: string };
+      coverage_d_loss_of_use?: { limit?: string; percentage?: string };
+      coverage_e_personal_liability?: { limit?: string };
+      coverage_f_medical_expense?: { limit?: string };
+      [key: string]: { limit?: string; percentage?: string; [k: string]: any } | undefined;
+    };
+  };
+  report_metadata?: {
+    reported_by?: string;
+    report_method?: string;
+    reported_date?: string;
+    entered_date?: string;
+    report_source?: string;
+  };
+}
+
+/**
+ * Raw Policy extraction structure (matches AI prompt output)
+ */
+export interface PolicyExtractionRaw {
+  document_info?: {
+    form_number?: string;
+    form_name?: string;
+    total_pages?: number;
+    copyright?: string;
+    execution?: {
+      location?: string;
+      signatories?: string[];
+    };
+  };
+  table_of_contents?: Record<string, number>;
+  agreement_and_definitions?: {
+    policy_components?: string[];
+    key_definitions?: Record<string, string>;
+  };
+  section_I_property_coverages?: {
+    coverage_a_dwelling?: { included?: string[]; excluded?: string[] };
+    coverage_b_other_structures?: { definition?: string; excluded_types?: string[] };
+    coverage_c_personal_property?: {
+      scope?: string;
+      limit_away_from_premises?: string;
+      special_limits_of_liability?: Record<string, number>;
+    };
+    coverage_d_loss_of_use?: {
+      additional_living_expense?: string;
+      civil_authority_prohibits_use?: string;
+    };
+  };
+  section_I_perils_insured_against?: {
+    dwelling_perils?: string[];
+    personal_property_perils?: string[];
+  };
+  section_I_exclusions?: {
+    general_exclusions?: string[];
+  };
+  section_I_additional_coverages?: Record<string, string | number>;
+  section_I_how_we_settle_losses?: {
+    dwelling_and_other_structures?: {
+      initial_payment?: string;
+      replacement_cost?: string;
+      hail_damage_metal_siding?: string;
+    };
+    roofing_system?: {
+      settlement_method?: string;
+      cosmetic_exclusion?: string;
+    };
+  };
+  section_II_liability_coverages?: {
+    coverage_e_personal_liability?: string;
+    coverage_f_medical_expense?: string;
+    liability_exclusions?: string[];
+  };
+  general_conditions?: Record<string, string>;
+}
+
+/**
+ * Raw Endorsement extraction structure (matches AI prompt output)
+ * Note: AI returns named objects, not an array
+ */
+export interface EndorsementExtractionRaw {
+  [endorsementKey: string]: {
+    form_number?: string;
+    purpose?: string;
+    definitions_modified?: Record<string, any>;
+    property_coverage_changes?: Record<string, any>;
+    settlement_and_conditions?: Record<string, any>;
+    liability_modifications?: Record<string, any>;
+    roof_surface_payment_schedule_examples?: Record<string, any>;
+    complete_schedule?: Array<{
+      roof_age_years?: number;
+      architectural_shingle_pct?: number;
+      other_composition_pct?: number;
+      metal_pct?: number;
+      tile_pct?: number;
+      slate_pct?: number;
+      wood_pct?: number;
+      rubber_pct?: number;
+      [materialType: string]: number | undefined;
+    }>;
+    [key: string]: any;
+  };
+}
+
+/**
+ * Roof payment schedule entry (normalized from endorsement)
+ */
+export interface RoofPaymentScheduleEntry {
+  roofAgeYears: number;
+  architecturalShinglePct: number;
+  otherCompositionPct: number;
+  metalPct: number;
+  tilePct: number;
+  slatePct: number;
+  woodPct: number;
+  rubberPct: number;
+}
+
+/**
+ * Endorsement impact analysis
+ */
+export interface EndorsementImpact {
+  formCode: string;
+  title: string;
+  category: 'loss_settlement' | 'coverage_modification' | 'exclusion' | 'definition' | 'state_amendatory' | 'general';
+  precedencePriority: number;
+  impacts: string[];
+  inspectionRequirements: string[];
+  estimateConsiderations: string[];
+  hasRoofSchedule: boolean;
+  roofSchedule?: RoofPaymentScheduleEntry[];
+}
+
+/**
+ * Coverage limit with source tracking
+ */
+export interface CoverageLimit {
+  limit: number;
+  limitFormatted: string;
+  percentage?: number;
+  valuationMethod?: 'RCV' | 'ACV';
+  specialItems?: Array<{ item: string; limit: number; articleNumber?: string }>;
+  source: 'fnol' | 'policy' | 'endorsement';
+}
+
+/**
+ * Special limits of liability for personal property
+ */
+export interface SpecialLimitsOfLiability {
+  moneyBankNotes?: number;
+  jewelry?: number;
+  firearms?: number;
+  silverware?: number;
+  securities?: number;
+  watercraft?: number;
+  trailers?: number;
+  businessProperty?: number;
+  tradingCards?: number;
+  rugs?: number;
+  tools?: number;
+  [category: string]: number | undefined;
+}
+
+/**
+ * Deductible structure with all peril types
+ */
+export interface DeductibleStructure {
+  standard?: { amount: number; formatted: string; isPercentage: boolean };
+  windHail?: { amount: number; formatted: string; isPercentage: boolean };
+  hurricane?: { amount: number; formatted: string; isPercentage: boolean };
+  flood?: { amount: number; formatted: string; isPercentage: boolean };
+  earthquake?: { amount: number; formatted: string; isPercentage: boolean };
+  applicableForPeril: { amount: number; formatted: string; perilType: string };
+}
+
+/**
+ * Property details with computed fields
+ */
+export interface PropertyDetails {
+  address: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  yearBuilt?: number;
+  stories?: number;
+  roof: {
+    yearInstalled?: number;
+    ageAtLoss?: number;
+    isWoodRoof: boolean;
+    material?: string;
+    damageScope?: string;
+  };
+  exteriorDamaged: boolean;
+  interiorDamaged: boolean;
+}
+
+/**
+ * Loss settlement rules (merged from policy + endorsements)
+ */
+export interface LossSettlementRules {
+  dwelling: {
+    basis: LossSettlementBasis;
+    repairTimeLimitMonths?: number;
+    fallbackBasis?: LossSettlementBasis;
+    sourceEndorsement?: string;
+  };
+  roofing: {
+    basis: LossSettlementBasis;
+    isScheduled: boolean;
+    schedule?: RoofPaymentScheduleEntry[];
+    calculatedPaymentPct?: number;
+    metalFunctionalRequirement: boolean;
+    metalFunctionalRuleText?: string;
+    sourceEndorsement?: string;
+  };
+  personalProperty: {
+    basis: LossSettlementBasis;
+    sourceEndorsement?: string;
+  };
+}
+
+/**
+ * Coverage gap or warning
+ */
+export interface CoverageAlert {
+  severity: 'info' | 'warning' | 'critical';
+  category: 'deductible' | 'limit' | 'exclusion' | 'depreciation' | 'documentation';
+  title: string;
+  description: string;
+  actionRequired?: string;
+  relatedEndorsement?: string;
+}
+
+/**
+ * Producer/Agent information
+ */
+export interface ProducerInfo {
+  name?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+}
+
+/**
+ * Peril analysis with applicable rules
+ */
+export interface PerilAnalysis {
+  primary: Peril;
+  primaryDisplay: string;
+  secondary: Peril[];
+  secondaryDisplay: string[];
+  applicableDeductible: { amount: number; formatted: string };
+  applicableExclusions: string[];
+  inspectionFocus: string[];
+  commonMisses: string[];
+}
+
+/**
+ * Computed insights from the claim data
+ */
+export interface ClaimInsights {
+  roofDepreciationPct?: number;
+  estimatedRoofPaymentPct?: number;
+  hasOandLCoverage: boolean;
+  oandLLimit?: number;
+  hasPersonalPropertyRCV: boolean;
+  hasFungiCoverage: boolean;
+  fungiLimit?: number;
+  specialLimitsToWatch: string[];
+  coverageGaps: string[];
+  stateSpecificRules: string[];
+  endorsementsWithInspectionImpact: string[];
+  totalEndorsementCount: number;
+  criticalEndorsementCount: number;
+}
+
+/**
+ * UNIFIED CLAIM CONTEXT
+ * The single source of truth that merges FNOL + Policy + Endorsements
+ * and powers all downstream consumers (briefing, workflow, UI, etc.)
+ */
+export interface UnifiedClaimContext {
+  // === IDENTITY ===
+  claimId: string;
+  claimNumber: string;
+  policyNumber?: string;
+  dateOfLoss?: string;
+  dateOfLossFormatted?: string;
+  reportedDate?: string;
+  reportedBy?: string;
+
+  // === INSURED ===
+  insured: {
+    name: string;
+    name2?: string;
+    email?: string;
+    phone?: string;
+    mailingAddress?: string;
+  };
+
+  // === PROPERTY ===
+  property: PropertyDetails;
+
+  // === PRODUCER ===
+  producer?: ProducerInfo;
+
+  // === PERIL ANALYSIS ===
+  peril: PerilAnalysis;
+
+  // === COVERAGE LIMITS ===
+  coverages: {
+    dwelling?: CoverageLimit;
+    otherStructures?: CoverageLimit;
+    personalProperty?: CoverageLimit;
+    lossOfUse?: CoverageLimit;
+    personalLiability?: CoverageLimit;
+    medicalPayments?: CoverageLimit;
+    additionalCoverages: Record<string, CoverageLimit>;
+  };
+
+  // === SPECIAL LIMITS ===
+  specialLimits: SpecialLimitsOfLiability;
+
+  // === DEDUCTIBLES ===
+  deductibles: DeductibleStructure;
+
+  // === LOSS SETTLEMENT ===
+  lossSettlement: LossSettlementRules;
+
+  // === EXCLUSIONS ===
+  exclusions: {
+    general: string[];
+    endorsementAdded: string[];
+    endorsementRemoved: string[];
+    applicableToPeril: string[];
+  };
+
+  // === ENDORSEMENTS ===
+  endorsements: {
+    listedOnFnol: Array<{ code: string; description: string }>;
+    extracted: EndorsementImpact[];
+    byCategory: {
+      lossSettlement: EndorsementImpact[];
+      coverageModification: EndorsementImpact[];
+      stateAmendatory: EndorsementImpact[];
+      other: EndorsementImpact[];
+    };
+  };
+
+  // === POLICY DEFINITIONS ===
+  definitions: Record<string, string>;
+
+  // === COVERAGE ALERTS ===
+  alerts: CoverageAlert[];
+
+  // === COMPUTED INSIGHTS ===
+  insights: ClaimInsights;
+
+  // === METADATA ===
+  meta: {
+    builtAt: string;
+    fnolDocumentId?: string;
+    policyDocumentId?: string;
+    endorsementDocumentIds: string[];
+    dataCompleteness: {
+      hasFnol: boolean;
+      hasPolicy: boolean;
+      hasEndorsements: boolean;
+      completenessScore: number; // 0-100
+    };
+  };
+}
+
+/**
+ * Roof depreciation calculation result
+ */
+export interface RoofDepreciationResult {
+  roofAge: number;
+  roofMaterial: string;
+  scheduleFormCode?: string;
+  paymentPercentage: number;
+  depreciationPercentage: number;
+  isScheduledBasis: boolean;
+  scheduleEntry?: RoofPaymentScheduleEntry;
+  notes: string[];
+}
+
+/**
+ * Coverage analysis result
+ */
+export interface CoverageAnalysisResult {
+  claimId: string;
+  analyzedAt: string;
+  alerts: CoverageAlert[];
+  endorsementImpacts: EndorsementImpact[];
+  depreciation?: RoofDepreciationResult;
+  estimatedMaxPayments: {
+    dwelling?: number;
+    otherStructures?: number;
+    personalProperty?: number;
+    total?: number;
+  };
+  recommendations: string[];
+}
+
+// ============================================
 // DRIZZLE RELATIONS (Type-safe Joins)
 // ============================================
 
