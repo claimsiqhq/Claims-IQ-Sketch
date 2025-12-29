@@ -537,30 +537,55 @@ function formatEffectivePolicyContext(effectivePolicy: EffectivePolicy | null): 
  * Validate the AI response matches the expected schema
  */
 function validateWorkflowSchema(response: unknown): response is AIWorkflowResponse {
+  const errors: string[] = [];
+
   if (!response || typeof response !== 'object') {
+    console.error('[InspectionWorkflow] Validation failed: response is not an object', typeof response);
     return false;
   }
 
   const obj = response as Record<string, unknown>;
 
   // Check required top-level fields
-  if (!obj.metadata || !obj.phases || !obj.steps || !obj.tools_and_equipment) {
+  if (!obj.metadata) errors.push('missing metadata');
+  if (!obj.phases) errors.push('missing phases');
+  if (!obj.steps) errors.push('missing steps');
+  if (!obj.tools_and_equipment) errors.push('missing tools_and_equipment');
+
+  if (errors.length > 0) {
+    console.error('[InspectionWorkflow] Validation failed - missing top-level fields:', errors.join(', '));
+    console.error('[InspectionWorkflow] Response keys:', Object.keys(obj));
     return false;
   }
 
   // Check metadata
   const metadata = obj.metadata as Record<string, unknown>;
-  if (!metadata.claim_number || !metadata.primary_peril) {
+  if (!metadata.claim_number) errors.push('metadata.claim_number missing');
+  if (!metadata.primary_peril) errors.push('metadata.primary_peril missing');
+
+  if (errors.length > 0) {
+    console.error('[InspectionWorkflow] Validation failed - metadata issues:', errors.join(', '));
+    console.error('[InspectionWorkflow] Metadata keys:', Object.keys(metadata));
     return false;
   }
 
   // Check phases array
-  if (!Array.isArray(obj.phases) || obj.phases.length === 0) {
+  if (!Array.isArray(obj.phases)) {
+    console.error('[InspectionWorkflow] Validation failed: phases is not an array');
+    return false;
+  }
+  if (obj.phases.length === 0) {
+    console.error('[InspectionWorkflow] Validation failed: phases array is empty');
     return false;
   }
 
   // Check steps array
-  if (!Array.isArray(obj.steps) || obj.steps.length === 0) {
+  if (!Array.isArray(obj.steps)) {
+    console.error('[InspectionWorkflow] Validation failed: steps is not an array');
+    return false;
+  }
+  if (obj.steps.length === 0) {
+    console.error('[InspectionWorkflow] Validation failed: steps array is empty');
     return false;
   }
 
@@ -938,14 +963,18 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
     // Parse and validate the response
     let aiResponse: AIWorkflowResponse;
     try {
+      console.log('[InspectionWorkflow] Raw AI response (first 500 chars):', responseContent.substring(0, 500));
       aiResponse = JSON.parse(responseContent);
+      console.log('[InspectionWorkflow] Parsed AI response keys:', Object.keys(aiResponse));
       if (!validateWorkflowSchema(aiResponse)) {
+        console.error('[InspectionWorkflow] Full AI response for debugging:', JSON.stringify(aiResponse, null, 2).substring(0, 2000));
         return {
           success: false,
           error: 'Invalid workflow structure from AI',
         };
       }
     } catch (parseError) {
+      console.error('[InspectionWorkflow] Failed to parse AI response:', responseContent.substring(0, 1000));
       return {
         success: false,
         error: `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,

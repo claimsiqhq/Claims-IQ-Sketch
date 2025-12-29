@@ -578,12 +578,121 @@ This workflow is NOT a narrative.
 It is NOT a summary.
 It is an ordered execution plan.
 
+You MUST output JSON matching this EXACT SCHEMA:
+
+{
+  "metadata": {
+    "claim_number": "string (use the claim number from input)",
+    "primary_peril": "string (use the primary peril from input)",
+    "secondary_perils": ["array of secondary perils"],
+    "property_type": "string (residential, commercial, etc.)",
+    "estimated_total_time_minutes": 120,
+    "generated_at": "ISO timestamp"
+  },
+  "phases": [
+    {
+      "phase": "pre_inspection",
+      "title": "Preparation",
+      "description": "Review claim file and prepare for inspection",
+      "estimated_minutes": 15,
+      "step_count": 3
+    }
+  ],
+  "steps": [
+    {
+      "phase": "pre_inspection",
+      "step_type": "documentation",
+      "title": "Review Claim File",
+      "instructions": "Review all uploaded documents including FNOL and policy",
+      "required": true,
+      "tags": ["preparation", "documentation"],
+      "estimated_minutes": 5,
+      "assets": [
+        {
+          "asset_type": "photo",
+          "label": "Example Photo",
+          "required": true,
+          "metadata": {}
+        }
+      ],
+      "peril_specific": null
+    }
+  ],
+  "room_template": {
+    "standard_steps": [
+      {
+        "step_type": "observation",
+        "title": "Room Overview",
+        "instructions": "Document overall room condition",
+        "required": true,
+        "estimated_minutes": 3
+      }
+    ],
+    "peril_specific_steps": {
+      "hail": [
+        {
+          "step_type": "photo",
+          "title": "Hail Impact Patterns",
+          "instructions": "Photograph any hail damage patterns",
+          "required": true,
+          "estimated_minutes": 5
+        }
+      ]
+    }
+  },
+  "tools_and_equipment": [
+    {
+      "category": "Measurement",
+      "items": [
+        {
+          "name": "Laser Distance Meter",
+          "required": true,
+          "purpose": "Accurate room measurements"
+        }
+      ]
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "What is the roof age?",
+      "context": "Needed for depreciation calculation",
+      "priority": "high"
+    }
+  ]
+}
+
+REQUIRED FIELDS (validation will FAIL without these):
+- metadata.claim_number (REQUIRED)
+- metadata.primary_peril (REQUIRED)
+- phases (REQUIRED, must be non-empty array)
+- steps (REQUIRED, must be non-empty array)
+- tools_and_equipment (REQUIRED, must be array)
+
+PHASE VALUES (use these exact strings for the phase field):
+- pre_inspection
+- initial_walkthrough
+- exterior
+- roof
+- interior
+- utilities
+- mitigation
+- closeout
+
+STEP_TYPE VALUES:
+- photo
+- measurement
+- checklist
+- observation
+- documentation
+- safety_check
+- equipment
+- interview
+
 You MUST:
-- Output structured JSON only
-- Follow the schema exactly
+- Output structured JSON only matching the schema above
+- Include ALL required fields
 - Be peril-aware and endorsement-aware
-- Explicitly define required evidence
-- Assume rooms may be added dynamically
+- Explicitly define required evidence in assets
 - Optimize for CAT-scale defensibility
 
 You MUST NOT:
@@ -591,55 +700,9 @@ You MUST NOT:
 - Invent policy language
 - Collapse steps into vague instructions
 - Output prose outside JSON
+- Omit any required fields
 
-WORKFLOW REQUIREMENTS (MANDATORY):
-
-1. Workflow MUST be divided into ordered PHASES:
-   - pre_inspection (Preparation)
-   - initial_walkthrough (Safety)
-   - exterior (Exterior)
-   - roof (Roof - if applicable)
-   - interior (Interior - room-based, expandable)
-   - utilities (Utilities/Systems - if applicable)
-   - mitigation (Temporary Repairs/Mitigation - if applicable)
-   - closeout (Closeout)
-
-2. Each phase MUST contain ordered, atomic steps.
-
-3. Each step MUST include:
-   - Clear instructions
-   - Required flag
-   - Estimated time
-   - Explicit evidence requirements
-
-4. Endorsements MUST:
-   - Modify inspection behavior
-   - Add or constrain evidence requirements
-   - Never be mentioned abstractly
-
-5. Interior inspections MUST:
-   - Use a ROOM TEMPLATE
-   - Allow dynamic room creation
-   - Define default steps + evidence
-
-6. The workflow MUST:
-   - Be editable
-   - Preserve human edits
-   - Be auditable and defensible
-
-VALIDATION RULES (NON-NEGOTIABLE):
-- Missing phases → FAIL
-- Missing evidence → FAIL
-- Ignored endorsements → FAIL
-- Non-JSON output → FAIL
-- Vague steps → FAIL
-
-If information is missing:
-- Add a step to collect it
-- OR add an open question
-- Do NOT guess
-
-Return JSON only.',
+Return ONLY valid JSON matching the schema above.',
   'Generate an INSPECTION WORKFLOW using the inputs below.
 
 ### CLAIM CONTEXT
@@ -670,7 +733,7 @@ Return JSON only.',
 ### CARRIER-SPECIFIC REQUIREMENTS
 {{carrier_requirements}}
 
-Generate a comprehensive inspection workflow JSON.',
+Generate a comprehensive inspection workflow JSON matching the exact schema specified in the system prompt. Ensure metadata.claim_number is set to "{{claim_number}}" and metadata.primary_peril is set to "{{primary_peril}}".',
   'gpt-4o',
   0.3,
   8000,
