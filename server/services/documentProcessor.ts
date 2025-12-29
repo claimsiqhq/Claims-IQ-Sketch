@@ -74,17 +74,35 @@ const DOCUMENTS_BUCKET = 'documents';
 
 /**
  * Parse currency string to numeric value
- * Handles formats like "$500,000", "500000", "$1,000.00", "2%", etc.
- * Returns null if parsing fails or value is percentage
+ * Handles formats like:
+ * - "$500,000"
+ * - "500000"
+ * - "$1,000.00"
+ * - "Personal Property $187,900" (extracts the dollar amount)
+ * - "Loss Of Use $94,000" (extracts the dollar amount)
+ * Returns null if parsing fails or no dollar amount found
  */
 function parseCurrencyToNumber(value: string | null | undefined): number | null {
   if (!value) return null;
 
-  // Skip percentage values - they shouldn't be stored as numeric amounts
-  if (value.includes('%')) return null;
+  // First, try to extract a dollar amount using regex
+  // This handles cases like "Personal Property $187,900" or "$469,600"
+  const dollarMatch = value.match(/\$[\d,]+(?:\.\d{2})?/);
+
+  let amountStr: string;
+  if (dollarMatch) {
+    // Found a dollar amount - use it
+    amountStr = dollarMatch[0];
+  } else {
+    // No dollar sign - check if it's a pure number
+    amountStr = value;
+  }
 
   // Remove currency symbols, commas, and whitespace
-  const cleaned = value.replace(/[$,\s]/g, '').trim();
+  const cleaned = amountStr.replace(/[$,\s]/g, '').trim();
+
+  // If it contains non-numeric chars (except decimal point), return null
+  if (!/^[\d.]+$/.test(cleaned)) return null;
 
   // Parse the number
   const parsed = parseFloat(cleaned);
@@ -94,6 +112,77 @@ function parseCurrencyToNumber(value: string | null | undefined): number | null 
 
   // Return the parsed value (rounded to 2 decimal places for currency)
   return Math.round(parsed * 100) / 100;
+}
+
+/**
+ * Parse address string to extract city, state, and zip
+ * Handles formats like "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427"
+ */
+function parseAddressParts(address: string | null | undefined): { city: string | null; state: string | null; zip: string | null } {
+  if (!address) return { city: null, state: null, zip: null };
+
+  // Try to match common address patterns
+  // Pattern: "..., City, ST ZIPCODE" or "..., City, ST ZIPCODE-XXXX"
+  const match = address.match(/,\s*([^,]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
+
+  if (match) {
+    return {
+      city: match[1].trim(),
+      state: match[2].toUpperCase(),
+      zip: match[3],
+    };
+  }
+
+  // Fallback: try to extract just state and zip from the end
+  const stateZipMatch = address.match(/([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
+  if (stateZipMatch) {
+    return {
+      city: null,
+      state: stateZipMatch[1].toUpperCase(),
+      zip: stateZipMatch[2],
+    };
+  }
+
+  return { city: null, state: null, zip: null };
+}
+
+/**
+ * Parse date string to ISO format for database storage
+ * Handles formats like:
+ * - "04/18/2025 @ 9:00 AM"
+ * - "04/18/2025"
+ * - "2025-04-18T09:00:00Z"
+ * - "01-01-2006"
+ */
+function parseDateString(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+
+  // If already in ISO format, return as-is (just the date part)
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+    return dateStr.split('T')[0];
+  }
+
+  // Handle "MM/DD/YYYY @ TIME" or "MM/DD/YYYY"
+  const usMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (usMatch) {
+    const [, month, day, year] = usMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // Handle "MM-DD-YYYY"
+  const dashMatch = dateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if (dashMatch) {
+    const [, month, day, year] = dashMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // Try native Date parsing as fallback
+  const parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+
+  return null;
 }
 
 /**
@@ -138,153 +227,330 @@ function deepMergeObjects(target: Record<string, any>, source: Record<string, an
 
 /**
  * AUTHORITATIVE FNOL Extraction Interface
- * This is the ONLY accepted FNOL shape. No legacy formats.
+ * This captures 100% of data from FNOL/Claim Information Reports.
+ * No data loss - every field in the source document is preserved.
  */
 export interface FNOLExtraction {
-  fnol: {
-    reported_by?: string;
-    reported_date?: string;
-    drone_eligible?: boolean;
-    weather?: {
-      lookup_status: "ok" | "failed";
-      message?: string;
+  // ============================================
+  // CLAIM INFORMATION REPORT
+  // ============================================
+  claim_information_report: {
+    claim_number: string;                    // "01-002-161543 (CAT-PCS2532-2532)"
+    date_of_loss: string;                    // "04/18/2025 @ 9:00 AM"
+    policy_number?: string;                  // "735886411388"
+    policyholders?: string[];                // ["DANNY DIKKER", "LEANN DIKKER"]
+    claim_status?: string;                   // "Open"
+    operating_company?: string;              // "American Family Insurance"
+    loss_details: {
+      cause: string;                         // "Hail"
+      location?: string;                     // Full property address
+      description?: string;                  // "hail damage to roof and soft metals."
+      weather_data_status?: string;          // "Unable to retrieve Weather Data from Decision Hub."
+      drone_eligible_at_fnol?: string;       // "Yes" | "No"
     };
   };
 
-  claim: {
-    claim_number: string;
-    date_of_loss: string;
-    primary_peril: string;
-    secondary_perils?: string[];
-    loss_description: string;
+  // ============================================
+  // INSURED INFORMATION
+  // ============================================
+  insured_information: {
+    name_1?: string;                         // "DANNY DIKKER"
+    name_1_address?: string;                 // "329 W Division St, Dodgeville, WI 53533-1427"
+    name_2?: string;                         // "LEANN DIKKER"
+    name_2_address?: string;                 // "329 W Division St, Dodgeville, WI 53533"
+    email?: string;                          // Contact email
+    phone?: string;                          // Contact phone
   };
 
-  insured: {
-    primary_name: string;
-    secondary_name?: string;
-    email?: string;
-    phone?: string;
+  // ============================================
+  // PROPERTY DAMAGE INFORMATION
+  // ============================================
+  property_damage_information: {
+    dwelling_incident_damages?: string;      // "hail damage to roof and soft metals."
+    roof_damage?: string;                    // "Yes (Exterior Only)"
+    exterior_damages?: string;               // "Yes"
+    interior_damages?: string;               // "Yes" | "No"
+    number_of_stories?: number;              // 2
+    wood_roof?: string;                      // "Yes" | "No"
+    year_roof_installed?: string;            // "01-01-2006"
+    year_built?: string;                     // "01-01-1917"
   };
 
-  property: {
-    address: {
-      full: string;
-      city: string;
-      state: string;
-      zip: string;
+  // ============================================
+  // POLICY INFORMATION
+  // ============================================
+  policy_information: {
+    producer?: {
+      name?: string;                         // "Anthonie Rose"
+      address?: string;                      // "597 S TEXAS ST, DODGEVILLE, WI 53533-1547"
+      phone?: string;                        // "(608) 555-32716"
+      email?: string;                        // "radler1@amfam.com"
     };
-    year_built?: number;
-    stories?: number;
-    occupancy?: string;
-    roof?: {
-      material?: string;
-      year_installed?: number;
-      damage_scope?: "Exterior Only" | "Interior" | "Both";
-      wood_roof?: boolean;
+    risk_address?: string;                   // "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427"
+    policy_type?: string;                    // "Homeowners"
+    status?: string;                         // "In force"
+    inception_date?: string;                 // "01/22/2018"
+    expiration_date?: string;                // Policy expiration
+    legal_description?: string;              // "No Legal Description for this Policy"
+    third_party_interest?: string;           // "FISHERS SAVINGS BANK ITS SUCCESSORS AND/OR ASSIGNS"
+    line_of_business?: string;               // "Homeowners Line"
+    deductibles?: {
+      policy_deductible?: string;            // "$2,348 (0%)"
+      wind_hail_deductible?: string;         // "$4,696 (1%)"
+      hurricane_deductible?: string;
+      flood_deductible?: string;
+      earthquake_deductible?: string;
+      [key: string]: string | undefined;     // Allow other deductible types
     };
   };
 
-  damage_summary: {
-    coverage_a?: string;
-    coverage_b?: string;
-    coverage_c?: string;
-    coverage_d?: string;
+  // ============================================
+  // POLICY LEVEL ENDORSEMENTS
+  // ============================================
+  policy_level_endorsements?: Array<{
+    code: string;                            // "HO 04 16"
+    description: string;                     // "Premises Alarm Or Fire Protection System"
+  }>;
+
+  // ============================================
+  // POLICY COVERAGE
+  // ============================================
+  policy_coverage?: {
+    location?: string;                       // "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427"
+    coverages?: {
+      coverage_a_dwelling?: {
+        limit?: string;                      // "$469,600"
+        percentage?: string;                 // "100%"
+        valuation_method?: string;           // "Replacement Cost Value"
+      };
+      coverage_b_scheduled_structures?: {
+        limit?: string;                      // "$55,900"
+        item?: string;                       // "Garage - Detached without Living Quarters"
+        article_number?: string;             // "2339053"
+        valuation_method?: string;
+      };
+      coverage_b_unscheduled_structures?: {
+        limit?: string;                      // "$5,000"
+        valuation_method?: string;
+      };
+      coverage_c_personal_property?: {
+        limit?: string;                      // "$187,900"
+        percentage?: string;                 // "40%"
+      };
+      coverage_d_loss_of_use?: {
+        limit?: string;                      // "$94,000"
+        percentage?: string;                 // "20%"
+      };
+      coverage_e_personal_liability?: {
+        limit?: string;                      // "$300,000"
+      };
+      coverage_f_medical_expense?: {
+        limit?: string;                      // "$2,000"
+      };
+      // Additional coverages
+      [key: string]: {
+        limit?: string;
+        percentage?: string;
+        valuation_method?: string;
+        item?: string;
+        article_number?: string;
+      } | undefined;
+    };
+  };
+
+  // ============================================
+  // REPORT METADATA
+  // ============================================
+  report_metadata?: {
+    reported_by?: string;                    // "Jose Smith"
+    report_method?: string;                  // "Phone (773) 555-2212"
+    reported_date?: string;                  // "08/11/2025"
+    entered_date?: string;                   // "08/11/2025"
+    report_source?: string;                  // "Mobile App" | "Phone" | "Agent" | etc.
   };
 }
 
 /**
  * Loss Context structure - stored in claims.loss_context
- * Matches canonical FNOL structure (snake_case)
+ * This is the COMPLETE FNOLExtraction - no data filtering.
+ * 100% of extracted FNOL data is preserved here.
  */
-export interface LossContext {
-  fnol: {
-    reported_by?: string;
-    reported_date?: string;
-    drone_eligible?: boolean;
-    weather?: {
-      lookup_status: "ok" | "failed";
-      message?: string;
-    };
-  };
-  property: {
-    year_built?: number;
-    stories?: number;
-    occupancy?: string;
-    roof?: {
-      material?: string;
-      year_installed?: number;
-      damage_scope?: string;
-      wood_roof?: boolean;
-    };
-  };
-  damage_summary: {
-    coverage_a?: string;
-    coverage_b?: string;
-    coverage_c?: string;
-    coverage_d?: string;
-  };
-}
+export type LossContext = FNOLExtraction;
 
 /**
  * AUTHORITATIVE Policy Form Extraction Interface
- * This is the ONLY accepted policy extraction shape. Matches canonical schema.
- *
- * Rules:
- * - Lossless extraction of policy language
- * - NO summarization
- * - NO interpretation
- * - raw_text must contain full verbatim policy text
- * - Uses snake_case to match canonical schema
+ * This captures 100% of data from policy forms.
+ * No data loss - every field in the source document is preserved.
  */
 export interface PolicyFormExtraction {
-  form_code: string;
+  // Document metadata
+  document_info?: {
+    form_number?: string;                    // "HO 80 03 01 14"
+    form_name?: string;                      // "HOMEOWNERS FORM"
+    total_pages?: number;
+    copyright?: string;
+    execution?: {
+      location?: string;
+      signatories?: string[];
+    };
+  };
+
+  // Table of contents with page numbers
+  table_of_contents?: Record<string, number>;
+
+  // Agreement and definitions section
+  agreement_and_definitions?: {
+    policy_components?: string[];
+    key_definitions?: Record<string, string>;
+  };
+
+  // Section I - Property Coverages
+  section_I_property_coverages?: {
+    coverage_a_dwelling?: {
+      included?: string[];
+      excluded?: string[];
+    };
+    coverage_b_other_structures?: {
+      definition?: string;
+      excluded_types?: string[];
+    };
+    coverage_c_personal_property?: {
+      scope?: string;
+      limit_away_from_premises?: string;
+      special_limits_of_liability?: Record<string, number | string>;
+    };
+    coverage_d_loss_of_use?: {
+      additional_living_expense?: string;
+      civil_authority_prohibits_use?: string;
+    };
+  };
+
+  // Section I - Perils
+  section_I_perils_insured_against?: {
+    personal_property_perils?: string[];
+    dwelling_perils?: string[];
+  };
+
+  // Section I - Exclusions
+  section_I_exclusions?: {
+    general_exclusions?: string[];
+  };
+
+  // Section I - Additional Coverages
+  section_I_additional_coverages?: Record<string, string | number>;
+
+  // Section I - Loss Settlement
+  section_I_how_we_settle_losses?: {
+    dwelling_and_other_structures?: {
+      initial_payment?: string;
+      replacement_cost?: string;
+      hail_damage_metal_siding?: string;
+    };
+    roofing_system?: {
+      settlement_method?: string;
+      cosmetic_exclusion?: string;
+    };
+  };
+
+  // Section II - Liability Coverages
+  section_II_liability_coverages?: {
+    coverage_e_personal_liability?: string;
+    coverage_f_medical_expense?: string;
+    liability_exclusions?: string[];
+  };
+
+  // General Conditions
+  general_conditions?: Record<string, string>;
+
+  // Legacy fields for backward compatibility
+  form_code?: string;
   form_name?: string;
   edition_date?: string;
   jurisdiction?: string;
-
-  structure: {
-    definitions?: Record<string, {
-      definition: string;
-      depreciation_includes?: string[];
-    }>;
-    coverages?: {
-      A?: { name?: string; valuation?: string; includes?: string[] };
-      B?: { name?: string; valuation?: string };
-      C?: { name?: string; valuation?: string };
-      D?: { name?: string; valuation?: string };
-    };
-    perils?: {
-      coverage_a_b?: string;
-      coverage_c_named?: string[];
-    };
+  structure?: {
+    definitions?: Record<string, { definition: string; depreciation_includes?: string[] }>;
+    coverages?: Record<string, { name?: string; valuation?: string; includes?: string[] }>;
+    perils?: { coverage_a_b?: string; coverage_c_named?: string[] };
     exclusions?: string[];
     conditions?: string[];
-    loss_settlement?: {
-      default?: {
-        basis?: string;
-        repair_time_limit_months?: number;
-      };
-    };
+    loss_settlement?: { default?: { basis?: string; repair_time_limit_months?: number } };
     additional_coverages?: string[];
   };
-
-  raw_text: string;
+  raw_text?: string;
 }
 
 /**
  * AUTHORITATIVE Endorsement Extraction Interface
- * This is the ONLY accepted endorsement extraction shape. Matches canonical schema.
+ * This captures 100% of data from endorsement documents.
+ * No data loss - every modification and schedule is preserved.
  *
- * Rules:
- * - Extraction MUST be delta-only (what the endorsement changes)
- * - NEVER reprint base policy language
- * - NEVER merge with other endorsements
- * - NEVER interpret impact
- * - raw_text must contain full endorsement text
- * - Uses snake_case to match canonical schema
+ * The structure uses endorsement name as key to allow flexible extraction
+ * of any endorsement type with its specific modifications.
  */
 export interface EndorsementExtraction {
-  form_code: string;
+  // Form identification
+  form_number?: string;                      // "HO 81 53 12 22"
+  purpose?: string;                          // Purpose of the endorsement
+
+  // Definition modifications
+  definitions_modified?: Record<string, {
+    definition?: string;
+    depreciable_components?: string[];
+    factors_considered?: string[];
+  } | string>;
+
+  // Property coverage changes
+  property_coverage_changes?: {
+    excluded_property_additions?: string[];
+    uninhabited_thresholds?: string;
+    loss_of_use_deductible?: string;
+    intentional_act_exception?: string;
+    [key: string]: string | string[] | undefined;
+  };
+
+  // Settlement and conditions
+  settlement_and_conditions?: {
+    total_loss_provision?: string;
+    loss_payment_timing?: string;
+    cancellation_notice?: Record<string, string>;
+    nonrenewal_notice?: string;
+    [key: string]: string | Record<string, string> | undefined;
+  };
+
+  // Liability modifications
+  liability_modifications?: Record<string, string>;
+
+  // Roof surface payment schedule (for HO 88 02)
+  scope?: string;
+  settlement_calculation?: string;
+  hail_functional_requirement?: string;
+  roof_surface_payment_schedule_examples?: {
+    description?: string;
+    [key: string]: Record<string, string> | string | undefined;
+  };
+  complete_schedule?: Array<{
+    roof_age_years?: number;
+    architectural_shingle_pct?: number;
+    other_composition_pct?: number;
+    metal_pct?: number;
+    tile_pct?: number;
+    slate_pct?: number;
+    wood_pct?: number;
+    rubber_pct?: number;
+    [key: string]: number | undefined;
+  }>;
+
+  // O&L Coverage (for HO 84 16)
+  coverage_a_increased_cost?: string;
+  coverage_b_demolition_cost?: string;
+  coverage_c_increased_construction_cost?: string;
+
+  // Personal Property RCV (for HO 04 90)
+  settlement_basis?: string;
+  conditions?: string[];
+
+  // Legacy fields for backward compatibility
+  form_code?: string;
   title?: string;
   edition_date?: string;
   jurisdiction?: string;
@@ -292,42 +558,20 @@ export interface EndorsementExtraction {
   applies_to_coverages?: string[];
   endorsement_type?: string;
   precedence_priority?: number;
-
   modifications?: {
-    definitions?: {
-      added?: Array<{ term: string; definition: string }>;
-      deleted?: string[];
-      replaced?: Array<{ term: string; new_definition: string }>;
-    };
-    loss_settlement?: {
-      replaces?: Array<{
-        section: string;
-        new_rule: {
-          basis?: string;
-          repair_time_limit_months?: number;
-          fallback_basis?: string;
-          conditions?: string[];
-        };
-      }>;
-    };
-    exclusions?: {
-      added?: string[];
-      deleted?: string[];
-    };
+    definitions?: { added?: Array<{ term: string; definition: string }>; deleted?: string[]; replaced?: Array<{ term: string; new_definition: string }> };
+    loss_settlement?: { replaces?: Array<{ section: string; new_rule: { basis?: string; repair_time_limit_months?: number; fallback_basis?: string; conditions?: string[] } }> };
+    exclusions?: { added?: string[]; deleted?: string[] };
   };
-
-  tables?: Array<{
-    table_type: string;
-    applies_when?: {
-      peril?: string;
-      coverage?: string[];
-    };
-    data?: Record<string, unknown>;
-    schedule?: any[];
-  }>;
-
-  raw_text: string;
+  tables?: Array<{ table_type: string; applies_when?: { peril?: string; coverage?: string[] }; data?: Record<string, unknown>; schedule?: any[] }>;
+  raw_text?: string;
 }
+
+/**
+ * Container for multiple endorsement extractions
+ * Each key is the endorsement name/type
+ */
+export type EndorsementExtractionSet = Record<string, EndorsementExtraction>;
 
 /**
  * Document type enum for routing
@@ -426,26 +670,36 @@ function getPromptKeyForDocumentType(documentType: DocumentType): PromptKey {
  * Strict mapping - no fallbacks, no inference
  */
 function transformToFNOLExtraction(raw: any): FNOLExtraction {
-  // OpenAI returns canonical structure directly (snake_case)
-  // No fallbacks - if structure is wrong, fail loudly
-  
+  // OpenAI returns the new comprehensive structure directly (snake_case)
+  // This captures 100% of FNOL data
+
   const extraction: FNOLExtraction = {
-    fnol: raw.fnol || {},
-    claim: raw.claim || { claim_number: '', date_of_loss: '', primary_peril: '', loss_description: '' },
-    insured: raw.insured || { primary_name: '' },
-    property: raw.property || { address: { full: '', city: '', state: '', zip: '' } },
-    damage_summary: raw.damage_summary || {},
+    claim_information_report: raw.claim_information_report || {
+      claim_number: '',
+      date_of_loss: '',
+      loss_details: { cause: '' },
+    },
+    insured_information: raw.insured_information || {},
+    property_damage_information: raw.property_damage_information || {},
+    policy_information: raw.policy_information || {},
+    policy_level_endorsements: raw.policy_level_endorsements || [],
+    policy_coverage: raw.policy_coverage || {},
+    report_metadata: raw.report_metadata || {},
   };
-  
+
   // Validate required fields
-  if (!extraction.claim.claim_number && !extraction.claim.date_of_loss && !extraction.insured.primary_name) {
+  const claimNum = extraction.claim_information_report.claim_number;
+  const dateOfLoss = extraction.claim_information_report.date_of_loss;
+  const insuredName = extraction.insured_information.name_1;
+
+  if (!claimNum && !dateOfLoss && !insuredName) {
     console.warn('[FNOL Transform] Missing critical fields:', {
-      claim_number: extraction.claim.claim_number,
-      date_of_loss: extraction.claim.date_of_loss,
-      primary_name: extraction.insured.primary_name,
+      claim_number: claimNum,
+      date_of_loss: dateOfLoss,
+      name_1: insuredName,
     });
   }
-  
+
   return extraction;
 }
 
@@ -455,23 +709,20 @@ function transformToFNOLExtraction(raw: any): FNOLExtraction {
  * Matches canonical schema structure (snake_case)
  */
 function buildLossContext(extraction: FNOLExtraction): LossContext {
-  return {
-    fnol: extraction.fnol,
-    property: {
-      year_built: extraction.property.year_built,
-      stories: extraction.property.stories,
-      occupancy: extraction.property.occupancy,
-      roof: extraction.property.roof,
-    },
-    damage_summary: extraction.damage_summary,
-  };
+  // Return the COMPLETE extraction - no filtering.
+  // 100% of FNOL data is preserved in loss_context.
+  return extraction;
 }
 
 /**
  * Validate FNOL extraction - fail loudly if malformed
  */
 function validateFNOLExtraction(extraction: FNOLExtraction): void {
-  if (!extraction.claim.claim_number && !extraction.claim.date_of_loss && !extraction.insured.primary_name) {
+  const claimNum = extraction.claim_information_report?.claim_number;
+  const dateOfLoss = extraction.claim_information_report?.date_of_loss;
+  const insuredName = extraction.insured_information?.name_1;
+
+  if (!claimNum && !dateOfLoss && !insuredName) {
     throw new Error('FNOL extraction failed: No claim number, date of loss, or insured name found. Document may not be a valid FNOL.');
   }
 }
@@ -1423,8 +1674,8 @@ export async function createClaimFromDocuments(
   // Extract raw OpenAI response stored during document processing
   const rawOpenaiResponse = extractedData._raw_openai_response || null;
 
-  // Check if already in FNOLExtraction format (canonical structure)
-  if (extractedData.claim && extractedData.insured && extractedData.property) {
+  // Check if already in FNOLExtraction format (new comprehensive structure)
+  if (extractedData.claim_information_report && extractedData.insured_information) {
     fnolExtraction = extractedData as FNOLExtraction;
   } else {
     fnolExtraction = transformToFNOLExtraction(extractedData);
@@ -1442,17 +1693,37 @@ export async function createClaimFromDocuments(
   const lossContext = buildLossContext(fnolExtraction);
 
   // Validate loss_context is not empty
-  if (!lossContext.fnol && !lossContext.property && !lossContext.damage_summary) {
+  if (!lossContext.claim_information_report && !lossContext.insured_information) {
     throw new Error('FNOL ingestion failed: loss_context is empty or malformed');
   }
 
-  // Generate claim number
-  const claimNumber = fnolExtraction.claim.claim_number || await generateClaimId(organizationId);
+  // Extract fields from new comprehensive structure
+  const claimInfo = fnolExtraction.claim_information_report;
+  const insuredInfo = fnolExtraction.insured_information;
+  const propertyDamageInfo = fnolExtraction.property_damage_information;
+  const policyInfo = fnolExtraction.policy_information;
+  const policyCoverage = fnolExtraction.policy_coverage;
+  const endorsements = fnolExtraction.policy_level_endorsements;
+
+  // Generate claim number (strip CAT code suffix for database storage, but preserve in loss_context)
+  const rawClaimNumber = claimInfo.claim_number || '';
+  const claimNumber = rawClaimNumber.split(' ')[0] || await generateClaimId(organizationId);
+
+  // Build insured name from name_1 and name_2
+  const insuredName = [insuredInfo.name_1, insuredInfo.name_2]
+    .filter(Boolean)
+    .join(' ') || null;
+
+  // Parse property address - use risk_address from policy_information or loss_details.location
+  const propertyAddress = policyInfo?.risk_address || claimInfo.loss_details?.location || null;
+
+  // Parse city, state, zip from address if available
+  const addressParts = parseAddressParts(propertyAddress);
 
   // PERIL NORMALIZATION
   const perilInput: PerilInferenceInput = {
-    causeOfLoss: fnolExtraction.claim.primary_peril,
-    lossDescription: fnolExtraction.claim.loss_description,
+    causeOfLoss: claimInfo.loss_details?.cause || '',
+    lossDescription: claimInfo.loss_details?.description || '',
   };
 
   const perilInference = inferPeril(perilInput);
@@ -1463,16 +1734,42 @@ export async function createClaimFromDocuments(
     confidence: perilInference.confidence,
   });
 
+  // Extract coverage limits from policy_coverage
+  const coverages = policyCoverage?.coverages || {};
+  const coverageALimit = coverages.coverage_a_dwelling?.limit;
+  const coverageBScheduled = coverages.coverage_b_scheduled_structures?.limit;
+  const coverageBUnscheduled = coverages.coverage_b_unscheduled_structures?.limit;
+  const coverageCLimit = coverages.coverage_c_personal_property?.limit;
+  const coverageDLimit = coverages.coverage_d_loss_of_use?.limit;
+
   // Debug: Log policy values being stored
   console.log(`[ClaimCreation] Policy values for claim ${claimNumber}:`, {
-    coverageA: fnolExtraction.damage_summary.coverage_a || null,
-    coverageB: fnolExtraction.damage_summary.coverage_b || null,
-    coverageC: fnolExtraction.damage_summary.coverage_c || null,
-    coverageD: fnolExtraction.damage_summary.coverage_d || null,
+    coverageA: coverageALimit || null,
+    coverageB: coverageBScheduled || coverageBUnscheduled || null,
+    coverageC: coverageCLimit || null,
+    coverageD: coverageDLimit || null,
+    policyNumber: claimInfo.policy_number || null,
+    deductibles: policyInfo?.deductibles || null,
   });
 
-  // CREATE CLAIM - STRICT SCALAR MAPPING
-  // Populate ONLY these scalar columns from FNOL:
+  // Build peril-specific deductibles from policy_information.deductibles
+  const perilDeductibles: Record<string, string> = {};
+  if (policyInfo?.deductibles) {
+    if (policyInfo.deductibles.wind_hail_deductible) {
+      perilDeductibles.wind_hail = policyInfo.deductibles.wind_hail_deductible;
+    }
+    if (policyInfo.deductibles.hurricane_deductible) {
+      perilDeductibles.hurricane = policyInfo.deductibles.hurricane_deductible;
+    }
+    if (policyInfo.deductibles.flood_deductible) {
+      perilDeductibles.flood = policyInfo.deductibles.flood_deductible;
+    }
+    if (policyInfo.deductibles.earthquake_deductible) {
+      perilDeductibles.earthquake = policyInfo.deductibles.earthquake_deductible;
+    }
+  }
+
+  // CREATE CLAIM - COMPREHENSIVE MAPPING FROM NEW STRUCTURE
   const { data: newClaim, error: claimError } = await supabaseAdmin
     .from('claims')
     .insert({
@@ -1480,39 +1777,44 @@ export async function createClaimFromDocuments(
       claim_id: claimNumber,  // Required NOT NULL column in DB
       claim_number: claimNumber,
 
+      // Policy number from FNOL
+      policy_number: claimInfo.policy_number || null,
+
       // Insured info
-      insured_name: fnolExtraction.insured.primary_name + 
-        (fnolExtraction.insured.secondary_name ? ` ${fnolExtraction.insured.secondary_name}` : '') || null,
-      insured_phone: fnolExtraction.insured.phone || null,
-      insured_email: fnolExtraction.insured.email || null,
+      insured_name: insuredName,
+      insured_phone: insuredInfo.phone || null,
+      insured_email: insuredInfo.email || null,
 
       // Property address
-      property_address: fnolExtraction.property.address.full || null,
-      property_city: fnolExtraction.property.address.city || null,
-      property_state: fnolExtraction.property.address.state || null,
-      property_zip: fnolExtraction.property.address.zip || null,
+      property_address: propertyAddress,
+      property_city: addressParts.city || null,
+      property_state: addressParts.state || null,
+      property_zip: addressParts.zip || null,
 
       // Loss details
-      date_of_loss: fnolExtraction.claim.date_of_loss || null,
+      date_of_loss: parseDateString(claimInfo.date_of_loss) || null,
       primary_peril: perilInference.primaryPeril,
-      loss_description: fnolExtraction.claim.loss_description || null,
+      loss_description: claimInfo.loss_details?.description || null,
 
-      // Peril-specific deductibles (will be populated from policy/endorsements if needed)
-      // Note: year_roof_install is stored in loss_context.property.roof.year_installed
-      peril_specific_deductibles: {},
+      // Deductibles - both base and peril-specific
+      deductible: parseCurrencyToNumber(policyInfo?.deductibles?.policy_deductible),
+      peril_specific_deductibles: perilDeductibles,
 
-      // Coverage amounts (numeric) - parsed from damage_summary strings
-      coverage_a: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_a),
-      coverage_b: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_b),
-      coverage_c: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_c),
-      coverage_d: parseCurrencyToNumber(fnolExtraction.damage_summary.coverage_d),
+      // Coverage amounts (numeric) - parsed from policy_coverage limits
+      coverage_a: parseCurrencyToNumber(coverageALimit),
+      coverage_b: parseCurrencyToNumber(coverageBScheduled) || parseCurrencyToNumber(coverageBUnscheduled),
+      coverage_c: parseCurrencyToNumber(coverageCLimit),
+      coverage_d: parseCurrencyToNumber(coverageDLimit),
 
-      // Peril inference (merge FNOL secondary_perils with inferred ones)
-      secondary_perils: [...(fnolExtraction.claim.secondary_perils || []), ...perilInference.secondaryPerils],
+      // Endorsements from FNOL
+      endorsements_listed: endorsements || [],
+
+      // Peril inference
+      secondary_perils: perilInference.secondaryPerils,
       peril_confidence: perilInference.confidence,
       peril_metadata: perilInference.perilMetadata,
 
-      // LOSS CONTEXT - ALL FNOL TRUTH GOES HERE
+      // LOSS CONTEXT - ALL FNOL TRUTH GOES HERE (100% of extracted data)
       loss_context: lossContext,
 
       // Raw OpenAI response - stored BEFORE any transformation for debugging/auditing
@@ -1521,7 +1823,7 @@ export async function createClaimFromDocuments(
       // Status
       status: 'fnol',
 
-      // Empty metadata - no longer stuffing FNOL data here
+      // Metadata
       metadata: {
         extractedFrom: documentIds,
       }
