@@ -2633,3 +2633,276 @@ export async function addChecklistItem(
   }
   return response.json();
 }
+
+// ============================================
+// UNIFIED CLAIM CONTEXT & COVERAGE ANALYSIS
+// ============================================
+
+/**
+ * Coverage alert from analysis
+ */
+export interface CoverageAlert {
+  severity: 'info' | 'warning' | 'critical';
+  category: 'deductible' | 'limit' | 'exclusion' | 'depreciation' | 'documentation';
+  title: string;
+  description: string;
+  actionRequired?: string;
+  relatedEndorsement?: string;
+}
+
+/**
+ * Endorsement impact summary
+ */
+export interface EndorsementImpactSummary {
+  formCode: string;
+  title: string;
+  category: string;
+  impacts: string[];
+  inspectionRequirements: string[];
+  estimateConsiderations: string[];
+  hasRoofSchedule: boolean;
+  hasMetalFunctionalLanguage: boolean;
+}
+
+/**
+ * Roof depreciation result
+ */
+export interface RoofDepreciationResult {
+  roofAge: number;
+  roofMaterial: string;
+  scheduleFormCode?: string;
+  paymentPercentage: number;
+  depreciationPercentage: number;
+  isScheduledBasis: boolean;
+  notes: string[];
+}
+
+/**
+ * Coverage limit structure
+ */
+export interface CoverageLimit {
+  limit: number;
+  formatted: string;
+  basis?: string;
+  sourceEndorsement?: string;
+}
+
+/**
+ * Property details for unified context
+ */
+export interface PropertyDetails {
+  address: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  county?: string;
+  constructionType?: string;
+  yearBuilt?: number;
+  squareFootage?: number;
+  stories?: number;
+  roof: {
+    material?: string;
+    yearInstalled?: number;
+    age?: number;
+    condition?: string;
+  };
+  occupancy?: string;
+}
+
+/**
+ * Unified Claim Context - single source of truth
+ */
+export interface UnifiedClaimContext {
+  claimId: string;
+  claimNumber: string;
+  policyNumber?: string;
+  dateOfLoss?: string;
+  dateOfLossFormatted?: string;
+  reportedDate?: string;
+  reportedBy?: string;
+
+  insured: {
+    name: string;
+    name2?: string;
+    email?: string;
+    phone?: string;
+    mailingAddress?: string;
+  };
+
+  property: PropertyDetails;
+
+  producer?: {
+    name?: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+  };
+
+  peril: {
+    primary: string;
+    primaryDisplay: string;
+    secondary: string[];
+    secondaryDisplay: string[];
+    applicableDeductible: { amount: number; formatted: string };
+    applicableExclusions: string[];
+    inspectionFocus: string[];
+    commonMisses: string[];
+  };
+
+  coverages: {
+    dwelling?: CoverageLimit;
+    otherStructures?: CoverageLimit;
+    personalProperty?: CoverageLimit;
+    lossOfUse?: CoverageLimit;
+    personalLiability?: CoverageLimit;
+    medicalPayments?: CoverageLimit;
+    additionalCoverages: Record<string, CoverageLimit>;
+  };
+
+  specialLimits: Record<string, number>;
+
+  deductibles: {
+    aop?: { amount: number; formatted: string };
+    windHail?: { amount: number; formatted: string; isPercentage: boolean };
+    hurricane?: { amount: number; formatted: string };
+    flood?: { amount: number; formatted: string };
+    earthquake?: { amount: number; formatted: string };
+    namedStorm?: { amount: number; formatted: string };
+    applicableForPeril: { amount: number; formatted: string };
+  };
+
+  lossSettlement: {
+    dwelling: { basis: string; sourceEndorsement?: string };
+    roofing: {
+      isScheduled: boolean;
+      scheduleFormCode?: string;
+      metalFunctionalRequirement: boolean;
+    };
+    personalProperty: { basis: string; sourceEndorsement?: string };
+  };
+
+  exclusions: {
+    general: string[];
+    endorsementAdded: string[];
+    endorsementRemoved: string[];
+    applicableToPeril: string[];
+  };
+
+  endorsements: {
+    listedOnFnol: Array<{ code: string; description: string }>;
+    extracted: EndorsementImpactSummary[];
+    byCategory: {
+      lossSettlement: EndorsementImpactSummary[];
+      coverageModification: EndorsementImpactSummary[];
+      stateAmendatory: EndorsementImpactSummary[];
+      other: EndorsementImpactSummary[];
+    };
+  };
+
+  definitions: Record<string, string>;
+  alerts: CoverageAlert[];
+
+  insights: {
+    roofDepreciationPct?: number;
+    estimatedRoofPaymentPct?: number;
+    hasOandLCoverage: boolean;
+    oandLLimit?: number;
+    hasPersonalPropertyRCV: boolean;
+    hasFungiCoverage: boolean;
+    fungiLimit?: number;
+    specialLimitsToWatch: string[];
+    coverageGaps: string[];
+    stateSpecificRules: string[];
+    endorsementsWithInspectionImpact: string[];
+    totalEndorsementCount: number;
+    criticalEndorsementCount: number;
+  };
+
+  meta: {
+    builtAt: string;
+    fnolDocumentId?: string;
+    policyDocumentId?: string;
+    endorsementDocumentIds: string[];
+    dataCompleteness: {
+      hasFnol: boolean;
+      hasPolicy: boolean;
+      hasEndorsements: boolean;
+      completenessScore: number;
+    };
+  };
+}
+
+/**
+ * Coverage analysis result
+ */
+export interface CoverageAnalysisResult {
+  claimId: string;
+  analyzedAt: string;
+  alerts: CoverageAlert[];
+  endorsementImpacts: EndorsementImpactSummary[];
+  depreciation?: RoofDepreciationResult;
+  estimatedMaxPayments: {
+    dwelling?: number;
+    otherStructures?: number;
+    personalProperty?: number;
+    total?: number;
+  };
+  recommendations: string[];
+}
+
+/**
+ * Coverage analysis summary for quick UI display
+ */
+export interface CoverageAnalysisSummary {
+  criticalAlerts: number;
+  warningAlerts: number;
+  infoAlerts: number;
+  roofPaymentPct?: number;
+  applicableDeductible: string;
+  topRecommendations: string[];
+}
+
+/**
+ * Fetch the unified claim context (merged FNOL + Policy + Endorsements)
+ */
+export async function getClaimContext(claimId: string): Promise<UnifiedClaimContext | null> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/context`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch claim context' }));
+    throw new Error(error.error || 'Failed to fetch claim context');
+  }
+  return response.json();
+}
+
+/**
+ * Fetch full coverage analysis for a claim
+ */
+export async function getCoverageAnalysis(claimId: string): Promise<CoverageAnalysisResult | null> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/coverage-analysis`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch coverage analysis' }));
+    throw new Error(error.error || 'Failed to fetch coverage analysis');
+  }
+  return response.json();
+}
+
+/**
+ * Fetch coverage analysis summary for quick UI display
+ */
+export async function getCoverageAnalysisSummary(claimId: string): Promise<CoverageAnalysisSummary | null> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/coverage-analysis/summary`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch coverage summary' }));
+    throw new Error(error.error || 'Failed to fetch coverage summary');
+  }
+  return response.json();
+}

@@ -3498,6 +3498,129 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // UNIFIED CLAIM CONTEXT & COVERAGE ANALYSIS
+  // ============================================
+
+  /**
+   * GET /api/claims/:id/context
+   * Get the unified claim context with all FNOL, Policy, and Endorsement data merged.
+   * This is the single source of truth for claim data.
+   */
+  app.get('/api/claims/:id/context', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { buildUnifiedClaimContext } = await import('./services/unifiedClaimContextService');
+      const context = await buildUnifiedClaimContext(req.params.id, req.organizationId!);
+
+      if (!context) {
+        return res.status(404).json({ error: 'Claim not found or context could not be built' });
+      }
+
+      res.json(context);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[UnifiedClaimContext] Error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/coverage-analysis
+   * Get comprehensive coverage analysis including alerts, depreciation, and recommendations.
+   */
+  app.get('/api/claims/:id/coverage-analysis', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { analyzeCoverage } = await import('./services/coverageAnalysisService');
+      const analysis = await analyzeCoverage(req.params.id, req.organizationId!);
+
+      if (!analysis) {
+        return res.status(404).json({ error: 'Claim not found or analysis could not be performed' });
+      }
+
+      res.json(analysis);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[CoverageAnalysis] Error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/claims/:id/coverage-analysis/summary
+   * Get a quick summary of coverage analysis for UI display.
+   */
+  app.get('/api/claims/:id/coverage-analysis/summary', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getCoverageAnalysisSummary } = await import('./services/coverageAnalysisService');
+      const summary = await getCoverageAnalysisSummary(req.params.id, req.organizationId!);
+
+      if (!summary) {
+        return res.status(404).json({ error: 'Claim not found or summary could not be generated' });
+      }
+
+      res.json(summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[CoverageAnalysisSummary] Error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/claims/:id/briefing/generate-enhanced
+   * Generate an enhanced AI briefing using UnifiedClaimContext.
+   */
+  app.post('/api/claims/:id/briefing/generate-enhanced', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { generateEnhancedClaimBriefing } = await import('./services/claimBriefingService');
+      const forceRegenerate = req.query.force === 'true';
+
+      const result = await generateEnhancedClaimBriefing(
+        req.params.id,
+        req.organizationId!,
+        forceRegenerate
+      );
+
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[EnhancedBriefing] Error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/claims/:id/workflow/generate-enhanced
+   * Generate an enhanced inspection workflow using UnifiedClaimContext.
+   */
+  app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { generateEnhancedInspectionWorkflow } = await import('./services/inspectionWorkflowService');
+      const forceRegenerate = req.query.force === 'true';
+      const propertyContext = req.body.propertyContext;
+
+      const result = await generateEnhancedInspectionWorkflow(
+        req.params.id,
+        req.organizationId!,
+        { forceRegenerate, propertyContext }
+      );
+
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[EnhancedWorkflow] Error:', message);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
   // CLAIM CHECKLIST ROUTES
   // ============================================
 

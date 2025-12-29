@@ -1772,3 +1772,509 @@ ${variables.carrier_requirements}
 
 Generate a comprehensive inspection workflow JSON.`;
 }
+
+// ============================================
+// ENHANCED WORKFLOW GENERATION WITH UNIFIED CLAIM CONTEXT
+// ============================================
+
+import { UnifiedClaimContext, EndorsementImpact, RoofPaymentScheduleEntry } from '../../shared/schema';
+import { buildUnifiedClaimContext, calculateRoofDepreciation } from './unifiedClaimContextService';
+
+/**
+ * Generate endorsement-driven inspection steps from UnifiedClaimContext
+ *
+ * This extends the policy-based steps by using the rich endorsement analysis
+ * from UnifiedClaimContext to inject precise inspection requirements.
+ */
+function generateEndorsementDrivenSteps(context: UnifiedClaimContext): PolicyInspectionStep[] {
+  const steps: PolicyInspectionStep[] = [];
+
+  // Process each endorsement with inspection requirements
+  for (const endorsement of context.endorsements.extracted) {
+    if (endorsement.inspectionRequirements.length === 0) continue;
+
+    // Create steps based on endorsement requirements
+    for (const requirement of endorsement.inspectionRequirements) {
+      const step = createStepFromEndorsementRequirement(endorsement, requirement);
+      if (step) {
+        steps.push(step);
+      }
+    }
+  }
+
+  // Add depreciation documentation steps if scheduled basis
+  if (context.lossSettlement.roofing.isScheduled && context.property.roof.ageAtLoss !== undefined) {
+    const roofAge = context.property.roof.ageAtLoss;
+    const paymentPct = context.lossSettlement.roofing.calculatedPaymentPct || 100;
+    const depreciation = 100 - paymentPct;
+
+    steps.push({
+      phase: 'exterior',
+      step_type: 'documentation',
+      title: 'Document Roof Schedule Depreciation Factors',
+      instructions: `CRITICAL - ROOF SCHEDULE APPLIES:
+
+Based on the policy endorsement (${context.lossSettlement.roofing.sourceEndorsement || 'roof schedule'}):
+- Roof Age at Loss: ${roofAge} years
+- Estimated Payment: ${paymentPct}% of replacement cost
+- Depreciation: ${depreciation}%
+
+REQUIRED DOCUMENTATION:
+1. Confirm roof age through visible date stamps, permit records, or condition assessment
+2. Identify exact material type (architectural shingle, 3-tab, metal, tile, wood, rubber)
+3. Photograph any manufacturer markings that indicate age
+4. Note any mixed materials that may have different schedule rates
+5. Document condition that supports the age assessment`,
+      required: true,
+      tags: ['policy_requirement', 'roof_schedule', 'depreciation', 'critical'],
+      estimated_minutes: 15,
+      policySource: context.lossSettlement.roofing.sourceEndorsement || 'roof_schedule',
+    });
+  }
+
+  // Add metal functional requirement step if applicable
+  if (context.lossSettlement.roofing.metalFunctionalRequirement) {
+    steps.push({
+      phase: 'exterior',
+      step_type: 'observation',
+      title: 'Metal Component Functional Damage Verification',
+      instructions: `POLICY REQUIREMENT - METAL COSMETIC EXCLUSION:
+
+${context.lossSettlement.roofing.metalFunctionalRuleText || 'Metal roofing and siding only covered if water intrusion occurs or actual holes/openings exist.'}
+
+FOR EACH METAL COMPONENT (gutters, downspouts, vents, flashing):
+1. Document if damage is cosmetic (dents only) or functional (holes, penetrations)
+2. Test for water flow - run water through gutters if possible
+3. Look for interior water stains near metal components
+4. Photograph any actual penetrations through metal
+5. Note if damage prevents water management function
+
+WARNING: Cosmetic denting alone is typically NOT covered under this endorsement.`,
+      required: true,
+      tags: ['policy_requirement', 'metal_functional', 'water_intrusion', 'critical'],
+      estimated_minutes: 20,
+      policySource: context.lossSettlement.roofing.sourceEndorsement || 'metal_functional_rule',
+    });
+  }
+
+  // Add O&L documentation if coverage exists
+  if (context.insights.hasOandLCoverage) {
+    steps.push({
+      phase: 'exterior',
+      step_type: 'observation',
+      title: 'Document Code Compliance Issues (O&L Coverage)',
+      instructions: `ORDINANCE OR LAW COVERAGE AVAILABLE: $${context.insights.oandLLimit?.toLocaleString() || 'See Policy'}
+
+Since O&L coverage is available, document any:
+1. Visible code violations or non-conforming conditions
+2. Older materials that may not meet current code (e.g., single-pane windows, old electrical)
+3. Structural elements that would require upgrade during repair
+4. Building department requirements that might apply
+
+This documentation supports potential O&L claims if repairs trigger code upgrades.`,
+      required: false,
+      tags: ['policy_coverage', 'ordinance_law', 'code_compliance'],
+      estimated_minutes: 10,
+      policySource: 'ordinance_or_law_coverage',
+    });
+  }
+
+  // Add special limits awareness steps
+  if (context.insights.specialLimitsToWatch.length > 0) {
+    steps.push({
+      phase: 'interior',
+      step_type: 'documentation',
+      title: 'Document High-Value Personal Property',
+      instructions: `SPECIAL LIMITS APPLY - Document carefully:
+
+${context.insights.specialLimitsToWatch.map(l => `- ${l}`).join('\n')}
+
+For each category with special limits:
+1. Ask insured if any high-value items were damaged
+2. Photograph any damaged items in these categories
+3. Document approximate value and age
+4. Note if items are scheduled separately on policy
+
+Items exceeding special limits may not be fully covered unless scheduled.`,
+      required: false,
+      tags: ['special_limits', 'personal_property', 'documentation'],
+      estimated_minutes: 10,
+      policySource: 'special_limits_of_liability',
+    });
+  }
+
+  return steps;
+}
+
+/**
+ * Create a step from an endorsement requirement
+ */
+function createStepFromEndorsementRequirement(
+  endorsement: EndorsementImpact,
+  requirement: string
+): PolicyInspectionStep | null {
+  // Determine phase based on requirement content
+  let phase: 'pre_inspection' | 'exterior' | 'interior' | 'documentation' = 'exterior';
+  if (requirement.toLowerCase().includes('interior')) phase = 'interior';
+  if (requirement.toLowerCase().includes('document') || requirement.toLowerCase().includes('verify')) phase = 'documentation';
+
+  // Determine step type
+  let stepType: 'photo' | 'observation' | 'documentation' | 'measurement' = 'observation';
+  if (requirement.toLowerCase().includes('photo')) stepType = 'photo';
+  if (requirement.toLowerCase().includes('measure')) stepType = 'measurement';
+  if (requirement.toLowerCase().includes('document')) stepType = 'documentation';
+
+  return {
+    phase,
+    step_type: stepType,
+    title: `[${endorsement.formCode}] ${requirement.substring(0, 50)}...`,
+    instructions: `ENDORSEMENT REQUIREMENT (${endorsement.formCode}):
+
+${requirement}
+
+Related Endorsement: ${endorsement.title}
+Category: ${endorsement.category.replace(/_/g, ' ')}`,
+    required: true,
+    tags: ['endorsement_requirement', endorsement.formCode.replace(/\s/g, '_')],
+    estimated_minutes: 5,
+    policySource: endorsement.formCode,
+  };
+}
+
+/**
+ * Build enhanced workflow prompt using UnifiedClaimContext
+ */
+function buildEnhancedWorkflowPrompt(context: UnifiedClaimContext): string {
+  const perilRules = PERIL_INSPECTION_RULES[context.peril.primary];
+
+  return `You are an expert property insurance inspection planner. Generate a STEP-BY-STEP, EXECUTABLE INSPECTION WORKFLOW for a field adjuster.
+
+This workflow is NOT a narrative. It is NOT a summary. It is an ordered execution plan.
+
+## CLAIM CONTEXT (Comprehensive)
+- Claim Number: ${context.claimNumber}
+- Policy Number: ${context.policyNumber || 'Unknown'}
+- Insured: ${context.insured.name}${context.insured.name2 ? ` & ${context.insured.name2}` : ''}
+- Date of Loss: ${context.dateOfLossFormatted || 'Unknown'}
+- Property: ${context.property.address}
+  - Year Built: ${context.property.yearBuilt || 'Unknown'}
+  - Stories: ${context.property.stories || 'Unknown'}
+  - Roof Year: ${context.property.roof.yearInstalled || 'Unknown'} (Age: ${context.property.roof.ageAtLoss ?? 'Unknown'} years)
+  - Wood Roof: ${context.property.roof.isWoodRoof ? 'Yes' : 'No'}
+
+## PERIL ANALYSIS
+- Primary Peril: ${context.peril.primaryDisplay}
+- Secondary Perils: ${context.peril.secondaryDisplay.join(', ') || 'None'}
+- Applicable Deductible: ${context.deductibles.applicableForPeril.formatted}
+- Exterior Damaged: ${context.property.exteriorDamaged ? 'Yes' : 'No'}
+- Interior Damaged: ${context.property.interiorDamaged ? 'Yes' : 'No'}
+
+## COVERAGE LIMITS
+- Dwelling: ${context.coverages.dwelling?.limitFormatted || 'Unknown'}
+- Other Structures: ${context.coverages.otherStructures?.limitFormatted || 'Unknown'}
+- Personal Property: ${context.coverages.personalProperty?.limitFormatted || 'Unknown'}
+
+## LOSS SETTLEMENT RULES
+- Dwelling: ${context.lossSettlement.dwelling.basis}
+- Roofing: ${context.lossSettlement.roofing.basis}${context.lossSettlement.roofing.isScheduled ? ' (SCHEDULED - DEPRECIATION APPLIES)' : ''}
+${context.lossSettlement.roofing.calculatedPaymentPct !== undefined ? `  - Estimated Payment: ${context.lossSettlement.roofing.calculatedPaymentPct}% of RCV` : ''}
+${context.lossSettlement.roofing.metalFunctionalRequirement ? '  - Metal Functional Requirement: APPLIES (cosmetic excluded)' : ''}
+- Personal Property: ${context.lossSettlement.personalProperty.basis}
+
+## ENDORSEMENTS WITH INSPECTION IMPACT
+${context.endorsements.extracted.length > 0 ? context.endorsements.extracted.map(e => `
+[${e.formCode}] ${e.title}
+  Category: ${e.category.replace(/_/g, ' ')}
+  Impacts: ${e.impacts.slice(0, 2).join('; ') || 'See details'}
+  Inspection Requirements:
+${e.inspectionRequirements.map(r => `    - ${r}`).join('\n') || '    - Standard inspection'}`).join('\n') : 'No endorsements with special inspection requirements'}
+
+## COVERAGE ALERTS
+${context.alerts.map(a => `[${a.severity.toUpperCase()}] ${a.title}: ${a.description}`).join('\n') || 'No alerts'}
+
+## PERIL-SPECIFIC GUIDANCE
+Priority Areas: ${perilRules?.priorityAreas?.slice(0, 5).map(a => a.area).join(', ') || 'Standard areas'}
+Common Misses: ${perilRules?.commonMisses?.slice(0, 3).map(m => m.issue).join(', ') || 'Standard items'}
+Safety: ${perilRules?.safetyConsiderations?.slice(0, 2).join('; ') || 'Standard safety protocols'}
+
+## WORKFLOW REQUIREMENTS (MANDATORY)
+1. Workflow MUST be divided into ordered PHASES: pre_inspection, initial_walkthrough, exterior, roof, interior, utilities, mitigation, closeout
+2. Each phase MUST contain ordered, atomic steps with clear instructions
+3. Each step MUST include required flag, estimated time, and explicit evidence requirements
+4. Endorsement requirements MUST be reflected in specific steps (not just mentioned)
+5. If roofing is on SCHEDULED basis, include steps for age verification and material documentation
+6. If metal functional requirement applies, include steps for water intrusion documentation
+
+Generate a JSON workflow matching this exact schema:
+{
+  "metadata": {
+    "claim_number": "string",
+    "primary_peril": "string",
+    "secondary_perils": ["array"],
+    "estimated_total_minutes": number,
+    "generation_notes": ["array of key considerations"]
+  },
+  "phases": [
+    {
+      "phase_id": "pre_inspection | initial_walkthrough | exterior | roof | interior | utilities | mitigation | closeout",
+      "phase_name": "string",
+      "steps": [
+        {
+          "step_type": "photo | measurement | checklist | observation | documentation | safety | interview",
+          "title": "string - action-oriented title",
+          "instructions": "string - specific, actionable instructions",
+          "required": boolean,
+          "estimated_minutes": number,
+          "assets": [
+            {
+              "asset_type": "photo | document | measurement | note",
+              "description": "string - what to capture",
+              "required": boolean
+            }
+          ],
+          "peril_specific": boolean,
+          "endorsement_related": "form code if applicable" | null
+        }
+      ]
+    }
+  ],
+  "room_template": {
+    "default_steps": [
+      {
+        "step_type": "string",
+        "title": "string",
+        "instructions": "string",
+        "required": boolean,
+        "assets": []
+      }
+    ]
+  },
+  "tools_required": ["array of tools/equipment needed"],
+  "open_questions": ["array of questions needing answers"]
+}
+
+Respond ONLY with valid JSON. No explanation, no markdown.`;
+}
+
+/**
+ * Generate enhanced workflow using UnifiedClaimContext
+ *
+ * This is the recommended entry point for workflow generation.
+ * It uses the full richness of FNOL + Policy + Endorsement data.
+ */
+export async function generateEnhancedInspectionWorkflow(
+  claimId: string,
+  organizationId: string,
+  options: {
+    forceRegenerate?: boolean;
+    propertyContext?: {
+      stories?: number;
+      hasBasement?: boolean;
+      affectedAreas?: string[];
+    };
+  } = {}
+): Promise<GenerateWorkflowResult> {
+  try {
+    // Step 1: Build UnifiedClaimContext
+    const context = await buildUnifiedClaimContext(claimId, organizationId);
+    if (!context) {
+      console.warn(`[EnhancedWorkflow] Could not build UnifiedClaimContext for claim ${claimId}, falling back to legacy workflow`);
+      return generateInspectionWorkflow(claimId, organizationId, options.propertyContext, options.forceRegenerate);
+    }
+
+    // Step 2: Generate endorsement-driven steps
+    const endorsementSteps = generateEndorsementDrivenSteps(context);
+    console.log(`[EnhancedWorkflow] Generated ${endorsementSteps.length} endorsement-driven steps for claim ${claimId}`);
+
+    // Step 3: Check for existing workflow if not force regenerate
+    if (!options.forceRegenerate) {
+      const { data: existingWorkflows } = await supabaseAdmin
+        .from('inspection_workflows')
+        .select('*')
+        .eq('claim_id', claimId)
+        .eq('organization_id', organizationId)
+        .eq('status', InspectionWorkflowStatus.DRAFT)
+        .order('version', { ascending: false })
+        .limit(1);
+
+      if (existingWorkflows && existingWorkflows.length > 0) {
+        return {
+          success: true,
+          workflow: existingWorkflows[0] as InspectionWorkflow,
+          workflowId: existingWorkflows[0].id,
+          version: existingWorkflows[0].version,
+        };
+      }
+    }
+
+    // Step 4: Determine next version
+    const { data: versionData } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('version')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .order('version', { ascending: false })
+      .limit(1);
+
+    const nextVersion = (versionData?.[0]?.version || 0) + 1;
+
+    // Step 5: Generate AI workflow
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    if (!process.env.OPENAI_API_KEY) {
+      return { success: false, error: 'OpenAI API key not configured' };
+    }
+
+    const promptConfig = await getPromptWithFallback(PromptKey.INSPECTION_WORKFLOW_GENERATOR);
+    const userPrompt = buildEnhancedWorkflowPrompt(context);
+
+    const completion = await openai.chat.completions.create({
+      model: promptConfig.model,
+      messages: [
+        { role: 'system', content: promptConfig.systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: promptConfig.temperature,
+      max_tokens: promptConfig.maxTokens || 8000,
+      response_format: { type: 'json_object' },
+    });
+
+    const responseContent = completion.choices[0]?.message?.content;
+    if (!responseContent) {
+      throw new Error('No response from AI');
+    }
+
+    const aiWorkflow = JSON.parse(responseContent) as AIWorkflowResponse;
+
+    // Step 6: Merge AI steps with endorsement-driven steps
+    const phases = aiWorkflow.phases || [];
+
+    // Insert endorsement steps into appropriate phases
+    for (const step of endorsementSteps) {
+      const phase = phases.find(p => p.phase_id === step.phase);
+      if (phase) {
+        // Add at the beginning of the phase (policy requirements first)
+        phase.steps.unshift({
+          step_type: step.step_type,
+          title: step.title,
+          instructions: step.instructions,
+          required: step.required,
+          estimated_minutes: step.estimated_minutes,
+          assets: [],
+          peril_specific: false,
+          endorsement_related: step.policySource,
+        });
+      }
+    }
+
+    // Build workflow JSON
+    const workflowJson: InspectionWorkflowJson = {
+      metadata: {
+        claim_number: context.claimNumber,
+        primary_peril: context.peril.primary,
+        secondary_perils: context.peril.secondary,
+        estimated_total_minutes: phases.reduce((sum, p) =>
+          sum + p.steps.reduce((s, step) => s + (step.estimated_minutes || 5), 0), 0),
+        data_completeness: context.meta.dataCompleteness.completenessScore,
+        endorsement_driven_steps: endorsementSteps.length,
+      },
+      phases: phases.map(p => ({
+        phase_id: p.phase_id as InspectionPhase,
+        phase_name: p.phase_name,
+        steps: p.steps.map(s => ({
+          step_type: s.step_type as InspectionStepType,
+          title: s.title,
+          instructions: s.instructions,
+          required: s.required,
+          estimated_minutes: s.estimated_minutes,
+          assets: s.assets?.map(a => ({
+            asset_type: a.asset_type,
+            description: a.description,
+            required: a.required,
+          })) || [],
+          peril_specific: s.peril_specific,
+          endorsement_related: s.endorsement_related || undefined,
+        })),
+      })),
+      room_template: aiWorkflow.room_template,
+      tools_required: aiWorkflow.tools_required || [],
+      open_questions: aiWorkflow.open_questions || [],
+    };
+
+    // Step 7: Store workflow
+    const generatedFrom: WorkflowGeneratedFrom = {
+      briefingId: undefined,
+      perilRulesVersion: '1.0',
+      endorsementIds: context.endorsements.extracted.map(e => e.formCode),
+    };
+
+    const { data: insertResult, error: insertError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .insert({
+        organization_id: organizationId,
+        claim_id: claimId,
+        version: nextVersion,
+        status: InspectionWorkflowStatus.DRAFT,
+        workflow_json: workflowJson,
+        generated_from: generatedFrom,
+        model: promptConfig.model,
+        prompt_tokens: completion.usage?.prompt_tokens,
+        completion_tokens: completion.usage?.completion_tokens,
+        total_tokens: completion.usage?.total_tokens,
+      })
+      .select()
+      .single();
+
+    if (insertError || !insertResult) {
+      throw new Error(`Failed to store workflow: ${insertError?.message}`);
+    }
+
+    // Step 8: Store individual steps
+    const allSteps: any[] = [];
+    let stepOrder = 0;
+
+    for (const phase of workflowJson.phases) {
+      for (const step of phase.steps) {
+        stepOrder++;
+        allSteps.push({
+          workflow_id: insertResult.id,
+          phase: phase.phase_id,
+          step_order: stepOrder,
+          step_type: step.step_type,
+          title: step.title,
+          instructions: step.instructions,
+          required: step.required,
+          estimated_minutes: step.estimated_minutes,
+          status: InspectionStepStatus.PENDING,
+          peril_specific: step.peril_specific || false,
+          endorsement_source: step.endorsement_related,
+        });
+      }
+    }
+
+    if (allSteps.length > 0) {
+      await supabaseAdmin.from('inspection_workflow_steps').insert(allSteps);
+    }
+
+    console.log(`[EnhancedWorkflow] Generated workflow v${nextVersion} for claim ${claimId}: ${allSteps.length} steps, ${endorsementSteps.length} policy-driven`);
+
+    return {
+      success: true,
+      workflow: insertResult as InspectionWorkflow,
+      workflowId: insertResult.id,
+      version: nextVersion,
+      model: promptConfig.model,
+      tokenUsage: {
+        promptTokens: completion.usage?.prompt_tokens || 0,
+        completionTokens: completion.usage?.completion_tokens || 0,
+        totalTokens: completion.usage?.total_tokens || 0,
+      },
+    };
+  } catch (error) {
+    console.error(`[EnhancedWorkflow] Error generating workflow for claim ${claimId}:`, error);
+    return {
+      success: false,
+      error: (error as Error).message,
+    };
+  }
+}
