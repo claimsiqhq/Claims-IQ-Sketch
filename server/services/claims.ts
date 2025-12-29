@@ -838,7 +838,11 @@ export async function purgeAllClaims(organizationId: string): Promise<{
   }
 
   // 9. Delete from tables with claim_id foreign key
+  // Order matters: delete child tables before parent tables
   const directClaimTables = [
+    'claim_damage_zones',       // Must delete before claim_rooms (has roomId FK)
+    'claim_rooms',              // Must delete before claim_structures (has structureId FK)
+    'claim_structures',
     'inspection_workflows',
     'claim_briefings', 
     'claim_photos',
