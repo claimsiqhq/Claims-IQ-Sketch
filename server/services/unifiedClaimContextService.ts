@@ -38,6 +38,13 @@ import {
   Peril,
   PERIL_LABELS,
   RoofDepreciationResult,
+  // New types for enhanced extraction
+  LossDetails,
+  PolicyValidation,
+  CoverageScope,
+  PerilsCovered,
+  ThirdPartyInterest,
+  DwellingSettlementRules,
 } from '../../shared/schema';
 import { inferPeril } from './perilInference';
 import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
@@ -675,6 +682,162 @@ function buildPerilAnalysis(
 }
 
 /**
+ * Build loss details from FNOL (previously unused fields)
+ */
+function buildLossDetails(fnol: FNOLExtractionRaw | null): LossDetails {
+  const lossInfo = fnol?.claim_information_report?.loss_details;
+  const propDamage = fnol?.property_damage_information;
+
+  return {
+    description: lossInfo?.description,
+    dwellingIncidentDamages: propDamage?.dwelling_incident_damages,
+    cause: lossInfo?.cause,
+    location: lossInfo?.location,
+    weatherDataStatus: lossInfo?.weather_data_status,
+    droneEligibleAtFnol: lossInfo?.drone_eligible_at_fnol?.toLowerCase() === 'yes' ||
+                         lossInfo?.drone_eligible_at_fnol?.toLowerCase() === 'true',
+  };
+}
+
+/**
+ * Build policy validation from FNOL (check if policy was active at loss)
+ */
+function buildPolicyValidation(
+  fnol: FNOLExtractionRaw | null,
+  dateOfLoss: string | undefined
+): PolicyValidation {
+  const policyInfo = fnol?.policy_information;
+
+  const inceptionDate = policyInfo?.inception_date;
+  const expirationDate = policyInfo?.expiration_date;
+
+  // Validate policy was active at date of loss
+  let wasActiveAtLoss = true; // Default to true if we can't determine
+  let validationMessage: string | undefined;
+
+  if (dateOfLoss && (inceptionDate || expirationDate)) {
+    const lossDate = new Date(dateOfLoss);
+
+    if (inceptionDate) {
+      const inception = new Date(inceptionDate);
+      if (lossDate < inception) {
+        wasActiveAtLoss = false;
+        validationMessage = `Loss date (${dateOfLoss}) is before policy inception (${inceptionDate})`;
+      }
+    }
+
+    if (expirationDate && wasActiveAtLoss) {
+      const expiration = new Date(expirationDate);
+      if (lossDate > expiration) {
+        wasActiveAtLoss = false;
+        validationMessage = `Loss date (${dateOfLoss}) is after policy expiration (${expirationDate})`;
+      }
+    }
+  }
+
+  return {
+    policyType: policyInfo?.policy_type,
+    status: policyInfo?.status,
+    inceptionDate,
+    expirationDate,
+    wasActiveAtLoss,
+    validationMessage,
+  };
+}
+
+/**
+ * Build coverage scope from policy extraction
+ */
+function buildCoverageScope(policy: PolicyExtractionRaw | null): CoverageScope | undefined {
+  if (!policy?.section_I_property_coverages) return undefined;
+
+  const sec1 = policy.section_I_property_coverages;
+
+  return {
+    dwelling: sec1.coverage_a_dwelling ? {
+      included: sec1.coverage_a_dwelling.included,
+      excluded: sec1.coverage_a_dwelling.excluded,
+    } : undefined,
+    otherStructures: sec1.coverage_b_other_structures ? {
+      definition: sec1.coverage_b_other_structures.definition,
+      excludedTypes: sec1.coverage_b_other_structures.excluded_types,
+    } : undefined,
+    personalProperty: sec1.coverage_c_personal_property ? {
+      scope: sec1.coverage_c_personal_property.scope,
+      limitAwayFromPremises: sec1.coverage_c_personal_property.limit_away_from_premises,
+    } : undefined,
+    lossOfUse: policy.section_I_property_coverages.coverage_d_loss_of_use ? {
+      additionalLivingExpense: policy.section_I_property_coverages.coverage_d_loss_of_use.additional_living_expense,
+      civilAuthorityProhibitsUse: policy.section_I_property_coverages.coverage_d_loss_of_use.civil_authority_prohibits_use,
+    } : undefined,
+  };
+}
+
+/**
+ * Build perils covered from policy extraction
+ */
+function buildPerilsCovered(policy: PolicyExtractionRaw | null): PerilsCovered | undefined {
+  if (!policy?.section_I_perils_insured_against) return undefined;
+
+  const perils = policy.section_I_perils_insured_against;
+
+  // Determine if open or named peril based on content
+  const dwellingPerilsList = perils.dwelling_perils || [];
+  const isOpenPeril = dwellingPerilsList.some(p =>
+    p.toLowerCase().includes('all risks') ||
+    p.toLowerCase().includes('open peril') ||
+    p.toLowerCase().includes('direct physical loss')
+  );
+
+  return {
+    dwellingPerils: perils.dwelling_perils,
+    personalPropertyPerils: perils.personal_property_perils,
+    isOpenPeril,
+    isNamedPeril: !isOpenPeril && dwellingPerilsList.length > 0,
+  };
+}
+
+/**
+ * Build dwelling settlement rules from policy
+ */
+function buildDwellingSettlementRules(policy: PolicyExtractionRaw | null): DwellingSettlementRules | undefined {
+  if (!policy?.section_I_how_we_settle_losses?.dwelling_and_other_structures) return undefined;
+
+  const rules = policy.section_I_how_we_settle_losses.dwelling_and_other_structures;
+
+  return {
+    initialPayment: rules.initial_payment,
+    replacementCost: rules.replacement_cost,
+    hailDamageMetalSiding: rules.hail_damage_metal_siding,
+  };
+}
+
+/**
+ * Build third party interests from FNOL
+ */
+function buildThirdPartyInterests(fnol: FNOLExtractionRaw | null): ThirdPartyInterest[] | undefined {
+  const thirdParty = fnol?.policy_information?.third_party_interest;
+  if (!thirdParty) return undefined;
+
+  // Parse third party interest - could be string or structured
+  if (typeof thirdParty === 'string' && thirdParty.trim()) {
+    return [{
+      type: 'mortgagee',
+      details: thirdParty,
+    }];
+  }
+
+  return undefined;
+}
+
+/**
+ * Build liability exclusions from policy
+ */
+function buildLiabilityExclusions(policy: PolicyExtractionRaw | null): string[] {
+  return policy?.section_II_liability_coverages?.liability_exclusions || [];
+}
+
+/**
  * Build coverage alerts
  */
 function buildCoverageAlerts(
@@ -743,6 +906,81 @@ function buildCoverageAlerts(
       title: 'Fungi/Bacteria Coverage Limit',
       description: `Fungi/bacteria coverage limited to ${fungiLimit.limitFormatted}`,
       actionRequired: 'Document any mold/fungi presence for coverage awareness',
+    });
+  }
+
+  // NEW ALERTS: Policy validation
+  if (context.policyValidation && !context.policyValidation.wasActiveAtLoss) {
+    alerts.push({
+      severity: 'critical',
+      category: 'policy_validation',
+      title: 'Policy May Not Be Active at Loss Date',
+      description: context.policyValidation.validationMessage || 'Policy dates do not cover the date of loss',
+      actionRequired: 'Verify policy was in force on date of loss before proceeding',
+    });
+  }
+
+  // NEW ALERTS: Metal siding hail damage rules
+  if (context.dwellingSettlementRules?.hailDamageMetalSiding && context.peril?.primary === Peril.WIND_HAIL) {
+    alerts.push({
+      severity: 'warning',
+      category: 'coverage',
+      title: 'Metal Siding Hail Damage Rules Apply',
+      description: context.dwellingSettlementRules.hailDamageMetalSiding,
+      actionRequired: 'Document metal siding damage per policy requirements',
+    });
+  }
+
+  // NEW ALERTS: Personal property away from premises
+  if (context.coverageScope?.personalProperty?.limitAwayFromPremises) {
+    alerts.push({
+      severity: 'info',
+      category: 'limit',
+      title: 'Personal Property Away from Premises Limit',
+      description: `Coverage for personal property away from premises: ${context.coverageScope.personalProperty.limitAwayFromPremises}`,
+      actionRequired: 'Verify if any claimed items were away from the residence at time of loss',
+    });
+  }
+
+  // NEW ALERTS: Named peril policy with peril verification
+  if (context.perilsCovered?.isNamedPeril && context.peril?.primary) {
+    const claimPeril = context.peril.primaryDisplay.toLowerCase();
+    const coveredPerils = context.perilsCovered.dwellingPerils || [];
+    const isPerilCovered = coveredPerils.some(p =>
+      p.toLowerCase().includes(claimPeril) ||
+      claimPeril.includes(p.toLowerCase())
+    );
+
+    if (!isPerilCovered && coveredPerils.length > 0) {
+      alerts.push({
+        severity: 'critical',
+        category: 'coverage',
+        title: 'Peril Coverage Verification Required',
+        description: `This is a named peril policy. Verify "${context.peril.primaryDisplay}" is a covered peril.`,
+        actionRequired: 'Review policy perils insured against section',
+      });
+    }
+  }
+
+  // NEW ALERTS: Third party interest notification
+  if (context.thirdPartyInterests && context.thirdPartyInterests.length > 0) {
+    alerts.push({
+      severity: 'info',
+      category: 'documentation',
+      title: 'Third Party Interest on Policy',
+      description: `Mortgagee/additional interest: ${context.thirdPartyInterests.map(t => t.details || t.name).join(', ')}`,
+      actionRequired: 'Ensure loss payee is notified and included on settlement checks if required',
+    });
+  }
+
+  // NEW ALERTS: Drone eligible for inspection
+  if (context.lossDetails?.droneEligibleAtFnol) {
+    alerts.push({
+      severity: 'info',
+      category: 'documentation',
+      title: 'Drone Inspection Eligible',
+      description: 'Property is flagged as eligible for drone inspection at FNOL',
+      actionRequired: 'Consider drone inspection for roof assessment if applicable',
     });
   }
 
@@ -972,6 +1210,7 @@ export async function buildUnifiedClaimContext(
 
     // Build exclusions
     const generalExclusions = policyData?.section_I_exclusions?.general_exclusions || [];
+    const liabilityExclusions = buildLiabilityExclusions(policyData);
     const endorsementAddedExclusions: string[] = [];
     const endorsementRemovedExclusions: string[] = [];
 
@@ -990,7 +1229,15 @@ export async function buildUnifiedClaimContext(
     // Build definitions from policy
     const definitions = policyData?.agreement_and_definitions?.key_definitions || {};
 
-    // Build partial context for alerts
+    // Build NEW context fields from FNOL and Policy extractions
+    const lossDetails = buildLossDetails(fnolData);
+    const policyValidation = buildPolicyValidation(fnolData, dateOfLoss);
+    const coverageScope = buildCoverageScope(policyData);
+    const perilsCovered = buildPerilsCovered(policyData);
+    const dwellingSettlementRules = buildDwellingSettlementRules(policyData);
+    const thirdPartyInterests = buildThirdPartyInterests(fnolData);
+
+    // Build partial context for alerts (include new fields for alert generation)
     const partialContext: Partial<UnifiedClaimContext> = {
       property,
       coverages,
@@ -998,6 +1245,13 @@ export async function buildUnifiedClaimContext(
       lossSettlement,
       specialLimits,
       peril: perilAnalysis,
+      // New fields for enhanced alerts
+      lossDetails,
+      policyValidation,
+      coverageScope,
+      perilsCovered,
+      dwellingSettlementRules,
+      thirdPartyInterests,
     };
 
     // Build alerts
@@ -1028,18 +1282,38 @@ export async function buildUnifiedClaimContext(
       insured: {
         name: fnolData?.insured_information?.name_1 || claim.insured_name || '',
         name2: fnolData?.insured_information?.name_2,
+        policyholders: fnolData?.claim_information_report?.policyholders,
         email: fnolData?.insured_information?.email,
         phone: fnolData?.insured_information?.phone,
         mailingAddress: fnolData?.insured_information?.name_1_address,
+        secondaryAddress: fnolData?.insured_information?.name_2_address,
       },
 
       property,
+
+      // NEW: Loss details from FNOL (description, drone eligibility, etc.)
+      lossDetails,
+
+      // NEW: Policy validation (inception/expiration dates, active at loss)
+      policyValidation,
+
+      // NEW: Third party interests (mortgagees, additional insureds)
+      thirdPartyInterests,
 
       producer: fnolData?.policy_information?.producer,
 
       peril: perilAnalysis,
 
+      // NEW: Perils covered from policy (open vs named peril)
+      perilsCovered,
+
       coverages,
+
+      // NEW: Coverage scope from policy (included/excluded, limits away from premises)
+      coverageScope,
+
+      // NEW: Dwelling settlement rules from policy (initial payment, metal siding rules)
+      dwellingSettlementRules,
 
       specialLimits,
 
@@ -1049,6 +1323,7 @@ export async function buildUnifiedClaimContext(
 
       exclusions: {
         general: generalExclusions,
+        liability: liabilityExclusions,
         endorsementAdded: endorsementAddedExclusions,
         endorsementRemoved: endorsementRemovedExclusions,
         applicableToPeril: perilAnalysis.applicableExclusions,
