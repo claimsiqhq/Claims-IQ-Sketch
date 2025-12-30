@@ -928,22 +928,78 @@ function inferEndorsementTypeAndPriority(
 }
 
 /**
+ * Extract additional fields from AI output that aren't part of the base schema
+ * This preserves data like definitions_modified, property_coverage_changes, complete_schedule, etc.
+ */
+function extractAdditionalFields(e: any): Partial<EndorsementExtraction> {
+  const baseFields = [
+    'form_code', 'form_number', 'title', 'purpose', 'edition_date', 'jurisdiction',
+    'applies_to_forms', 'applies_to_coverages', 'endorsement_type', 'precedence_priority',
+    'modifications', 'tables', 'raw_text', '_endorsement_key'
+  ];
+
+  const additional: Partial<EndorsementExtraction> = {};
+
+  for (const [key, value] of Object.entries(e)) {
+    if (!baseFields.includes(key) && value !== null && value !== undefined) {
+      (additional as any)[key] = value;
+    }
+  }
+
+  return additional;
+}
+
+/**
  * Transform raw AI extraction to strict EndorsementExtraction[]
  * Rules:
  * - Delta-only extraction (what the endorsement changes)
  * - NEVER reprint base policy language
  * - NEVER merge with other endorsements
  * - Missing data remains NULL
+ *
+ * Handles two AI output formats:
+ * 1. Object with endorsement names as keys: { "wisconsin_amendatory": { "form_number": "HO 81 53", ... } }
+ * 2. Array format: { "endorsements": [{ "form_code": "HO 81 53", ... }] }
  */
 function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
-  const endorsements = raw.endorsements || [raw];
-  const fullTextFallback = raw.full_text || '';
+  const fullTextFallback = raw.full_text || raw.fullText || '';
+
+  // Handle AI output format: object with endorsement names as keys
+  // The AI prompt returns: { "wisconsin_amendatory_endorsement": {...}, "roof_surface_payment_schedule": {...} }
+  let endorsements: any[];
+
+  if (raw.endorsements && Array.isArray(raw.endorsements)) {
+    // New array format (if provided)
+    endorsements = raw.endorsements;
+  } else {
+    // Object format: convert object keys to array of endorsement objects
+    // Skip internal fields like fullText, pageTexts, full_text, _progress
+    const internalKeys = ['fullText', 'pageTexts', 'full_text', '_progress', 'pageText'];
+    endorsements = Object.entries(raw)
+      .filter(([key, value]) => !internalKeys.includes(key) && typeof value === 'object' && value !== null)
+      .map(([endorsementName, data]: [string, any]) => ({
+        ...data,
+        _endorsement_key: endorsementName, // Preserve the key name for reference
+      }));
+
+    // If no endorsements found using object keys, fall back to wrapping raw
+    if (endorsements.length === 0) {
+      endorsements = [raw];
+    }
+  }
+
+  console.log(`[Endorsement Transform] Found ${endorsements.length} endorsement(s) to process`);
 
   // Transform each endorsement entry - canonical structure only
   const transformed = endorsements.map((e: any) => {
+    // Handle both form_code and form_number (AI prompt uses form_number)
+    const formCode = e.form_code || e.form_number || '';
+    // Use endorsement key name as title fallback if no explicit title
+    const title = e.title || e.purpose || e._endorsement_key?.replace(/_/g, ' ') || '';
+
     const extraction: EndorsementExtraction = {
-      form_code: e.form_code || '',
-      title: e.title,
+      form_code: formCode,
+      title: title,
       edition_date: e.edition_date,
       jurisdiction: e.jurisdiction,
       applies_to_forms: e.applies_to_forms || [],
@@ -957,7 +1013,12 @@ function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
         schedule: t.schedule,
       })) : [],
       raw_text: e.raw_text || fullTextFallback,
+      // Preserve all other extracted fields in the extraction object
+      // This ensures data like definitions_modified, property_coverage_changes, etc. are kept
+      ...extractAdditionalFields(e),
     };
+
+    console.log(`[Endorsement Transform] Processed: form_code="${formCode}", title="${title}"`);
 
     return extraction;
   });
@@ -1015,9 +1076,28 @@ async function storeEndorsements(
   documentId?: string,
   rawOpenaiResponse?: any
 ): Promise<void> {
-  for (const endorsement of extractions) {
-    const formCode = endorsement.form_code;
-    if (!formCode) continue;
+  console.log(`[storeEndorsements] Processing ${extractions.length} endorsement(s) for claim ${claimId}`);
+
+  for (let i = 0; i < extractions.length; i++) {
+    const endorsement = extractions[i];
+    let formCode = endorsement.form_code;
+
+    // If no form_code, try to generate one from title or use a fallback
+    if (!formCode) {
+      if (endorsement.title) {
+        // Generate form code from title (e.g., "Wisconsin Amendatory Endorsement" -> "WISCONSIN_AMENDATORY")
+        formCode = endorsement.title
+          .toUpperCase()
+          .replace(/[^A-Z0-9\s]/g, '')
+          .replace(/\s+/g, '_')
+          .substring(0, 50);
+        console.log(`[storeEndorsements] Generated form_code "${formCode}" from title for endorsement ${i + 1}`);
+      } else {
+        // Use document-based fallback
+        formCode = `ENDORSEMENT_${documentId || 'UNKNOWN'}_${i + 1}`;
+        console.log(`[storeEndorsements] Using fallback form_code "${formCode}" for endorsement ${i + 1} (no form_code or title)`);
+      }
+    }
 
     // Infer type and priority
     const { endorsementType, precedencePriority } = inferEndorsementTypeAndPriority(
@@ -1550,9 +1630,11 @@ export async function processDocument(
           console.log(`[Endorsement]   - ${e.form_code}: title="${e.title}", raw_text=${e.raw_text?.length || 0} chars, tables=${e.tables?.length || 0}, modifications keys=${Object.keys(e.modifications || {}).join(',') || 'none'}`);
         }
 
+        // Store endorsement extractions as proper array with metadata wrapper
+        // This preserves the array structure while allowing _progress tracking
         const finalEndorsementData = existingProgress
-          ? { ...endorsementExtractions, _progress: { ...existingProgress, stage: 'completed' } }
-          : endorsementExtractions;
+          ? { endorsements: endorsementExtractions, _progress: { ...existingProgress, stage: 'completed' } }
+          : { endorsements: endorsementExtractions };
 
         await supabaseAdmin
           .from('documents')
@@ -1870,11 +1952,27 @@ export async function createClaimFromDocuments(
   // Process any endorsement documents
   const endorsementDocs = docs.filter(d => d.type === 'endorsement');
   for (const endDoc of endorsementDocs) {
-    if (endDoc.extracted_data && !endDoc.extracted_data._progress) {
-      const extractions = Array.isArray(endDoc.extracted_data)
-        ? endDoc.extracted_data
-        : [endDoc.extracted_data];
-      await storeEndorsements(extractions as EndorsementExtraction[], claimId, organizationId, endDoc.id);
+    if (endDoc.extracted_data) {
+      const extractedData = endDoc.extracted_data as any;
+      let extractions: EndorsementExtraction[];
+
+      // Handle multiple formats:
+      // 1. New wrapper format: { endorsements: [...], _progress: {...} }
+      // 2. Direct array format: [...]
+      // 3. Raw AI format: transform it
+      if (extractedData.endorsements && Array.isArray(extractedData.endorsements)) {
+        extractions = extractedData.endorsements;
+      } else if (Array.isArray(extractedData)) {
+        extractions = extractedData;
+      } else {
+        // Raw AI format - transform it
+        extractions = transformToEndorsementExtraction(extractedData);
+      }
+
+      if (extractions.length > 0) {
+        await storeEndorsements(extractions, claimId, organizationId, endDoc.id);
+        console.log(`[ClaimCreation] Stored ${extractions.length} endorsement extraction(s) for document ${endDoc.id}`);
+      }
     }
   }
 
