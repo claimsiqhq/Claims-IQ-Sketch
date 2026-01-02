@@ -40,7 +40,10 @@ import {
   Trash2,
   AlertTriangle,
   Image,
-  FolderOpen
+  FolderOpen,
+  Calendar,
+  Link2,
+  Unlink
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store";
@@ -479,7 +482,7 @@ export default function Settings() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-flex">
+          <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-flex">
             <TabsTrigger value="profile" data-testid="tab-profile" className="gap-2">
               <User className="h-4 w-4 hidden sm:block" />
               <span>Profile</span>
@@ -499,6 +502,10 @@ export default function Settings() {
             <TabsTrigger value="system" data-testid="tab-system" className="gap-2">
               <SettingsIcon className="h-4 w-4 hidden sm:block" />
               <span>System</span>
+            </TabsTrigger>
+            <TabsTrigger value="integrations" data-testid="tab-integrations" className="gap-2">
+              <Link2 className="h-4 w-4 hidden sm:block" />
+              <span>Integrations</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1309,8 +1316,236 @@ export default function Settings() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Integrations Tab */}
+          <TabsContent value="integrations" className="space-y-6">
+            <MS365IntegrationCard />
+          </TabsContent>
         </Tabs>
       </div>
     </Layout>
+  );
+}
+
+// MS365 Integration Card Component
+function MS365IntegrationCard() {
+  const { toast } = useToast();
+  const searchString = useSearch();
+  const [status, setStatus] = useState<{ connected: boolean; configured: boolean; expiresAt: string | null } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+
+  useEffect(() => {
+    checkConnectionStatus();
+    
+    // Handle OAuth callback messages
+    const params = new URLSearchParams(searchString);
+    if (params.get('ms365_connected') === 'true') {
+      toast({ title: "Connected!", description: "Your Microsoft 365 calendar is now connected." });
+      checkConnectionStatus();
+    } else if (params.get('ms365_error')) {
+      const error = params.get('ms365_error');
+      const messages: Record<string, string> = {
+        'auth_denied': 'Authorization was denied',
+        'invalid_callback': 'Invalid callback received',
+        'token_exchange': 'Failed to complete authentication',
+        'callback_failed': 'Connection failed - please try again',
+      };
+      toast({ 
+        title: "Connection Failed", 
+        description: messages[error!] || 'Unknown error',
+        variant: "destructive"
+      });
+    }
+  }, [searchString]);
+
+  const checkConnectionStatus = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('/api/auth/ms365/status', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setStatus(data);
+      }
+    } catch (error) {
+      console.error('Failed to check MS365 status:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    try {
+      setIsConnecting(true);
+      const response = await fetch('/api/auth/ms365/connect', { credentials: 'include' });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to start connection');
+      }
+      
+      const { authUrl } = await response.json();
+      window.location.href = authUrl;
+    } catch (error) {
+      toast({
+        title: "Connection Failed",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive"
+      });
+      setIsConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      setIsDisconnecting(true);
+      const response = await fetch('/api/auth/ms365/disconnect', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        toast({ title: "Disconnected", description: "Microsoft 365 calendar has been disconnected." });
+        setStatus({ connected: false, configured: status?.configured || false, expiresAt: null });
+      } else {
+        throw new Error('Disconnect failed');
+      }
+    } catch (error) {
+      toast({
+        title: "Disconnect Failed",
+        description: "Failed to disconnect from Microsoft 365",
+        variant: "destructive"
+      });
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Microsoft 365 Calendar
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm text-muted-foreground">Checking connection status...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!status?.configured) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Microsoft 365 Calendar
+          </CardTitle>
+          <CardDescription>
+            Sync your inspection appointments with your Microsoft 365 calendar
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-amber-800">Not Configured</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  Microsoft 365 integration requires Azure AD app configuration. 
+                  Please contact your administrator to set up AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_CLIENT_SECRET.
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Calendar className="h-5 w-5" />
+          Microsoft 365 Calendar
+        </CardTitle>
+        <CardDescription>
+          Sync your inspection appointments with your Microsoft 365 calendar
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {status?.connected ? (
+          <>
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <CheckCircle className="h-5 w-5 text-emerald-600" />
+              <div>
+                <p className="font-medium text-emerald-800">Connected</p>
+                <p className="text-sm text-emerald-700">
+                  Your Microsoft 365 calendar is synced. Scheduled inspections will appear in your calendar.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleDisconnect}
+              disabled={isDisconnecting}
+              className="text-destructive hover:text-destructive"
+              data-testid="button-disconnect-ms365"
+            >
+              {isDisconnecting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Disconnecting...
+                </>
+              ) : (
+                <>
+                  <Unlink className="h-4 w-4 mr-2" />
+                  Disconnect Calendar
+                </>
+              )}
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Connect your Microsoft 365 account to automatically sync inspection appointments to your Outlook calendar.
+              </p>
+              <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                <li>See scheduled inspections in your calendar</li>
+                <li>Get reminders for upcoming appointments</li>
+                <li>View your route for the day</li>
+              </ul>
+            </div>
+            <Button
+              onClick={handleConnect}
+              disabled={isConnecting}
+              data-testid="button-connect-ms365"
+            >
+              {isConnecting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  <Link2 className="h-4 w-4 mr-2" />
+                  Connect Microsoft 365 Calendar
+                </>
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

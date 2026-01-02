@@ -62,7 +62,9 @@ import {
   ZoomOut,
   User,
   Shield,
-  Clock
+  Clock,
+  Calendar,
+  CalendarPlus
 } from "lucide-react";
 import {
   useEstimateBuilder,
@@ -178,6 +180,14 @@ export default function ClaimDetail() {
   const [editingOpening, setEditingOpening] = useState<RoomOpening | undefined>(undefined);
   const [isLineItemPickerOpen, setIsLineItemPickerOpen] = useState(false);
   const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
+  const [isScheduleInspectionOpen, setIsScheduleInspectionOpen] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduleFormData, setScheduleFormData] = useState({
+    date: '',
+    time: '09:00',
+    duration: 60,
+    notes: '',
+  });
   const [activeTab, setActiveTab] = useState("info");
   const [isVoiceScopeOpen, setIsVoiceScopeOpen] = useState(false);
   const [isGeneratingAISuggestions, setIsGeneratingAISuggestions] = useState(false);
@@ -1019,6 +1029,20 @@ export default function ClaimDetail() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:flex"
+              onClick={() => {
+                const today = new Date().toISOString().split('T')[0];
+                setScheduleFormData(prev => ({ ...prev, date: today }));
+                setIsScheduleInspectionOpen(true);
+              }}
+              data-testid="button-schedule-inspection"
+            >
+              <CalendarPlus className="h-4 w-4 mr-2" />
+              Schedule Inspection
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -3579,6 +3603,145 @@ export default function ClaimDetail() {
           </div>
         </div>
       )}
+
+      {/* Schedule Inspection Dialog */}
+      <Dialog open={isScheduleInspectionOpen} onOpenChange={setIsScheduleInspectionOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarPlus className="h-5 w-5 text-primary" />
+              Schedule Inspection
+            </DialogTitle>
+            <DialogDescription>
+              Schedule a field inspection for this claim. The appointment will sync to your Microsoft 365 calendar if connected.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="inspection-date" className="text-right">
+                Date
+              </Label>
+              <Input
+                id="inspection-date"
+                type="date"
+                value={scheduleFormData.date}
+                onChange={(e) => setScheduleFormData(prev => ({ ...prev, date: e.target.value }))}
+                className="col-span-3"
+                data-testid="input-inspection-date"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="inspection-time" className="text-right">
+                Time
+              </Label>
+              <Input
+                id="inspection-time"
+                type="time"
+                value={scheduleFormData.time}
+                onChange={(e) => setScheduleFormData(prev => ({ ...prev, time: e.target.value }))}
+                className="col-span-3"
+                data-testid="input-inspection-time"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="inspection-duration" className="text-right">
+                Duration
+              </Label>
+              <Select
+                value={scheduleFormData.duration.toString()}
+                onValueChange={(value) => setScheduleFormData(prev => ({ ...prev, duration: parseInt(value) }))}
+              >
+                <SelectTrigger className="col-span-3" data-testid="select-inspection-duration">
+                  <SelectValue placeholder="Select duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">30 minutes</SelectItem>
+                  <SelectItem value="60">1 hour</SelectItem>
+                  <SelectItem value="90">1.5 hours</SelectItem>
+                  <SelectItem value="120">2 hours</SelectItem>
+                  <SelectItem value="180">3 hours</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="inspection-notes" className="text-right">
+                Notes
+              </Label>
+              <Input
+                id="inspection-notes"
+                placeholder="Optional notes..."
+                value={scheduleFormData.notes}
+                onChange={(e) => setScheduleFormData(prev => ({ ...prev, notes: e.target.value }))}
+                className="col-span-3"
+                data-testid="input-inspection-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsScheduleInspectionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!scheduleFormData.date || !scheduleFormData.time) {
+                  return;
+                }
+                setIsScheduling(true);
+                try {
+                  const startDateTime = new Date(`${scheduleFormData.date}T${scheduleFormData.time}`);
+                  const endDateTime = new Date(startDateTime.getTime() + scheduleFormData.duration * 60000);
+                  
+                  const location = apiClaim?.lossAddress 
+                    ? `${apiClaim.lossAddress}${apiClaim.lossCity ? `, ${apiClaim.lossCity}` : ''}${apiClaim.lossState ? `, ${apiClaim.lossState}` : ''} ${apiClaim.lossZip || ''}`
+                    : undefined;
+                  
+                  const response = await fetch('/api/calendar/appointments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      claimId: params?.id,
+                      title: `Inspection: ${apiClaim?.policyholder || 'Claim'} - ${apiClaim?.claimId || params?.id}`,
+                      description: scheduleFormData.notes || `Field inspection for claim ${apiClaim?.claimId || params?.id}`,
+                      location,
+                      scheduledStart: startDateTime.toISOString(),
+                      scheduledEnd: endDateTime.toISOString(),
+                      durationMinutes: scheduleFormData.duration,
+                      appointmentType: 'initial_inspection',
+                      syncToMs365: true,
+                    }),
+                  });
+                  
+                  if (response.ok) {
+                    setIsScheduleInspectionOpen(false);
+                    setScheduleFormData({ date: '', time: '09:00', duration: 60, notes: '' });
+                  } else {
+                    console.error('Failed to schedule inspection');
+                  }
+                } catch (error) {
+                  console.error('Failed to schedule inspection:', error);
+                } finally {
+                  setIsScheduling(false);
+                }
+              }}
+              disabled={isScheduling || !scheduleFormData.date || !scheduleFormData.time}
+              data-testid="button-confirm-schedule"
+            >
+              {isScheduling ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Scheduling...
+                </>
+              ) : (
+                <>
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Schedule
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
