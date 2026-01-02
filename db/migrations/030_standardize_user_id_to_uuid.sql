@@ -37,11 +37,12 @@ END $$;
 
 -- Step 6: Update claims.assigned_adjuster_id to uuid if it references users
 -- Note: This column may contain varchar user IDs, updating to uuid
+-- We cast to text first to use regex validation, then to uuid
 ALTER TABLE claims
   ALTER COLUMN assigned_adjuster_id TYPE uuid USING 
     CASE 
       WHEN assigned_adjuster_id IS NULL THEN NULL
-      WHEN assigned_adjuster_id ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' 
-        THEN assigned_adjuster_id::uuid
+      WHEN assigned_adjuster_id::text ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' 
+        THEN assigned_adjuster_id::text::uuid
       ELSE NULL
     END;
