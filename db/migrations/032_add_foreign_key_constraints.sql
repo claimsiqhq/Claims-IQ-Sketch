@@ -28,6 +28,10 @@ WHERE organization_id NOT IN (SELECT id FROM organizations);
 DELETE FROM claim_rooms 
 WHERE claim_id NOT IN (SELECT id FROM claims);
 
+-- Clean up claim_rooms with missing organizations
+DELETE FROM claim_rooms 
+WHERE organization_id NOT IN (SELECT id FROM organizations);
+
 -- Clean up claim_rooms with missing structures
 DELETE FROM claim_rooms 
 WHERE structure_id IS NOT NULL 
@@ -36,6 +40,10 @@ WHERE structure_id IS NOT NULL
 -- Clean up claim_damage_zones with missing claims
 DELETE FROM claim_damage_zones 
 WHERE claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_damage_zones with missing organizations
+DELETE FROM claim_damage_zones 
+WHERE organization_id NOT IN (SELECT id FROM organizations);
 
 -- Clean up claim_damage_zones with missing rooms
 DELETE FROM claim_damage_zones 
@@ -46,6 +54,10 @@ WHERE room_id IS NOT NULL
 DELETE FROM claim_photos 
 WHERE claim_id IS NOT NULL 
   AND claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_photos with missing organizations
+DELETE FROM claim_photos 
+WHERE organization_id NOT IN (SELECT id FROM organizations);
 
 -- Clean up claim_photos with missing structures
 DELETE FROM claim_photos 
@@ -85,9 +97,18 @@ DELETE FROM inspection_workflows
 WHERE claim_id IS NOT NULL 
   AND claim_id NOT IN (SELECT id FROM claims);
 
+-- Clean up inspection_workflows with missing organizations
+DELETE FROM inspection_workflows 
+WHERE organization_id IS NOT NULL 
+  AND organization_id NOT IN (SELECT id FROM organizations);
+
 -- Clean up claim_checklists with missing claims
 DELETE FROM claim_checklists 
 WHERE claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_checklists with missing organizations
+DELETE FROM claim_checklists 
+WHERE organization_id NOT IN (SELECT id FROM organizations);
 
 -- =================================================
 -- claim_briefings
