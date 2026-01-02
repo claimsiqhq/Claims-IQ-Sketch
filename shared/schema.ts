@@ -3869,3 +3869,61 @@ export const claimPhotosRelations = relations(claimPhotos, ({ one }) => ({
     references: [claims.id],
   }),
 }));
+
+// ============================================
+// MS365 CALENDAR INTEGRATION TABLES
+// ============================================
+
+// Store MS365 OAuth tokens for each user
+export const userMs365Tokens = pgTable("user_ms365_tokens", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at").notNull(),
+  scopes: text("scopes").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertUserMs365TokenSchema = createInsertSchema(userMs365Tokens).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertUserMs365Token = z.infer<typeof insertUserMs365TokenSchema>;
+export type UserMs365Token = typeof userMs365Tokens.$inferSelect;
+
+// Store scheduled inspection appointments
+export const inspectionAppointments = pgTable("inspection_appointments", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  organizationId: uuid("organization_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  location: text("location"),
+  scheduledStart: timestamp("scheduled_start").notNull(),
+  scheduledEnd: timestamp("scheduled_end").notNull(),
+  durationMinutes: integer("duration_minutes").default(60),
+  status: varchar("status", { length: 50 }).default("scheduled"),
+  appointmentType: varchar("appointment_type", { length: 50 }).default("initial_inspection"),
+  ms365EventId: text("ms365_event_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInspectionAppointmentSchema = createInsertSchema(inspectionAppointments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertInspectionAppointment = z.infer<typeof insertInspectionAppointmentSchema>;
+export type InspectionAppointment = typeof inspectionAppointments.$inferSelect;
+
+export const inspectionAppointmentsRelations = relations(inspectionAppointments, ({ one }) => ({
+  claim: one(claims, {
+    fields: [inspectionAppointments.claimId],
+    references: [claims.id],
+  }),
+}));
