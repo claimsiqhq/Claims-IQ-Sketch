@@ -22,20 +22,17 @@ interface EstimateSettings {
   profitPct: number;
 }
 
+/**
+ * User object for UI display purposes.
+ * Derived from AuthUser when authenticated.
+ * null when not authenticated - components should handle this case explicitly.
+ */
 interface User {
   id: string;
   name: string;
   email: string;
   avatar?: string;
 }
-
-// Mock user for fallback when authUser is null
-const DEFAULT_USER: User = {
-  id: 'default',
-  name: 'Guest User',
-  email: '',
-  avatar: '',
-};
 
 interface StoreState {
   // Auth state
@@ -44,8 +41,11 @@ interface StoreState {
   isAuthLoading: boolean;
   authError: string | null;
 
-  // User object for backward compatibility and UI components
-  user: User;
+  /**
+   * User object for UI components.
+   * null when not authenticated - use isAuthenticated check before accessing.
+   */
+  user: User | null;
 
   claims: Claim[];
   activeClaim: Claim | null;
@@ -92,8 +92,8 @@ export const useStore = create<StoreState>((set, get) => ({
   isAuthLoading: true, // Start as loading until we check
   authError: null,
 
-  // Default user object
-  user: DEFAULT_USER,
+  // User is null until authenticated - no mock fallback
+  user: null,
 
   claims: [],
   activeClaim: null,
@@ -155,7 +155,7 @@ export const useStore = create<StoreState>((set, get) => ({
       isAuthenticated: false,
       isAuthLoading: false,
       authError: null,
-      user: DEFAULT_USER,
+      user: null,
     });
   },
 
@@ -176,7 +176,7 @@ export const useStore = create<StoreState>((set, get) => ({
           name: displayName,
           email: response.user.email || '',
           avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`,
-        } : DEFAULT_USER,
+        } : null,
       });
       return response.authenticated;
     } catch (error) {
@@ -184,7 +184,7 @@ export const useStore = create<StoreState>((set, get) => ({
         authUser: null,
         isAuthenticated: false,
         isAuthLoading: false,
-        user: DEFAULT_USER,
+        user: null,
       });
       return false;
     }
@@ -351,9 +351,12 @@ export const useStore = create<StoreState>((set, get) => ({
   }),
 
   createClaim: (claimData) => set((state) => {
+    // Generate a proper UUID for optimistic client-side claim creation
+    // This will be replaced by server-generated UUID when synced
+    const tempUuid = crypto.randomUUID();
     const newClaim: Claim = {
       ...claimData,
-      id: `c${state.claims.length + 1}`,
+      id: tempUuid,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

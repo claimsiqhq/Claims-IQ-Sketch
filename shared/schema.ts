@@ -153,7 +153,7 @@ export type Organization = typeof organizations.$inferSelect;
 // ============================================
 
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   email: varchar("email", { length: 255 }),
   password: text("password").notNull(),
@@ -189,8 +189,8 @@ export type User = typeof users.$inferSelect;
 
 export const organizationMemberships = pgTable("organization_memberships", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
-  organizationId: uuid("organization_id").notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   role: varchar("role", { length: 30 }).notNull().default("member"), // owner, admin, adjuster, viewer
 
   // Status
@@ -272,7 +272,7 @@ export const claims = pgTable("claims", {
   status: varchar("status", { length: 30 }).notNull().default("draft"), // draft, fnol, open, in_progress, review, approved, closed
 
   // Assignment
-  assignedAdjusterId: varchar("assigned_adjuster_id"),
+  assignedAdjusterId: uuid("assigned_adjuster_id").references(() => users.id),
 
   // Totals (calculated from estimates)
   totalRcv: decimal("total_rcv", { precision: 12, scale: 2 }).default("0"),
@@ -615,8 +615,8 @@ export interface EndorsementTable {
  */
 export const claimBriefings = pgTable("claim_briefings", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  organizationId: uuid("organization_id").notNull(),
-  claimId: uuid("claim_id").notNull(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: 'cascade' }),
 
   // Peril context
   peril: varchar("peril", { length: 50 }).notNull(),
@@ -695,8 +695,8 @@ export interface ClaimBriefingContent {
 
 export const claimStructures = pgTable("claim_structures", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  claimId: uuid("claim_id").notNull(),
-  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: 'cascade' }),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
 
   // Structure identification
   name: varchar("name", { length: 100 }).notNull(), // "Main House", "Detached Garage", etc.
@@ -740,9 +740,9 @@ export type ClaimStructure = typeof claimStructures.$inferSelect;
 
 export const claimRooms = pgTable("claim_rooms", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  claimId: uuid("claim_id").notNull(),
-  organizationId: uuid("organization_id").notNull(),
-  structureId: uuid("structure_id"), // Links to claim_structures - the parent structure
+  claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: 'cascade' }),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  structureId: uuid("structure_id").references(() => claimStructures.id, { onDelete: 'cascade' }), // Links to claim_structures - the parent structure
 
   // Room identification
   name: varchar("name", { length: 100 }).notNull(), // "Living Room", "Kitchen", etc.
@@ -796,12 +796,29 @@ export type ClaimRoom = typeof claimRooms.$inferSelect;
 // ============================================
 // CLAIM DAMAGE ZONES TABLE (Voice Sketch)
 // ============================================
-
+/**
+ * ClaimDamageZones - Damage areas captured during Voice Sketch sessions
+ * 
+ * PURPOSE: Stores damage zone polygons and metadata captured via the Voice Sketch
+ * feature. These represent the initial damage assessment before an estimate is created.
+ * 
+ * RELATIONSHIP TO OTHER ZONE TABLES:
+ * - claimDamageZones: Voice Sketch captured zones (claim-level, pre-estimate)
+ * - damageZones: Basic zone data within an estimate (estimate-level, legacy)
+ * - estimateZones: Enhanced zone data with full Xactimate compatibility (estimate-level)
+ * 
+ * DATA FLOW:
+ * 1. Voice Sketch creates claimDamageZones during initial scoping
+ * 2. When estimate is created, claimDamageZones are optionally converted to estimateZones
+ * 3. estimateZones hold the "official" zone data used for calculations
+ * 
+ * FK: claimId -> claims.id, roomId -> claimRooms.id, organizationId -> organizations.id
+ */
 export const claimDamageZones = pgTable("claim_damage_zones", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  claimId: uuid("claim_id").notNull(),
-  roomId: uuid("room_id"), // Optional link to specific room
-  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: 'cascade' }),
+  roomId: uuid("room_id").references(() => claimRooms.id, { onDelete: 'cascade' }), // Optional link to specific room
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
 
   // Damage identification
   damageType: varchar("damage_type", { length: 50 }).notNull(), // water, fire, smoke, mold, wind, hail, impact
@@ -859,13 +876,13 @@ export type ClaimDamageZone = typeof claimDamageZones.$inferSelect;
 
 export const claimPhotos = pgTable("claim_photos", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  claimId: uuid("claim_id"), // Nullable - allows uncategorized photos not yet assigned to a claim
-  organizationId: uuid("organization_id").notNull(),
+  claimId: uuid("claim_id").references(() => claims.id, { onDelete: 'cascade' }), // Nullable - allows uncategorized photos not yet assigned to a claim
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
 
   // Optional hierarchy links (photos can be at any level)
-  structureId: uuid("structure_id"),
-  roomId: uuid("room_id"),
-  damageZoneId: uuid("damage_zone_id"),
+  structureId: uuid("structure_id").references(() => claimStructures.id, { onDelete: 'set null' }),
+  roomId: uuid("room_id").references(() => claimRooms.id, { onDelete: 'set null' }),
+  damageZoneId: uuid("damage_zone_id").references(() => claimDamageZones.id, { onDelete: 'set null' }),
 
   // Storage info
   storagePath: varchar("storage_path", { length: 500 }).notNull(),
@@ -923,8 +940,8 @@ export type ClaimPhoto = typeof claimPhotos.$inferSelect;
 
 export const documents = pgTable("documents", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  organizationId: uuid("organization_id").notNull(),
-  claimId: uuid("claim_id"),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  claimId: uuid("claim_id").references(() => claims.id, { onDelete: 'cascade' }),
 
   // Document info
   name: varchar("name", { length: 255 }).notNull(),
@@ -982,8 +999,8 @@ export type Document = typeof documents.$inferSelect;
 
 export const estimates = pgTable("estimates", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  organizationId: uuid("organization_id"), // Tenant isolation
-  claimId: varchar("claim_id", { length: 100 }),
+  organizationId: uuid("organization_id").references(() => organizations.id), // Tenant isolation
+  claimId: uuid("claim_id").references(() => claims.id, { onDelete: 'cascade' }),
   claimNumber: varchar("claim_number", { length: 50 }),
   propertyAddress: text("property_address"),
 
@@ -1036,7 +1053,7 @@ export type Estimate = typeof estimates.$inferSelect;
 
 export const estimateLineItems = pgTable("estimate_line_items", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  estimateId: uuid("estimate_id").notNull(),
+  estimateId: uuid("estimate_id").notNull().references(() => estimates.id, { onDelete: 'cascade' }),
 
   // Line item reference
   lineItemId: uuid("line_item_id"),
@@ -1082,9 +1099,29 @@ export type InsertEstimateLineItem = z.infer<typeof insertEstimateLineItemSchema
 export type EstimateLineItem = typeof estimateLineItems.$inferSelect;
 
 // ============================================
-// DAMAGE ZONES TABLE
+// DAMAGE ZONES TABLE (Legacy)
 // ============================================
-
+/**
+ * DamageZones - Legacy zone table for basic estimate damage areas
+ * 
+ * @deprecated Use estimateZones for new development. This table is maintained
+ * for backwards compatibility with existing estimates.
+ * 
+ * PURPOSE: Original zone storage for estimates. Provides basic room dimensions
+ * and damage classification without the enhanced Xactimate integration.
+ * 
+ * MIGRATION PATH:
+ * - New estimates should use estimateZones instead
+ * - Existing estimates will continue to work with this table
+ * - Consider migrating existing data to estimateZones when feasible
+ * 
+ * RELATIONSHIP TO OTHER ZONE TABLES:
+ * - claimDamageZones: Voice Sketch captured zones (claim-level, pre-estimate)
+ * - damageZones: THIS TABLE - Basic estimate zones (legacy)
+ * - estimateZones: Enhanced zones with Xactimate compatibility (current)
+ * 
+ * FK: estimateId -> estimates.id
+ */
 export const damageZones = pgTable("damage_zones", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   estimateId: uuid("estimate_id").notNull(),
@@ -1419,7 +1456,34 @@ export type InsertEstimateArea = typeof estimateAreas.$inferInsert;
 // ============================================
 // ESTIMATE ZONES TABLE (Enhanced)
 // ============================================
-
+/**
+ * EstimateZones - Primary zone table for estimate areas with full Xactimate compatibility
+ * 
+ * PURPOSE: Stores detailed zone information for estimates including:
+ * - Room dimensions (manual entry or from Voice Sketch)
+ * - Sketch polygon data for visualization
+ * - Xactimate-compatible room info
+ * - Damage classification and severity
+ * - Line item totals for reporting
+ * 
+ * HIERARCHY POSITION:
+ * Estimate -> Coverage -> Structure -> Area -> Zone -> Line Item
+ * 
+ * This table is at the "Zone" level, representing individual rooms or areas
+ * that contain line items. Each zone belongs to an "Area" (e.g., "First Floor Interior").
+ * 
+ * RELATIONSHIP TO OTHER ZONE TABLES:
+ * - claimDamageZones: Voice Sketch captured zones (claim-level, pre-estimate)
+ * - damageZones: Basic estimate zones (deprecated/legacy)
+ * - estimateZones: THIS TABLE - Enhanced zones with Xactimate compatibility (current)
+ * 
+ * DATA SOURCES:
+ * - Manual entry: User types in dimensions
+ * - Voice Sketch: Converted from claimDamageZones
+ * - AI Suggestions: Generated from document analysis
+ * 
+ * FK: areaId -> estimateAreas.id
+ */
 export const estimateZones = pgTable("estimate_zones", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   areaId: uuid("area_id").notNull(),
