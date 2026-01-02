@@ -1,5 +1,93 @@
 -- Migration: Add missing foreign key constraints
 -- Adds proper FK relationships for referential integrity
+-- Includes cleanup of orphaned records before adding constraints
+
+-- =================================================
+-- CLEANUP: Remove orphaned records before adding FKs
+-- =================================================
+
+-- Clean up claim_briefings with missing claims
+DELETE FROM claim_briefings 
+WHERE claim_id IS NOT NULL 
+  AND claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_briefings with missing organizations
+DELETE FROM claim_briefings 
+WHERE organization_id IS NOT NULL 
+  AND organization_id NOT IN (SELECT id FROM organizations);
+
+-- Clean up claim_structures with missing claims
+DELETE FROM claim_structures 
+WHERE claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_structures with missing organizations
+DELETE FROM claim_structures 
+WHERE organization_id NOT IN (SELECT id FROM organizations);
+
+-- Clean up claim_rooms with missing claims
+DELETE FROM claim_rooms 
+WHERE claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_rooms with missing structures
+DELETE FROM claim_rooms 
+WHERE structure_id IS NOT NULL 
+  AND structure_id NOT IN (SELECT id FROM claim_structures);
+
+-- Clean up claim_damage_zones with missing claims
+DELETE FROM claim_damage_zones 
+WHERE claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_damage_zones with missing rooms
+DELETE FROM claim_damage_zones 
+WHERE room_id IS NOT NULL 
+  AND room_id NOT IN (SELECT id FROM claim_rooms);
+
+-- Clean up claim_photos with missing claims
+DELETE FROM claim_photos 
+WHERE claim_id IS NOT NULL 
+  AND claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_photos with missing structures
+DELETE FROM claim_photos 
+WHERE structure_id IS NOT NULL 
+  AND structure_id NOT IN (SELECT id FROM claim_structures);
+
+-- Clean up claim_photos with missing rooms
+DELETE FROM claim_photos 
+WHERE room_id IS NOT NULL 
+  AND room_id NOT IN (SELECT id FROM claim_rooms);
+
+-- Clean up claim_photos with missing damage zones
+DELETE FROM claim_photos 
+WHERE damage_zone_id IS NOT NULL 
+  AND damage_zone_id NOT IN (SELECT id FROM claim_damage_zones);
+
+-- Clean up documents with missing claims
+DELETE FROM documents 
+WHERE claim_id IS NOT NULL 
+  AND claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up documents with missing organizations
+DELETE FROM documents 
+WHERE organization_id NOT IN (SELECT id FROM organizations);
+
+-- Clean up estimates with missing organizations
+DELETE FROM estimates 
+WHERE organization_id IS NOT NULL 
+  AND organization_id NOT IN (SELECT id FROM organizations);
+
+-- Clean up estimate_line_items with missing estimates
+DELETE FROM estimate_line_items 
+WHERE estimate_id NOT IN (SELECT id FROM estimates);
+
+-- Clean up inspection_workflows with missing claims
+DELETE FROM inspection_workflows 
+WHERE claim_id IS NOT NULL 
+  AND claim_id NOT IN (SELECT id FROM claims);
+
+-- Clean up claim_checklists with missing claims
+DELETE FROM claim_checklists 
+WHERE claim_id NOT IN (SELECT id FROM claims);
 
 -- =================================================
 -- claim_briefings
@@ -180,6 +268,11 @@ BEGIN
   
   IF col_type = 'uuid' THEN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_estimates_claim') THEN
+      -- Clean up any remaining orphaned estimates before adding FK
+      DELETE FROM estimates 
+      WHERE claim_id IS NOT NULL 
+        AND claim_id NOT IN (SELECT id FROM claims);
+      
       ALTER TABLE estimates
         ADD CONSTRAINT fk_estimates_claim
         FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE;
