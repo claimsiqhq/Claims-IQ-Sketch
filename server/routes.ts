@@ -336,6 +336,211 @@ export async function registerRoutes(
     });
   });
 
+  // ============================================
+  // MS365 CALENDAR INTEGRATION ROUTES
+  // ============================================
+  
+  // Get MS365 connection status
+  app.get('/api/auth/ms365/status', requireAuth, async (req, res) => {
+    try {
+      const { getConnectionStatus } = await import('./services/ms365AuthService');
+      const status = await getConnectionStatus(req.user!.id);
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get MS365 status' });
+    }
+  });
+
+  // Initiate MS365 OAuth flow
+  app.get('/api/auth/ms365/connect', requireAuth, async (req, res) => {
+    try {
+      const { getAuthorizationUrl, isMs365Configured } = await import('./services/ms365AuthService');
+      
+      if (!isMs365Configured()) {
+        return res.status(400).json({ 
+          error: 'Microsoft 365 integration not configured',
+          message: 'Please configure AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_CLIENT_SECRET'
+        });
+      }
+
+      const authUrl = await getAuthorizationUrl(req.user!.id);
+      res.json({ authUrl });
+    } catch (error) {
+      console.error('[MS365] Auth URL generation failed:', error);
+      res.status(500).json({ error: 'Failed to start MS365 authorization' });
+    }
+  });
+
+  // MS365 OAuth callback
+  app.get('/api/auth/ms365/callback', async (req, res) => {
+    const { code, state, error: authError } = req.query;
+
+    if (authError) {
+      console.error('[MS365] OAuth error:', authError);
+      return res.redirect('/settings?ms365_error=auth_denied');
+    }
+
+    if (!code || !state) {
+      return res.redirect('/settings?ms365_error=invalid_callback');
+    }
+
+    try {
+      const { exchangeCodeForTokens } = await import('./services/ms365AuthService');
+      const result = await exchangeCodeForTokens(code as string, state as string);
+
+      if (result.success) {
+        res.redirect('/settings?ms365_connected=true');
+      } else {
+        console.error('[MS365] Token exchange failed:', result.error);
+        res.redirect('/settings?ms365_error=token_exchange');
+      }
+    } catch (error) {
+      console.error('[MS365] Callback error:', error);
+      res.redirect('/settings?ms365_error=callback_failed');
+    }
+  });
+
+  // Disconnect from MS365
+  app.post('/api/auth/ms365/disconnect', requireAuth, async (req, res) => {
+    try {
+      const { disconnectUser } = await import('./services/ms365AuthService');
+      const success = await disconnectUser(req.user!.id);
+      
+      if (success) {
+        res.json({ success: true, message: 'Disconnected from Microsoft 365' });
+      } else {
+        res.status(500).json({ error: 'Failed to disconnect' });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to disconnect from MS365' });
+    }
+  });
+
+  // ============================================
+  // CALENDAR / APPOINTMENTS ROUTES
+  // ============================================
+
+  // Get today's appointments
+  app.get('/api/calendar/today', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getTodayAppointments } = await import('./services/ms365CalendarService');
+      const appointments = await getTodayAppointments(req.user!.id, req.organizationId!);
+      res.json({ appointments });
+    } catch (error) {
+      console.error('[Calendar] Failed to get today appointments:', error);
+      res.status(500).json({ error: 'Failed to get appointments' });
+    }
+  });
+
+  // Get appointments for a specific date
+  app.get('/api/calendar/appointments', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getAppointmentsForDate } = await import('./services/ms365CalendarService');
+      const date = req.query.date ? new Date(req.query.date as string) : new Date();
+      const appointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, date);
+      res.json({ appointments });
+    } catch (error) {
+      console.error('[Calendar] Failed to get appointments:', error);
+      res.status(500).json({ error: 'Failed to get appointments' });
+    }
+  });
+
+  // Create a new appointment
+  app.post('/api/calendar/appointments', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { createInspectionAppointment } = await import('./services/ms365CalendarService');
+      const { isUserConnected } = await import('./services/ms365AuthService');
+      
+      const isConnected = await isUserConnected(req.user!.id);
+      
+      const appointment = await createInspectionAppointment({
+        ...req.body,
+        organizationId: req.organizationId!,
+        adjusterId: req.user!.id,
+        syncToMs365: isConnected && req.body.syncToMs365 !== false,
+      });
+      
+      res.json({ appointment });
+    } catch (error) {
+      console.error('[Calendar] Failed to create appointment:', error);
+      res.status(500).json({ error: 'Failed to create appointment' });
+    }
+  });
+
+  // Get appointments for a claim
+  app.get('/api/claims/:id/appointments', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getAppointmentsForClaim } = await import('./services/ms365CalendarService');
+      const appointments = await getAppointmentsForClaim(req.params.id, req.organizationId!);
+      res.json({ appointments });
+    } catch (error) {
+      console.error('[Calendar] Failed to get claim appointments:', error);
+      res.status(500).json({ error: 'Failed to get appointments' });
+    }
+  });
+
+  // Update an appointment
+  app.patch('/api/calendar/appointments/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { updateAppointment } = await import('./services/ms365CalendarService');
+      const appointment = await updateAppointment(
+        req.params.id,
+        req.organizationId!,
+        req.body,
+        req.body.syncToMs365 !== false
+      );
+      
+      if (!appointment) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+      
+      res.json({ appointment });
+    } catch (error) {
+      console.error('[Calendar] Failed to update appointment:', error);
+      res.status(500).json({ error: 'Failed to update appointment' });
+    }
+  });
+
+  // Delete an appointment
+  app.delete('/api/calendar/appointments/:id', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { deleteAppointment } = await import('./services/ms365CalendarService');
+      const success = await deleteAppointment(
+        req.params.id,
+        req.organizationId!,
+        req.query.deleteFromMs365 !== 'false'
+      );
+      
+      if (!success) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Calendar] Failed to delete appointment:', error);
+      res.status(500).json({ error: 'Failed to delete appointment' });
+    }
+  });
+
+  // Fetch MS365 calendar events (for viewing external events)
+  app.get('/api/calendar/ms365/events', requireAuth, async (req, res) => {
+    try {
+      const { fetchTodayEvents } = await import('./services/ms365CalendarService');
+      const { isUserConnected } = await import('./services/ms365AuthService');
+      
+      const isConnected = await isUserConnected(req.user!.id);
+      if (!isConnected) {
+        return res.json({ events: [], connected: false });
+      }
+      
+      const events = await fetchTodayEvents(req.user!.id);
+      res.json({ events, connected: true });
+    } catch (error) {
+      console.error('[Calendar] Failed to fetch MS365 events:', error);
+      res.status(500).json({ error: 'Failed to fetch calendar events' });
+    }
+  });
+
   // Get current user endpoint (supports both session and Supabase auth)
   app.get('/api/auth/me', async (req, res) => {
     // Disable all caching for auth endpoints
