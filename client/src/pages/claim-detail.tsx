@@ -3691,9 +3691,9 @@ export default function ClaimDetail() {
                   const startDateTime = new Date(`${scheduleFormData.date}T${scheduleFormData.time}`);
                   const endDateTime = new Date(startDateTime.getTime() + scheduleFormData.duration * 60000);
                   
-                  const location = apiClaim?.lossAddress 
-                    ? `${apiClaim.lossAddress}${apiClaim.lossCity ? `, ${apiClaim.lossCity}` : ''}${apiClaim.lossState ? `, ${apiClaim.lossState}` : ''} ${apiClaim.lossZip || ''}`
-                    : undefined;
+                  const location = apiClaim?.propertyAddress 
+                    ? `${apiClaim.propertyAddress}${apiClaim.propertyCity ? `, ${apiClaim.propertyCity}` : ''}${apiClaim.propertyState ? `, ${apiClaim.propertyState}` : ''} ${apiClaim.propertyZip || ''}`
+                    : (apiClaim?.riskLocation || undefined);
                   
                   const response = await fetch('/api/calendar/appointments', {
                     method: 'POST',

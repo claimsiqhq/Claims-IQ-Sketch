@@ -356,7 +356,7 @@ export interface TimeWindow {
 }
 
 // Badges that can appear on inspection/claim cards
-export type InspectionBadge = 'mitigation_likely' | 'evidence_at_risk' | 'sla_today' | 'contact_required';
+export type InspectionBadge = 'mitigation_likely' | 'evidence_at_risk' | 'sla_today' | 'contact_required' | 'calendar_synced';
 
 // Weather condition types
 export type WeatherConditionType = 'rain' | 'freeze' | 'wind' | 'heat' | 'storm' | 'clear';

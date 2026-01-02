@@ -197,7 +197,21 @@ interface ClaimFromAPI {
   };
 }
 
-function transformClaimsToMyDayData(claims: ClaimFromAPI[], adjusterName: string): MyDayData {
+interface AppointmentFromAPI {
+  id: string;
+  claimId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  scheduledStart: string;
+  scheduledEnd: string;
+  durationMinutes: number;
+  status: string;
+  appointmentType: string;
+  ms365EventId: string | null;
+}
+
+function transformClaimsToMyDayData(claims: ClaimFromAPI[], adjusterName: string, appointments?: AppointmentFromAPI[]): MyDayData {
   if (!claims || claims.length === 0) {
     return buildEmptyDayData(adjusterName);
   }
@@ -208,30 +222,79 @@ function transformClaimsToMyDayData(claims: ClaimFromAPI[], adjusterName: string
   );
   const reviewClaims = openClaims.filter(c => c.status === "review");
 
-  const route: InspectionStop[] = activeClaims.slice(0, 8).map((claim, index) => {
-    const hour = 8 + index;
-    return {
-      id: `stop-${claim.id}`,
-      claimId: claim.id,
-      claimNumber: claim.claimNumber || `CLM-${claim.id.slice(0, 8)}`,
-      insuredName: claim.insuredName || "Unknown Insured",
-      address: claim.propertyAddress || "Address pending",
-      city: claim.propertyCity || "",
-      state: claim.propertyState || "",
-      zip: claim.propertyZip || "",
-      lat: claim.metadata?.lat || 0,
-      lng: claim.metadata?.lng || 0,
-      timeWindow: { 
-        start: `${hour.toString().padStart(2, "0")}:00`, 
-        end: `${(hour + 1).toString().padStart(2, "0")}:00` 
-      },
-      peril: mapLossTypeToPeril(claim.lossType),
-      reason: claim.lossDescription || `${claim.lossType || "Property"} inspection`,
-      badges: claim.status === "fnol" ? ["sla_today" as InspectionBadge] : [],
-      estimatedDuration: 60,
-      travelTimeFromPrevious: index === 0 ? 0 : 15,
-    };
-  });
+  // Build a map of claims for quick lookup
+  const claimMap = new Map(claims.map(c => [c.id, c]));
+
+  // If we have scheduled appointments, use those for today's route
+  let route: InspectionStop[] = [];
+
+  if (appointments && appointments.length > 0) {
+    // Use actual scheduled appointments - sorted by start time
+    const sortedAppointments = [...appointments].sort((a, b) => 
+      new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime()
+    );
+
+    route = sortedAppointments.map((apt, index) => {
+      const claim = claimMap.get(apt.claimId);
+      const startTime = new Date(apt.scheduledStart);
+      const endTime = new Date(apt.scheduledEnd);
+      
+      // Parse location from appointment or claim
+      let address = apt.location || claim?.propertyAddress || "Address pending";
+      let city = claim?.propertyCity || "";
+      let state = claim?.propertyState || "";
+      let zip = claim?.propertyZip || "";
+
+      return {
+        id: `stop-${apt.id}`,
+        claimId: apt.claimId,
+        claimNumber: claim?.claimNumber || `CLM-${apt.claimId.slice(0, 8)}`,
+        insuredName: claim?.insuredName || "Unknown Insured",
+        address,
+        city,
+        state,
+        zip,
+        lat: claim?.metadata?.lat || 0,
+        lng: claim?.metadata?.lng || 0,
+        timeWindow: { 
+          start: startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }), 
+          end: endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) 
+        },
+        peril: mapLossTypeToPeril(claim?.lossType || ""),
+        reason: apt.description || claim?.lossDescription || `${claim?.lossType || "Property"} inspection`,
+        badges: apt.ms365EventId ? ["calendar_synced" as InspectionBadge] : [],
+        estimatedDuration: apt.durationMinutes,
+        travelTimeFromPrevious: index === 0 ? 0 : 15,
+        notes: apt.appointmentType === 're_inspection' ? 'Re-inspection' : undefined,
+      };
+    });
+  } else {
+    // Fallback: create route from active claims with placeholder times
+    route = activeClaims.slice(0, 8).map((claim, index) => {
+      const hour = 8 + index;
+      return {
+        id: `stop-${claim.id}`,
+        claimId: claim.id,
+        claimNumber: claim.claimNumber || `CLM-${claim.id.slice(0, 8)}`,
+        insuredName: claim.insuredName || "Unknown Insured",
+        address: claim.propertyAddress || "Address pending",
+        city: claim.propertyCity || "",
+        state: claim.propertyState || "",
+        zip: claim.propertyZip || "",
+        lat: claim.metadata?.lat || 0,
+        lng: claim.metadata?.lng || 0,
+        timeWindow: { 
+          start: `${hour.toString().padStart(2, "0")}:00`, 
+          end: `${(hour + 1).toString().padStart(2, "0")}:00` 
+        },
+        peril: mapLossTypeToPeril(claim.lossType),
+        reason: claim.lossDescription || `${claim.lossType || "Property"} inspection`,
+        badges: claim.status === "fnol" ? ["sla_today" as InspectionBadge] : [],
+        estimatedDuration: 60,
+        travelTimeFromPrevious: index === 0 ? 0 : 15,
+      };
+    });
+  }
 
   const onDeck: OnDeckClaim[] = reviewClaims.slice(0, 5).map((claim) => ({
     id: `deck-${claim.id}`,
@@ -318,6 +381,8 @@ function getBadgeLabel(badge: InspectionBadge): string {
       return "SLA Today";
     case "contact_required":
       return "Contact Req";
+    case "calendar_synced":
+      return "Calendar";
     default:
       return badge;
   }
@@ -333,6 +398,8 @@ function getBadgeStyle(badge: InspectionBadge) {
       return "bg-primary/10 text-primary border-primary/20";
     case "contact_required":
       return "bg-secondary/20 text-secondary-foreground border-secondary/30";
+    case "calendar_synced":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
     default:
       return "bg-muted text-muted-foreground border-border";
   }
@@ -1536,6 +1603,33 @@ export default function MyDay() {
     staleTime: 30000,
   });
 
+  // Fetch today's scheduled appointments
+  const { data: appointmentsData } = useQuery<{ appointments: Array<{
+    id: string;
+    claimId: string;
+    title: string;
+    description: string | null;
+    location: string | null;
+    scheduledStart: string;
+    scheduledEnd: string;
+    durationMinutes: number;
+    status: string;
+    appointmentType: string;
+    ms365EventId: string | null;
+  }> }>({
+    queryKey: ["/api/calendar/today"],
+    queryFn: async () => {
+      const response = await fetch("/api/calendar/today", {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        return { appointments: [] };
+      }
+      return response.json();
+    },
+    staleTime: 60000,
+  });
+
   // Construct proper display name from firstName/lastName, falling back to username
   const displayName = useMemo(() => {
     if (!authUser) return "Adjuster";
@@ -1547,8 +1641,8 @@ export default function MyDay() {
     if (!claimsData?.claims) {
       return buildEmptyDayData(displayName);
     }
-    return transformClaimsToMyDayData(claimsData.claims, displayName);
-  }, [claimsData, displayName]);
+    return transformClaimsToMyDayData(claimsData.claims, displayName, appointmentsData?.appointments);
+  }, [claimsData, displayName, appointmentsData]);
 
   // Fetch AI analysis when route changes
   useEffect(() => {
