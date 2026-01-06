@@ -40,6 +40,12 @@ import {
   generateEsxXml,
   generateCsvExport
 } from "./services/reportGenerator";
+import {
+  getEstimateSketch,
+  updateEstimateSketch,
+  validateEstimateSketchForExport
+} from "./services/sketchService";
+import { generateEsxZipArchive } from "./services/esxExport";
 import { generateEstimatePdf, isPdfGenerationAvailable } from "./services/pdfGenerator";
 import {
   submitEstimate,
@@ -2157,6 +2163,32 @@ export async function registerRoutes(
     }
   });
 
+  // Generate ESX ZIP archive (Tier A - standards-compliant, with sketch PDF)
+  // This is the primary export format for Xactimate import
+  app.get('/api/estimates/:id/export/esx-zip', async (req, res) => {
+    try {
+      const includeSketch = req.query.includeSketch !== 'false';
+      const includePhotos = req.query.includePhotos === 'true';
+
+      const esxZip = await generateEsxZipArchive(req.params.id, {
+        includeSketchPdf: includeSketch,
+        includePhotos,
+      });
+
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
+      res.setHeader('Content-Length', esxZip.length);
+      res.send(esxZip);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
   // ============================================
   // ESTIMATE HIERARCHY ROUTES
   // Structure -> Area -> Zone -> Line Items
@@ -2187,6 +2219,57 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
+  // SKETCH GEOMETRY ROUTES (Voice-First)
+  // ============================================
+
+  // Get sketch geometry for an estimate
+  app.get('/api/estimates/:id/sketch', requireAuth, async (req, res) => {
+    try {
+      const sketch = await getEstimateSketch(req.params.id);
+      res.json(sketch);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Update sketch geometry for an estimate
+  app.put('/api/estimates/:id/sketch', requireAuth, async (req, res) => {
+    try {
+      const sketch = await updateEstimateSketch(req.params.id, req.body);
+      res.json(sketch);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('locked')) {
+        res.status(403).json({ error: message });
+      } else if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  // Validate sketch geometry for export
+  app.post('/api/estimates/:id/sketch/validate', requireAuth, async (req, res) => {
+    try {
+      const validation = await validateEstimateSketchForExport(req.params.id);
+      res.json(validation);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 

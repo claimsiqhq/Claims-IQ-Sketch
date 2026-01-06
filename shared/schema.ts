@@ -1502,8 +1502,20 @@ export const estimateZones = pgTable("estimate_zones", {
   lengthFt: decimal("length_ft", { precision: 8, scale: 2 }),
   widthFt: decimal("width_ft", { precision: 8, scale: 2 }),
   heightFt: decimal("height_ft", { precision: 8, scale: 2 }).default("8.0"),
+  ceilingHeightFt: decimal("ceiling_height_ft", { precision: 6, scale: 2 }).default("8.0"), // Alias for clarity
   pitch: varchar("pitch", { length: 10 }),
   pitchMultiplier: decimal("pitch_multiplier", { precision: 6, scale: 4 }).default("1.0"),
+
+  // Canonical geometry for voice-first sketch (see docs/sketch-esx-architecture.md)
+  // Floor plan positioning in feet
+  originXFt: decimal("origin_x_ft", { precision: 8, scale: 2 }).default("0"),
+  originYFt: decimal("origin_y_ft", { precision: 8, scale: 2 }).default("0"),
+  // Polygon vertices in feet, CCW winding order: [{x, y}, {x, y}, ...]
+  polygonFt: jsonb("polygon_ft").default(sql`'[]'::jsonb`),
+  // Shape type for rendering hints
+  shapeType: varchar("shape_type", { length: 10 }).default("RECT"), // RECT, L, T, POLY
+  // Level grouping for ESX export
+  levelName: varchar("level_name", { length: 50 }).default("Main Level"),
 
   // Calculated dimensions stored as JSONB
   dimensions: jsonb("dimensions").default(sql`'{}'::jsonb`),
@@ -1511,7 +1523,7 @@ export const estimateZones = pgTable("estimate_zones", {
   // Room info for Xactimate
   roomInfo: jsonb("room_info").default(sql`'{}'::jsonb`),
 
-  // Sketch polygon data
+  // Sketch polygon data (legacy - use polygonFt for canonical geometry)
   sketchPolygon: jsonb("sketch_polygon").default(sql`'null'::jsonb`),
 
   // Damage info
@@ -1553,6 +1565,115 @@ export const insertEstimateZoneSchema = createInsertSchema(estimateZones).omit({
 
 export type EstimateZone = typeof estimateZones.$inferSelect;
 export type InsertEstimateZone = z.infer<typeof insertEstimateZoneSchema>;
+
+// ============================================
+// ZONE OPENINGS TABLE (Canonical Geometry)
+// ============================================
+/**
+ * ZoneOpenings - Wall openings (doors, windows, cased openings) for canonical geometry
+ *
+ * PURPOSE: Stores openings referenced by wall index into the zone's polygon.
+ * This supports the voice-first sketch workflow where openings are placed
+ * precisely on walls derived from the room polygon.
+ *
+ * WALL INDEXING:
+ * - wall_index corresponds to the polygon edge (0 = edge from vertex 0 to vertex 1)
+ * - offset_from_vertex_ft is the distance along the wall from the starting vertex
+ *
+ * See: docs/sketch-esx-architecture.md for full architecture details.
+ */
+export const zoneOpenings = pgTable("zone_openings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  zoneId: uuid("zone_id").notNull().references(() => estimateZones.id, { onDelete: 'cascade' }),
+
+  // Opening type
+  openingType: varchar("opening_type", { length: 30 }).notNull(), // door, window, cased_opening, archway, sliding_door, french_door
+
+  // Wall reference (index into polygon edges)
+  wallIndex: integer("wall_index").notNull(), // 0-based index of polygon edge
+
+  // Position on wall
+  offsetFromVertexFt: decimal("offset_from_vertex_ft", { precision: 8, scale: 2 }).notNull(), // Distance from starting vertex
+
+  // Dimensions
+  widthFt: decimal("width_ft", { precision: 6, scale: 2 }).notNull(),
+  heightFt: decimal("height_ft", { precision: 6, scale: 2 }).notNull(),
+  sillHeightFt: decimal("sill_height_ft", { precision: 6, scale: 2 }), // For windows
+
+  // Optional: which zone this opening connects to
+  connectsToZoneId: uuid("connects_to_zone_id").references(() => estimateZones.id, { onDelete: 'set null' }),
+
+  // Metadata
+  notes: text("notes"),
+  sortOrder: integer("sort_order").default(0),
+
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  zoneIdx: index("zone_openings_zone_idx").on(table.zoneId),
+  wallIdx: index("zone_openings_wall_idx").on(table.zoneId, table.wallIndex),
+}));
+
+export const insertZoneOpeningSchema = createInsertSchema(zoneOpenings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ZoneOpening = typeof zoneOpenings.$inferSelect;
+export type InsertZoneOpening = z.infer<typeof insertZoneOpeningSchema>;
+
+// ============================================
+// ZONE CONNECTIONS TABLE (Canonical Geometry)
+// ============================================
+/**
+ * ZoneConnections - Room-to-room relationships for floor plan topology
+ *
+ * PURPOSE: Stores connections between zones for:
+ * - Floor plan visualization (connecting rooms)
+ * - ESX export (room groupings and relationships)
+ * - Voice sketch connectivity ("this room connects to the kitchen")
+ *
+ * CONNECTION TYPES:
+ * - door: Standard door connection
+ * - opening: Cased opening or archway
+ * - shared_wall: Rooms share a wall segment (no opening)
+ *
+ * See: docs/sketch-esx-architecture.md for full architecture details.
+ */
+export const zoneConnections = pgTable("zone_connections", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull().references(() => estimates.id, { onDelete: 'cascade' }),
+
+  // Connected zones
+  fromZoneId: uuid("from_zone_id").notNull().references(() => estimateZones.id, { onDelete: 'cascade' }),
+  toZoneId: uuid("to_zone_id").notNull().references(() => estimateZones.id, { onDelete: 'cascade' }),
+
+  // Connection type
+  connectionType: varchar("connection_type", { length: 30 }).notNull(), // door, opening, shared_wall, hallway, stairway
+
+  // Optional: reference to the opening that creates this connection
+  openingId: uuid("opening_id").references(() => zoneOpenings.id, { onDelete: 'set null' }),
+
+  // Metadata
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  estimateIdx: index("zone_connections_estimate_idx").on(table.estimateId),
+  fromIdx: index("zone_connections_from_idx").on(table.fromZoneId),
+  toIdx: index("zone_connections_to_idx").on(table.toZoneId),
+}));
+
+export const insertZoneConnectionSchema = createInsertSchema(zoneConnections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ZoneConnection = typeof zoneConnections.$inferSelect;
+export type InsertZoneConnection = z.infer<typeof insertZoneConnectionSchema>;
 
 // ============================================
 // ESTIMATE MISSING WALLS TABLE

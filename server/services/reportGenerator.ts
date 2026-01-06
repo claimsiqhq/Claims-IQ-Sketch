@@ -1,5 +1,24 @@
-// Report Generator for Claims IQ Sketch
-// Generates PDF reports and Xactimate ESX exports
+/**
+ * Report Generator for Claims IQ Sketch
+ * Generates PDF reports and Xactimate ESX exports
+ *
+ * ESX EXPORT PHILOSOPHY (Tier A):
+ * ================================
+ * This module generates import-ready ESX files that Xactimate can read.
+ * We do NOT generate editable Xactimate sketches (SKX format) because:
+ *
+ * 1. Editable sketches require proprietary Verisk partner SDK access
+ * 2. SKX binary/XML encoding is not publicly documented
+ * 3. Ongoing compatibility maintenance with Xactimate versions is complex
+ *
+ * The Tier A approach provides:
+ * - Full claim metadata import
+ * - Line items with room/level grouping
+ * - Sketch renders as PDF underlay (visible but not editable)
+ *
+ * This gives 95% of the value without proprietary dependencies.
+ * See: docs/sketch-esx-architecture.md for full architecture details.
+ */
 
 import { getEstimate, type SavedEstimate, type CalculatedLineItem } from './estimateCalculator';
 
