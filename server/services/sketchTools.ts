@@ -10,6 +10,17 @@
  * - add_room_opening: Add an opening (door/window/cased) to a room wall
  * - add_missing_wall: Mark a missing wall segment for a room
  * - get_sketch_state: Retrieve current sketch state for an estimate
+ *
+ * VOICE-FIRST ARCHITECTURE:
+ * =========================
+ * This module supports the voice-first sketch creation workflow:
+ * 1. User speaks room dimensions via OpenAI Realtime API
+ * 2. Client-side geometry engine builds room polygons
+ * 3. These tools persist geometry to estimate_zones table
+ * 4. Geometry is stored in feet with CCW polygon winding
+ *
+ * All dimensions use feet as the canonical unit.
+ * See: docs/sketch-esx-architecture.md for full architecture details.
  */
 
 import { supabaseAdmin } from '../lib/supabaseAdmin';
