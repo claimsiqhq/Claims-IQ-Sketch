@@ -2273,6 +2273,227 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // ZONE CONNECTIONS API
+  // ============================================
+
+  /**
+   * POST /api/estimates/:id/sketch/connections
+   * Create a new zone connection
+   */
+  app.post('/api/estimates/:id/sketch/connections', requireAuth, async (req, res) => {
+    try {
+      const estimateId = req.params.id;
+      const { fromZoneId, toZoneId, connectionType, openingId } = req.body;
+
+      if (!fromZoneId || !toZoneId || !connectionType) {
+        return res.status(400).json({ error: 'fromZoneId, toZoneId, and connectionType are required' });
+      }
+
+      const validTypes = ['door', 'opening', 'shared_wall', 'hallway', 'stairway'];
+      if (!validTypes.includes(connectionType)) {
+        return res.status(400).json({ error: `connectionType must be one of: ${validTypes.join(', ')}` });
+      }
+
+      // Verify estimate exists and is not locked
+      const { data: estimate, error: estimateError } = await supabaseAdmin
+        .from('estimates')
+        .select('id, is_locked')
+        .eq('id', estimateId)
+        .maybeSingle();
+
+      if (estimateError || !estimate) {
+        return res.status(404).json({ error: 'Estimate not found' });
+      }
+
+      if (estimate.is_locked) {
+        return res.status(400).json({ error: 'Cannot modify a locked estimate' });
+      }
+
+      // Verify zones exist and belong to this estimate
+      const { data: zones, error: zonesError } = await supabaseAdmin
+        .from('estimate_zones')
+        .select('id, estimate_areas!inner(estimate_structures!inner(estimate_id))')
+        .in('id', [fromZoneId, toZoneId]);
+
+      if (zonesError || !zones || zones.length !== 2) {
+        return res.status(400).json({ error: 'Invalid zone IDs or zones do not belong to this estimate' });
+      }
+
+      // Create connection
+      const { data: connection, error: insertError } = await supabaseAdmin
+        .from('zone_connections')
+        .insert({
+          estimate_id: estimateId,
+          from_zone_id: fromZoneId,
+          to_zone_id: toZoneId,
+          connection_type: connectionType,
+          opening_id: openingId || null,
+        })
+        .select('*')
+        .single();
+
+      if (insertError || !connection) {
+        return res.status(500).json({ error: insertError?.message || 'Failed to create connection' });
+      }
+
+      res.json(connection);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * PUT /api/estimates/:id/sketch/connections/:connId
+   * Update an existing zone connection
+   */
+  app.put('/api/estimates/:id/sketch/connections/:connId', requireAuth, async (req, res) => {
+    try {
+      const estimateId = req.params.id;
+      const connId = req.params.connId;
+      const { connectionType, openingId } = req.body;
+
+      // Verify estimate exists and is not locked
+      const { data: estimate, error: estimateError } = await supabaseAdmin
+        .from('estimates')
+        .select('id, is_locked')
+        .eq('id', estimateId)
+        .maybeSingle();
+
+      if (estimateError || !estimate) {
+        return res.status(404).json({ error: 'Estimate not found' });
+      }
+
+      if (estimate.is_locked) {
+        return res.status(400).json({ error: 'Cannot modify a locked estimate' });
+      }
+
+      // Verify connection exists and belongs to this estimate
+      const { data: existingConn, error: connError } = await supabaseAdmin
+        .from('zone_connections')
+        .select('*')
+        .eq('id', connId)
+        .eq('estimate_id', estimateId)
+        .maybeSingle();
+
+      if (connError || !existingConn) {
+        return res.status(404).json({ error: 'Connection not found' });
+      }
+
+      // Update connection
+      const updateData: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (connectionType) {
+        const validTypes = ['door', 'opening', 'shared_wall', 'hallway', 'stairway'];
+        if (!validTypes.includes(connectionType)) {
+          return res.status(400).json({ error: `connectionType must be one of: ${validTypes.join(', ')}` });
+        }
+        updateData.connection_type = connectionType;
+      }
+
+      if (openingId !== undefined) {
+        updateData.opening_id = openingId || null;
+      }
+
+      const { data: updatedConn, error: updateError } = await supabaseAdmin
+        .from('zone_connections')
+        .update(updateData)
+        .eq('id', connId)
+        .select('*')
+        .single();
+
+      if (updateError || !updatedConn) {
+        return res.status(500).json({ error: updateError?.message || 'Failed to update connection' });
+      }
+
+      res.json(updatedConn);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * DELETE /api/estimates/:id/sketch/connections/:connId
+   * Delete a zone connection
+   */
+  app.delete('/api/estimates/:id/sketch/connections/:connId', requireAuth, async (req, res) => {
+    try {
+      const estimateId = req.params.id;
+      const connId = req.params.connId;
+
+      // Verify estimate exists and is not locked
+      const { data: estimate, error: estimateError } = await supabaseAdmin
+        .from('estimates')
+        .select('id, is_locked')
+        .eq('id', estimateId)
+        .maybeSingle();
+
+      if (estimateError || !estimate) {
+        return res.status(404).json({ error: 'Estimate not found' });
+      }
+
+      if (estimate.is_locked) {
+        return res.status(400).json({ error: 'Cannot modify a locked estimate' });
+      }
+
+      // Verify connection exists and belongs to this estimate
+      const { data: existingConn, error: connError } = await supabaseAdmin
+        .from('zone_connections')
+        .select('id')
+        .eq('id', connId)
+        .eq('estimate_id', estimateId)
+        .maybeSingle();
+
+      if (connError || !existingConn) {
+        return res.status(404).json({ error: 'Connection not found' });
+      }
+
+      // Delete connection
+      const { error: deleteError } = await supabaseAdmin
+        .from('zone_connections')
+        .delete()
+        .eq('id', connId);
+
+      if (deleteError) {
+        return res.status(500).json({ error: deleteError.message });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/estimates/:id/sketch/connections
+   * Get all zone connections for an estimate
+   */
+  app.get('/api/estimates/:id/sketch/connections', requireAuth, async (req, res) => {
+    try {
+      const estimateId = req.params.id;
+
+      const { data: connections, error } = await supabaseAdmin
+        .from('zone_connections')
+        .select('*')
+        .eq('estimate_id', estimateId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        return res.status(500).json({ error: error.message });
+      }
+
+      res.json(connections || []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Recalculate estimate totals
   app.post('/api/estimates/:id/recalculate', requireAuth, async (req, res) => {
     try {

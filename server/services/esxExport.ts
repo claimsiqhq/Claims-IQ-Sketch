@@ -22,8 +22,17 @@
 
 import { buildZipArchive } from '../utils/zipBuilder';
 import { getEstimate, type SavedEstimate, type CalculatedLineItem } from './estimateCalculator';
-import { getEstimateSketch, type ZoneSketch } from './sketchService';
+import { getEstimateSketch, type ZoneSketch, type ZoneConnectionData, validateEstimateSketchForExport } from './sketchService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import {
+  PDF_PAGE_WIDTH,
+  PDF_PAGE_HEIGHT,
+  PDF_MARGIN,
+  PDF_HEADER_HEIGHT,
+  PDF_GRID_SPACING_FT,
+  PDF_SCALE_LEGEND_LENGTH,
+  PDF_COLORS,
+} from '../../shared/geometry/constants';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -86,8 +95,24 @@ export async function generateEsxZipArchive(
   let sketch: Awaited<ReturnType<typeof getEstimateSketch>> | null = null;
   try {
     sketch = await getEstimateSketch(estimateId);
-  } catch {
-    // Sketch may not exist, that's OK
+    
+    // Validate sketch before export if it exists
+    if (sketch && sketch.zones.length > 0) {
+      const validation = await validateEstimateSketchForExport(estimateId);
+      if (!validation.isValid) {
+        const errors = validation.zones
+          .filter(z => !z.validation.isValid)
+          .map(z => `${z.zoneName}: ${z.validation.warnings.map(w => w.message).join(', ')}`)
+          .join('; ');
+        throw new Error(`Sketch validation failed: ${errors}`);
+      }
+    }
+  } catch (error) {
+    // If validation fails, throw the error
+    if (error instanceof Error && error.message.includes('validation failed')) {
+      throw error;
+    }
+    // Otherwise, sketch may not exist, that's OK
   }
 
   // Group line items by room and level
@@ -106,7 +131,12 @@ export async function generateEsxZipArchive(
   });
 
   // 2. GENERIC_ROUGHDRAFT.XML - Estimate data
-  const roughdraftXml = generateRoughdraftXml(estimate, lineItems, sketch?.zones || []);
+  const roughdraftXml = generateRoughdraftXml(
+    estimate,
+    lineItems,
+    sketch?.zones || [],
+    sketch?.connections || []
+  );
   entries.push({
     name: 'GENERIC_ROUGHDRAFT.XML',
     data: Buffer.from(roughdraftXml, 'utf8'),
@@ -115,7 +145,11 @@ export async function generateEsxZipArchive(
 
   // 3. SKETCH_UNDERLAY.PDF - Visual floorplan (if sketch exists)
   if (config.includeSketchPdf !== false && sketch && sketch.zones.length > 0) {
-    const sketchPdf = await generateSketchPdf(sketch.zones, claimMetadata.propertyAddress);
+    const sketchPdf = await generateSketchPdf(
+      sketch.zones,
+      sketch.connections || [],
+      claimMetadata.propertyAddress
+    );
     entries.push({
       name: 'SKETCH_UNDERLAY.PDF',
       data: sketchPdf,
@@ -223,7 +257,8 @@ function generateXactdocXml(metadata: ClaimMetadata, estimate: SavedEstimate): s
 function generateRoughdraftXml(
   estimate: SavedEstimate,
   lineItems: LineItemForExport[],
-  zones: ZoneSketch[]
+  zones: ZoneSketch[],
+  connections: ZoneConnectionData[]
 ): string {
   const escXml = (str: string | undefined | null): string => {
     if (!str) return '';
@@ -264,6 +299,7 @@ function generateRoughdraftXml(
       );
 
       let roomDimensionsXml = '';
+      let roomConnectionsXml = '';
       if (zone) {
         roomDimensionsXml = `
           <Dimensions>
@@ -272,6 +308,31 @@ function generateRoughdraftXml(
             <CeilingHeight>${zone.ceilingHeightFt.toFixed(2)}</CeilingHeight>
             <SquareFeet>${(zone.lengthFt * zone.widthFt).toFixed(2)}</SquareFeet>
           </Dimensions>`;
+
+        // Find connections for this zone
+        const zoneConnections = connections.filter(c => {
+          // Check if connection involves this zone
+          const fromZone = zones.find(z => z.connections?.some(zc => zc.id === c.id));
+          const toZone = zones.find(z => z.id === c.toZoneId);
+          return (fromZone?.id === zone.id || toZone?.id === zone.id) && fromZone?.id !== toZone?.id;
+        });
+
+        if (zoneConnections.length > 0) {
+          let connectionsXml = '';
+          for (const conn of zoneConnections) {
+            const connectedZone = zones.find(z => z.id === conn.toZoneId);
+            if (connectedZone) {
+              connectionsXml += `
+            <Connection>
+              <ToRoom>${escXml(connectedZone.name)}</ToRoom>
+              <Type>${escXml(conn.connectionType)}</Type>
+            </Connection>`;
+            }
+          }
+          roomConnectionsXml = `
+          <Connections>${connectionsXml}
+          </Connections>`;
+        }
       }
 
       // Build line items XML
@@ -293,7 +354,7 @@ function generateRoughdraftXml(
 
       roomsXml += `
         <Room>
-          <Name>${escXml(roomName)}</Name>${roomDimensionsXml}
+          <Name>${escXml(roomName)}</Name>${roomDimensionsXml}${roomConnectionsXml}
           <LineItems>${itemsXml}
           </LineItems>
         </Room>`;
@@ -345,8 +406,16 @@ function generateRoughdraftXml(
  *
  * Creates a simple PDF with room polygons rendered as a floor plan.
  * Uses a minimal PDF structure without external dependencies.
+ * 
+ * @param zones - Zone geometry data
+ * @param connections - Zone connection data (room-to-room relationships)
+ * @param propertyAddress - Property address for header
  */
-async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): Promise<Buffer> {
+async function generateSketchPdf(
+  zones: ZoneSketch[],
+  connections: ZoneConnectionData[],
+  propertyAddress: string
+): Promise<Buffer> {
   // Calculate bounds for all zones
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
@@ -375,12 +444,12 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
   const boundsWidth = maxX - minX || 100;
   const boundsHeight = maxY - minY || 100;
 
-  // PDF page dimensions (Letter size in points: 612 x 792)
-  const pageWidth = 612;
-  const pageHeight = 792;
-  const margin = 50;
+  // PDF page dimensions (Letter size in points)
+  const pageWidth = PDF_PAGE_WIDTH;
+  const pageHeight = PDF_PAGE_HEIGHT;
+  const margin = PDF_MARGIN;
   const drawWidth = pageWidth - 2 * margin;
-  const drawHeight = pageHeight - 2 * margin - 80; // Leave room for header
+  const drawHeight = pageHeight - 2 * margin - PDF_HEADER_HEIGHT;
 
   // Calculate scale to fit
   const scaleX = drawWidth / boundsWidth;
@@ -400,9 +469,9 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
   content += `BT /F1 8 Tf 50 720 Td (Scale: 1 inch = ${(72 / scale).toFixed(1)} feet) Tj ET\n`;
 
   // Draw grid
-  content += '0.9 0.9 0.9 RG\n'; // Light gray
+  content += `${PDF_COLORS.GRID} RG\n`;
   content += '0.5 w\n'; // Thin line
-  const gridSpacing = 10; // 10 feet
+  const gridSpacing = PDF_GRID_SPACING_FT;
   for (let x = Math.ceil(minX / gridSpacing) * gridSpacing; x <= maxX; x += gridSpacing) {
     content += `${toPageX(x).toFixed(2)} ${toPageY(minY).toFixed(2)} m `;
     content += `${toPageX(x).toFixed(2)} ${toPageY(maxY).toFixed(2)} l S\n`;
@@ -420,7 +489,7 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
     if (zone.polygonFt.length < 3) continue;
 
     // Fill polygon with light color
-    content += '0.95 0.95 1 rg\n'; // Light blue fill
+    content += `${PDF_COLORS.ROOM_FILL} rg\n`;
     let first = true;
     for (const point of zone.polygonFt) {
       const x = toPageX(point.x + offsetX);
@@ -435,7 +504,7 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
     content += 'h f\n'; // Close path and fill
 
     // Stroke polygon outline
-    content += '0 0 0 RG\n'; // Black stroke
+    content += `${PDF_COLORS.WALL} RG\n`;
     content += '1 w\n'; // Normal line width
     first = true;
     for (const point of zone.polygonFt) {
@@ -488,11 +557,11 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
           const py = toPageY(oy);
 
           if (opening.openingType === 'door') {
-            content += '0.8 0.5 0.2 RG\n'; // Brown for doors
+            content += `${PDF_COLORS.DOOR} RG\n`;
           } else if (opening.openingType === 'window') {
-            content += '0.2 0.6 0.9 RG\n'; // Blue for windows
+            content += `${PDF_COLORS.WINDOW} RG\n`;
           } else {
-            content += '0.5 0.5 0.5 RG\n'; // Gray for other
+            content += `${PDF_COLORS.OPENING_OTHER} RG\n`;
           }
           content += '3 w\n';
           content += `${(px - halfWidth * unitY).toFixed(2)} ${(py + halfWidth * unitX).toFixed(2)} m `;
@@ -502,12 +571,99 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
     }
   }
 
+  // Draw zone connections (room-to-room relationships)
+  if (connections && connections.length > 0) {
+    // Create zone lookup map
+    const zoneMap = new Map<string, ZoneSketch>();
+    for (const zone of zones) {
+      zoneMap.set(zone.id, zone);
+    }
+
+    // Draw each connection
+    for (const conn of connections) {
+      // Find from zone by checking which zone has this connection
+      let fromZone: ZoneSketch | undefined;
+      for (const zone of zones) {
+        if (zone.connections && zone.connections.some(c => c.id === conn.id)) {
+          fromZone = zone;
+          break;
+        }
+      }
+      
+      const toZone = zoneMap.get(conn.toZoneId);
+
+      if (!fromZone || !toZone) continue;
+
+      // Find connection point - use opening if available, otherwise use zone centers
+      let fromPoint: { x: number; y: number };
+      let toPoint: { x: number; y: number };
+
+      if (conn.openingId) {
+        // Find opening in from zone
+        const opening = fromZone.openings.find(o => o.id === conn.openingId);
+        if (opening && opening.wallIndex >= 0 && opening.wallIndex < fromZone.polygonFt.length) {
+          const p1 = fromZone.polygonFt[opening.wallIndex];
+          const p2 = fromZone.polygonFt[(opening.wallIndex + 1) % fromZone.polygonFt.length];
+          const wallDx = p2.x - p1.x;
+          const wallDy = p2.y - p1.y;
+          const wallLen = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+          if (wallLen > 0) {
+            const unitX = wallDx / wallLen;
+            const unitY = wallDy / wallLen;
+            const openingCenterOffset = opening.offsetFromVertexFt + opening.widthFt / 2;
+            fromPoint = {
+              x: p1.x + unitX * openingCenterOffset + fromZone.originXFt,
+              y: p1.y + unitY * openingCenterOffset + fromZone.originYFt,
+            };
+          } else {
+            // Fallback to center
+            fromPoint = {
+              x: fromZone.polygonFt.reduce((sum, p) => sum + p.x, 0) / fromZone.polygonFt.length + fromZone.originXFt,
+              y: fromZone.polygonFt.reduce((sum, p) => sum + p.y, 0) / fromZone.polygonFt.length + fromZone.originYFt,
+            };
+          }
+        } else {
+          // Fallback to center
+          fromPoint = {
+            x: fromZone.polygonFt.reduce((sum, p) => sum + p.x, 0) / fromZone.polygonFt.length + fromZone.originXFt,
+            y: fromZone.polygonFt.reduce((sum, p) => sum + p.y, 0) / fromZone.polygonFt.length + fromZone.originYFt,
+          };
+        }
+      } else {
+        // Use zone centers
+        fromPoint = {
+          x: fromZone.polygonFt.reduce((sum, p) => sum + p.x, 0) / fromZone.polygonFt.length + fromZone.originXFt,
+          y: fromZone.polygonFt.reduce((sum, p) => sum + p.y, 0) / fromZone.polygonFt.length + fromZone.originYFt,
+        };
+      }
+
+      toPoint = {
+        x: toZone.polygonFt.reduce((sum, p) => sum + p.x, 0) / toZone.polygonFt.length + toZone.originXFt,
+        y: toZone.polygonFt.reduce((sum, p) => sum + p.y, 0) / toZone.polygonFt.length + toZone.originYFt,
+      };
+
+      // Draw connection line (dashed)
+      content += `${PDF_COLORS.CONNECTION_LINE} RG\n`;
+      content += '1 w\n';
+      content += '[4 2] 0 d\n'; // Dashed line pattern
+      content += `${toPageX(fromPoint.x).toFixed(2)} ${toPageY(fromPoint.y).toFixed(2)} m `;
+      content += `${toPageX(toPoint.x).toFixed(2)} ${toPageY(toPoint.y).toFixed(2)} l S\n`;
+      content += '[] 0 d\n'; // Reset dash pattern
+
+      // Draw connection indicators (small circles)
+      const iconSize = 4;
+      content += `${PDF_COLORS.CONNECTION_LINE} rg\n`; // Fill color
+      content += `${toPageX(fromPoint.x).toFixed(2)} ${toPageY(fromPoint.y).toFixed(2)} ${iconSize} 0 360 arc f\n`;
+      content += `${toPageX(toPoint.x).toFixed(2)} ${toPageY(toPoint.y).toFixed(2)} ${iconSize} 0 360 arc f\n`;
+    }
+  }
+
   // Scale legend
-  content += '0 0 0 RG\n';
+  content += `${PDF_COLORS.WALL} RG\n`;
   content += '1 w\n';
   const legendY = 30;
   const legendX = margin;
-  const legendLen = 72; // 1 inch
+  const legendLen = PDF_SCALE_LEGEND_LENGTH;
   content += `${legendX} ${legendY} m ${legendX + legendLen} ${legendY} l S\n`;
   content += `${legendX} ${legendY - 3} m ${legendX} ${legendY + 3} l S\n`;
   content += `${legendX + legendLen} ${legendY - 3} m ${legendX + legendLen} ${legendY + 3} l S\n`;
@@ -517,7 +673,7 @@ async function generateSketchPdf(zones: ZoneSketch[], propertyAddress: string): 
   // North arrow
   const northX = pageWidth - margin - 30;
   const northY = pageHeight - margin - 40;
-  content += '0 0 0 RG\n';
+  content += `${PDF_COLORS.WALL} RG\n`;
   content += '2 w\n';
   content += `${northX} ${northY - 20} m ${northX} ${northY + 20} l S\n`; // Vertical line
   content += `${northX} ${northY + 20} m ${northX - 5} ${northY + 10} l S\n`; // Left arrow
@@ -683,9 +839,70 @@ function groupLineItemsForExport(estimate: SavedEstimate): LineItemForExport[] {
 
 /**
  * Get photos for an estimate
+ * Loads photos from claim_photos table and downloads from storage
  */
 async function getEstimatePhotos(estimateId: string): Promise<Array<{ name: string; data: Buffer }>> {
-  // This would load actual photos from storage
-  // For now, return empty array
-  return [];
+  try {
+    // Get estimate to find claim ID
+    const estimate = await getEstimate(estimateId);
+    if (!estimate || !estimate.claimId) {
+      return [];
+    }
+
+    // Fetch photos for this claim
+    const { data: photos, error } = await supabaseAdmin
+      .from('claim_photos')
+      .select('id, file_name, storage_path, public_url')
+      .eq('claim_id', estimate.claimId)
+      .eq('analysis_status', 'completed') // Only include analyzed photos
+      .order('captured_at', { ascending: true })
+      .limit(50); // Limit to 50 photos per export
+
+    if (error || !photos || photos.length === 0) {
+      return [];
+    }
+
+    // Download photos from storage
+    const photoData: Array<{ name: string; data: Buffer }> = [];
+    
+    for (const photo of photos) {
+      try {
+        // Try to download from storage path first, fall back to public URL
+        if (photo.storage_path) {
+          const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+            .from('claim-photos')
+            .download(photo.storage_path);
+
+          if (!downloadError && fileData) {
+            const buffer = Buffer.from(await fileData.arrayBuffer());
+            photoData.push({
+              name: photo.file_name || `${photo.id}.jpg`,
+              data: buffer,
+            });
+            continue;
+          }
+        }
+
+        // Fallback: try public URL
+        if (photo.public_url) {
+          const response = await fetch(photo.public_url);
+          if (response.ok) {
+            const buffer = Buffer.from(await response.arrayBuffer());
+            photoData.push({
+              name: photo.file_name || `${photo.id}.jpg`,
+              data: buffer,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`[ESX Export] Failed to load photo ${photo.id}:`, err);
+        // Continue with next photo
+      }
+    }
+
+    return photoData;
+  } catch (error) {
+    console.error(`[ESX Export] Error loading photos for estimate ${estimateId}:`, error);
+    return [];
+  }
 }
