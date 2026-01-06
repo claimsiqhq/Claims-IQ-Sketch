@@ -47,6 +47,9 @@ import {
 } from '../utils/polygon-math';
 
 interface GeometryEngineState {
+  // Track which claim ID rooms were loaded for (to detect cross-claim navigation)
+  loadedForClaimId: string | null;
+  
   // Hierarchy: Structures contain rooms
   structures: Structure[];
   currentStructure: Structure | null;
@@ -114,6 +117,9 @@ interface GeometryEngineState {
 
   // Reset state
   resetSession: () => void;
+  
+  // Reset and load for a specific claim (handles cross-claim navigation)
+  resetAndLoadForClaim: (claimId: string, rooms: RoomGeometry[]) => void;
 
   // Load from existing claim data
   loadFromClaimData: (structures: Structure[], rooms: RoomGeometry[]) => void;
@@ -130,6 +136,7 @@ const initialSessionState: VoiceSessionState = {
 };
 
 export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
+  loadedForClaimId: null,
   structures: [],
   currentStructure: null,
   currentRoom: null,
@@ -1398,10 +1405,28 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
 
   resetSession: () => {
     set({
+      loadedForClaimId: null,
       structures: [],
       currentStructure: null,
       currentRoom: null,
       rooms: [],
+      photos: [],
+      commandHistory: [],
+      undoStack: [],
+      transcript: [],
+      sessionState: initialSessionState,
+    });
+  },
+  
+  resetAndLoadForClaim: (claimId: string, rooms: RoomGeometry[]) => {
+    // Reset all state and load rooms for the specified claim
+    // This handles cross-claim navigation by tracking which claim was loaded
+    set({
+      loadedForClaimId: claimId,
+      structures: [],
+      currentStructure: null,
+      currentRoom: null,
+      rooms: rooms,
       photos: [],
       commandHistory: [],
       undoStack: [],

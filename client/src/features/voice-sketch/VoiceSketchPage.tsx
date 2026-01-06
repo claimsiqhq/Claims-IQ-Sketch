@@ -48,11 +48,10 @@ export default function VoiceSketchPage() {
   const claimId = params.claimId;
   const authUser = useStore((state) => state.authUser);
 
-  const { rooms, currentRoom, structures, resetSession, loadRooms } = useGeometryEngine();
+  const { rooms, currentRoom, structures, resetSession, loadRooms, resetAndLoadForClaim, loadedForClaimId } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
   const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState<string>('');
-  const hasLoadedRooms = useRef(false);
   const [deleteConfirmClaimId, setDeleteConfirmClaimId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSavedSketchesOpen, setIsSavedSketchesOpen] = useState(false);
@@ -74,12 +73,21 @@ export default function VoiceSketchPage() {
   });
   
   // Load existing rooms into geometry engine when data is available
+  // Uses store-level loadedForClaimId tracking to persist across component remounts
   useEffect(() => {
-    if (existingRoomsData?.rooms && existingRoomsData.rooms.length > 0 && !hasLoadedRooms.current) {
-      hasLoadedRooms.current = true;
-      
-      // Convert ClaimRoom to RoomGeometry (API response uses camelCase from database)
-      const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((roomData) => {
+    // Skip if no claimId or rooms data hasn't loaded yet
+    if (!claimId || !existingRoomsData) {
+      return;
+    }
+    
+    // Check if we've already loaded rooms for this specific claim (tracked in store)
+    if (loadedForClaimId === claimId) {
+      // Already loaded for this claim - skip
+      return;
+    }
+    
+    // Convert ClaimRoom to RoomGeometry (API response uses camelCase from database)
+    const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((roomData) => {
         const room = roomData as any; // API response matches database schema
         const width = parseFloat(room.widthFt || room.width || '10');
         const length = parseFloat(room.lengthFt || room.height || '10');
@@ -141,12 +149,16 @@ export default function VoiceSketchPage() {
         };
       });
       
-      loadRooms(convertedRooms);
+    // Use resetAndLoadForClaim which resets all state AND sets the loadedForClaimId
+    // This ensures proper cleanup when switching between claims
+    resetAndLoadForClaim(claimId, convertedRooms);
+    
+    if (convertedRooms.length > 0) {
       toast.info(`Loaded ${convertedRooms.length} saved room(s)`, {
         description: 'You can continue editing or add more rooms.',
       });
     }
-  }, [existingRoomsData, loadRooms]);
+  }, [existingRoomsData, claimId, loadedForClaimId, resetAndLoadForClaim]);
 
   // Fetch available claims for the claim selector (when no claim is attached)
   const { data: claimsData, isLoading: isLoadingClaims } = useQuery({
