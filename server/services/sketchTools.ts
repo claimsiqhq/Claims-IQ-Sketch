@@ -30,10 +30,7 @@ import type {
   ZoneDimensions,
 } from '../../shared/schema';
 import type { Point } from '../../shared/geometry';
-import { distance } from '../../shared/geometry';
-import type { Point } from '../../shared/geometry';
-import { getWallDirection, distance } from '../../shared/geometry';
-import type { Point } from '../../shared/geometry';
+import { distance, getWallDirection } from '../../shared/geometry';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -918,12 +915,27 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
     }
     const wallHeightFt = parseFloat(zone.height_ft) || 8;
 
-    // Check for duplicate missing wall
+    // Get zone polygon to determine wall index
+    const { data: zoneData, error: zoneDataError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('polygon_ft')
+      .eq('id', zoneId)
+      .single();
+
+    if (zoneDataError || !zoneData || !zoneData.polygon_ft) {
+      return { success: false, error: `Zone ${zoneId} not found or has no polygon geometry` };
+    }
+
+    const polygon = zoneData.polygon_ft as Point[];
+    const wallIndex = await getWallIndexFromName(zoneId, input.wall, polygon);
+    const offsetFromVertexFt = getWallCenterOffset(polygon, wallIndex);
+
+    // Check for duplicate missing wall on same wall
     const { data: existingWall, error: checkError } = await supabaseAdmin
-      .from('estimate_missing_walls')
+      .from('zone_openings')
       .select('id')
       .eq('zone_id', zoneId)
-      .eq('name', input.wall)
+      .eq('wall_index', wallIndex)
       .eq('opening_type', 'missing_wall')
       .maybeSingle();
 
@@ -936,7 +948,7 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
 
     // Get next sort order
     const { data: maxOrderData, error: orderError } = await supabaseAdmin
-      .from('estimate_missing_walls')
+      .from('zone_openings')
       .select('sort_order')
       .eq('zone_id', zoneId)
       .order('sort_order', { ascending: false })
@@ -945,22 +957,19 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
 
     const sortOrder = maxOrderData ? (maxOrderData.sort_order + 1) : 0;
 
-    // Insert the missing wall
+    // Insert the missing wall into zone_openings
     const { data: insertResult, error: insertError } = await supabaseAdmin
-      .from('estimate_missing_walls')
+      .from('zone_openings')
       .insert({
         zone_id: zoneId,
-        name: input.wall,
         opening_type: 'missing_wall',
+        wall_index: wallIndex,
+        offset_from_vertex_ft: offsetFromVertexFt,
         width_ft: wallWidthFt,
         height_ft: wallHeightFt,
-        quantity: 1,
-        goes_to_floor: true,
-        goes_to_ceiling: true,
-        opens_into: 'Adjacent Room',
         sort_order: sortOrder
       })
-      .select('id, name, width_ft, height_ft')
+      .select('id, wall_index, width_ft, height_ft')
       .single();
 
     if (insertError || !insertResult) {
@@ -971,7 +980,7 @@ export async function addMissingWall(input: AddMissingWallInput): Promise<ToolRe
       success: true,
       data: {
         id: insertResult.id,
-        wall: insertResult.name,
+        wall: input.wall, // Return the original wall name for compatibility
         width_ft: parseFloat(insertResult.width_ft),
         height_ft: parseFloat(insertResult.height_ft),
       },
@@ -1013,7 +1022,7 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
       return { success: false, error: `Estimate ${estimateId} not found` };
     }
 
-    // Fetch all zones with their openings
+    // Fetch all zones
     const { data: zones, error: zonesError } = await supabaseAdmin
       .from('estimate_zones')
       .select(`
@@ -1024,6 +1033,7 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
         width_ft,
         height_ft,
         dimensions,
+        polygon_ft,
         updated_at,
         created_at,
         sort_order,
@@ -1031,8 +1041,7 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
           estimate_structures!inner(
             estimate_id
           )
-        ),
-        estimate_missing_walls(*)
+        )
       `)
       .eq('estimate_areas.estimate_structures.estimate_id', estimateId)
       .eq('zone_type', 'room')
@@ -1043,13 +1052,49 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
       throw new Error(`Failed to fetch zones: ${zonesError.message}`);
     }
 
+    // Fetch all openings for these zones
+    const zoneIds = (zones || []).map((z: any) => z.id);
+    let openingsMap: Map<string, any[]> = new Map();
+    
+    if (zoneIds.length > 0) {
+      const { data: openings, error: openingsError } = await supabaseAdmin
+        .from('zone_openings')
+        .select('*')
+        .in('zone_id', zoneIds)
+        .order('sort_order', { ascending: true });
+
+      if (!openingsError && openings) {
+        for (const opening of openings) {
+          const zoneOpenings = openingsMap.get(opening.zone_id) || [];
+          zoneOpenings.push(opening);
+          openingsMap.set(opening.zone_id, zoneOpenings);
+        }
+      }
+    }
+
+    // Helper to convert wall index back to wall name
+    const getWallNameFromIndex = (wallIndex: number, polygon: Point[] | null): string => {
+      if (!polygon || polygon.length !== 4) {
+        return `wall_${wallIndex}`;
+      }
+      const wallMap: Record<number, string> = {
+        0: 'north',
+        1: 'east',
+        2: 'south',
+        3: 'west',
+      };
+      return wallMap[wallIndex] || `wall_${wallIndex}`;
+    };
+
     let lastUpdated: string | null = null;
     const rooms: SketchStateRoom[] = (zones || []).map((row: any) => {
       if (row.updated_at && (!lastUpdated || row.updated_at > lastUpdated)) {
         lastUpdated = row.updated_at;
       }
 
-      const openings = row.estimate_missing_walls || [];
+      const openings = openingsMap.get(row.id) || [];
+      const polygon = row.polygon_ft as Point[] | null;
+      
       return {
         id: row.zone_code || row.id,
         name: row.name,
@@ -1058,19 +1103,19 @@ export async function getSketchState(estimateId: string): Promise<ToolResult<Ske
         height_ft: parseFloat(row.height_ft) || 8,
         dimensions: row.dimensions || {},
         openings: openings
-          .filter((o: any) => o.id && o.opening_type !== 'missing_wall')
+          .filter((o: any) => o.opening_type !== 'missing_wall')
           .map((o: any) => ({
             id: o.id,
             type: o.opening_type,
-            wall: o.name,
+            wall: getWallNameFromIndex(o.wall_index, polygon),
             width_ft: parseFloat(o.width_ft) || 0,
             height_ft: parseFloat(o.height_ft) || 0,
           })),
         missing_walls: openings
-          .filter((o: any) => o.id && o.opening_type === 'missing_wall')
+          .filter((o: any) => o.opening_type === 'missing_wall')
           .map((o: any) => ({
             id: o.id,
-            wall: o.name,
+            wall: getWallNameFromIndex(o.wall_index, polygon),
             width_ft: parseFloat(o.width_ft) || 0,
             height_ft: parseFloat(o.height_ft) || 0,
           })),
