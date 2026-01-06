@@ -30,6 +30,8 @@ import type {
   ZoneDimensions,
 } from '../../shared/schema';
 import type { Point } from '../../shared/geometry';
+import { distance } from '../../shared/geometry';
+import type { Point } from '../../shared/geometry';
 import { getWallDirection, distance } from '../../shared/geometry';
 import type { Point } from '../../shared/geometry';
 
