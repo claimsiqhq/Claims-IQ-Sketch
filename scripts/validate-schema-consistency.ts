@@ -266,6 +266,9 @@ async function validateSchemaConsistency() {
 
   const pool = new Pool({
     connectionString: databaseUrl,
+    ssl: process.env.NODE_ENV === 'production' 
+      ? { rejectUnauthorized: false } 
+      : { rejectUnauthorized: false }, // Allow self-signed certs for local/dev
   });
 
   try {
