@@ -623,7 +623,7 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
     // Fetch the complete room state
     const { data: zone, error: fetchError } = await supabaseAdmin
       .from('estimate_zones')
-      .select('*, estimate_missing_walls(*)')
+      .select('*')
       .eq('id', zoneId)
       .single();
 
@@ -631,7 +631,29 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
       throw new Error(`Failed to fetch zone: ${fetchError?.message}`);
     }
 
-    const openings = zone.estimate_missing_walls || [];
+    // Fetch openings from zone_openings table
+    const { data: openings, error: openingsError } = await supabaseAdmin
+      .from('zone_openings')
+      .select('*')
+      .eq('zone_id', zoneId)
+      .order('sort_order', { ascending: true });
+
+    const polygon = zone.polygon_ft as Point[] | null;
+    
+    // Helper to convert wall index back to wall name (for compatibility)
+    const getWallNameFromIndex = (wallIndex: number): string => {
+      if (!polygon || polygon.length !== 4) {
+        return `wall_${wallIndex}`;
+      }
+      const wallMap: Record<number, string> = {
+        0: 'north',
+        1: 'east',
+        2: 'south',
+        3: 'west',
+      };
+      return wallMap[wallIndex] || `wall_${wallIndex}`;
+    };
+
     const room: SketchStateRoom = {
       id: zone.zone_code || zone.id,
       name: zone.name,
@@ -639,20 +661,20 @@ export async function createOrUpdateRoom(input: CreateOrUpdateRoomInput): Promis
       width_ft: parseFloat(zone.width_ft) || 0,
       height_ft: parseFloat(zone.height_ft) || 8,
       dimensions: zone.dimensions || {},
-      openings: openings
-        .filter((o: any) => o.id && o.opening_type !== 'missing_wall')
+      openings: (openings || [])
+        .filter((o: any) => o.opening_type !== 'missing_wall')
         .map((o: any) => ({
           id: o.id,
           type: o.opening_type,
-          wall: o.name,
+          wall: getWallNameFromIndex(o.wall_index),
           width_ft: parseFloat(o.width_ft) || 0,
           height_ft: parseFloat(o.height_ft) || 0,
         })),
-      missing_walls: openings
-        .filter((o: any) => o.id && o.opening_type === 'missing_wall')
+      missing_walls: (openings || [])
+        .filter((o: any) => o.opening_type === 'missing_wall')
         .map((o: any) => ({
           id: o.id,
-          wall: o.name,
+          wall: getWallNameFromIndex(o.wall_index),
           width_ft: parseFloat(o.width_ft) || 0,
           height_ft: parseFloat(o.height_ft) || 0,
         })),
@@ -819,7 +841,7 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
       data: {
         id: insertResult.id,
         type: insertResult.opening_type,
-        wall: insertResult.name,
+        wall: input.wall, // Return the original wall name for compatibility
         width_ft: parseFloat(insertResult.width_ft),
         height_ft: parseFloat(insertResult.height_ft),
       },
