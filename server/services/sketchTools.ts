@@ -752,12 +752,27 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
         heightFt = 6.67;
     }
 
-    // Check for duplicate opening on same wall
+    // Get zone polygon to determine wall index
+    const { data: zoneData, error: zoneDataError } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('polygon_ft')
+      .eq('id', zoneId)
+      .single();
+
+    if (zoneDataError || !zoneData || !zoneData.polygon_ft) {
+      return { success: false, error: `Zone ${zoneId} not found or has no polygon geometry` };
+    }
+
+    const polygon = zoneData.polygon_ft as Point[];
+    const wallIndex = await getWallIndexFromName(zoneId, input.wall, polygon);
+    const offsetFromVertexFt = getWallCenterOffset(polygon, wallIndex);
+
+    // Check for duplicate opening on same wall at similar position
     const { data: existingOpening, error: checkError } = await supabaseAdmin
-      .from('estimate_missing_walls')
+      .from('zone_openings')
       .select('id')
       .eq('zone_id', zoneId)
-      .eq('name', input.wall)
+      .eq('wall_index', wallIndex)
       .eq('opening_type', input.type)
       .maybeSingle();
 
@@ -768,11 +783,9 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
       };
     }
 
-    const { opensInto } = getWallMetadata(input.wall);
-
     // Get next sort order
     const { data: maxOrderData, error: orderError } = await supabaseAdmin
-      .from('estimate_missing_walls')
+      .from('zone_openings')
       .select('sort_order')
       .eq('zone_id', zoneId)
       .order('sort_order', { ascending: false })
@@ -781,22 +794,20 @@ export async function addRoomOpening(input: AddRoomOpeningInput): Promise<ToolRe
 
     const sortOrder = maxOrderData ? (maxOrderData.sort_order + 1) : 0;
 
-    // Insert the opening
+    // Insert the opening into zone_openings
     const { data: insertResult, error: insertError } = await supabaseAdmin
-      .from('estimate_missing_walls')
+      .from('zone_openings')
       .insert({
         zone_id: zoneId,
-        name: input.wall,
         opening_type: input.type,
+        wall_index: wallIndex,
+        offset_from_vertex_ft: offsetFromVertexFt,
         width_ft: widthFt,
         height_ft: heightFt,
-        quantity: 1,
-        goes_to_floor: input.type === 'door' || input.type === 'cased_opening',
-        goes_to_ceiling: false,
-        opens_into: opensInto,
+        sill_height_ft: input.type === 'window' ? heightFt / 2 : null,
         sort_order: sortOrder
       })
-      .select('id, opening_type, name, width_ft, height_ft')
+      .select('id, opening_type, wall_index, width_ft, height_ft')
       .single();
 
     if (insertError || !insertResult) {
