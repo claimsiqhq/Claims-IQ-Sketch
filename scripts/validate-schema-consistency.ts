@@ -264,11 +264,18 @@ async function validateSchemaConsistency() {
     process.exit(1);
   }
 
+  // For Supabase direct PostgreSQL connections, SSL is required
+  // but we need to allow self-signed certificates
+  // Set environment variable to bypass SSL verification if needed
+  if (databaseUrl.includes('supabase.co')) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  }
+  
   const pool = new Pool({
     connectionString: databaseUrl,
-    ssl: process.env.NODE_ENV === 'production' 
-      ? { rejectUnauthorized: false } 
-      : { rejectUnauthorized: false }, // Allow self-signed certs for local/dev
+    ssl: databaseUrl.includes('supabase.co') 
+      ? { rejectUnauthorized: false }
+      : undefined,
   });
 
   try {
