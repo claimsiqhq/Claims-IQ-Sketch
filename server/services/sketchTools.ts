@@ -29,6 +29,9 @@ import type {
   EstimateMissingWall,
   ZoneDimensions,
 } from '../../shared/schema';
+import type { Point } from '../../shared/geometry';
+import { getWallDirection, distance } from '../../shared/geometry';
+import type { Point } from '../../shared/geometry';
 
 // ============================================
 // TYPE DEFINITIONS

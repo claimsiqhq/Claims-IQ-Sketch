@@ -22,7 +22,12 @@
 
 import { buildZipArchive } from '../utils/zipBuilder';
 import { getEstimate, type SavedEstimate, type CalculatedLineItem } from './estimateCalculator';
-import { getEstimateSketch, type ZoneSketch, type ZoneConnectionData, validateEstimateSketchForExport } from './sketchService';
+import { 
+  getEstimateSketch, 
+  type ZoneSketch, 
+  type ZoneConnectionData, 
+  validateEstimateSketchForExport 
+} from './sketchService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   PDF_PAGE_WIDTH,
