@@ -39,10 +39,7 @@ export async function createVoiceSession(): Promise<VoiceSessionResult> {
         }
       },
       turn_detection: {
-        type: 'server_vad',
-        threshold: 0.65,
-        prefix_padding_ms: 200,
-        silence_duration_ms: 800,
+        type: 'semantic_vad',
       },
     }
   };

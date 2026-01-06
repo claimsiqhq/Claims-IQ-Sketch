@@ -12,34 +12,20 @@ Both voice session hooks (`useVoiceSession` and `useVoiceScopeSession`) are conf
 
 ```typescript
 turnDetection: {
-  type: 'server_vad',
-  threshold: 0.65,
-  prefix_padding_ms: 200,
-  silence_duration_ms: 800,
+  type: 'semantic_vad',
 }
 ```
 
 ### Parameter Explanation
 
-- **`type: 'server_vad'`**: Uses OpenAI's server-side VAD instead of client-side semantic VAD
-  - More robust against background noise
-  - Better handling of ambient sounds
-  - Reduced false positives from non-speech audio
+- **`type: 'semantic_vad'`**: Uses OpenAI's semantic voice activity detection classifier
+  - Intelligently determines when user has finished a complete thought
+  - Significantly reduces false interruptions from non-speech background noise
+  - Uses context-aware classification rather than simple audio thresholds
+  - Better at handling natural speech patterns and pauses
+  - More accurate than threshold-based VAD for conversational interfaces
 
-- **`threshold: 0.65`**: Voice activity detection threshold (0.0 - 1.0)
-  - Higher values = more conservative (requires stronger voice signal)
-  - Lower values = more sensitive (may trigger on background noise)
-  - Default: 0.5, Current: 0.65 (more conservative to reduce interruptions)
-
-- **`prefix_padding_ms: 200`**: Milliseconds of audio to include before detected speech
-  - Captures speech that starts before VAD triggers
-  - Helps avoid cutting off the beginning of utterances
-  - Current: 200ms
-
-- **`silence_duration_ms: 800`**: Milliseconds of silence required before ending turn
-  - Longer duration = waits longer before considering speech finished
-  - Helps handle pauses in natural speech
-  - Current: 800ms (allows for natural pauses)
+**Note:** `semantic_vad` does not use threshold, prefix_padding_ms, or silence_duration_ms parameters. It uses its own intelligent classifier that understands speech context and meaning.
 
 ## Files Modified
 
@@ -54,19 +40,34 @@ turnDetection: {
 
 ## Tuning Recommendations
 
-If users still experience issues with background noise:
+With `semantic_vad`, tuning is handled automatically by the classifier. However, if you need to switch back to threshold-based VAD:
 
-### Too Sensitive (triggers on background noise):
-- Increase `threshold` to 0.7 or 0.75
-- Increase `silence_duration_ms` to 1000 or 1200
+### Alternative: Server VAD (threshold-based)
 
-### Not Sensitive Enough (misses speech):
-- Decrease `threshold` to 0.55 or 0.6
-- Decrease `silence_duration_ms` to 600 or 700
+If `semantic_vad` doesn't meet your needs, you can switch to `server_vad`:
 
-### Cutting off speech:
-- Increase `prefix_padding_ms` to 300 or 400
-- Increase `silence_duration_ms` to allow for pauses
+```typescript
+turnDetection: {
+  type: 'server_vad',
+  threshold: 0.65,        // Higher = less sensitive to noise
+  prefix_padding_ms: 200, // Audio before speech to capture
+  silence_duration_ms: 800, // Silence before ending turn
+}
+```
+
+**Tuning server_vad:**
+
+- **Too Sensitive (triggers on background noise):**
+  - Increase `threshold` to 0.7 or 0.75
+  - Increase `silence_duration_ms` to 1000 or 1200
+
+- **Not Sensitive Enough (misses speech):**
+  - Decrease `threshold` to 0.55 or 0.6
+  - Decrease `silence_duration_ms` to 600 or 700
+
+- **Cutting off speech:**
+  - Increase `prefix_padding_ms` to 300 or 400
+  - Increase `silence_duration_ms` to allow for pauses
 
 ## Testing
 
