@@ -231,6 +231,109 @@ function getWallMetadata(wall: string): { opensInto: string } {
   return { opensInto: wallMap[wall] || 'Exterior' };
 }
 
+/**
+ * Convert wall name (north/south/east/west) to wall index based on polygon
+ * For rectangular rooms, this maps:
+ * - north -> wall 0 (top edge)
+ * - east -> wall 1 (right edge)
+ * - south -> wall 2 (bottom edge)
+ * - west -> wall 3 (left edge)
+ * 
+ * For non-rectangular rooms, we analyze the polygon to find the matching wall
+ */
+async function getWallIndexFromName(
+  zoneId: string,
+  wallName: string,
+  polygonFt?: Point[]
+): Promise<number> {
+  // If polygon provided, use it; otherwise fetch from database
+  let polygon: Point[];
+  
+  if (polygonFt) {
+    polygon = polygonFt;
+  } else {
+    const { data: zone, error } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('polygon_ft')
+      .eq('id', zoneId)
+      .single();
+    
+    if (error || !zone || !zone.polygon_ft) {
+      throw new Error(`Zone ${zoneId} not found or has no polygon`);
+    }
+    
+    polygon = zone.polygon_ft as Point[];
+  }
+  
+  if (polygon.length < 3) {
+    throw new Error(`Invalid polygon for zone ${zoneId}`);
+  }
+  
+  // For rectangular rooms (4 points), use simple mapping
+  if (polygon.length === 4) {
+    const wallMap: Record<string, number> = {
+      north: 0, // Top edge
+      east: 1,  // Right edge
+      south: 2, // Bottom edge
+      west: 3,  // Left edge
+    };
+    
+    if (wallMap[wallName] !== undefined) {
+      return wallMap[wallName];
+    }
+  }
+  
+  // For non-rectangular rooms, analyze polygon to find matching wall
+  // Calculate bounding box to determine orientation
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const point of polygon) {
+    minX = Math.min(minX, point.x);
+    maxX = Math.max(maxX, point.x);
+    minY = Math.min(minY, point.y);
+    maxY = Math.max(maxY, point.y);
+  }
+  
+  // Find wall that matches the direction
+  for (let i = 0; i < polygon.length; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % polygon.length];
+    
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    
+    // Check if this wall matches the requested direction
+    if (wallName === 'north' && Math.abs(dy) < 0.1 && p1.y < (minY + maxY) / 2) {
+      return i;
+    }
+    if (wallName === 'south' && Math.abs(dy) < 0.1 && p1.y > (minY + maxY) / 2) {
+      return i;
+    }
+    if (wallName === 'east' && Math.abs(dx) < 0.1 && p1.x > (minX + maxX) / 2) {
+      return i;
+    }
+    if (wallName === 'west' && Math.abs(dx) < 0.1 && p1.x < (minX + maxX) / 2) {
+      return i;
+    }
+  }
+  
+  // Fallback: return first wall
+  return 0;
+}
+
+/**
+ * Calculate offset from vertex for wall center placement
+ */
+function getWallCenterOffset(polygon: Point[], wallIndex: number): number {
+  if (wallIndex < 0 || wallIndex >= polygon.length) {
+    return 0;
+  }
+  
+  const p1 = polygon[wallIndex];
+  const p2 = polygon[(wallIndex + 1) % polygon.length];
+  
+  return distance(p1, p2) / 2;
+}
+
 // ============================================
 // TOOL #1: GENERATE FLOORPLAN DATA
 // ============================================
