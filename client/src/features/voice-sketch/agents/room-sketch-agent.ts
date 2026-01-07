@@ -38,17 +38,18 @@ async function fetchInstructionsFromAPI(): Promise<string> {
   }
 
   const data = await response.json();
-  if (!data.config?.systemPrompt) {
+  const systemPrompt = data.config?.systemPrompt;
+  if (!systemPrompt || typeof systemPrompt !== 'string') {
     throw new Error(
       `[RoomSketchAgent] No systemPrompt found in database response. ` +
       `Check that the "voice.room_sketch" prompt is properly configured in ai_prompts.`
     );
   }
 
-  cachedInstructions = data.config.systemPrompt;
+  cachedInstructions = systemPrompt;
   cacheTimestamp = now;
   console.log('[RoomSketchAgent] Loaded instructions from database');
-  return cachedInstructions;
+  return systemPrompt;
 }
 
 /**
