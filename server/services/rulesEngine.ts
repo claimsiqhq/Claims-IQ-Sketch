@@ -1110,3 +1110,177 @@ export function formatRulesResult(result: RulesEvaluationResult): string {
 
   return lines.join('\n');
 }
+
+// ============================================
+// RULE EFFECTS PERSISTENCE
+// ============================================
+
+/**
+ * Persist rule effects to database for audit trail
+ *
+ * @param estimateId - The estimate these rules apply to
+ * @param result - The rules evaluation result containing audit log
+ * @param appliedBy - Optional user who triggered the evaluation
+ */
+export async function persistRuleEffects(
+  estimateId: string,
+  result: RulesEvaluationResult,
+  appliedBy?: string
+): Promise<{ success: boolean; inserted: number; error?: string }> {
+  try {
+    // Clear existing rule effects for this estimate (re-evaluation replaces old results)
+    await supabaseAdmin
+      .from('rule_effects')
+      .delete()
+      .eq('estimate_id', estimateId);
+
+    // Transform audit log entries to database records
+    const effectsToInsert = result.auditLog.map((entry) => ({
+      estimate_id: estimateId,
+      estimate_line_item_id: entry.targetType === 'line_item' ? entry.targetId : null,
+      zone_id: entry.targetType === 'zone' ? entry.targetId : null,
+      rule_source: entry.ruleSource,
+      rule_id: null, // Could be enhanced to track actual rule IDs
+      rule_code: entry.ruleCode,
+      effect_type: entry.effectType,
+      original_value: entry.originalValue,
+      modified_value: entry.modifiedValue,
+      explanation_text: entry.explanation,
+      applied_at: entry.timestamp.toISOString(),
+      applied_by: appliedBy || null,
+      is_override: false,
+      override_reason: null,
+      override_by: null,
+    }));
+
+    if (effectsToInsert.length === 0) {
+      return { success: true, inserted: 0 };
+    }
+
+    const { error } = await supabaseAdmin
+      .from('rule_effects')
+      .insert(effectsToInsert);
+
+    if (error) {
+      console.error('Error persisting rule effects:', error);
+      return { success: false, inserted: 0, error: error.message };
+    }
+
+    return { success: true, inserted: effectsToInsert.length };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error persisting rule effects:', message);
+    return { success: false, inserted: 0, error: message };
+  }
+}
+
+/**
+ * Get all rule effects for an estimate
+ */
+export async function getRuleEffectsForEstimate(
+  estimateId: string
+): Promise<{
+  effects: Array<{
+    id: string;
+    estimateLineItemId: string | null;
+    zoneId: string | null;
+    ruleSource: string;
+    ruleCode: string;
+    effectType: string;
+    originalValue: any;
+    modifiedValue: any;
+    explanationText: string;
+    appliedAt: Date;
+    appliedBy: string | null;
+    isOverride: boolean;
+    overrideReason: string | null;
+    overrideBy: string | null;
+  }>;
+  error?: string;
+}> {
+  const { data, error } = await supabaseAdmin
+    .from('rule_effects')
+    .select('*')
+    .eq('estimate_id', estimateId)
+    .order('applied_at', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching rule effects:', error);
+    return { effects: [], error: error.message };
+  }
+
+  const effects = (data || []).map((row: any) => ({
+    id: row.id,
+    estimateLineItemId: row.estimate_line_item_id,
+    zoneId: row.zone_id,
+    ruleSource: row.rule_source,
+    ruleCode: row.rule_code,
+    effectType: row.effect_type,
+    originalValue: row.original_value,
+    modifiedValue: row.modified_value,
+    explanationText: row.explanation_text,
+    appliedAt: new Date(row.applied_at),
+    appliedBy: row.applied_by,
+    isOverride: row.is_override,
+    overrideReason: row.override_reason,
+    overrideBy: row.override_by,
+  }));
+
+  return { effects };
+}
+
+/**
+ * Override a specific rule effect (manual adjuster override)
+ */
+export async function overrideRuleEffect(
+  effectId: string,
+  overrideBy: string,
+  overrideReason: string
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabaseAdmin
+    .from('rule_effects')
+    .update({
+      is_override: true,
+      override_reason: overrideReason,
+      override_by: overrideBy,
+    })
+    .eq('id', effectId);
+
+  if (error) {
+    console.error('Error overriding rule effect:', error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Get summary of rule effects for an estimate
+ */
+export async function getRuleEffectsSummary(
+  estimateId: string
+): Promise<{
+  totalEffects: number;
+  bySource: Record<string, number>;
+  byType: Record<string, number>;
+  overrideCount: number;
+}> {
+  const { effects } = await getRuleEffectsForEstimate(estimateId);
+
+  const bySource: Record<string, number> = {};
+  const byType: Record<string, number> = {};
+  let overrideCount = 0;
+
+  for (const effect of effects) {
+    bySource[effect.ruleSource] = (bySource[effect.ruleSource] || 0) + 1;
+    byType[effect.effectType] = (byType[effect.effectType] || 0) + 1;
+    if (effect.isOverride) overrideCount++;
+  }
+
+  return {
+    totalEffects: effects.length,
+    bySource,
+    byType,
+    overrideCount,
+  };
+}

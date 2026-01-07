@@ -1310,6 +1310,12 @@ export type LaborRateEnhanced = typeof laborRatesEnhanced.$inferSelect;
 // ============================================
 // DAMAGE AREAS TABLE (Spatial Hierarchy)
 // ============================================
+// @deprecated This table is superseded by the estimate_zones + estimate_areas hierarchy.
+// The modern spatial structure uses:
+//   - estimate_zones: Top-level spatial containers (rooms/exteriors)
+//   - estimate_areas: Granular damage areas within zones
+// This table exists for backwards compatibility but new code should use the zones/areas system.
+// Do not add new references to this table.
 
 export const damageAreas = pgTable("damage_areas", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),

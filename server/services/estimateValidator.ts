@@ -775,6 +775,7 @@ export function getValidationSummary(result: ValidationResult): {
 
 import {
   evaluateRules,
+  persistRuleEffects,
   type EstimateForRules,
   type LineItemForRules,
   type ZoneForRules,
@@ -825,9 +826,15 @@ export interface EstimateForExtendedValidation extends EstimateForValidation {
  * 3. Jurisdiction rules evaluation
  *
  * All issues are warnings - no hard failures from rules.
+ *
+ * @param estimate - The estimate to validate
+ * @param options - Optional settings for validation
+ * @param options.appliedBy - User ID for audit trail (used when persisting rule effects)
+ * @param options.persistEffects - Whether to persist rule effects to database (default: true)
  */
 export async function validateEstimateWithRules(
-  estimate: EstimateForExtendedValidation
+  estimate: EstimateForExtendedValidation,
+  options?: { appliedBy?: string; persistEffects?: boolean }
 ): Promise<ExtendedValidationResult> {
   // First, run standard validation
   const baseResult = await validateEstimate(estimate);
@@ -984,6 +991,19 @@ export async function validateEstimateWithRules(
         details: effect.explanation,
         carrierSensitive: true,
       });
+    }
+
+    // Persist rule effects to database for audit trail (default: true)
+    const shouldPersist = options?.persistEffects !== false;
+    if (shouldPersist && rulesResult.auditLog.length > 0) {
+      const persistResult = await persistRuleEffects(
+        estimate.id,
+        rulesResult,
+        options?.appliedBy
+      );
+      if (!persistResult.success) {
+        console.warn('Failed to persist rule effects:', persistResult.error);
+      }
     }
   } catch (error) {
     // Rules evaluation failed - log but don't fail validation

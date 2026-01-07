@@ -24,6 +24,11 @@ import {
   getEstimateLockStatus,
 } from '../services/estimateSubmission';
 import {
+  getRuleEffectsForEstimate,
+  getRuleEffectsSummary,
+  overrideRuleEffect,
+} from '../services/rulesEngine';
+import {
   generatePdfReport,
   generateEsxExport,
   generateEsxXml,
@@ -224,6 +229,73 @@ router.get('/:id/lock-status', requireAuth, async (req: Request, res: Response) 
   } catch (error) {
     log.error({ err: error }, 'Get lock status error');
     res.status(500).json({ message: 'Failed to get lock status' });
+  }
+});
+
+// =================================================
+// Rule Effects (Carrier/Jurisdiction Audit Trail)
+// =================================================
+
+/**
+ * GET /api/estimates/:id/rule-effects
+ * Get all rule effects for an estimate
+ */
+router.get('/:id/rule-effects', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const result = await getRuleEffectsForEstimate(id);
+
+    if (result.error) {
+      return res.status(500).json({ message: result.error });
+    }
+
+    res.json({ effects: result.effects });
+  } catch (error) {
+    log.error({ err: error }, 'Get rule effects error');
+    res.status(500).json({ message: 'Failed to get rule effects' });
+  }
+});
+
+/**
+ * GET /api/estimates/:id/rule-effects/summary
+ * Get summary statistics of rule effects
+ */
+router.get('/:id/rule-effects/summary', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const summary = await getRuleEffectsSummary(id);
+    res.json({ summary });
+  } catch (error) {
+    log.error({ err: error }, 'Get rule effects summary error');
+    res.status(500).json({ message: 'Failed to get rule effects summary' });
+  }
+});
+
+/**
+ * POST /api/estimates/:id/rule-effects/:effectId/override
+ * Override a specific rule effect (adjuster manual override)
+ */
+router.post('/:id/rule-effects/:effectId/override', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { effectId } = req.params;
+    const userId = (req.user as any).id;
+    const { reason } = req.body;
+
+    if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+      return res.status(400).json({ message: 'Override reason is required' });
+    }
+
+    const result = await overrideRuleEffect(effectId, userId, reason.trim());
+
+    if (!result.success) {
+      return res.status(500).json({ message: result.error || 'Failed to override rule effect' });
+    }
+
+    log.info({ effectId, userId }, 'Rule effect overridden');
+    res.json({ success: true, message: 'Rule effect overridden' });
+  } catch (error) {
+    log.error({ err: error }, 'Override rule effect error');
+    res.status(500).json({ message: 'Failed to override rule effect' });
   }
 });
 
