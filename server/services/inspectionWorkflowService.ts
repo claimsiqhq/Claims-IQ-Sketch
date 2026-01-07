@@ -1726,13 +1726,16 @@ export async function shouldRegenerateWorkflow(
       };
     }
 
-    // Check if endorsements have changed since workflow was generated
+    // Check if NEW documents with endorsements were uploaded after workflow generation
+    // We check the SOURCE DOCUMENT upload time, not extraction completion time
+    // This prevents false positives from async processing of documents uploaded together
     if (workflow.createdAt) {
+      // Get endorsements with their source document upload times
       const { data: newEndorsements, error: endorsementsError } = await supabaseAdmin
         .from('endorsement_extractions')
-        .select('id')
+        .select('id, document_id, documents!inner(created_at)')
         .eq('claim_id', claimId)
-        .gt('created_at', workflow.createdAt)
+        .gt('documents.created_at', workflow.createdAt)
         .limit(1);
 
       if (!endorsementsError && newEndorsements && newEndorsements.length > 0) {
@@ -1742,12 +1745,12 @@ export async function shouldRegenerateWorkflow(
         };
       }
 
-      // Check if policy forms have changed
+      // Check if NEW documents with policy forms were uploaded after workflow generation
       const { data: newPolicyForms, error: policyFormsError } = await supabaseAdmin
         .from('policy_form_extractions')
-        .select('id')
+        .select('id, document_id, documents!inner(created_at)')
         .eq('claim_id', claimId)
-        .gt('created_at', workflow.createdAt)
+        .gt('documents.created_at', workflow.createdAt)
         .limit(1);
 
       if (!policyFormsError && newPolicyForms && newPolicyForms.length > 0) {
