@@ -88,6 +88,40 @@ Common structure types:
   },
 });
 
+// Tool: Edit an existing structure
+const editStructureTool = tool({
+  name: 'edit_structure',
+  description: `Edit properties of an existing structure like name, type, number of stories, etc.
+  
+Use this when the adjuster wants to correct or update structure information.`,
+  parameters: z.object({
+    structure_name: z.string().optional().describe('Name of the structure to edit'),
+    structure_id: z.string().optional().describe('ID of the structure to edit (if known)'),
+    new_name: z.string().optional().describe('New name for the structure'),
+    new_type: z.enum(['main_dwelling', 'detached_garage', 'attached_garage', 'shed', 'guest_house', 'pool_house', 'barn', 'other']).optional().describe('New type of structure'),
+    new_description: z.string().optional().describe('New description of the structure'),
+    new_stories: z.number().optional().describe('New number of stories'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.editStructure(params);
+  },
+});
+
+// Tool: Delete a structure
+const deleteStructureTool = tool({
+  name: 'delete_structure',
+  description: `Delete a structure and all its associated rooms. Use with caution - this removes all rooms within the structure.
+  
+Use when the adjuster wants to remove a structure they added by mistake or no longer needs.`,
+  parameters: z.object({
+    structure_name: z.string().optional().describe('Name of the structure to delete'),
+    structure_id: z.string().optional().describe('ID of the structure to delete (if known)'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.deleteStructure(params);
+  },
+});
+
 // Tool: Select an existing structure
 const selectStructureTool = tool({
   name: 'select_structure',
@@ -392,6 +426,19 @@ const editDamageZoneTool = tool({
   },
 });
 
+// Tool: Delete a damage zone
+const deleteDamageZoneTool = tool({
+  name: 'delete_damage_zone',
+  description: 'Delete a damage zone from the current room. Use when adjuster wants to remove a damage zone they added by mistake or no longer needs.',
+  parameters: z.object({
+    damage_index: z.number().optional().describe('Index of the damage zone to delete (0-based). If room has only one damage zone, not needed.'),
+    type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).optional().describe('Type of damage zone to delete if multiple exist'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.deleteDamageZone(params);
+  },
+});
+
 // Floor Plan Tools
 const createFloorPlanTool = tool({
   name: 'create_floor_plan',
@@ -500,6 +547,8 @@ const saveFloorPlanTool = tool({
 // Tool list for agent creation
 const agentTools = [
   createStructureTool,
+  editStructureTool,
+  deleteStructureTool,
   selectStructureTool,
   createRoomTool,
   addOpeningTool,
@@ -514,6 +563,7 @@ const agentTools = [
   deleteOpeningTool,
   deleteFeatureTool,
   editDamageZoneTool,
+  deleteDamageZoneTool,
   createFloorPlanTool,
   addRoomToPlanTool,
   connectRoomsTool,
@@ -539,6 +589,8 @@ export async function createRoomSketchAgentAsync(userName?: string): Promise<Rea
 // Export individual tools for testing
 export const tools = {
   createStructure: createStructureTool,
+  editStructure: editStructureTool,
+  deleteStructure: deleteStructureTool,
   selectStructure: selectStructureTool,
   createRoom: createRoomTool,
   addOpening: addOpeningTool,
@@ -553,6 +605,7 @@ export const tools = {
   deleteOpening: deleteOpeningTool,
   deleteFeature: deleteFeatureTool,
   editDamageZone: editDamageZoneTool,
+  deleteDamageZone: deleteDamageZoneTool,
   createFloorPlan: createFloorPlanTool,
   addRoomToPlan: addRoomToPlanTool,
   connectRooms: connectRoomsTool,

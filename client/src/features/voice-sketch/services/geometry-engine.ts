@@ -23,6 +23,7 @@ import type {
   DeleteOpeningParams,
   DeleteFeatureParams,
   EditDamageZoneParams,
+  DeleteDamageZoneParams,
   Structure,
   SketchObject,
   SketchPhoto,
@@ -93,6 +94,7 @@ interface GeometryEngineState {
   deleteOpening: (params: DeleteOpeningParams) => string;
   deleteFeature: (params: DeleteFeatureParams) => string;
   editDamageZone: (params: EditDamageZoneParams) => string;
+  deleteDamageZone: (params: DeleteDamageZoneParams) => string;
   
   // Object actions
   addObject: (params: AddObjectParams) => string;
@@ -1147,6 +1149,58 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     return command.result;
   },
 
+  deleteDamageZone: (params) => {
+    const { currentRoom } = get();
+    if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Save to undo stack
+    set((state) => ({
+      undoStack: [...state.undoStack, state.currentRoom!],
+    }));
+
+    let damageIndex = -1;
+    let damageZone: VoiceDamageZone | null = null;
+
+    if (params.damage_index !== undefined) {
+      damageIndex = params.damage_index;
+      damageZone = currentRoom.damageZones[damageIndex] || null;
+    } else if (params.damage_id) {
+      damageIndex = currentRoom.damageZones.findIndex(d => d.id === params.damage_id);
+      damageZone = damageIndex >= 0 ? currentRoom.damageZones[damageIndex] : null;
+    } else if (params.type) {
+      // Find first damage zone of the type
+      damageIndex = currentRoom.damageZones.findIndex(d => d.type === params.type);
+      damageZone = damageIndex >= 0 ? currentRoom.damageZones[damageIndex] : null;
+    } else if (currentRoom.damageZones.length === 1) {
+      // If there's only one damage zone, delete it
+      damageIndex = 0;
+      damageZone = currentRoom.damageZones[0];
+    }
+
+    if (!damageZone || damageIndex < 0) {
+      return 'Error: Could not find damage zone to delete. Please specify the damage index, ID, or type.';
+    }
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'delete_damage',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Deleted ${damageZone.type} damage zone${damageZone.source ? ` from ${damageZone.source}` : ''}`,
+    };
+
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        damageZones: state.currentRoom!.damageZones.filter((_, i) => i !== damageIndex),
+        updated_at: new Date().toISOString(),
+      },
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return command.result;
+  },
+
   addTranscriptEntry: (entry) => {
     const newEntry: TranscriptEntry = {
       ...entry,
@@ -1501,6 +1555,7 @@ export const geometryEngine = {
   deleteOpening: (params: DeleteOpeningParams) => useGeometryEngine.getState().deleteOpening(params),
   deleteFeature: (params: DeleteFeatureParams) => useGeometryEngine.getState().deleteFeature(params),
   editDamageZone: (params: EditDamageZoneParams) => useGeometryEngine.getState().editDamageZone(params),
+  deleteDamageZone: (params: DeleteDamageZoneParams) => useGeometryEngine.getState().deleteDamageZone(params),
   // Object actions
   addObject: (params: AddObjectParams) => useGeometryEngine.getState().addObject(params),
   editObject: (params: EditObjectParams) => useGeometryEngine.getState().editObject(params),

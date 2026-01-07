@@ -426,6 +426,12 @@ export interface EditDamageZoneParams {
   new_is_freeform?: boolean;
 }
 
+export interface DeleteDamageZoneParams {
+  damage_index?: number; // 0-based index
+  damage_id?: string;
+  type?: DamageType; // Can delete by type
+}
+
 // Command History for undo/redo
 export interface GeometryCommand {
   id: string;
