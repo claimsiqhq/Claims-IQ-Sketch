@@ -130,6 +130,7 @@ For T-SHAPED rooms (shape='t_shape'):
     width_ft: z.number().describe('Width in feet (overall bounding box for L-shape, main body for T-shape)'),
     length_ft: z.number().describe('Length in feet (overall bounding box for L-shape, main body for T-shape)'),
     ceiling_height_ft: z.number().default(8).describe('Ceiling height, defaults to 8ft if not specified'),
+    flooring_type: z.enum(['hardwood', 'carpet', 'tile', 'vinyl', 'laminate', 'concrete', 'stone', 'other']).optional().describe('Type of flooring in the room'),
     l_shape_config: z.object({
       notch_corner: z.enum(['northeast', 'northwest', 'southeast', 'southwest']).describe('Which corner has the cutout'),
       notch_width_ft: z.number().describe('Width of the notch along the width axis'),
@@ -308,7 +309,7 @@ const deleteRoomTool = tool({
 // Tool: Edit room properties
 const editRoomTool = tool({
   name: 'edit_room',
-  description: `Edit room properties like name, shape, dimensions, or L/T shape configurations. Use when the adjuster wants to correct or change room details.
+  description: `Edit room properties like name, shape, dimensions, flooring, or L/T shape configurations. Use when the adjuster wants to correct or change room details.
 
 For L-shaped rooms, you can update the notch configuration:
 - new_l_shape_config to change which corner is cut out or notch dimensions
@@ -322,6 +323,7 @@ For T-shaped rooms, you can update the stem configuration:
     new_width_ft: z.number().optional().describe('New width in feet'),
     new_length_ft: z.number().optional().describe('New length in feet'),
     new_ceiling_height_ft: z.number().optional().describe('New ceiling height in feet'),
+    new_flooring_type: z.enum(['hardwood', 'carpet', 'tile', 'vinyl', 'laminate', 'concrete', 'stone', 'other']).optional().describe('New flooring type for the room'),
     new_l_shape_config: z.object({
       notch_corner: z.enum(['northeast', 'northwest', 'southeast', 'southwest']).optional().describe('Which corner has the cutout'),
       notch_width_ft: z.number().optional().describe('Width of the notch along the width axis'),

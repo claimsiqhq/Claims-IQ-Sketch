@@ -65,6 +65,19 @@ export function VoiceSketchController({
   // Get current hierarchy path for display
   const hierarchyPath = getCurrentHierarchyPath();
 
+  // Helper to get total room count for a structure including current room being edited
+  const getStructureRoomCount = useCallback((structure: typeof structures[0]) => {
+    let count = structure.rooms.length;
+    // Add 1 if currentRoom belongs to this structure but hasn't been confirmed yet
+    if (currentRoom && currentRoom.structureId === structure.id) {
+      const alreadyInStructure = structure.rooms.some(r => r.id === currentRoom.id);
+      if (!alreadyInStructure) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [currentRoom]);
+
   // Manual room creation handler
   const handleAddRoom = useCallback((roomType: string) => {
     if (!currentStructure) {
@@ -606,10 +619,10 @@ export function VoiceSketchController({
                       <Home className="h-3 w-3" />
                       {structure.name}
                       <span className="text-muted-foreground font-normal">
-                        ({structure.rooms.length} rooms)
+                        ({getStructureRoomCount(structure)} room{getStructureRoomCount(structure) !== 1 ? 's' : ''})
                       </span>
                     </div>
-                    {structure.rooms.length > 0 && structure.id === currentStructure?.id && (
+                    {(structure.rooms.length > 0 || (currentRoom && currentRoom.structureId === structure.id)) && structure.id === currentStructure?.id && (
                       <div className="pl-4 space-y-0.5">
                         {structure.rooms.map((room) => (
                           <div key={room.id} className="text-xs text-muted-foreground flex justify-between">
@@ -617,6 +630,12 @@ export function VoiceSketchController({
                             <span className="flex-shrink-0 ml-2">{room.width_ft}' × {room.length_ft}'</span>
                           </div>
                         ))}
+                        {currentRoom && currentRoom.structureId === structure.id && !structure.rooms.some(r => r.id === currentRoom.id) && (
+                          <div className="text-xs text-primary flex justify-between italic">
+                            <span className="capitalize truncate">{currentRoom.name.replace(/_/g, ' ')} (editing)</span>
+                            <span className="flex-shrink-0 ml-2">{currentRoom.width_ft}' × {currentRoom.length_ft}'</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -684,10 +703,10 @@ export function VoiceSketchController({
                           <Home className="h-3 w-3" />
                           {structure.name}
                           <span className="text-muted-foreground font-normal">
-                            ({structure.rooms.length} rooms)
+                            ({getStructureRoomCount(structure)} room{getStructureRoomCount(structure) !== 1 ? 's' : ''})
                           </span>
                         </div>
-                        {structure.rooms.length > 0 && structure.id === currentStructure?.id && (
+                        {(structure.rooms.length > 0 || (currentRoom && currentRoom.structureId === structure.id)) && structure.id === currentStructure?.id && (
                           <div className="pl-4 space-y-0.5">
                             {structure.rooms.map((room) => (
                               <div
@@ -702,6 +721,12 @@ export function VoiceSketchController({
                                 </span>
                               </div>
                             ))}
+                            {currentRoom && currentRoom.structureId === structure.id && !structure.rooms.some(r => r.id === currentRoom.id) && (
+                              <div className="text-xs text-primary flex justify-between italic">
+                                <span className="capitalize truncate">{currentRoom.name.replace(/_/g, ' ')} (editing)</span>
+                                <span className="flex-shrink-0 ml-2">{currentRoom.width_ft}' × {currentRoom.length_ft}'</span>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

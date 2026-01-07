@@ -289,6 +289,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       width_ft: params.width_ft,
       length_ft: params.length_ft,
       ceiling_height_ft: params.ceiling_height_ft ?? 8,
+      flooring_type: params.flooring_type,
       polygon,
       openings: [],
       features: [],
@@ -830,6 +831,11 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     if (params.new_ceiling_height_ft !== undefined) {
       changes.push(`ceiling height to ${formatDimension(params.new_ceiling_height_ft)}`);
       updatedRoom.ceiling_height_ft = params.new_ceiling_height_ft;
+    }
+
+    if (params.new_flooring_type !== undefined) {
+      changes.push(`flooring to ${params.new_flooring_type}`);
+      updatedRoom.flooring_type = params.new_flooring_type;
     }
 
     // Handle L-shape configuration updates

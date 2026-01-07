@@ -377,6 +377,91 @@ function buildBriefingPromptWithTemplate(
 }
 
 // ============================================
+// FALLBACK CONTENT GENERATORS
+// ============================================
+
+/**
+ * Generate fallback peril-specific risks when AI returns empty
+ */
+function generateFallbackPerilRisks(peril: string): string[] {
+  const perilRisks: Record<string, string[]> = {
+    wind_hail: [
+      'Hidden impact damage on soft metals - check gutters, downspouts, and vents',
+      'Missing or lifted shingles may not be visible from ground level',
+      'Secondary water intrusion from wind-driven rain - check attic and ceilings',
+    ],
+    water: [
+      'Hidden mold growth in wall cavities - use moisture meter on all affected walls',
+      'Subfloor damage beneath vinyl/carpet - pull back flooring samples',
+      'Cross-contamination risk if Category 2/3 water involved',
+    ],
+    fire: [
+      'Smoke damage in hidden cavities - check HVAC system and attic',
+      'Structural char damage may not be visible externally',
+      'Corrosion of electronics from smoke particles',
+    ],
+    flood: [
+      'Contaminants in Category 3 floodwater - document high water mark',
+      'Foundation damage or soil erosion around perimeter',
+      'Electrical system contamination - inspection required before energizing',
+    ],
+  };
+
+  return perilRisks[peril] || [
+    'Secondary damage may not be immediately visible',
+    'Pre-existing conditions may be present - document age and condition',
+    'Hidden damage behind finished surfaces may require inspection',
+  ];
+}
+
+/**
+ * Generate fallback photo requirements when AI returns empty
+ */
+function generateFallbackPhotoRequirements(peril: string): Array<{ category: string; items: string[] }> {
+  const perilPhotos: Record<string, Array<{ category: string; items: string[] }>> = {
+    wind_hail: [
+      { category: 'Exterior Overview', items: ['All four elevations', 'Roof overview from ladder/drone', 'Property address sign'] },
+      { category: 'Roof Damage', items: ['Impact marks on shingles', 'Soft metal damage (gutters, vents)', 'Flashing damage'] },
+      { category: 'Siding/Windows', items: ['Impact damage on siding', 'Window/screen damage', 'Door damage'] },
+    ],
+    water: [
+      { category: 'Source Documentation', items: ['Source of water intrusion', 'Plumbing or fixture involved', 'Shutoff valve location'] },
+      { category: 'Affected Areas', items: ['High water mark if applicable', 'Flooring damage', 'Wall/baseboard damage'] },
+      { category: 'Moisture Readings', items: ['Moisture meter readings', 'Affected materials identified', 'Dry materials for comparison'] },
+    ],
+    fire: [
+      { category: 'Fire Origin', items: ['Point of origin', 'Burn patterns', 'Cause documentation'] },
+      { category: 'Structural Damage', items: ['Char depth measurements', 'Structural member damage', 'Roof/ceiling damage'] },
+      { category: 'Smoke/Soot', items: ['Smoke migration patterns', 'Contents damage', 'HVAC system'] },
+    ],
+  };
+
+  return perilPhotos[peril] || [
+    { category: 'Property Overview', items: ['Address photo', 'All four elevations', 'Overall property condition'] },
+    { category: 'Damage Documentation', items: ['Wide shot of damaged area', 'Close-up of damage', 'Measurement reference'] },
+    { category: 'Supporting Photos', items: ['Pre-existing damage if any', 'Age/condition indicators', 'Related systems'] },
+  ];
+}
+
+/**
+ * Generate fallback endorsement watchouts when AI returns empty
+ */
+function generateFallbackEndorsementWatchouts(): Array<{ endorsement_id: string; impact: string; inspection_implications: string[] }> {
+  return [
+    { 
+      endorsement_id: 'general', 
+      impact: 'Standard policy provisions apply', 
+      inspection_implications: ['Verify all applicable deductibles', 'Check coverage limits for structures and contents'] 
+    },
+    { 
+      endorsement_id: 'roof', 
+      impact: 'Roof coverage may have special provisions', 
+      inspection_implications: ['Check for ACV vs RCV endorsements on roof', 'Document roof age and condition'] 
+    },
+  ];
+}
+
+// ============================================
 // MAIN SERVICE FUNCTIONS
 // ============================================
 
@@ -551,6 +636,22 @@ export async function generateClaimBriefing(
         }
         if (!briefingContent.inspection_strategy.where_to_start) {
           briefingContent.inspection_strategy.where_to_start = ['Start with exterior inspection'];
+        }
+
+        // CRITICAL: Ensure peril_specific_risks and photo_requirements are not empty
+        // Generate fallback content based on peril if AI returned empty arrays
+        if (!briefingContent.peril_specific_risks || briefingContent.peril_specific_risks.length === 0) {
+          console.warn('[ClaimBriefing] AI returned empty peril_specific_risks, generating fallback');
+          briefingContent.peril_specific_risks = generateFallbackPerilRisks(context.primaryPeril);
+        }
+
+        if (!briefingContent.photo_requirements || briefingContent.photo_requirements.length === 0) {
+          console.warn('[ClaimBriefing] AI returned empty photo_requirements, generating fallback');
+          briefingContent.photo_requirements = generateFallbackPhotoRequirements(context.primaryPeril);
+        }
+
+        if (!briefingContent.endorsement_watchouts || briefingContent.endorsement_watchouts.length === 0) {
+          briefingContent.endorsement_watchouts = generateFallbackEndorsementWatchouts();
         }
       } catch (parseError) {
         console.error('Failed to parse AI response:', responseContent);

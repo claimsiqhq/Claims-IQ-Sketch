@@ -12,6 +12,7 @@ export type WaterDamageCategory = '1' | '2' | '3'; // IICRC S500 categories
 export type PositionType = 'left' | 'center' | 'right' | number;
 export type PositionFromType = 'start' | 'end';
 export type StructureType = 'main_dwelling' | 'detached_garage' | 'attached_garage' | 'shed' | 'pool_house' | 'guest_house' | 'barn' | 'other';
+export type FlooringType = 'hardwood' | 'carpet' | 'tile' | 'vinyl' | 'laminate' | 'concrete' | 'stone' | 'other';
 
 // Hierarchy level for organizing sketch elements
 export type HierarchyLevel = 'structure' | 'room' | 'subroom' | 'object';
@@ -184,6 +185,7 @@ export interface RoomGeometry {
   width_ft: number;
   length_ft: number;
   ceiling_height_ft: number;
+  flooring_type?: FlooringType;
   polygon: Point[];
   openings: Opening[];
   features: Feature[];
@@ -278,6 +280,7 @@ export interface CreateRoomParams {
   width_ft: number;
   length_ft: number;
   ceiling_height_ft?: number;
+  flooring_type?: FlooringType;
   // L-shape configuration
   l_shape_config?: LShapeConfig;
   // T-shape configuration
@@ -387,6 +390,7 @@ export interface EditRoomParams {
   new_width_ft?: number;
   new_length_ft?: number;
   new_ceiling_height_ft?: number;
+  new_flooring_type?: FlooringType;
   // L-shape configuration updates
   new_l_shape_config?: Partial<LShapeConfig>;
   // T-shape configuration updates
