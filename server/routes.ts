@@ -5856,6 +5856,57 @@ export async function registerRoutes(
   });
 
   /**
+   * GET /api/claims/:id/scope-context
+   * Get claim context (briefing, workflow, peril) for scope agent
+   */
+  app.get('/api/claims/:id/scope-context', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const claimId = req.params.id;
+      const organizationId = req.organizationId!;
+
+      // Get briefing
+      const briefing = await getClaimBriefing(claimId, organizationId);
+      
+      // Get workflow
+      const workflow = await getClaimWorkflow(claimId, organizationId);
+      
+      // Get claim for peril info
+      const claim = await getClaim(claimId, organizationId);
+      
+      // Build context summary
+      const context = {
+        claimId,
+        claimNumber: claim?.claimNumber || 'Unknown',
+        primaryPeril: claim?.primaryPeril || 'Unknown',
+        secondaryPerils: claim?.secondaryPerils || [],
+        briefing: briefing ? {
+          primaryPeril: briefing.briefingJson?.claim_summary?.primary_peril,
+          overview: briefing.briefingJson?.claim_summary?.overview || [],
+          priorities: briefing.briefingJson?.inspection_strategy?.what_to_prioritize || [],
+          commonMisses: briefing.briefingJson?.inspection_strategy?.common_misses || [],
+          photoRequirements: briefing.briefingJson?.photo_requirements || [],
+          sketchRequirements: briefing.briefingJson?.sketch_requirements || [],
+          depreciationConsiderations: briefing.briefingJson?.depreciation_considerations || [],
+        } : null,
+        workflow: workflow ? {
+          totalSteps: workflow.steps?.length || 0,
+          steps: workflow.steps?.slice(0, 10).map(s => ({
+            phase: s.phase,
+            title: s.title,
+            instructions: s.instructions,
+            required: s.required,
+          })) || [],
+        } : null,
+      };
+
+      res.json(context);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
    * PUT /api/prompts/:key
    * Update an AI prompt (admin only)
    */
