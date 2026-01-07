@@ -4146,23 +4146,30 @@ export async function registerRoutes(
       const claimId = req.params.id;
       const organizationId = req.organizationId!;
 
+      console.log(`[Checklist] GET claimId=${claimId}, orgId=${organizationId}`);
+
       let { checklist, items } = await getChecklistForClaim(claimId);
 
       if (!checklist) {
-        const { data: claim } = await supabaseAdmin
+        const { data: claim, error: claimError } = await supabaseAdmin
           .from('claims')
-          .select('id, primary_peril, reserve_amount, metadata')
+          .select('id, primary_peril, total_rcv, metadata')
           .eq('id', claimId)
           .eq('organization_id', organizationId)
           .single();
 
+        if (claimError) {
+          console.log(`[Checklist] Claim lookup error:`, claimError);
+        }
+
         if (!claim) {
+          console.log(`[Checklist] Claim not found for id=${claimId}, org=${organizationId}`);
           return res.status(404).json({ error: 'Claim not found' });
         }
 
         const peril = normalizePeril(claim.primary_peril);
         const severity = inferSeverityFromClaim({
-          reserveAmount: claim.reserve_amount ? parseFloat(claim.reserve_amount) : null,
+          reserveAmount: claim.total_rcv ? parseFloat(claim.total_rcv) : null,
           metadata: claim.metadata as Record<string, any> | null,
         });
 
