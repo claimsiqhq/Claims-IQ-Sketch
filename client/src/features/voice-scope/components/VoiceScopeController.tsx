@@ -58,6 +58,7 @@ export function VoiceScopeController({
     stopSession,
     interruptAgent,
   } = useVoiceScopeSession({
+    claimId,
     onToolCall: handleToolCall,
     onError: handleError,
     onLineItemAdded: handleLineItemAdded,

@@ -2459,6 +2459,7 @@ export default function ClaimDetail() {
                           {/* Voice Scope Controller */}
                           {isVoiceScopeOpen && (
                             <VoiceScopeController
+                              claimId={params?.id}
                               onClose={() => setIsVoiceScopeOpen(false)}
                               onLineItemAdded={(item) => {
                                 handleAddScopeItem({
