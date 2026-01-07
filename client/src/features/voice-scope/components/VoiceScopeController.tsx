@@ -12,12 +12,14 @@ import { useScopeEngine } from '../services/scope-engine';
 import { cn } from '@/lib/utils';
 
 interface VoiceScopeControllerProps {
+  claimId?: string; // Claim ID for context-aware scope generation
   onLineItemAdded?: (item: { code: string; description: string; quantity: number; unit: string }) => void;
   onClose?: () => void;
   className?: string;
 }
 
 export function VoiceScopeController({
+  claimId,
   onLineItemAdded,
   onClose,
   className,
