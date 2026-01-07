@@ -238,6 +238,9 @@ ${context.coverageAdvisories.length > 0 ? context.coverageAdvisories.map(a => `-
 PERIL-SPECIFIC INSPECTION GUIDANCE (use as reference):
 Priority Areas: ${mergedGuidance.priorityAreas.slice(0, 5).map(a => a.area).join(', ')}
 Common Misses: ${mergedGuidance.commonMisses.slice(0, 3).map(m => m.issue).join(', ')}
+Safety/Peril Risks: ${mergedGuidance.safetyConsiderations.slice(0, 5).join('; ')}
+Required Photos by Category:
+${mergedGuidance.requiredPhotos.slice(0, 5).map(p => `- ${p.category}: ${p.items.slice(0, 4).join(', ')}`).join('\n')}
 
 Generate a JSON briefing with this EXACT structure:
 {
@@ -354,6 +357,8 @@ function buildBriefingPromptWithTemplate(
       // Inspection guidance
       priorityAreas: mergedGuidance.priorityAreas.slice(0, 5).map(a => a.area).join(', '),
       commonMisses: mergedGuidance.commonMisses.slice(0, 3).map(m => m.issue).join(', '),
+      safetyPerilRisks: mergedGuidance.safetyConsiderations.slice(0, 5).join('; '),
+      requiredPhotos: mergedGuidance.requiredPhotos.slice(0, 5).map(p => `- ${p.category}: ${p.items.slice(0, 4).join(', ')}`).join('\n'),
 
       // Document text (for comprehensive analysis)
       documentText: documentText || 'No document text available',
