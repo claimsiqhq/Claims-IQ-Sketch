@@ -132,8 +132,8 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
       }
       const { ephemeral_key } = await response.json();
 
-      // 2. Create scope agent with instructions from database
-      const scopeAgent = await createScopeAgentAsync();
+      // 2. Create scope agent with instructions from database and claim context
+      const scopeAgent = await createScopeAgentAsync(options.claimId);
 
       // 3. Create RealtimeSession with the scope agent
       const session = new RealtimeSession(scopeAgent, {
