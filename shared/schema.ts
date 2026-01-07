@@ -1310,6 +1310,12 @@ export type LaborRateEnhanced = typeof laborRatesEnhanced.$inferSelect;
 // ============================================
 // DAMAGE AREAS TABLE (Spatial Hierarchy)
 // ============================================
+// @deprecated This table is superseded by the estimate_zones + estimate_areas hierarchy.
+// The modern spatial structure uses:
+//   - estimate_zones: Top-level spatial containers (rooms/exteriors)
+//   - estimate_areas: Granular damage areas within zones
+// This table exists for backwards compatibility but new code should use the zones/areas system.
+// Do not add new references to this table.
 
 export const damageAreas = pgTable("damage_areas", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -4030,6 +4036,14 @@ export const inspectionAppointments = pgTable("inspection_appointments", {
   status: varchar("status", { length: 50 }).default("scheduled"),
   appointmentType: varchar("appointment_type", { length: 50 }).default("initial_inspection"),
   ms365EventId: text("ms365_event_id"),
+  // MS365 calendar sync fields
+  allDay: boolean("all_day").default(false),
+  reminderMinutes: integer("reminder_minutes").default(30),
+  attendees: jsonb("attendees").default([]),
+  recurrence: jsonb("recurrence"),
+  syncStatus: varchar("sync_status", { length: 50 }).default("synced"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  syncError: text("sync_error"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
