@@ -1049,6 +1049,65 @@ function buildInsightsSection(context: UnifiedClaimContext): string {
 }
 
 /**
+ * Build explicit depreciation context for targeted AI suggestions
+ */
+function buildDepreciationContext(context: UnifiedClaimContext): string {
+  const lines: string[] = ['DEPRECIATION DATA (use these SPECIFIC values in your recommendations):'];
+
+  // Roof depreciation details
+  const roof = context.property.roof;
+  if (roof.yearInstalled || roof.ageAtLoss !== undefined) {
+    lines.push('\nROOF:');
+    if (roof.yearInstalled) {
+      lines.push(`- Year Installed: ${roof.yearInstalled}`);
+    }
+    if (roof.ageAtLoss !== undefined) {
+      lines.push(`- Age at Loss: ${roof.ageAtLoss} years`);
+    }
+    if (roof.material) {
+      lines.push(`- Material: ${roof.material}`);
+    }
+    
+    // Add payment schedule info if available
+    if (context.insights.estimatedRoofPaymentPct !== undefined) {
+      const depreciationPct = 100 - context.insights.estimatedRoofPaymentPct;
+      lines.push(`- Scheduled Payment: ${context.insights.estimatedRoofPaymentPct}% of RCV`);
+      lines.push(`- Depreciation Applied: ${depreciationPct}%`);
+      lines.push(`- ACTION: Document roof condition, manufacturer stamps, and any prior repairs to verify age`);
+    }
+  }
+
+  // Personal property settlement basis
+  lines.push('\nPERSONAL PROPERTY:');
+  if (context.insights.hasPersonalPropertyRCV) {
+    lines.push(`- Settlement: RCV (Replacement Cost Value) - depreciation is recoverable`);
+    lines.push(`- ACTION: Document age and condition for holdback calculation`);
+  } else {
+    lines.push(`- Settlement: ACV (Actual Cash Value) - depreciation is NOT recoverable`);
+    lines.push(`- ACTION: Document age, condition, and remaining useful life for each item`);
+  }
+
+  // Check for specific damaged items that need depreciation
+  if (context.property.yearBuilt) {
+    lines.push('\nPROPERTY AGE:');
+    lines.push(`- Year Built: ${context.property.yearBuilt}`);
+    const propertyAge = new Date().getFullYear() - parseInt(context.property.yearBuilt);
+    lines.push(`- Property Age: ~${propertyAge} years`);
+    lines.push(`- ACTION: Consider age-based depreciation for HVAC, water heaters, flooring, and other building components`);
+  }
+
+  // Add specific documentation requirements
+  lines.push('\nDEPRECIATION DOCUMENTATION REQUIREMENTS:');
+  lines.push('- For EACH item subject to depreciation, document:');
+  lines.push('  1. Actual age (not estimated) - look for manufacturer stamps, permits, receipts');
+  lines.push('  2. Current condition (good/fair/poor) with photos');
+  lines.push('  3. Any prior damage or repairs');
+  lines.push('  4. Remaining useful life estimate');
+
+  return lines.join('\n');
+}
+
+/**
  * Build enhanced briefing prompt using UnifiedClaimContext
  */
 function buildEnhancedBriefingPrompt(context: UnifiedClaimContext): string {
@@ -1057,6 +1116,7 @@ function buildEnhancedBriefingPrompt(context: UnifiedClaimContext): string {
   const endorsementDetails = buildRichEndorsementDetails(context);
   const alertsSection = buildCoverageAlertsSection(context);
   const insightsSection = buildInsightsSection(context);
+  const depreciationContext = buildDepreciationContext(context);
 
   return `You are an expert insurance claim inspection advisor. Generate a comprehensive, field-ready claim briefing using the rich claim data provided.
 
@@ -1065,8 +1125,8 @@ IMPORTANT RULES:
 2. Focus on practical inspection planning and field execution
 3. Use the specific policy details, endorsement impacts, and coverage alerts provided
 4. Highlight inspection requirements from endorsements
-5. Emphasize the applicable deductible and any depreciation schedules
-6. If the roof has a payment schedule, explain what documentation is needed
+5. CRITICAL: Use the SPECIFIC depreciation data provided - include actual ages, percentages, and item-specific documentation needs
+6. If the roof has a payment schedule, explain what documentation is needed to verify the age
 7. Be concise but thorough
 
 CLAIM IDENTITY:
@@ -1091,6 +1151,8 @@ ${endorsementDetails}
 ${alertsSection}
 
 ${insightsSection}
+
+${depreciationContext}
 
 DATA COMPLETENESS: ${context.meta.dataCompleteness.completenessScore}% (FNOL: ${context.meta.dataCompleteness.hasFnol ? 'Yes' : 'No'}, Policy: ${context.meta.dataCompleteness.hasPolicy ? 'Yes' : 'No'}, Endorsements: ${context.meta.dataCompleteness.hasEndorsements ? 'Yes' : 'No'})
 
@@ -1118,7 +1180,14 @@ Generate a JSON briefing with this EXACT structure:
   ],
   "coverage_considerations": {
     "applicable_deductible": "string - the deductible that applies to this claim",
-    "depreciation_factors": ["array of depreciation considerations - roof schedule, ACV items, etc."],
+    "depreciation_factors": [
+      {
+        "item": "item name (e.g., Roof, Hot Tub Cover, HVAC)",
+        "age": "actual age or 'verify age' if unknown",
+        "depreciation_pct": "percentage or 'TBD based on condition'",
+        "documentation_needed": "specific documentation to collect (e.g., manufacturer stamp, permit records, receipts)"
+      }
+    ],
     "special_limits_to_watch": ["array of special limits that may be exceeded"],
     "potential_coverage_issues": ["array of coverage gaps or concerns identified"]
   },
