@@ -4030,6 +4030,14 @@ export const inspectionAppointments = pgTable("inspection_appointments", {
   status: varchar("status", { length: 50 }).default("scheduled"),
   appointmentType: varchar("appointment_type", { length: 50 }).default("initial_inspection"),
   ms365EventId: text("ms365_event_id"),
+  // MS365 calendar sync fields
+  allDay: boolean("all_day").default(false),
+  reminderMinutes: integer("reminder_minutes").default(30),
+  attendees: jsonb("attendees").default([]),
+  recurrence: jsonb("recurrence"),
+  syncStatus: varchar("sync_status", { length: 50 }).default("synced"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  syncError: text("sync_error"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
