@@ -29,10 +29,21 @@ export async function createVoiceSession(): Promise<VoiceSessionResult> {
   }
 
   // Use the GA endpoint for client secrets
-  // Note: turn_detection is configured client-side when establishing WebRTC session
+  // The new API requires model and voice inside a "session" wrapper object
   const sessionConfig = {
-    model: 'gpt-4o-realtime-preview',
-    voice: 'ash',
+    expires_after: {
+      anchor: 'created_at',
+      seconds: 600,
+    },
+    session: {
+      type: 'realtime',
+      model: 'gpt-4o-realtime-preview',
+      audio: {
+        output: {
+          voice: 'ash',
+        },
+      },
+    },
   };
 
   const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
