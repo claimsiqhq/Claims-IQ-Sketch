@@ -13,15 +13,56 @@ let cachedInstructions: string | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache
 
+// Claim context cache (per claimId)
+const claimContextCache = new Map<string, { context: any; timestamp: number }>();
+const CLAIM_CONTEXT_TTL_MS = 2 * 60 * 1000; // 2 minute cache
+
+/**
+ * Fetch claim context from API
+ */
+async function fetchClaimContext(claimId: string): Promise<any | null> {
+  // Check cache first
+  const cached = claimContextCache.get(claimId);
+  const now = Date.now();
+  if (cached && (now - cached.timestamp) < CLAIM_CONTEXT_TTL_MS) {
+    return cached.context;
+  }
+
+  try {
+    const response = await fetch(`/api/claims/${claimId}/scope-context`, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      console.warn(`[ScopeAgent] Failed to fetch claim context (HTTP ${response.status})`);
+      return null;
+    }
+
+    const context = await response.json();
+    claimContextCache.set(claimId, { context, timestamp: now });
+    return context;
+  } catch (error) {
+    console.error('[ScopeAgent] Error fetching claim context:', error);
+    return null;
+  }
+}
+
 /**
  * Fetch prompt instructions from the database API
  * Returns cached version if available and not expired
  * Throws error if prompt not available - database is the ONLY source
  */
-async function fetchInstructionsFromAPI(): Promise<string> {
+async function fetchInstructionsFromAPI(claimId?: string): Promise<string> {
   // Check cache first
   const now = Date.now();
   if (cachedInstructions && (now - cacheTimestamp) < CACHE_TTL_MS) {
+    // If we have claim context, inject it into the cached prompt
+    if (claimId) {
+      const claimContext = await fetchClaimContext(claimId);
+      if (claimContext) {
+        return injectClaimContext(cachedInstructions, claimContext);
+      }
+    }
     return cachedInstructions;
   }
 
@@ -47,7 +88,70 @@ async function fetchInstructionsFromAPI(): Promise<string> {
   cachedInstructions = data.config.systemPrompt;
   cacheTimestamp = now;
   console.log('[ScopeAgent] Loaded instructions from database');
+
+  // Inject claim context if available
+  if (claimId) {
+    const claimContext = await fetchClaimContext(claimId);
+    if (claimContext) {
+      return injectClaimContext(cachedInstructions, claimContext);
+    }
+  }
+
   return cachedInstructions;
+}
+
+/**
+ * Inject claim context into prompt template
+ */
+function injectClaimContext(prompt: string, context: any): string {
+  if (!context) return prompt;
+
+  const contextSection = `
+## CLAIM CONTEXT
+
+**Claim Number:** ${context.claimNumber || 'Unknown'}
+**Primary Peril:** ${context.primaryPeril || 'Unknown'}
+**Secondary Perils:** ${context.secondaryPerils?.join(', ') || 'None'}
+
+${context.briefing ? `
+### AI Briefing Summary
+**Primary Peril:** ${context.briefing.primaryPeril || 'Unknown'}
+**Overview:** ${context.briefing.overview?.join('; ') || 'No overview available'}
+**Inspection Priorities:** ${context.briefing.priorities?.join('; ') || 'No priorities'}
+**Common Misses:** ${context.briefing.commonMisses?.join('; ') || 'No common misses'}
+**Photo Requirements:** ${context.briefing.photoRequirements?.map((p: any) => `${p.category}: ${p.items?.join(', ')}`).join('; ') || 'None'}
+**Sketch Requirements:** ${context.briefing.sketchRequirements?.join('; ') || 'None'}
+**Depreciation Considerations:** ${context.briefing.depreciationConsiderations?.join('; ') || 'None'}
+` : '### AI Briefing Summary\nNo briefing available for this claim.'}
+
+${context.workflow ? `
+### Inspection Workflow
+**Total Steps:** ${context.workflow.totalSteps || 0}
+**Key Steps:**
+${context.workflow.steps?.map((s: any) => `- [${s.phase}] ${s.title}: ${s.instructions}`).join('\n') || 'No workflow steps available'}
+` : '### Inspection Workflow\nNo workflow available for this claim.'}
+
+---
+`;
+
+  // Inject context section after the main instructions
+  // Look for a good insertion point (after the main role description)
+  const insertionPoint = prompt.indexOf('## CLAIM CONTEXT');
+  if (insertionPoint !== -1) {
+    // Replace existing context section
+    const nextSection = prompt.indexOf('---', insertionPoint);
+    if (nextSection !== -1) {
+      return prompt.slice(0, insertionPoint) + contextSection + prompt.slice(nextSection + 3);
+    }
+  }
+
+  // Otherwise, append at the beginning after the role description
+  const roleEnd = prompt.indexOf('\n\n');
+  if (roleEnd !== -1) {
+    return prompt.slice(0, roleEnd + 2) + contextSection + prompt.slice(roleEnd + 2);
+  }
+
+  return contextSection + '\n\n' + prompt;
 }
 
 // Tool: Add a line item
@@ -247,6 +351,131 @@ const rejectSuggestionsTool = tool({
   },
 });
 
+// Tool: Get workflow steps
+const getWorkflowStepsTool = tool({
+  name: 'get_workflow_steps',
+  description: 'Get the inspection workflow steps for the current claim. Use this to understand what needs to be inspected and ensure scope items align with workflow priorities.',
+  parameters: z.object({
+    phase: z.string().optional().describe('Filter by workflow phase (exterior, interior, documentation, etc.)'),
+  }),
+  execute: async (params) => {
+    try {
+      const claimId = scopeEngine.getState().claimId;
+      if (!claimId) {
+        return 'No claim ID available. Workflow steps cannot be retrieved.';
+      }
+
+      const response = await fetch(`/api/claims/${claimId}/scope-context`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        return 'Failed to fetch workflow steps.';
+      }
+
+      const context = await response.json();
+      if (!context.workflow || !context.workflow.steps || context.workflow.steps.length === 0) {
+        return 'No workflow steps available for this claim.';
+      }
+
+      let steps = context.workflow.steps;
+      if (params.phase) {
+        steps = steps.filter((s: any) => s.phase.toLowerCase() === params.phase.toLowerCase());
+      }
+
+      if (steps.length === 0) {
+        return `No workflow steps found for phase "${params.phase}".`;
+      }
+
+      return steps.map((s: any) => `[${s.phase}] ${s.title}: ${s.instructions}${s.required ? ' (REQUIRED)' : ''}`).join('\n');
+    } catch (error) {
+      console.error('Get workflow steps error:', error);
+      return 'Failed to retrieve workflow steps.';
+    }
+  },
+});
+
+// Tool: Get briefing priorities
+const getBriefingPrioritiesTool = tool({
+  name: 'get_briefing_priorities',
+  description: 'Get the AI briefing priorities and inspection strategy for the current claim. Use this to ensure scope items align with what the briefing recommends focusing on.',
+  parameters: z.object({}),
+  execute: async () => {
+    try {
+      const claimId = scopeEngine.getState().claimId;
+      if (!claimId) {
+        return 'No claim ID available. Briefing priorities cannot be retrieved.';
+      }
+
+      const response = await fetch(`/api/claims/${claimId}/scope-context`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        return 'Failed to fetch briefing priorities.';
+      }
+
+      const context = await response.json();
+      if (!context.briefing) {
+        return 'No briefing available for this claim.';
+      }
+
+      const briefing = context.briefing;
+      const parts: string[] = [];
+
+      if (briefing.priorities && briefing.priorities.length > 0) {
+        parts.push(`**Inspection Priorities:**\n${briefing.priorities.map((p: string) => `- ${p}`).join('\n')}`);
+      }
+
+      if (briefing.commonMisses && briefing.commonMisses.length > 0) {
+        parts.push(`**Common Misses:**\n${briefing.commonMisses.map((m: string) => `- ${m}`).join('\n')}`);
+      }
+
+      if (briefing.overview && briefing.overview.length > 0) {
+        parts.push(`**Claim Overview:**\n${briefing.overview.map((o: string) => `- ${o}`).join('\n')}`);
+      }
+
+      return parts.length > 0 ? parts.join('\n\n') : 'No briefing priorities available.';
+    } catch (error) {
+      console.error('Get briefing priorities error:', error);
+      return 'Failed to retrieve briefing priorities.';
+    }
+  },
+});
+
+// Tool: Get photo requirements
+const getPhotoRequirementsTool = tool({
+  name: 'get_photo_requirements',
+  description: 'Get the photo requirements from the AI briefing. Use this to remind the adjuster about required photos when adding scope items.',
+  parameters: z.object({}),
+  execute: async () => {
+    try {
+      const claimId = scopeEngine.getState().claimId;
+      if (!claimId) {
+        return 'No claim ID available. Photo requirements cannot be retrieved.';
+      }
+
+      const response = await fetch(`/api/claims/${claimId}/scope-context`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        return 'Failed to fetch photo requirements.';
+      }
+
+      const context = await response.json();
+      if (!context.briefing || !context.briefing.photoRequirements || context.briefing.photoRequirements.length === 0) {
+        return 'No specific photo requirements available for this claim.';
+      }
+
+      return context.briefing.photoRequirements.map((p: any) => `**${p.category}:**\n${p.items?.map((i: string) => `- ${i}`).join('\n') || 'No items listed'}`).join('\n\n');
+    } catch (error) {
+      console.error('Get photo requirements error:', error);
+      return 'Failed to retrieve photo requirements.';
+    }
+  },
+});
+
 // Tool list for agent creation
 const agentTools = [
   addLineItemTool,
@@ -257,6 +486,9 @@ const agentTools = [
   searchLineItemsTool,
   getEstimateSummaryTool,
   suggestRelatedTool,
+  getWorkflowStepsTool,
+  getBriefingPrioritiesTool,
+  getPhotoRequirementsTool,
   undoTool,
   clearAllTool,
   confirmSuggestionsTool,
@@ -266,9 +498,11 @@ const agentTools = [
 /**
  * Create a scope agent with instructions loaded from database
  * Database is the ONLY source - throws if prompt not available
+ * 
+ * @param claimId - Optional claim ID to inject claim context into prompt
  */
-export async function createScopeAgentAsync(): Promise<RealtimeAgent> {
-  const instructions = await fetchInstructionsFromAPI();
+export async function createScopeAgentAsync(claimId?: string): Promise<RealtimeAgent> {
+  const instructions = await fetchInstructionsFromAPI(claimId);
 
   return new RealtimeAgent({
     name: 'ScopeAgent',

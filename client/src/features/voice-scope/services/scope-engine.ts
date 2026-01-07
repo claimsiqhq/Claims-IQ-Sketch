@@ -48,6 +48,7 @@ interface ScopeEngineState {
   // Context
   currentRoom: string | null;
   currentDamageType: string | null;
+  claimId: string | null; // Current claim ID for context-aware tools
 
   // Session
   commandHistory: ScopeCommand[];
@@ -70,6 +71,7 @@ interface ScopeEngineState {
   // Session management
   addTranscript: (role: 'user' | 'assistant', content: string) => void;
   setSessionState: (state: ScopeSessionState) => void;
+  setClaimId: (claimId: string | null) => void;
   resetSession: () => void;
 
   // Getters
@@ -138,6 +140,7 @@ export const useScopeEngine = create<ScopeEngineState>((set, get) => ({
   pendingItems: [],
   currentRoom: null,
   currentDamageType: null,
+  claimId: null,
   commandHistory: [],
   transcript: [],
   sessionState: 'idle',
@@ -462,12 +465,17 @@ export const useScopeEngine = create<ScopeEngineState>((set, get) => ({
     set({ sessionState });
   },
 
+  setClaimId: (claimId) => {
+    set({ claimId });
+  },
+
   resetSession: () => {
     set({
       lineItems: [],
       pendingItems: [],
       currentRoom: null,
       currentDamageType: null,
+      claimId: null,
       commandHistory: [],
       transcript: [],
       undoStack: [],

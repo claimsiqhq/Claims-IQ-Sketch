@@ -8,6 +8,7 @@ import { createScopeAgentAsync } from '../agents/scope-agent';
 import { useScopeEngine } from '../services/scope-engine';
 
 interface UseVoiceScopeSessionOptions {
+  claimId?: string; // Claim ID for context-aware prompt injection
   onTranscript?: (text: string, role: 'user' | 'assistant') => void;
   onToolCall?: (toolName: string, args: unknown, result: string) => void;
   onError?: (error: Error) => void;
@@ -31,7 +32,14 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
   const [error, setError] = useState<string | null>(null);
 
   const sessionRef = useRef<RealtimeSession | null>(null);
-  const { setSessionState, addTranscript } = useScopeEngine();
+  const { setSessionState, addTranscript, setClaimId } = useScopeEngine();
+
+  // Set claim ID in scope engine when provided
+  useEffect(() => {
+    if (options.claimId) {
+      setClaimId(options.claimId);
+    }
+  }, [options.claimId, setClaimId]);
 
   // Sync state with scope engine
   useEffect(() => {
