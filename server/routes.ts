@@ -5864,6 +5864,10 @@ export async function registerRoutes(
       const claimId = req.params.id;
       const organizationId = req.organizationId!;
 
+      // Import services dynamically
+      const { getClaimBriefing } = await import('./services/claimBriefingService');
+      const { getClaimWorkflow } = await import('./services/inspectionWorkflowService');
+
       // Get briefing
       const briefing = await getClaimBriefing(claimId, organizationId);
       
