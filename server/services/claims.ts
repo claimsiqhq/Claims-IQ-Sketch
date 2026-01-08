@@ -26,6 +26,9 @@ export interface ClaimWithDocuments {
   propertyCity?: string;
   propertyState?: string;
   propertyZip?: string;
+  propertyLatitude?: string;
+  propertyLongitude?: string;
+  geocodeStatus?: string;
   dateOfLoss?: string;
   causeOfLoss?: string;
   lossType?: string;
@@ -218,6 +221,9 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
     propertyCity: row.property_city,
     propertyState: row.property_state,
     propertyZip: row.property_zip,
+    propertyLatitude: row.property_latitude,
+    propertyLongitude: row.property_longitude,
+    geocodeStatus: row.geocode_status,
     dateOfLoss: row.date_of_loss,
     causeOfLoss: row.loss_type,
     lossType: row.loss_type,
