@@ -363,6 +363,7 @@ export async function seedAdminUser(): Promise<void> {
 
   if (data.user) {
     // Create record in our users table
+    // Use ignoreDuplicates to prevent overwriting existing user data (like first_name/last_name)
     await supabaseAdmin
       .from('users')
       .upsert({
