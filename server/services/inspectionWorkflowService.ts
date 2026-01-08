@@ -37,20 +37,10 @@ import {
   RoofPaymentScheduleEntry,
   EffectivePolicy,
 } from '../../shared/schema';
-import {
-  buildPerilAwareClaimContext,
-  PerilAwareClaimContext,
-} from './perilAwareContext';
-import {
-  getInspectionRulesForPeril,
-  getMergedInspectionGuidance,
-  PERIL_INSPECTION_RULES,
-} from '../config/perilInspectionRules';
-import { getPromptWithFallback, substituteVariables } from './promptService';
+import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
+import { getPromptWithFallback } from './promptService';
 import { getClaimBriefing } from './claimBriefingService';
-import { getCarrierOverlays } from './carrierOverlayService';
-import { getEffectivePolicyForClaim } from './effectivePolicyService';
-import { buildUnifiedClaimContext, calculateRoofDepreciation } from './unifiedClaimContextService';
+import { buildUnifiedClaimContext } from './unifiedClaimContextService';
 
 // ============================================
 // TYPE DEFINITIONS

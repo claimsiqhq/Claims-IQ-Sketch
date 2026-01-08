@@ -21,16 +21,11 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { ClaimBriefingContent, PromptKey, UnifiedClaimContext } from '../../shared/schema';
 import {
-  buildPerilAwareClaimContext,
-  buildPerilAwareClaimContextWithInspection,
-  PerilAwareClaimContext,
-} from './perilAwareContext';
-import {
   getInspectionRulesForPeril,
   getMergedInspectionGuidance,
 } from '../config/perilInspectionRules';
-import { getPromptWithFallback, substituteVariables } from './promptService';
-import { buildUnifiedClaimContext, calculateRoofDepreciation } from './unifiedClaimContextService';
+import { getPromptWithFallback } from './promptService';
+import { buildUnifiedClaimContext } from './unifiedClaimContextService';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -678,12 +673,24 @@ export async function isBriefingStale(
   claimId: string,
   organizationId: string
 ): Promise<boolean> {
-  const context = await buildPerilAwareClaimContext(claimId);
+  const context = await buildUnifiedClaimContext(claimId, organizationId);
   if (!context) {
     return true; // Claim not found, consider stale
   }
 
-  const currentHash = generateSourceHash(context);
+  // Generate hash using the same logic as generateClaimBriefing
+  const hashInput = {
+    claimId: context.claimId,
+    peril: context.peril.primary,
+    deductible: context.deductibles.applicableForPeril.amount,
+    roofAge: context.property.roof.ageAtLoss,
+    endorsementCount: context.endorsements.extracted.length,
+    alertCount: context.alerts.length,
+    completeness: context.meta.dataCompleteness.completenessScore,
+    builtAt: context.meta.builtAt,
+  };
+  const currentHash = crypto.createHash('sha256').update(JSON.stringify(hashInput)).digest('hex');
+
   const briefing = await getClaimBriefing(claimId, organizationId);
 
   if (!briefing) {
