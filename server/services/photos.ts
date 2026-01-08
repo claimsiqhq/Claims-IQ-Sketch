@@ -266,8 +266,34 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       });
 
     if (uploadError) {
-      console.error('[photos] Upload error:', uploadError);
-      throw new Error(`Failed to upload photo: ${uploadError.message}`);
+      console.error('[photos] Upload error:', {
+        message: uploadError.message,
+        statusCode: uploadError.statusCode,
+        error: uploadError.error,
+        bucket: PHOTOS_BUCKET,
+        storagePath,
+      });
+      
+      // If bucket doesn't exist, try to create it and retry
+      if (uploadError.statusCode === '404' || uploadError.message?.includes('Bucket not found')) {
+        console.log('[photos] Bucket not found, attempting to create...');
+        await initializePhotosBucket();
+        
+        // Retry upload
+        const { error: retryError } = await supabaseAdmin.storage
+          .from(PHOTOS_BUCKET)
+          .upload(storagePath, input.file.buffer, {
+            contentType: input.file.mimetype,
+            upsert: false,
+          });
+        
+        if (retryError) {
+          console.error('[photos] Retry upload error:', retryError);
+          throw new Error(`Failed to upload photo after bucket creation: ${retryError.message}`);
+        }
+      } else {
+        throw new Error(`Failed to upload photo: ${uploadError.message}`);
+      }
     }
 
     const { data: urlData } = supabaseAdmin.storage
