@@ -179,7 +179,7 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
     );
 
     if (result) {
-      await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from('claims')
         .update({
           property_latitude: result.latitude,
@@ -188,7 +188,12 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
           geocoded_at: new Date().toISOString()
         })
         .eq('id', claimId);
-      console.log(`Geocoded claim ${claimId}: ${result.latitude}, ${result.longitude}`);
+      
+      if (updateError) {
+        console.error(`[Geocoding] Failed to save coordinates for claim ${claimId}:`, updateError);
+        return false;
+      }
+      console.log(`[Geocoding] Saved to DB - claim ${claimId}: ${result.latitude}, ${result.longitude}`);
       return true;
     } else {
       await supabaseAdmin
