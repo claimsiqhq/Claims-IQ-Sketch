@@ -4702,6 +4702,13 @@ export async function registerRoutes(
         uploadedBy,
       });
 
+      console.log('[photos] Upload successful:', {
+        id: photo.id,
+        claimId: photo.claimId,
+        url: photo.url,
+        storagePath: photo.storagePath,
+      });
+
       res.status(201).json(photo);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
