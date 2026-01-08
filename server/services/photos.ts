@@ -268,14 +268,15 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
     if (uploadError) {
       console.error('[photos] Upload error:', {
         message: uploadError.message,
-        statusCode: uploadError.statusCode,
-        error: uploadError.error,
+        name: uploadError.name,
         bucket: PHOTOS_BUCKET,
         storagePath,
+        fileSize: input.file.size,
+        mimeType: input.file.mimetype,
       });
       
       // If bucket doesn't exist, try to create it and retry
-      if (uploadError.statusCode === '404' || uploadError.message?.includes('Bucket not found')) {
+      if (uploadError.message?.includes('not found') || uploadError.message?.includes('Bucket not found')) {
         console.log('[photos] Bucket not found, attempting to create...');
         await initializePhotosBucket();
         
@@ -301,6 +302,12 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       .getPublicUrl(storagePath);
 
     url = urlData?.publicUrl || '';
+    console.log('[photos] Successfully uploaded to Supabase storage:', {
+      bucket: PHOTOS_BUCKET,
+      storagePath,
+      publicUrl: url,
+      fileSize: input.file.size,
+    });
   } else {
     url = `local://${storagePath}`;
     console.warn('[photos] Supabase not configured, using local storage path');
