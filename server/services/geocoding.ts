@@ -88,12 +88,33 @@ async function geocodeWithNominatim(addressString: string): Promise<GeocodeResul
     
     if (!data || data.length === 0) {
       // Try fallback: extract city, state from address and geocode just that
-      const stateMatch = addressString.match(/,\s*([A-Z]{2})(?:\s+\d{5})?$/i);
-      const cityMatch = addressString.match(/,\s*([^,]+),\s*[A-Z]{2}/i);
+      // Pattern 1: "City, ST" or "City, ST ZIP"
+      const stateMatch = addressString.match(/,\s*([A-Z]{2})(?:\s+[\d-]+)?(?:,|$)/i);
+      // Pattern 2: Find city before state
+      const cityMatch = addressString.match(/,\s*([A-Za-z\s]+),\s*[A-Z]{2}/i);
+      
+      let fallbackAddress: string | null = null;
       
       if (cityMatch && stateMatch) {
-        const fallbackAddress = `${cityMatch[1].trim()}, ${stateMatch[1]}`;
+        fallbackAddress = `${cityMatch[1].trim()}, ${stateMatch[1]}`;
+      } else if (stateMatch) {
+        // Try to get just state and look for city differently
+        const parts = addressString.split(',');
+        for (let i = 0; i < parts.length - 1; i++) {
+          const part = parts[i].trim();
+          // If the part doesn't look like a street address (no numbers at start)
+          if (!/^\d/.test(part) && part.length > 2) {
+            fallbackAddress = `${part}, ${stateMatch[1]}`;
+            break;
+          }
+        }
+      }
+      
+      if (fallbackAddress) {
         console.log(`[Geocoding] Trying fallback city geocoding: ${fallbackAddress}`);
+        
+        // Nominatim rate limit: 1 request per second
+        await new Promise(resolve => setTimeout(resolve, 1100));
         
         const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fallbackAddress)}&limit=1&countrycodes=us`;
         const fallbackResponse = await fetch(fallbackUrl, {
