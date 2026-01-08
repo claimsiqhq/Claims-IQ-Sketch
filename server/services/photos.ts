@@ -98,9 +98,8 @@ async function initializePhotosBucket(): Promise<void> {
       return;
     }
     console.log(`[photos] Created Supabase storage bucket: ${PHOTOS_BUCKET}`);
-  } else {
-    console.log(`[photos] Supabase storage bucket "${PHOTOS_BUCKET}" already exists`);
   }
+  // Bucket already exists - no need to log on every startup
 }
 
 // Export for explicit initialization during server startup

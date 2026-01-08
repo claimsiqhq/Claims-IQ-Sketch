@@ -43,7 +43,7 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
         console.error('[SupabaseSessionStore] Table check error:', error.message);
         this.tableExists = false;
       } else {
-        console.log('[SupabaseSessionStore] Sessions table ready');
+        // Table exists and is ready - no need to log on every startup
         this.tableExists = true;
       }
       

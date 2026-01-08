@@ -83,9 +83,8 @@ export async function initializeStorageBucket(): Promise<void> {
       throw createError;
     }
     console.log(`Created Supabase storage bucket: ${DOCUMENTS_BUCKET}`);
-  } else {
-    console.log(`Supabase storage bucket "${DOCUMENTS_BUCKET}" already exists`);
   }
+  // Bucket already exists - no need to log on every startup
 
   if (!previewsBucketExists) {
     const { error: createError } = await supabase.storage.createBucket(PREVIEWS_BUCKET, {
@@ -98,9 +97,8 @@ export async function initializeStorageBucket(): Promise<void> {
       throw createError;
     }
     console.log(`Created Supabase storage bucket: ${PREVIEWS_BUCKET}`);
-  } else {
-    console.log(`Supabase storage bucket "${PREVIEWS_BUCKET}" already exists`);
   }
+  // Bucket already exists - no need to log on every startup
 }
 
 export async function createDocument(
