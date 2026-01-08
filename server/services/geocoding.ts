@@ -87,6 +87,32 @@ async function geocodeWithNominatim(addressString: string): Promise<GeocodeResul
     const data = await response.json();
     
     if (!data || data.length === 0) {
+      // Try fallback: extract city, state from address and geocode just that
+      const stateMatch = addressString.match(/,\s*([A-Z]{2})(?:\s+\d{5})?$/i);
+      const cityMatch = addressString.match(/,\s*([^,]+),\s*[A-Z]{2}/i);
+      
+      if (cityMatch && stateMatch) {
+        const fallbackAddress = `${cityMatch[1].trim()}, ${stateMatch[1]}`;
+        console.log(`[Geocoding] Trying fallback city geocoding: ${fallbackAddress}`);
+        
+        const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fallbackAddress)}&limit=1&countrycodes=us`;
+        const fallbackResponse = await fetch(fallbackUrl, {
+          headers: { 'User-Agent': 'ClaimsIQ/1.0 (claims-management-system)' }
+        });
+        
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData && fallbackData.length > 0) {
+            console.log(`[Geocoding] Fallback succeeded for: ${fallbackAddress}`);
+            return {
+              latitude: parseFloat(fallbackData[0].lat),
+              longitude: parseFloat(fallbackData[0].lon),
+              displayName: fallbackData[0].display_name
+            };
+          }
+        }
+      }
+      
       console.warn(`Nominatim Geocoding returned no results for: ${addressString}`);
       return null;
     }
