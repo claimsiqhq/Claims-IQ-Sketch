@@ -285,7 +285,7 @@ export async function createInspectionAppointment(
     .insert({
       claim_id: input.claimId,
       organization_id: input.organizationId,
-      adjuster_id: input.adjusterId,
+      user_id: input.adjusterId,
       ms365_event_id: ms365EventId,
       title: input.title,
       description: input.description || null,
@@ -321,7 +321,7 @@ export async function getAppointmentsForDate(
   const { data, error } = await supabaseAdmin
     .from('inspection_appointments')
     .select('*')
-    .eq('adjuster_id', userId)
+    .eq('user_id', userId)
     .eq('organization_id', organizationId)
     .gte('scheduled_start', startOfDay.toISOString())
     .lte('scheduled_start', endOfDay.toISOString())
@@ -504,7 +504,7 @@ function mapAppointmentFromDb(row: any): InspectionAppointment {
     id: row.id,
     claimId: row.claim_id,
     organizationId: row.organization_id,
-    adjusterId: row.adjuster_id,
+    adjusterId: row.user_id,
     ms365EventId: row.ms365_event_id,
     title: row.title,
     description: row.description,
