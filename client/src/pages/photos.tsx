@@ -319,7 +319,7 @@ export default function PhotosPage() {
         longitude,
       });
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: async (_data, variables) => {
       toast.success('Photo uploaded - AI analysis in progress');
       // Remove from pending uploads
       setPendingUploads((prev) => prev.filter((p) => p.id !== variables.pendingId));
@@ -328,10 +328,11 @@ export default function PhotosPage() {
       if (pending) {
         URL.revokeObjectURL(pending.previewUrl);
       }
-      // Refetch photos to get the real data
-      queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
-      if (selectedClaimId !== 'all') {
-        queryClient.invalidateQueries({ queryKey: ['claimPhotos', selectedClaimId] });
+      // Refetch photos to get the real data - wait for refetch to complete
+      if (selectedClaimId === 'all') {
+        await queryClient.refetchQueries({ queryKey: ['allPhotos'] });
+      } else {
+        await queryClient.refetchQueries({ queryKey: ['claimPhotos', selectedClaimId] });
       }
     },
     onError: (error, variables) => {

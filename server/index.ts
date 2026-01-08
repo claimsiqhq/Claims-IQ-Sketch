@@ -81,13 +81,23 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Initialize Supabase storage bucket
+  // Initialize Supabase storage buckets
   try {
     await initializeStorageBucket();
-    log('Supabase storage bucket initialized', 'supabase');
+    log('Supabase storage buckets initialized', 'supabase');
   } catch (error) {
-    log(`Warning: Could not initialize Supabase storage bucket: ${error}`, 'supabase');
+    log(`Warning: Could not initialize Supabase storage buckets: ${error}`, 'supabase');
     // Continue startup - storage will fail at runtime if not configured
+  }
+
+  // Initialize photos bucket
+  try {
+    const { initializePhotosBucket } = await import('./services/photos');
+    await initializePhotosBucket();
+    log('Photos storage bucket initialized', 'supabase');
+  } catch (error) {
+    log(`Warning: Could not initialize photos storage bucket: ${error}`, 'supabase');
+    // Continue startup - photos will fail at runtime if not configured
   }
 
   // Seed admin user for development/testing

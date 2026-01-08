@@ -103,7 +103,8 @@ async function initializePhotosBucket(): Promise<void> {
   }
 }
 
-initializePhotosBucket().catch(console.error);
+// Export for explicit initialization during server startup
+export { initializePhotosBucket };
 
 interface AnalysisResult {
   analysis: PhotoAnalysis;
