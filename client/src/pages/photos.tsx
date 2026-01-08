@@ -251,6 +251,27 @@ export default function PhotosPage() {
   const photos = selectedClaimId === 'all' ? allPhotos : claimPhotos;
   const photosLoading = selectedClaimId === 'all' ? allPhotosLoading : claimPhotosLoading;
 
+  // Check if any photos are still being analyzed - if so, poll for updates
+  const hasPhotosAnalyzing = useMemo(() => {
+    return photos.some(p => p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing');
+  }, [photos]);
+
+  // Auto-refetch while photos are being analyzed
+  useEffect(() => {
+    if (!hasPhotosAnalyzing) return;
+    
+    const intervalId = setInterval(() => {
+      console.log('[photos] Polling for analysis updates...');
+      if (selectedClaimId === 'all') {
+        refetchAllPhotos();
+      } else {
+        refetchClaimPhotos();
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(intervalId);
+  }, [hasPhotosAnalyzing, selectedClaimId, refetchAllPhotos, refetchClaimPhotos]);
+
   const deleteMutation = useMutation({
     mutationFn: deletePhoto,
     onSuccess: () => {

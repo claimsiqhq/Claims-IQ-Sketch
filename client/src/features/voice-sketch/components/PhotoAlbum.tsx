@@ -331,7 +331,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
     }
   }, [displayPhoto]);
 
-  if (!photo) return null;
+  if (!photo || !displayPhoto) return null;
 
   const analysis = displayPhoto.aiAnalysis;
   const qualityScore = analysis?.quality?.score ?? 5;
