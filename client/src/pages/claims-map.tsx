@@ -60,21 +60,23 @@ export default function ClaimsMap() {
         const data = await response.json();
         
         const claimsWithCoords = (data.claims || [])
-          .filter((c: any) => c.propertyLatitude && c.propertyLongitude)
+          .filter((c: any) => c.property_latitude && c.property_longitude)
           .map((c: any) => ({
             id: c.id,
-            claimNumber: c.claimNumber,
-            insuredName: c.insuredName || c.policyholder || 'Unknown',
-            address: c.propertyAddress || '',
-            city: c.propertyCity || '',
-            state: c.propertyState || '',
-            zip: c.propertyZip || '',
-            lat: parseFloat(c.propertyLatitude),
-            lng: parseFloat(c.propertyLongitude),
+            claimNumber: c.claim_number || c.claimNumber,
+            insuredName: c.insured_name || c.policyholder || 'Unknown',
+            address: c.property_address || '',
+            city: c.property_city || '',
+            state: c.property_state || '',
+            zip: c.property_zip || '',
+            lat: parseFloat(c.property_latitude),
+            lng: parseFloat(c.property_longitude),
             status: c.status,
-            lossType: c.lossType || c.primaryPeril || 'Unknown',
-            dateOfLoss: c.dateOfLoss,
+            lossType: c.loss_type || c.primary_peril || 'Unknown',
+            dateOfLoss: c.date_of_loss,
           }));
+        
+        console.log('[ClaimsMap] Total claims:', data.claims?.length, 'With coords:', claimsWithCoords.length);
         
         setClaims(claimsWithCoords);
       } catch (err) {
