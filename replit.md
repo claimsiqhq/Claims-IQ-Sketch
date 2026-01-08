@@ -1,41 +1,58 @@
 # Claims IQ - Property Insurance Claims Estimation Platform
 
 ## Overview
-Claims IQ is a mobile-first web application designed for property insurance field adjusters. Its core purpose is to streamline property data capture, damage documentation, and estimate generation. The platform leverages voice-driven interfaces, AI for document extraction and intelligent briefings, and comprehensive estimation tools, aiming to modernize and accelerate the claims process. Key capabilities include voice-based sketching and damage scoping, AI-powered document processing, intelligent claim briefings, guided inspection workflows, multi-peril support, and integration with Xactimate for detailed estimates. The project's ambition is to provide a robust, efficient, and intelligent tool that significantly reduces the time and complexity involved in property insurance claims, improving accuracy and adjuster productivity.
+Claims IQ is a mobile-first web application for property insurance field adjusters. Its primary purpose is to streamline property data capture, damage documentation, and estimate generation. Key capabilities include voice-driven interfaces, AI-powered document processing, comprehensive estimation tools, and integration with external services. The business vision is to significantly improve the speed and accuracy of property damage claims handling, reducing manual effort and enhancing the adjuster's efficiency in the field.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
-Claims IQ is built as a multi-tenant application, ensuring data isolation and role-based access for organizations.
 
 ### UI/UX Decisions
-The application features a mobile-first design with a clean and intuitive interface.
-- **Branding**: Uses "Primary Purple" (`#7763B7`) for accents and "Accent Gold" (`#C6A54E`) for highlights.
-- **Typography**: Employs Work Sans for headings, Source Sans 3 for body text, and Space Mono for monospace elements.
-- **Component Library**: Utilizes shadcn/ui for consistent and modern UI components, complemented by Framer Motion for animations.
-- **Dashboard**: Provides a personalized "My Day" dashboard with AI insights, weather integration, and prioritized inspections.
-- **Map View**: Offers a geographic visualization of claims with clustering, weather overlays, and route optimization.
+- **Branding**: Primary Purple (`#7763B7`), Accent Gold (`#C6A54E`)
+- **Typography**: Work Sans (headings), Source Sans 3 (body), Space Mono (monospace)
+- **Design Approach**: Mobile-first responsive design.
+- **Component Library**: `shadcn/ui` for standardized components.
+- **Animations**: `Framer Motion` for enhanced user experience.
 
 ### Technical Implementations
-- **Voice Sketch**: Natural language processing (NLP) enables adjusters to verbally describe property layouts, which the system converts into structured data.
-- **Voice Scope**: Allows adjusters to document damage by voice, automatically mapping descriptions to Xactimate line items and calculating quantities.
-- **AI Document Extraction**: Uses AI to automatically extract key information from FNOL, policy documents, and endorsements, including policyholder data, coverage limits, deductibles, and peril types.
-- **AI Claim Briefing**: Generates intelligent summaries, inspection strategies, peril-specific risks, and policy watch-outs based on processed documents.
-- **Inspection Workflows**: Provides AI-generated, step-by-step guidance for inspections, detailing required photos, measurements, and tools for each phase.
-- **Estimate Builder**: Features a hierarchical structure for building estimates (Estimate > Coverage > Structure > Area > Zone > Line Items) with automatic pricing calculations based on Xactimate data.
-- **Photo Management**: Supports photo uploads with AI analysis for damage detection, quality scoring, and peril association, organizing them by room/area with GPS metadata.
+Claims IQ is a full-stack application built with a clear separation between frontend and backend.
 
-### System Design Choices
-- **Frontend**: Developed with React 19, TypeScript 5.6, Vite 7, Wouter for routing, Zustand for state management, and TanStack Query for server state.
-- **Backend**: Built using Express.js 4.21, TypeScript 5.6, Drizzle ORM 0.39, and PostgreSQL (via Supabase).
-- **Authentication**: Primarily uses session-based authentication with Passport.js, storing sessions in Supabase. Supabase JWT is available as an alternative.
-- **Multi-Tenancy**: Implemented with an `organizationId` filter on all queries, enforced by tenant middleware and Supabase Row Level Security (RLS).
-- **Database**: PostgreSQL database (Supabase) with over 50 tables, managing claims, estimates, users, organizations, documents, and Xactimate data.
-- **API**: A comprehensive RESTful API for all platform functionalities, including authentication, claims, documents, estimates, pricing, voice features, weather, and organizational management.
+**Frontend:**
+- **Framework**: React 19 with TypeScript 5.6
+- **Build Tool**: Vite 7
+- **Routing**: Wouter
+- **State Management**: Zustand
+- **Server State Management**: TanStack Query
+- **Styling**: Tailwind CSS
+
+**Backend:**
+- **Framework**: Express.js 4.21 with TypeScript
+- **ORM**: Drizzle ORM 0.39 for PostgreSQL
+- **Authentication**: Passport.js for session management
+- **File Uploads**: Multer
+
+**Core Features & Design Patterns:**
+- **AI-Powered Document Processing**: An intelligent pipeline classifies, extracts, and validates information from various claim documents (FNOL, policies, endorsements).
+- **Unified Claim Context**: A service (`unifiedClaimContextService.ts`) aggregates all extracted and calculated claim data into a single, comprehensive context for AI and other features.
+- **AI-Generated Briefings & Workflows**: Utilizes OpenAI to create personalized inspection strategies, policy watch-outs, depreciation guidance, and step-by-step inspection workflows tailored to peril types.
+- **Voice-Driven Interfaces**:
+    - **Voice Sketch**: Allows users to describe rooms and damages using natural language, which the system converts into floor plans and damage zones. It uses OpenAI Realtime API for recognition and a `geometry-engine.ts` for calculations.
+    - **Voice Scope**: Maps natural language damage descriptions to Xactimate line items, automatically calculating quantities.
+- **Estimate Builder**: A hierarchical structure for building estimates, integrating Xactimate pricing, regional adjustments, and export capabilities.
+- **Multi-Tenancy**: Enforced at both application and database levels (`organizationId` filtering, Supabase RLS).
+- **Authentication**: Primarily Passport.js sessions, with Supabase JWT as an alternative.
+
+### Feature Specifications
+- **My Day Dashboard**: Personalized home screen with schedules, route optimization, AI insights.
+- **Document Upload & AI Extraction**: For FNOL, policies, and supporting documents, automatically extracting key details.
+- **Claim Briefing**: AI-generated pre-inspection insights.
+- **Inspection Workflows**: Guided, step-by-step processes for various inspection phases.
+- **Map View**: Visualizes claims, weather overlays, and route planning.
+- **Microsoft 365 Calendar Sync**: Two-way synchronization for inspection appointments.
 
 ## External Dependencies
-- **OpenAI**: Utilized for GPT-4 Vision (document text extraction), GPT Realtime (voice features), and GPT-4 (briefings, workflows, suggestions).
-- **Supabase**: Serves as the primary backend-as-a-service, providing PostgreSQL for the database, Storage for document and photo uploads, and its HTTP API for all backend queries.
-- **National Weather Service API**: Integrated to fetch real-time weather data for inspection locations, used in the "My Day" dashboard.
-- **Xactimate**: Integrated for its extensive database of over 20,000 line items and regional pricing adjustments, crucial for accurate estimate generation.
+- **Supabase**: Used for PostgreSQL database, secure file storage, and authentication.
+- **OpenAI**: Powers AI features including document extraction (GPT-4o), claim briefings, and workflow generation (GPT-4), and real-time voice recognition.
+- **Microsoft Graph API**: Integrates with Outlook calendar for scheduling and synchronization.
+- **National Weather Service API**: Provides weather data for inspection planning.

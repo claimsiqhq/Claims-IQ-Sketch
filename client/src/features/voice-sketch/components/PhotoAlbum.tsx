@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Camera,
   CheckCircle2,
@@ -45,6 +46,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { SketchPhoto, PhotoAIAnalysis, AnalysisStatus } from '../types/geometry';
+import { getPhoto, type ClaimPhoto } from '@/lib/api';
 import {
   Tooltip,
   TooltipContent,
@@ -59,6 +61,34 @@ interface Claim {
 
 interface ExtendedSketchPhoto extends SketchPhoto {
   claimId?: string | null;
+}
+
+function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
+  return {
+    id: cp.id,
+    label: cp.label || 'Photo',
+    hierarchyPath: cp.hierarchyPath || (cp.claimId ? 'Unassigned' : 'Uncategorized'),
+    storageUrl: cp.publicUrl,
+    localUri: cp.publicUrl,
+    storagePath: cp.storagePath,
+    latitude: cp.latitude,
+    longitude: cp.longitude,
+    geoAddress: cp.geoAddress,
+    uploadedBy: cp.uploadedBy,
+    claimId: cp.claimId,
+    aiAnalysis: cp.aiAnalysis && Object.keys(cp.aiAnalysis).length > 0 ? {
+      quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
+      content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },
+      metadata: cp.aiAnalysis.metadata || { lighting: 'fair', focus: 'acceptable', angle: 'acceptable', coverage: 'partial' },
+    } : null,
+    capturedAt: cp.capturedAt || new Date().toISOString(),
+    analyzedAt: cp.analyzedAt || undefined,
+    structureId: cp.structureId || undefined,
+    roomId: cp.roomId || undefined,
+    subRoomId: cp.damageZoneId || undefined,
+    analysisStatus: cp.analysisStatus || null,
+    analysisError: cp.analysisError || null,
+  };
 }
 
 interface PhotoAlbumProps {
@@ -272,23 +302,44 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
   const [editHierarchy, setEditHierarchy] = useState('');
   const [editClaimId, setEditClaimId] = useState<string | null>(null);
 
+  // Fetch latest photo data when dialog opens
+  const { data: latestPhoto, isLoading: isLoadingPhoto } = useQuery({
+    queryKey: ['photo', photo?.id],
+    queryFn: () => {
+      if (!photo?.id) throw new Error('No photo ID');
+      return getPhoto(photo.id);
+    },
+    enabled: open && !!photo?.id,
+    refetchInterval: (query) => {
+      // Poll every 2 seconds if analysis is pending or analyzing
+      const photoData = query.state.data;
+      if (photoData && (photoData.analysisStatus === 'pending' || photoData.analysisStatus === 'analyzing')) {
+        return 2000;
+      }
+      return false;
+    },
+  });
+
+  // Use latest photo data if available, otherwise fall back to passed photo
+  const displayPhoto = latestPhoto ? claimPhotoToSketchPhoto(latestPhoto) : photo;
+
   React.useEffect(() => {
-    if (photo) {
-      setEditLabel(photo.label || '');
-      setEditHierarchy(photo.hierarchyPath || '');
-      setEditClaimId(photo.claimId || null);
+    if (displayPhoto) {
+      setEditLabel(displayPhoto.label || '');
+      setEditHierarchy(displayPhoto.hierarchyPath || '');
+      setEditClaimId(displayPhoto.claimId || null);
     }
-  }, [photo]);
+  }, [displayPhoto]);
 
   if (!photo) return null;
 
-  const analysis = photo.aiAnalysis;
+  const analysis = displayPhoto.aiAnalysis;
   const qualityScore = analysis?.quality?.score ?? 5;
-  const photoUrl = photo.storageUrl || photo.localUri;
+  const photoUrl = displayPhoto.storageUrl || displayPhoto.localUri;
   const hasDamage = analysis?.content?.damageDetected;
-  const currentClaim = claims.find(c => c.id === photo.claimId);
-  const statusInfo = getAnalysisStatusInfo(photo.analysisStatus);
-  const canReanalyze = photo.analysisStatus === 'failed' || photo.analysisStatus === 'concerns' || photo.analysisStatus === 'completed';
+  const currentClaim = claims.find(c => c.id === displayPhoto.claimId);
+  const statusInfo = getAnalysisStatusInfo(displayPhoto.analysisStatus);
+  const canReanalyze = displayPhoto.analysisStatus === 'failed' || displayPhoto.analysisStatus === 'concerns' || displayPhoto.analysisStatus === 'completed';
 
   const handleSave = () => {
     if (onUpdate) {
