@@ -312,7 +312,10 @@ export async function getClaimsForMap(organizationId: string, filters?: {
 
   const { data: claims, error } = await query;
 
+  console.log(`[Map] Query org=${organizationId}, returned ${claims?.length || 0} claims with coords, error=${error?.message || 'none'}`);
+  
   if (error || !claims) {
+    console.error('[Map] Query error:', error);
     return [];
   }
 
