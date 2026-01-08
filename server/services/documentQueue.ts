@@ -49,7 +49,7 @@ const queue: QueueItem[] = [];
 const processing: Set<string> = new Set();
 const completed: Map<string, { success: boolean; error?: string }> = new Map();
 
-const MAX_CONCURRENT = 4; // Process up to 4 documents simultaneously
+const MAX_CONCURRENT = 6; // Process up to 6 documents simultaneously
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 5000;
 
