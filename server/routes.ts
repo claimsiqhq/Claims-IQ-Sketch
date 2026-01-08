@@ -4081,13 +4081,14 @@ export async function registerRoutes(
   /**
    * POST /api/claims/:id/briefing/generate-enhanced
    * Generate an enhanced AI briefing using UnifiedClaimContext.
+   * NOTE: The main generateClaimBriefing now uses enhanced context by default.
    */
   app.post('/api/claims/:id/briefing/generate-enhanced', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { generateEnhancedClaimBriefing } = await import('./services/claimBriefingService');
+      const { generateClaimBriefing } = await import('./services/claimBriefingService');
       const forceRegenerate = req.query.force === 'true';
 
-      const result = await generateEnhancedClaimBriefing(
+      const result = await generateClaimBriefing(
         req.params.id,
         req.organizationId!,
         forceRegenerate
@@ -4100,7 +4101,7 @@ export async function registerRoutes(
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[EnhancedBriefing] Error:', message);
+      console.error('[ClaimBriefing] Error:', message);
       res.status(500).json({ error: message });
     }
   });
@@ -4108,17 +4109,18 @@ export async function registerRoutes(
   /**
    * POST /api/claims/:id/workflow/generate-enhanced
    * Generate an enhanced inspection workflow using UnifiedClaimContext.
+   * NOTE: The main generateInspectionWorkflow now uses enhanced context by default.
    */
   app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { generateEnhancedInspectionWorkflow } = await import('./services/inspectionWorkflowService');
+      const { generateInspectionWorkflow } = await import('./services/inspectionWorkflowService');
       const forceRegenerate = req.query.force === 'true';
-      const propertyContext = req.body.propertyContext;
 
-      const result = await generateEnhancedInspectionWorkflow(
+      const result = await generateInspectionWorkflow(
         req.params.id,
         req.organizationId!,
-        { forceRegenerate, propertyContext }
+        undefined, // userId
+        forceRegenerate
       );
 
       if (!result.success) {
@@ -4128,7 +4130,7 @@ export async function registerRoutes(
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[EnhancedWorkflow] Error:', message);
+      console.error('[InspectionWorkflow] Error:', message);
       res.status(500).json({ error: message });
     }
   });

@@ -32,23 +32,15 @@ import {
   InspectionWorkflowStep,
   InspectionWorkflowRoom,
   InspectionWorkflowAsset,
+  UnifiedClaimContext,
+  EndorsementImpact,
+  RoofPaymentScheduleEntry,
+  EffectivePolicy,
 } from '../../shared/schema';
-import {
-  buildPerilAwareClaimContext,
-  PerilAwareClaimContext,
-} from './perilAwareContext';
-import {
-  getInspectionRulesForPeril,
-  getMergedInspectionGuidance,
-  PERIL_INSPECTION_RULES,
-} from '../config/perilInspectionRules';
-import { getPromptWithFallback, substituteVariables } from './promptService';
+import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
+import { getPromptWithFallback } from './promptService';
 import { getClaimBriefing } from './claimBriefingService';
-import { getCarrierOverlays } from './carrierOverlayService';
-import {
-  getEffectivePolicyForClaim,
-} from './effectivePolicyService';
-import { EffectivePolicy } from '../../shared/schema';
+import { buildUnifiedClaimContext } from './unifiedClaimContextService';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -757,6 +749,9 @@ ${notes.join('\n')}`);
 /**
  * Generate an inspection workflow for a claim
  *
+ * ENHANCED VERSION - Uses UnifiedClaimContext for rich policy, endorsement, and depreciation data.
+ * Now includes endorsement-driven steps and full briefing context.
+ *
  * @param claimId - The UUID of the claim
  * @param organizationId - The organization ID
  * @param userId - The user generating the workflow
@@ -772,180 +767,86 @@ export async function generateInspectionWorkflow(
   wizardContext?: WizardContext
 ): Promise<GenerateWorkflowResult> {
   try {
-    // Step 1: Build the peril-aware claim context
-    const context = await buildPerilAwareClaimContext(claimId);
+    // Step 1: Build UnifiedClaimContext (rich context with endorsements, depreciation, etc.)
+    const context = await buildUnifiedClaimContext(claimId, organizationId);
     if (!context) {
       return {
         success: false,
-        error: 'Claim not found or unable to build context',
+        error: 'Claim not found or unable to build UnifiedClaimContext',
       };
     }
 
-    // Step 2: Get existing briefing if available
+    // Step 2: Generate endorsement-driven steps FIRST (deterministic, policy-based)
+    const endorsementSteps = generateEndorsementDrivenSteps(context);
+    console.log(`[InspectionWorkflow] Generated ${endorsementSteps.length} endorsement-driven steps for claim ${claimId}`);
+
+    // Step 3: Get existing briefing for full context integration
     const briefing = await getClaimBriefing(claimId, organizationId);
-    const briefingSummary = briefing
-      ? `Primary Peril: ${briefing.briefingJson?.claim_summary?.primary_peril || 'Unknown'}
-Overview: ${briefing.briefingJson?.claim_summary?.overview?.join('; ') || 'No overview'}
-Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.join('; ') || 'No priorities'}`
-      : 'No briefing available - generate a comprehensive workflow based on FNOL and peril rules';
 
-    // Step 2.5: Load effective policy (ALWAYS - no feature flag)
-    // The effective policy provides deterministic inspection requirements based on endorsements
-    // This is computed dynamically from:
-    // - policy_form_extractions (base policy)
-    // - endorsement_extractions (endorsement modifications)
-    let effectivePolicy: EffectivePolicy | null = null;
-    let policyBasedSteps: PolicyInspectionStep[] = [];
-
-    try {
-      effectivePolicy = await getEffectivePolicyForClaim(claimId, organizationId);
-      if (effectivePolicy) {
-        // Generate deterministic policy-based inspection steps
-        // These are injected PROGRAMMATICALLY, not AI-inferred
-        policyBasedSteps = generatePolicyBasedInspectionSteps(effectivePolicy);
-        console.log(`[InspectionWorkflow] Generated ${policyBasedSteps.length} policy-based inspection steps for claim ${claimId}`);
-      } else {
-        console.log(`[InspectionWorkflow] No effective policy available for claim ${claimId} - using peril rules only`);
-      }
-    } catch (err) {
-      console.error('[InspectionWorkflow] Error loading effective policy:', err);
-      // Continue without effective policy - not a fatal error
-    }
-
-    // Step 3: Check for existing active workflow (unless force regenerate)
+    // Step 4: Check for existing active workflow (unless force regenerate)
     if (!forceRegenerate) {
-      try {
-        const { data: existingWorkflows, error: existingError } = await supabaseAdmin
-          .from('inspection_workflows')
-          .select('*')
-          .eq('claim_id', claimId)
-          .eq('organization_id', organizationId)
-          .in('status', ['draft', 'active'])
-          .order('version', { ascending: false })
-          .limit(1);
-
-        if (!existingError && existingWorkflows && existingWorkflows.length > 0) {
-          const existing = mapWorkflowFromDb(existingWorkflows[0]);
-          return {
-            success: true,
-            workflow: existing,
-            workflowId: existing.id,
-            version: existing.version,
-          };
-        }
-      } catch (err) {
-        console.error('Error checking for existing workflow:', err);
-      }
-    }
-
-    // Step 4: Get the next version number
-    let nextVersion = 1;
-    try {
-      const { data: versionData, error: versionError } = await supabaseAdmin
+      const { data: existingWorkflows } = await supabaseAdmin
         .from('inspection_workflows')
-        .select('version')
+        .select('*')
         .eq('claim_id', claimId)
+        .eq('organization_id', organizationId)
+        .in('status', ['draft', 'active'])
         .order('version', { ascending: false })
         .limit(1);
 
-      if (!versionError && versionData && versionData.length > 0) {
-        nextVersion = versionData[0].version + 1;
+      if (existingWorkflows && existingWorkflows.length > 0) {
+        const existing = mapWorkflowFromDb(existingWorkflows[0]);
+        return {
+          success: true,
+          workflow: existing,
+          workflowId: existing.id,
+          version: existing.version,
+        };
       }
-    } catch (err) {
-      console.error('Error getting next version:', err);
     }
 
-    // Step 5: Archive previous active workflows
+    // Step 5: Get the next version number
+    const { data: versionData } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('version')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .order('version', { ascending: false })
+      .limit(1);
+
+    const nextVersion = (versionData?.[0]?.version || 0) + 1;
+
+    // Step 6: Archive previous active workflows if force regenerating
     if (forceRegenerate) {
-      try {
-        await supabaseAdmin
-          .from('inspection_workflows')
-          .update({
-            status: 'archived',
-            archived_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('claim_id', claimId)
-          .eq('organization_id', organizationId)
-          .in('status', ['draft', 'active']);
-      } catch (err) {
-        console.error('Error archiving previous workflows:', err);
-      }
+      await supabaseAdmin
+        .from('inspection_workflows')
+        .update({
+          status: 'archived',
+          archived_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('claim_id', claimId)
+        .eq('organization_id', organizationId)
+        .in('status', ['draft', 'active']);
     }
 
-    // Step 6: Generate new workflow with AI
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    // Step 7: Generate new workflow with AI using ENHANCED prompt
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     if (!process.env.OPENAI_API_KEY) {
-      return {
-        success: false,
-        error: 'OpenAI API key not configured',
-      };
+      return { success: false, error: 'OpenAI API key not configured' };
     }
 
-    // Get prompt configuration
     const promptConfig = await getPromptWithFallback(PromptKey.INSPECTION_WORKFLOW_GENERATOR);
 
-    // Build carrier requirements
-    const carrierRequirements = await formatCarrierRequirements(organizationId);
+    // Build ENHANCED prompt with full context
+    const userPrompt = buildEnhancedWorkflowPrompt(context, briefing, wizardContext);
 
-    // Build the prompt variables
-    // Build wizard context section if available
-    const wizardContextText = wizardContext ? formatWizardContext(wizardContext) : '';
-
-    // Build effective policy context for AI prompt
-    const effectivePolicyContext = formatEffectivePolicyContext(effectivePolicy);
-
-    const variables = {
-      claim_number: context.claimNumber,
-      primary_peril: context.primaryPeril,
-      secondary_perils: context.secondaryPerils.join(', ') || 'None',
-      property_address: [context.propertyAddress, context.propertyCity, context.propertyState, context.propertyZip].filter(Boolean).join(', ') || 'Unknown',
-      date_of_loss: context.dateOfLoss || 'Unknown',
-      loss_description: context.lossDescription || 'No description provided',
-      policy_number: context.policyContext.policyNumber || 'Unknown',
-      coverage_a: context.policyContext.dwellingLimit || context.policyContext.coverageA || 'Unknown',
-      coverage_b: context.policyContext.coverageB || 'Unknown',
-      coverage_c: context.policyContext.coverageC || 'Unknown',
-      coverage_d: context.policyContext.coverageD || 'Unknown',
-      deductible: context.policyContext.deductible || 'Unknown',
-      endorsements_list: formatEndorsements(context),
-      briefing_summary: briefingSummary,
-      peril_inspection_rules: formatPerilRules(context.primaryPeril, context.secondaryPerils),
-      carrier_requirements: carrierRequirements,
-      wizard_context: wizardContextText,
-      effective_policy_context: effectivePolicyContext,
-    };
-
-    // Substitute variables in the prompt template
-    let userPrompt = promptConfig.userPromptTemplate
-      ? substituteVariables(promptConfig.userPromptTemplate, variables)
-      : buildFallbackPrompt(variables);
-
-    // Append wizard context if available (for more specific workflow generation)
-    if (wizardContextText) {
-      userPrompt += `\n\n## FIELD ADJUSTER INPUT (HIGH PRIORITY)\nThe following information was gathered by the field adjuster during their initial assessment. Use this to create a more targeted workflow:\n\n${wizardContextText}`;
-    }
-
-    // Append effective policy context if available
-    if (effectivePolicy) {
-      userPrompt += `\n\n## EFFECTIVE POLICY (RESOLVED)\n${effectivePolicyContext}`;
-    }
-
-    // Call OpenAI
     const completion = await openai.chat.completions.create({
       model: promptConfig.model || 'gpt-4o',
       messages: [
-        {
-          role: 'system',
-          content: promptConfig.systemPrompt,
-        },
-        {
-          role: 'user',
-          content: userPrompt,
-        },
+        { role: 'system', content: promptConfig.systemPrompt },
+        { role: 'user', content: userPrompt },
       ],
       temperature: promptConfig.temperature || 0.3,
       max_tokens: promptConfig.maxTokens || 8000,
@@ -954,50 +855,41 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
 
     const responseContent = completion.choices[0]?.message?.content;
     if (!responseContent) {
-      return {
-        success: false,
-        error: 'No response from AI',
-      };
+      return { success: false, error: 'No response from AI' };
     }
 
     // Parse and validate the response
     let aiResponse: AIWorkflowResponse;
     try {
-      console.log('[InspectionWorkflow] Raw AI response (first 500 chars):', responseContent.substring(0, 500));
       aiResponse = JSON.parse(responseContent);
-      console.log('[InspectionWorkflow] Parsed AI response keys:', Object.keys(aiResponse));
       if (!validateWorkflowSchema(aiResponse)) {
-        console.error('[InspectionWorkflow] Full AI response for debugging:', JSON.stringify(aiResponse, null, 2).substring(0, 2000));
-        return {
-          success: false,
-          error: 'Invalid workflow structure from AI',
-        };
+        console.error('[InspectionWorkflow] Invalid workflow structure from AI');
+        return { success: false, error: 'Invalid workflow structure from AI' };
       }
     } catch (parseError) {
-      console.error('[InspectionWorkflow] Failed to parse AI response:', responseContent.substring(0, 1000));
-      return {
-        success: false,
-        error: `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
-      };
+      console.error('[InspectionWorkflow] Failed to parse AI response:', parseError);
+      return { success: false, error: `Failed to parse AI response: ${(parseError as Error).message}` };
     }
 
-    // Step 7: Build the workflow JSON
+    // Step 8: Build the workflow JSON with endorsement-driven steps merged
     const workflowJson: InspectionWorkflowJson = {
       metadata: {
-        claim_number: aiResponse.metadata.claim_number,
-        primary_peril: aiResponse.metadata.primary_peril,
-        secondary_perils: aiResponse.metadata.secondary_perils || [],
-        property_type: aiResponse.metadata.property_type,
-        estimated_total_time_minutes: aiResponse.metadata.estimated_total_time_minutes || 0,
+        claim_number: context.claimNumber,
+        primary_peril: context.peril.primary,
+        secondary_perils: context.peril.secondary || [],
+        property_type: aiResponse.metadata?.property_type,
+        estimated_total_time_minutes: aiResponse.metadata?.estimated_total_time_minutes || 0,
         generated_at: new Date().toISOString(),
+        data_completeness: context.meta.dataCompleteness.completenessScore,
+        endorsement_driven_steps: endorsementSteps.length,
       },
-      phases: aiResponse.phases.map(p => ({
+      phases: aiResponse.phases?.map(p => ({
         phase: p.phase as InspectionPhase,
         title: p.title,
         description: p.description,
         estimated_minutes: p.estimated_minutes,
         step_count: p.step_count,
-      })),
+      })) || [],
       room_template: aiResponse.room_template
         ? {
             standard_steps: aiResponse.room_template.standard_steps.map(s => ({
@@ -1034,9 +926,10 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       generated_at: new Date().toISOString(),
       model: completion.model,
       prompt_version: promptConfig.version || 1,
+      endorsement_ids: context.endorsements.extracted.map(e => e.formCode),
     };
 
-    // Step 8: Insert the workflow
+    // Step 9: Insert the workflow
     const { data: workflowData, error: workflowError } = await supabaseAdmin
       .from('inspection_workflows')
       .insert({
@@ -1044,8 +937,8 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
         claim_id: claimId,
         version: nextVersion,
         status: InspectionWorkflowStatus.DRAFT,
-        primary_peril: context.primaryPeril,
-        secondary_perils: context.secondaryPerils,
+        primary_peril: context.peril.primary,
+        secondary_perils: context.peril.secondary,
         source_briefing_id: briefing?.id || null,
         workflow_json: workflowJson,
         generated_from: generatedFrom,
@@ -1055,17 +948,38 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       .single();
 
     if (workflowError || !workflowData) {
-      return {
-        success: false,
-        error: `Failed to create workflow: ${workflowError?.message}`,
-      };
+      return { success: false, error: `Failed to create workflow: ${workflowError?.message}` };
     }
 
     const workflow = mapWorkflowFromDb(workflowData);
 
-    // Step 9: Insert the steps
+    // Step 10: Insert endorsement-driven steps FIRST (policy requirements take priority)
     let stepIndex = 0;
-    for (const step of aiResponse.steps) {
+    for (const step of endorsementSteps) {
+      try {
+        await supabaseAdmin
+          .from('inspection_workflow_steps')
+          .insert({
+            workflow_id: workflow.id,
+            step_index: stepIndex++,
+            phase: step.phase,
+            step_type: step.step_type,
+            title: step.title,
+            instructions: step.instructions,
+            required: step.required,
+            tags: [...(step.tags || []), 'endorsement_requirement'],
+            estimated_minutes: step.estimated_minutes,
+            peril_specific: null,
+            status: InspectionStepStatus.PENDING,
+            endorsement_source: step.policySource,
+          });
+      } catch (stepError) {
+        console.error('[InspectionWorkflow] Error inserting endorsement step:', stepError);
+      }
+    }
+
+    // Step 11: Insert AI-generated steps
+    for (const step of (aiResponse.steps || [])) {
       try {
         const { data: insertedStepData, error: stepError } = await supabaseAdmin
           .from('inspection_workflow_steps')
@@ -1115,38 +1029,7 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       }
     }
 
-    // Step 10: Inject policy-based inspection steps (DETERMINISTIC, not AI-inferred)
-    // These steps are derived programmatically from the effective policy
-    // and are added AFTER the AI-generated steps
-    if (policyBasedSteps.length > 0) {
-      console.log(`[InspectionWorkflow] Injecting ${policyBasedSteps.length} policy-based steps for claim ${claimId}`);
-
-      for (const policyStep of policyBasedSteps) {
-        try {
-          const { error: policyStepError } = await supabaseAdmin
-            .from('inspection_workflow_steps')
-            .insert({
-              workflow_id: workflow.id,
-              step_index: stepIndex++,
-              phase: policyStep.phase,
-              step_type: policyStep.step_type,
-              title: policyStep.title,
-              instructions: policyStep.instructions,
-              required: policyStep.required,
-              tags: [...policyStep.tags, 'policy_injected'],  // Mark as policy-injected
-              estimated_minutes: policyStep.estimated_minutes,
-              peril_specific: policyStep.peril_specific || null,
-              status: InspectionStepStatus.PENDING,
-            });
-
-          if (policyStepError) {
-            console.error('[InspectionWorkflow] Error inserting policy step:', policyStepError.message);
-          }
-        } catch (policyStepErr) {
-          console.error('[InspectionWorkflow] Error inserting policy step:', policyStepErr);
-        }
-      }
-    }
+    console.log(`[InspectionWorkflow] Generated enhanced workflow v${nextVersion} for claim ${claimId}: ${stepIndex} total steps (${endorsementSteps.length} endorsement-driven), data completeness: ${context.meta.dataCompleteness.completenessScore}%`);
 
     return {
       success: true,
@@ -1161,10 +1044,10 @@ Priorities: ${briefing.briefingJson?.inspection_strategy?.what_to_prioritize?.jo
       },
     };
   } catch (error) {
-    console.error('Error generating inspection workflow:', error);
+    console.error('[InspectionWorkflow] Error generating workflow:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: (error as Error).message,
     };
   }
 }
@@ -1809,9 +1692,6 @@ Generate a comprehensive inspection workflow JSON.`;
 // ENHANCED WORKFLOW GENERATION WITH UNIFIED CLAIM CONTEXT
 // ============================================
 
-import { UnifiedClaimContext, EndorsementImpact, RoofPaymentScheduleEntry } from '../../shared/schema';
-import { buildUnifiedClaimContext, calculateRoofDepreciation } from './unifiedClaimContextService';
-
 /**
  * Generate endorsement-driven inspection steps from UnifiedClaimContext
  *
@@ -1975,9 +1855,64 @@ Category: ${endorsement.category.replace(/_/g, ' ')}`,
 
 /**
  * Build enhanced workflow prompt using UnifiedClaimContext
+ * Now includes full briefing content and wizard context for comprehensive workflow generation
  */
-function buildEnhancedWorkflowPrompt(context: UnifiedClaimContext): string {
+function buildEnhancedWorkflowPrompt(
+  context: UnifiedClaimContext,
+  briefing?: { briefingJson?: any; id?: string } | null,
+  wizardContext?: WizardContext
+): string {
   const perilRules = PERIL_INSPECTION_RULES[context.peril.primary];
+
+  // Build briefing section with FULL content (not just 3 fields)
+  let briefingSection = '';
+  if (briefing?.briefingJson) {
+    const b = briefing.briefingJson;
+    briefingSection = `
+## AI CLAIM BRIEFING (Full Context)
+${b.claim_summary ? `
+**Claim Summary:**
+- Primary Peril: ${b.claim_summary.primary_peril || context.peril.primary}
+- Overview: ${b.claim_summary.overview?.join('; ') || 'Not available'}
+` : ''}
+${b.inspection_strategy ? `
+**Inspection Strategy:**
+- Where to Start: ${b.inspection_strategy.where_to_start?.join(', ') || 'Standard approach'}
+- What to Prioritize: ${b.inspection_strategy.what_to_prioritize?.join(', ') || 'All damage areas'}
+- What to Watch For: ${b.inspection_strategy.what_to_watch_for?.join(', ') || 'Standard items'}
+- Common Misses: ${b.inspection_strategy.common_misses?.join(', ') || 'Check thoroughly'}
+` : ''}
+${b.photo_requirements?.length > 0 ? `
+**Photo Requirements from Briefing:**
+${b.photo_requirements.map((pr: { category: string; items: string[] }) => `- ${pr.category}: ${pr.items.join(', ')}`).join('\n')}
+` : ''}
+${b.endorsement_watchouts?.length > 0 ? `
+**Endorsement Watchouts from Briefing:**
+${b.endorsement_watchouts.map((ew: { endorsement_id: string; impact: string; inspection_implications: string[] }) => `- ${ew.endorsement_id}: ${ew.impact}
+  Implications: ${ew.inspection_implications?.join('; ') || 'Review carefully'}`).join('\n')}
+` : ''}
+${b.depreciation_notes?.length > 0 ? `
+**Depreciation Notes:**
+${b.depreciation_notes.map((n: string) => `- ${n}`).join('\n')}
+` : ''}
+${b.open_questions_for_adjuster?.length > 0 ? `
+**Open Questions to Address:**
+${b.open_questions_for_adjuster.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
+` : ''}`;
+  }
+
+  // Build wizard context section if available
+  let wizardSection = '';
+  if (wizardContext) {
+    wizardSection = `
+## FIELD ADJUSTER INPUT (HIGH PRIORITY)
+${wizardContext.observedDamage ? `- Observed Damage: ${JSON.stringify(wizardContext.observedDamage)}` : ''}
+${wizardContext.stories ? `- Building Stories: ${wizardContext.stories}` : ''}
+${wizardContext.hasBasement ? `- Has Basement: Yes` : ''}
+${wizardContext.affectedAreas?.length ? `- Affected Areas: ${wizardContext.affectedAreas.join(', ')}` : ''}
+${wizardContext.urgencyFactors?.length ? `- Urgency Factors: ${wizardContext.urgencyFactors.join(', ')}` : ''}
+`;
+  }
 
   return `You are an expert property insurance inspection planner. Generate a STEP-BY-STEP, EXECUTABLE INSPECTION WORKFLOW for a field adjuster.
 
@@ -2028,7 +1963,7 @@ ${context.alerts.map(a => `[${a.severity.toUpperCase()}] ${a.title}: ${a.descrip
 Priority Areas: ${perilRules?.priorityAreas?.slice(0, 5).map(a => a.area).join(', ') || 'Standard areas'}
 Common Misses: ${perilRules?.commonMisses?.slice(0, 3).map(m => m.issue).join(', ') || 'Standard items'}
 Safety: ${perilRules?.safetyConsiderations?.slice(0, 2).join('; ') || 'Standard safety protocols'}
-
+${briefingSection}${wizardSection}
 ## WORKFLOW REQUIREMENTS (MANDATORY)
 1. Workflow MUST be divided into ordered PHASES: pre_inspection, initial_walkthrough, exterior, roof, interior, utilities, mitigation, closeout
 2. Each phase MUST contain ordered, atomic steps with clear instructions
@@ -2088,225 +2023,5 @@ Generate a JSON workflow matching this exact schema:
 Respond ONLY with valid JSON. No explanation, no markdown.`;
 }
 
-/**
- * Generate enhanced workflow using UnifiedClaimContext
- *
- * This is the recommended entry point for workflow generation.
- * It uses the full richness of FNOL + Policy + Endorsement data.
- */
-export async function generateEnhancedInspectionWorkflow(
-  claimId: string,
-  organizationId: string,
-  options: {
-    forceRegenerate?: boolean;
-    propertyContext?: {
-      stories?: number;
-      hasBasement?: boolean;
-      affectedAreas?: string[];
-    };
-  } = {}
-): Promise<GenerateWorkflowResult> {
-  try {
-    // Step 1: Build UnifiedClaimContext
-    const context = await buildUnifiedClaimContext(claimId, organizationId);
-    if (!context) {
-      console.warn(`[EnhancedWorkflow] Could not build UnifiedClaimContext for claim ${claimId}, falling back to legacy workflow`);
-      return generateInspectionWorkflow(claimId, organizationId, options.propertyContext, options.forceRegenerate);
-    }
-
-    // Step 2: Generate endorsement-driven steps
-    const endorsementSteps = generateEndorsementDrivenSteps(context);
-    console.log(`[EnhancedWorkflow] Generated ${endorsementSteps.length} endorsement-driven steps for claim ${claimId}`);
-
-    // Step 3: Check for existing workflow if not force regenerate
-    if (!options.forceRegenerate) {
-      const { data: existingWorkflows } = await supabaseAdmin
-        .from('inspection_workflows')
-        .select('*')
-        .eq('claim_id', claimId)
-        .eq('organization_id', organizationId)
-        .eq('status', InspectionWorkflowStatus.DRAFT)
-        .order('version', { ascending: false })
-        .limit(1);
-
-      if (existingWorkflows && existingWorkflows.length > 0) {
-        return {
-          success: true,
-          workflow: existingWorkflows[0] as InspectionWorkflow,
-          workflowId: existingWorkflows[0].id,
-          version: existingWorkflows[0].version,
-        };
-      }
-    }
-
-    // Step 4: Determine next version
-    const { data: versionData } = await supabaseAdmin
-      .from('inspection_workflows')
-      .select('version')
-      .eq('claim_id', claimId)
-      .eq('organization_id', organizationId)
-      .order('version', { ascending: false })
-      .limit(1);
-
-    const nextVersion = (versionData?.[0]?.version || 0) + 1;
-
-    // Step 5: Generate AI workflow
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    if (!process.env.OPENAI_API_KEY) {
-      return { success: false, error: 'OpenAI API key not configured' };
-    }
-
-    const promptConfig = await getPromptWithFallback(PromptKey.INSPECTION_WORKFLOW_GENERATOR);
-    const userPrompt = buildEnhancedWorkflowPrompt(context);
-
-    const completion = await openai.chat.completions.create({
-      model: promptConfig.model,
-      messages: [
-        { role: 'system', content: promptConfig.systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: promptConfig.temperature,
-      max_tokens: promptConfig.maxTokens || 8000,
-      response_format: { type: 'json_object' },
-    });
-
-    const responseContent = completion.choices[0]?.message?.content;
-    if (!responseContent) {
-      throw new Error('No response from AI');
-    }
-
-    const aiWorkflow = JSON.parse(responseContent) as AIWorkflowResponse;
-
-    // Step 6: Merge AI steps with endorsement-driven steps
-    const phases = aiWorkflow.phases || [];
-
-    // Insert endorsement steps into appropriate phases
-    for (const step of endorsementSteps) {
-      const phase = phases.find(p => p.phase_id === step.phase);
-      if (phase) {
-        // Add at the beginning of the phase (policy requirements first)
-        phase.steps.unshift({
-          step_type: step.step_type,
-          title: step.title,
-          instructions: step.instructions,
-          required: step.required,
-          estimated_minutes: step.estimated_minutes,
-          assets: [],
-          peril_specific: false,
-          endorsement_related: step.policySource,
-        });
-      }
-    }
-
-    // Build workflow JSON
-    const workflowJson: InspectionWorkflowJson = {
-      metadata: {
-        claim_number: context.claimNumber,
-        primary_peril: context.peril.primary,
-        secondary_perils: context.peril.secondary,
-        estimated_total_minutes: phases.reduce((sum, p) =>
-          sum + p.steps.reduce((s, step) => s + (step.estimated_minutes || 5), 0), 0),
-        data_completeness: context.meta.dataCompleteness.completenessScore,
-        endorsement_driven_steps: endorsementSteps.length,
-      },
-      phases: phases.map(p => ({
-        phase_id: p.phase_id as InspectionPhase,
-        phase_name: p.phase_name,
-        steps: p.steps.map(s => ({
-          step_type: s.step_type as InspectionStepType,
-          title: s.title,
-          instructions: s.instructions,
-          required: s.required,
-          estimated_minutes: s.estimated_minutes,
-          assets: s.assets?.map(a => ({
-            asset_type: a.asset_type,
-            description: a.description,
-            required: a.required,
-          })) || [],
-          peril_specific: s.peril_specific,
-          endorsement_related: s.endorsement_related || undefined,
-        })),
-      })),
-      room_template: aiWorkflow.room_template,
-      tools_required: aiWorkflow.tools_required || [],
-      open_questions: aiWorkflow.open_questions || [],
-    };
-
-    // Step 7: Store workflow
-    const generatedFrom: WorkflowGeneratedFrom = {
-      briefingId: undefined,
-      perilRulesVersion: '1.0',
-      endorsementIds: context.endorsements.extracted.map(e => e.formCode),
-    };
-
-    const { data: insertResult, error: insertError } = await supabaseAdmin
-      .from('inspection_workflows')
-      .insert({
-        organization_id: organizationId,
-        claim_id: claimId,
-        version: nextVersion,
-        status: InspectionWorkflowStatus.DRAFT,
-        workflow_json: workflowJson,
-        generated_from: generatedFrom,
-        model: promptConfig.model,
-        prompt_tokens: completion.usage?.prompt_tokens,
-        completion_tokens: completion.usage?.completion_tokens,
-        total_tokens: completion.usage?.total_tokens,
-      })
-      .select()
-      .single();
-
-    if (insertError || !insertResult) {
-      throw new Error(`Failed to store workflow: ${insertError?.message}`);
-    }
-
-    // Step 8: Store individual steps
-    const allSteps: any[] = [];
-    let stepOrder = 0;
-
-    for (const phase of workflowJson.phases) {
-      for (const step of phase.steps) {
-        stepOrder++;
-        allSteps.push({
-          workflow_id: insertResult.id,
-          phase: phase.phase_id,
-          step_order: stepOrder,
-          step_type: step.step_type,
-          title: step.title,
-          instructions: step.instructions,
-          required: step.required,
-          estimated_minutes: step.estimated_minutes,
-          status: InspectionStepStatus.PENDING,
-          peril_specific: step.peril_specific || false,
-          endorsement_source: step.endorsement_related,
-        });
-      }
-    }
-
-    if (allSteps.length > 0) {
-      await supabaseAdmin.from('inspection_workflow_steps').insert(allSteps);
-    }
-
-    console.log(`[EnhancedWorkflow] Generated workflow v${nextVersion} for claim ${claimId}: ${allSteps.length} steps, ${endorsementSteps.length} policy-driven`);
-
-    return {
-      success: true,
-      workflow: insertResult as InspectionWorkflow,
-      workflowId: insertResult.id,
-      version: nextVersion,
-      model: promptConfig.model,
-      tokenUsage: {
-        promptTokens: completion.usage?.prompt_tokens || 0,
-        completionTokens: completion.usage?.completion_tokens || 0,
-        totalTokens: completion.usage?.total_tokens || 0,
-      },
-    };
-  } catch (error) {
-    console.error(`[EnhancedWorkflow] Error generating workflow for claim ${claimId}:`, error);
-    return {
-      success: false,
-      error: (error as Error).message,
-    };
-  }
-}
+// NOTE: generateEnhancedInspectionWorkflow has been merged into generateInspectionWorkflow
+// The main function now uses UnifiedClaimContext for rich policy, endorsement, and depreciation data
