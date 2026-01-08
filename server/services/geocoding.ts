@@ -250,11 +250,12 @@ async function processQueue(): Promise<void> {
 }
 
 export async function geocodePendingClaims(organizationId?: string, limit = 100): Promise<number> {
+  // Also retry failed/skipped claims since Nominatim might succeed where Google failed
   let query = supabaseAdmin
     .from('claims')
-    .select('id')
+    .select('id, geocode_status')
     .not('property_address', 'is', null)
-    .or('geocode_status.is.null,geocode_status.eq.pending')
+    .or('geocode_status.is.null,geocode_status.eq.pending,geocode_status.eq.failed,geocode_status.eq.skipped')
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -264,12 +265,16 @@ export async function geocodePendingClaims(organizationId?: string, limit = 100)
 
   const { data: claims, error } = await query;
 
+  console.log(`[Geocoding] Query returned ${claims?.length || 0} claims to process (error: ${error?.message || 'none'})`);
+
   if (error || !claims) {
+    console.error('[Geocoding] Query error:', error);
     return 0;
   }
 
   let count = 0;
   for (const row of claims) {
+    console.log(`[Geocoding] Queueing claim ${row.id} (status: ${row.geocode_status})`);
     queueGeocoding(row.id);
     count++;
   }
