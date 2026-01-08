@@ -202,12 +202,13 @@ export async function seedAdminUser(): Promise<void> {
     let adminUser = await findUserByUsername('admin');
 
     if (adminUser) {
+      // Only update role if needed - don't touch other fields like first_name/last_name
       await supabaseAdmin
         .from('users')
         .update({ role: 'super_admin' })
         .eq('username', 'admin')
         .or('role.is.null,role.eq.user');
-      console.log('[auth] Admin user already exists');
+      // Admin user already exists - no need to log on every startup
     } else {
       const hashedPassword = await hashPassword('admin123');
       const { data, error } = await supabaseAdmin

@@ -331,9 +331,9 @@ export async function seedAdminUser(): Promise<void> {
     .limit(1);
 
   if (existingAdmin && existingAdmin.length > 0) {
-    console.log('Admin user already exists');
+    // Admin user already exists - no need to log on every startup
 
-    // Ensure admin has super_admin role
+    // Ensure admin has super_admin role - only update role, don't touch other fields
     await supabaseAdmin
       .from('users')
       .update({ role: 'super_admin' })
