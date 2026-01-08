@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Camera,
   CheckCircle2,
@@ -348,7 +348,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
         hierarchyPath: editHierarchy,
       };
       // Only include claimId if it changed
-      if (editClaimId !== photo.claimId) {
+      if (editClaimId !== displayPhoto.claimId) {
         updates.claimId = editClaimId;
       }
       onUpdate(updates);
@@ -378,7 +378,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
               />
             ) : (
               <>
-                {photo.label}
+                {displayPhoto.label}
                 {onUpdate && (
                   <Button
                     variant="ghost"
@@ -396,11 +396,18 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
         </DialogHeader>
         
         <div className="grid gap-4">
+          {isLoadingPhoto && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading photo details...</span>
+            </div>
+          )}
+          
           <div className="aspect-video bg-muted rounded-lg overflow-hidden max-h-[40vh] sm:max-h-[50vh]">
             {photoUrl ? (
               <img 
                 src={photoUrl} 
-                alt={photo.label} 
+                alt={displayPhoto.label} 
                 className="w-full h-full object-contain"
               />
             ) : (
@@ -438,38 +445,38 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
                     <Building2 className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div>
                       <span className="text-muted-foreground">Location:</span>
-                      <p className="font-medium">{photo.hierarchyPath || 'Not specified'}</p>
+                      <p className="font-medium">{displayPhoto.hierarchyPath || 'Not specified'}</p>
                     </div>
                   </div>
 
                   {/* Uploaded by */}
-                  {photo.uploadedBy && (
+                  {displayPhoto.uploadedBy && (
                     <div className="flex items-start gap-2">
                       <svg className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
                       <div>
                         <span className="text-muted-foreground">Uploaded by:</span>
-                        <p className="font-medium" data-testid="text-uploaded-by">{photo.uploadedBy}</p>
+                        <p className="font-medium" data-testid="text-uploaded-by">{displayPhoto.uploadedBy}</p>
                       </div>
                     </div>
                   )}
 
                   {/* GPS Coordinates */}
-                  {(photo.latitude != null && photo.longitude != null) && (
+                  {(displayPhoto.latitude != null && displayPhoto.longitude != null) && (
                     <div className="flex items-start gap-2 sm:col-span-2">
                       <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                       <div>
                         <span className="text-muted-foreground">GPS Coordinates:</span>
                         <p className="font-medium">
                           <a
-                            href={`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`}
+                            href={`https://www.google.com/maps?q=${displayPhoto.latitude},${displayPhoto.longitude}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-primary hover:underline"
                             data-testid="link-gps-coordinates"
                           >
-                            {photo.latitude.toFixed(6)}, {photo.longitude.toFixed(6)}
+                            {displayPhoto.latitude.toFixed(6)}, {displayPhoto.longitude.toFixed(6)}
                           </a>
                         </p>
                       </div>
@@ -477,25 +484,25 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
                   )}
 
                   {/* Geo Address */}
-                  {photo.geoAddress && (
+                  {displayPhoto.geoAddress && (
                     <div className="flex items-start gap-2 sm:col-span-2">
                       <Home className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                       <div>
                         <span className="text-muted-foreground">Address:</span>
-                        <p className="font-medium" data-testid="text-geo-address">{photo.geoAddress}</p>
+                        <p className="font-medium" data-testid="text-geo-address">{displayPhoto.geoAddress}</p>
                       </div>
                     </div>
                   )}
 
                   {/* Captured At */}
-                  {photo.capturedAt && (
+                  {displayPhoto.capturedAt && (
                     <div className="flex items-start gap-2">
                       <svg className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                       <div>
                         <span className="text-muted-foreground">Captured:</span>
-                        <p className="font-medium">{new Date(photo.capturedAt).toLocaleString()}</p>
+                        <p className="font-medium">{new Date(displayPhoto.capturedAt).toLocaleString()}</p>
                       </div>
                     </div>
                   )}
@@ -547,7 +554,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
               )}
 
               {/* Analysis Status Section */}
-              {photo.analysisStatus && (
+              {displayPhoto.analysisStatus && (
                 <div className="flex items-center justify-between gap-2 pt-2 border-t">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground font-medium">Analysis:</span>
@@ -563,7 +570,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => onReanalyze(photo.id)}
+                      onClick={() => onReanalyze(displayPhoto.id)}
                       disabled={isReanalyzing}
                       data-testid="button-reanalyze-photo"
                     >
@@ -579,7 +586,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
               )}
 
               {/* Analysis Error/Concerns */}
-              {photo.analysisError && (photo.analysisStatus === 'failed' || photo.analysisStatus === 'concerns') && (
+              {displayPhoto.analysisError && (displayPhoto.analysisStatus === 'failed' || displayPhoto.analysisStatus === 'concerns') && (
                 <div className={cn(
                   'p-3 rounded-lg text-sm',
                   photo.analysisStatus === 'failed' ? 'bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800' : 'bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800'
@@ -591,10 +598,10 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
                       <AlertOctagon className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
                     )}
                     <div>
-                      <p className={cn('font-medium', photo.analysisStatus === 'failed' ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300')}>
-                        {photo.analysisStatus === 'failed' ? 'Analysis Failed' : 'Concerns Identified'}
+                      <p className={cn('font-medium', displayPhoto.analysisStatus === 'failed' ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300')}>
+                        {displayPhoto.analysisStatus === 'failed' ? 'Analysis Failed' : 'Concerns Identified'}
                       </p>
-                      <p className="text-muted-foreground mt-1">{photo.analysisError}</p>
+                      <p className="text-muted-foreground mt-1">{displayPhoto.analysisError}</p>
                     </div>
                   </div>
                 </div>
@@ -710,6 +717,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
 }
 
 export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, onReanalyzePhoto, isReanalyzing, claims = [] }: PhotoAlbumProps) {
+  const queryClient = useQueryClient();
   const [selectedPhoto, setSelectedPhoto] = useState<ExtendedSketchPhoto | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
@@ -811,6 +819,8 @@ export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, on
         onOpenChange={(open) => !open && setSelectedPhoto(null)}
         onUpdate={onUpdatePhoto && selectedPhoto ? (updates) => {
           onUpdatePhoto(selectedPhoto.id, updates);
+          // Refetch photo data after update
+          queryClient.invalidateQueries({ queryKey: ['photo', selectedPhoto.id] });
           setSelectedPhoto(null);
         } : undefined}
         onReanalyze={onReanalyzePhoto}
