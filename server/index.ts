@@ -107,6 +107,21 @@ app.use((req, res, next) => {
     log(`Warning: Could not seed admin user: ${error}`, 'auth');
   }
 
+  // Geocode any claims that are missing coordinates (runs in background)
+  try {
+    const { geocodePendingClaims } = await import('./services/geocoding');
+    // Start geocoding in background, don't await
+    geocodePendingClaims().then(count => {
+      if (count > 0) {
+        log(`Queued ${count} claims for geocoding`, 'geocoding');
+      }
+    }).catch(err => {
+      log(`Geocoding startup error: ${err}`, 'geocoding');
+    });
+  } catch (error) {
+    log(`Warning: Could not start geocoding: ${error}`, 'geocoding');
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

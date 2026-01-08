@@ -69,6 +69,40 @@ export async function reverseGeocode(
   }
 }
 
+async function geocodeWithNominatim(addressString: string): Promise<GeocodeResult | null> {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressString)}&limit=1&countrycodes=us`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'ClaimsIQ/1.0 (claims-management-system)'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Nominatim Geocoding failed with status ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    if (!data || data.length === 0) {
+      console.warn(`Nominatim Geocoding returned no results for: ${addressString}`);
+      return null;
+    }
+    
+    const result = data[0];
+    return {
+      latitude: parseFloat(result.lat),
+      longitude: parseFloat(result.lon),
+      displayName: result.display_name
+    };
+  } catch (error) {
+    console.error('Nominatim geocoding error:', error);
+    return null;
+  }
+}
+
 export async function geocodeAddress(
   address: string,
   city?: string,
@@ -78,39 +112,35 @@ export async function geocodeAddress(
   const parts = [address, city, state, zip].filter(Boolean);
   if (parts.length === 0) return null;
   
-  if (!GOOGLE_GEOCODING_API_KEY) {
-    console.warn('Google Geocoding API key not configured, skipping geocoding');
-    return null;
-  }
-  
   const addressString = parts.join(', ');
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressString)}&key=${GOOGLE_GEOCODING_API_KEY}`;
   
-  try {
-    const response = await fetch(url);
+  // Try Google Geocoding first if API key is available
+  if (GOOGLE_GEOCODING_API_KEY) {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressString)}&key=${GOOGLE_GEOCODING_API_KEY}`;
     
-    if (!response.ok) {
-      console.error(`Google Geocoding failed with status ${response.status}`);
-      return null;
+    try {
+      const response = await fetch(url);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.status === 'OK' && data.results && data.results.length > 0) {
+          const result = data.results[0];
+          return {
+            latitude: result.geometry.location.lat,
+            longitude: result.geometry.location.lng,
+            displayName: result.formatted_address
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Google geocoding error, falling back to Nominatim:', error);
     }
-    
-    const data = await response.json();
-    
-    if (data.status !== 'OK' || !data.results || data.results.length === 0) {
-      console.error(`Google Geocoding returned status: ${data.status}`);
-      return null;
-    }
-    
-    const result = data.results[0];
-    return {
-      latitude: result.geometry.location.lat,
-      longitude: result.geometry.location.lng,
-      displayName: result.formatted_address
-    };
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    return null;
   }
+  
+  // Fall back to OpenStreetMap Nominatim (free, no API key required)
+  console.log('[Geocoding] Using Nominatim for:', addressString);
+  return geocodeWithNominatim(addressString);
 }
 
 export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
