@@ -4,6 +4,60 @@
 
 export type WallDirection = 'north' | 'south' | 'east' | 'west';
 export type RoomShape = 'rectangle' | 'l_shape' | 't_shape' | 'irregular';
+
+// Wall-first sketch model types
+export type WallType = 'exterior' | 'interior' | 'missing';
+export type WallOrientation = 'horizontal' | 'vertical';
+
+// Wall entity - first-class editable wall segment
+export interface WallEntity {
+  id: string;
+  // Geometry
+  startPoint: Point;
+  endPoint: Point;
+  length_ft: number;
+  height_ft: number; // Wall height (usually ceiling height, but overridable)
+  thickness_ft: number; // Wall thickness (default 0.5 ft / 6 inches)
+  // Classification
+  type: WallType;
+  orientation: WallOrientation;
+  direction: WallDirection; // Which direction this wall faces (north, south, east, west)
+  // Room relationships
+  roomIds: string[]; // Rooms this wall belongs to (1 = exterior, 2 = shared interior)
+  isShared: boolean; // True if wall is shared between two rooms
+  // Parent room info (for non-shared walls)
+  parentRoomId?: string;
+  wallIndex?: number; // Index within the parent room's polygon
+  // Metadata
+  created_at: string;
+  updated_at: string;
+}
+
+// Wall selection state for UI
+export interface WallSelectionState {
+  selectedWallIds: string[];
+  hoveredWallId: string | null;
+  isMultiSelect: boolean; // Shift-click mode
+}
+
+// Wall edit operation for undo/redo
+export interface WallEditOperation {
+  id: string;
+  type: 'move' | 'resize' | 'toggle_type' | 'change_height';
+  wallId: string;
+  previousState: Partial<WallEntity>;
+  newState: Partial<WallEntity>;
+  affectedRoomIds: string[];
+  timestamp: string;
+}
+
+// Wall move constraints
+export interface WallMoveConstraints {
+  minPosition: number; // Minimum position perpendicular to wall orientation
+  maxPosition: number; // Maximum position
+  snapIncrement: number; // Grid snap increment (default 0.5 ft)
+  parallelWalls: string[]; // IDs of walls to potentially align with
+}
 export type OpeningType = 'door' | 'window' | 'archway' | 'sliding_door' | 'french_door';
 export type FeatureType = 'closet' | 'alcove' | 'bump_out' | 'island' | 'peninsula' | 'fireplace' | 'built_in';
 export type ObjectType = 'appliance' | 'fixture' | 'cabinet' | 'counter' | 'furniture' | 'equipment' | 'other';

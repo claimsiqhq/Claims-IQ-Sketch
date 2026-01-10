@@ -1,5 +1,18 @@
 // Polygon Math Utilities for Room Geometry
-import type { Point, RoomShape, WallDirection, PositionType, PositionFromType, LShapeConfig, TShapeConfig, CornerPosition } from '../types/geometry';
+import type {
+  Point,
+  RoomShape,
+  WallDirection,
+  PositionType,
+  PositionFromType,
+  LShapeConfig,
+  TShapeConfig,
+  CornerPosition,
+  WallEntity,
+  WallType,
+  WallOrientation,
+  RoomGeometry
+} from '../types/geometry';
 
 // Generate unique ID
 export function generateId(): string {
@@ -519,16 +532,440 @@ export function getPolygonBounds(polygon: Point[]): { minX: number; minY: number
   if (polygon.length === 0) {
     return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   }
-  
+
   let minX = polygon[0].x, maxX = polygon[0].x;
   let minY = polygon[0].y, maxY = polygon[0].y;
-  
+
   for (const p of polygon) {
     minX = Math.min(minX, p.x);
     maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y);
     maxY = Math.max(maxY, p.y);
   }
-  
+
   return { minX, minY, maxX, maxY };
+}
+
+// ============================================================================
+// Wall-First Sketch Model Utilities
+// ============================================================================
+
+// Derive wall direction from two points
+export function getWallDirectionFromPoints(start: Point, end: Point): WallDirection {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+
+  // Determine if wall is horizontal or vertical based on dominant direction
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal wall - determine facing direction
+    // In our coordinate system, +y is south, so a wall running horizontally
+    // at the top of a room faces north, at the bottom faces south
+    return dy >= 0 ? 'north' : 'south';
+  } else {
+    // Vertical wall
+    return dx >= 0 ? 'west' : 'east';
+  }
+}
+
+// Get wall orientation from two points
+export function getWallOrientation(start: Point, end: Point): WallOrientation {
+  const dx = Math.abs(end.x - start.x);
+  const dy = Math.abs(end.y - start.y);
+  return dx > dy ? 'horizontal' : 'vertical';
+}
+
+// Calculate distance between two points
+export function distanceBetweenPoints(p1: Point, p2: Point): number {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Extract walls from a room's polygon
+export function extractWallsFromRoom(
+  room: RoomGeometry,
+  allRooms: RoomGeometry[]
+): WallEntity[] {
+  const walls: WallEntity[] = [];
+  const polygon = room.polygon;
+  const now = new Date().toISOString();
+
+  if (polygon.length < 3) return walls;
+
+  // Get room's origin for absolute positioning
+  const originX = room.origin_x_ft ?? 0;
+  const originY = room.origin_y_ft ?? 0;
+
+  for (let i = 0; i < polygon.length; i++) {
+    const startPoint = {
+      x: polygon[i].x + originX,
+      y: polygon[i].y + originY
+    };
+    const endPoint = {
+      x: polygon[(i + 1) % polygon.length].x + originX,
+      y: polygon[(i + 1) % polygon.length].y + originY
+    };
+
+    const length = distanceBetweenPoints(startPoint, endPoint);
+    const orientation = getWallOrientation(startPoint, endPoint);
+    const direction = getWallDirectionFromSegment(startPoint, endPoint, polygon, i);
+
+    // Check if this wall is shared with another room
+    const sharedRoomIds = findSharedRoomIds(startPoint, endPoint, room.id, allRooms);
+    const isShared = sharedRoomIds.length > 0;
+    const roomIds = [room.id, ...sharedRoomIds];
+
+    // Determine wall type
+    const wallType: WallType = isShared ? 'interior' : 'exterior';
+
+    walls.push({
+      id: `wall-${room.id}-${i}`,
+      startPoint,
+      endPoint,
+      length_ft: length,
+      height_ft: room.ceiling_height_ft,
+      thickness_ft: 0.5, // Default 6 inches
+      type: wallType,
+      orientation,
+      direction,
+      roomIds,
+      isShared,
+      parentRoomId: room.id,
+      wallIndex: i,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  return walls;
+}
+
+// Get wall direction from segment within polygon context
+function getWallDirectionFromSegment(
+  start: Point,
+  end: Point,
+  polygon: Point[],
+  segmentIndex: number
+): WallDirection {
+  // Calculate polygon centroid
+  let centroidX = 0, centroidY = 0;
+  for (const p of polygon) {
+    centroidX += p.x;
+    centroidY += p.y;
+  }
+  centroidX /= polygon.length;
+  centroidY /= polygon.length;
+
+  // Get wall midpoint
+  const midX = (start.x + end.x) / 2;
+  const midY = (start.y + end.y) / 2;
+
+  // Calculate normal direction (pointing outward from polygon)
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+
+  // Normal perpendicular to wall
+  let normalX = -dy;
+  let normalY = dx;
+
+  // Check if normal points away from centroid (outward)
+  const toCentroidX = centroidX - midX;
+  const toCentroidY = centroidY - midY;
+  const dotProduct = normalX * toCentroidX + normalY * toCentroidY;
+
+  // If normal points toward centroid, flip it
+  if (dotProduct > 0) {
+    normalX = -normalX;
+    normalY = -normalY;
+  }
+
+  // Determine direction based on outward-facing normal
+  if (Math.abs(normalX) > Math.abs(normalY)) {
+    return normalX > 0 ? 'east' : 'west';
+  } else {
+    return normalY > 0 ? 'south' : 'north';
+  }
+}
+
+// Find room IDs that share a wall segment
+function findSharedRoomIds(
+  wallStart: Point,
+  wallEnd: Point,
+  excludeRoomId: string,
+  allRooms: RoomGeometry[]
+): string[] {
+  const sharedIds: string[] = [];
+  const tolerance = 0.1; // 0.1 foot tolerance for matching
+
+  for (const room of allRooms) {
+    if (room.id === excludeRoomId) continue;
+
+    const originX = room.origin_x_ft ?? 0;
+    const originY = room.origin_y_ft ?? 0;
+
+    for (let i = 0; i < room.polygon.length; i++) {
+      const otherStart = {
+        x: room.polygon[i].x + originX,
+        y: room.polygon[i].y + originY
+      };
+      const otherEnd = {
+        x: room.polygon[(i + 1) % room.polygon.length].x + originX,
+        y: room.polygon[(i + 1) % room.polygon.length].y + originY
+      };
+
+      // Check if walls overlap (considering both directions)
+      if (wallsOverlap(wallStart, wallEnd, otherStart, otherEnd, tolerance)) {
+        sharedIds.push(room.id);
+        break;
+      }
+    }
+  }
+
+  return sharedIds;
+}
+
+// Check if two wall segments overlap
+function wallsOverlap(
+  a1: Point, a2: Point,
+  b1: Point, b2: Point,
+  tolerance: number
+): boolean {
+  // Check if walls are collinear and overlapping
+  // First, check if points are close enough to be considered the same line
+
+  // Check forward match (a1-a2 matches b1-b2)
+  const forwardMatch = (
+    pointsClose(a1, b1, tolerance) && pointsClose(a2, b2, tolerance)
+  );
+
+  // Check reverse match (a1-a2 matches b2-b1)
+  const reverseMatch = (
+    pointsClose(a1, b2, tolerance) && pointsClose(a2, b1, tolerance)
+  );
+
+  if (forwardMatch || reverseMatch) return true;
+
+  // Check for partial overlap on collinear segments
+  if (areSegmentsCollinear(a1, a2, b1, b2, tolerance)) {
+    return segmentsOverlap(a1, a2, b1, b2);
+  }
+
+  return false;
+}
+
+// Check if two points are close within tolerance
+function pointsClose(p1: Point, p2: Point, tolerance: number): boolean {
+  return Math.abs(p1.x - p2.x) <= tolerance && Math.abs(p1.y - p2.y) <= tolerance;
+}
+
+// Check if two segments are collinear
+function areSegmentsCollinear(
+  a1: Point, a2: Point,
+  b1: Point, b2: Point,
+  tolerance: number
+): boolean {
+  // Check if all four points lie on the same line
+  // Using cross product to check collinearity
+  const cross1 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
+  const cross2 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
+
+  const length = distanceBetweenPoints(a1, a2);
+  const normalizedTolerance = tolerance * length;
+
+  return Math.abs(cross1) <= normalizedTolerance && Math.abs(cross2) <= normalizedTolerance;
+}
+
+// Check if two collinear segments overlap
+function segmentsOverlap(a1: Point, a2: Point, b1: Point, b2: Point): boolean {
+  // Project onto x or y axis depending on segment orientation
+  const dx = Math.abs(a2.x - a1.x);
+  const dy = Math.abs(a2.y - a1.y);
+
+  if (dx > dy) {
+    // Horizontal-ish, project onto x-axis
+    const aMin = Math.min(a1.x, a2.x);
+    const aMax = Math.max(a1.x, a2.x);
+    const bMin = Math.min(b1.x, b2.x);
+    const bMax = Math.max(b1.x, b2.x);
+    return aMin < bMax && bMin < aMax;
+  } else {
+    // Vertical-ish, project onto y-axis
+    const aMin = Math.min(a1.y, a2.y);
+    const aMax = Math.max(a1.y, a2.y);
+    const bMin = Math.min(b1.y, b2.y);
+    const bMax = Math.max(b1.y, b2.y);
+    return aMin < bMax && bMin < aMax;
+  }
+}
+
+// Hit test: check if a point is near a wall segment
+export function pointNearWall(
+  point: Point,
+  wall: WallEntity,
+  tolerancePx: number,
+  scale: number
+): boolean {
+  const toleranceFt = tolerancePx / (20 * scale); // Convert pixels to feet
+  return pointToSegmentDistance(point, wall.startPoint, wall.endPoint) <= toleranceFt;
+}
+
+// Calculate perpendicular distance from point to line segment
+export function pointToSegmentDistance(point: Point, segStart: Point, segEnd: Point): number {
+  const dx = segEnd.x - segStart.x;
+  const dy = segEnd.y - segStart.y;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    // Segment is a point
+    return distanceBetweenPoints(point, segStart);
+  }
+
+  // Project point onto line, clamped to segment
+  let t = ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSquared;
+  t = Math.max(0, Math.min(1, t));
+
+  const projectedPoint = {
+    x: segStart.x + t * dx,
+    y: segStart.y + t * dy
+  };
+
+  return distanceBetweenPoints(point, projectedPoint);
+}
+
+// Extract all walls from multiple rooms, merging shared walls
+export function extractAllWalls(rooms: RoomGeometry[]): WallEntity[] {
+  const allWalls: WallEntity[] = [];
+  const processedPairs = new Set<string>();
+
+  for (const room of rooms) {
+    const roomWalls = extractWallsFromRoom(room, rooms);
+
+    for (const wall of roomWalls) {
+      // Create a unique key for shared wall pairs to avoid duplicates
+      if (wall.isShared) {
+        const sortedRoomIds = [...wall.roomIds].sort();
+        const pairKey = `${sortedRoomIds.join('-')}-${wall.wallIndex}`;
+
+        if (processedPairs.has(pairKey)) continue;
+        processedPairs.add(pairKey);
+      }
+
+      allWalls.push(wall);
+    }
+  }
+
+  return allWalls;
+}
+
+// Move a wall perpendicular to its orientation
+export function moveWallPerpendicular(
+  wall: WallEntity,
+  deltaFt: number,
+  rooms: RoomGeometry[]
+): { updatedWall: WallEntity; updatedRooms: RoomGeometry[] } {
+  const updatedWall = { ...wall, updated_at: new Date().toISOString() };
+  const updatedRooms: RoomGeometry[] = [];
+
+  // Calculate perpendicular movement vector
+  let moveX = 0, moveY = 0;
+
+  if (wall.orientation === 'horizontal') {
+    // Horizontal wall moves vertically
+    moveY = deltaFt;
+  } else {
+    // Vertical wall moves horizontally
+    moveX = deltaFt;
+  }
+
+  // Update wall endpoints
+  updatedWall.startPoint = {
+    x: wall.startPoint.x + moveX,
+    y: wall.startPoint.y + moveY
+  };
+  updatedWall.endPoint = {
+    x: wall.endPoint.x + moveX,
+    y: wall.endPoint.y + moveY
+  };
+
+  // Update affected rooms
+  for (const roomId of wall.roomIds) {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) continue;
+
+    const updatedRoom = { ...room, updated_at: new Date().toISOString() };
+    const newPolygon = [...room.polygon];
+
+    // Find and update the corresponding wall segment in the room polygon
+    if (wall.parentRoomId === roomId && wall.wallIndex !== undefined) {
+      const originX = room.origin_x_ft ?? 0;
+      const originY = room.origin_y_ft ?? 0;
+
+      // Update the two points that define this wall
+      const idx1 = wall.wallIndex;
+      const idx2 = (wall.wallIndex + 1) % newPolygon.length;
+
+      newPolygon[idx1] = {
+        x: newPolygon[idx1].x + moveX,
+        y: newPolygon[idx1].y + moveY
+      };
+      newPolygon[idx2] = {
+        x: newPolygon[idx2].x + moveX,
+        y: newPolygon[idx2].y + moveY
+      };
+    }
+
+    // Recalculate room dimensions from polygon
+    const bounds = getPolygonBounds(newPolygon);
+    updatedRoom.polygon = newPolygon;
+    updatedRoom.width_ft = bounds.maxX - bounds.minX;
+    updatedRoom.length_ft = bounds.maxY - bounds.minY;
+
+    updatedRooms.push(updatedRoom);
+  }
+
+  return { updatedWall, updatedRooms };
+}
+
+// Calculate wall move constraints
+export function calculateWallMoveConstraints(
+  wall: WallEntity,
+  rooms: RoomGeometry[],
+  minRoomSize: number = 2 // Minimum room dimension in feet
+): { min: number; max: number } {
+  let minPos = -Infinity;
+  let maxPos = Infinity;
+
+  for (const roomId of wall.roomIds) {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) continue;
+
+    const originX = room.origin_x_ft ?? 0;
+    const originY = room.origin_y_ft ?? 0;
+    const bounds = getPolygonBounds(room.polygon);
+
+    if (wall.orientation === 'horizontal') {
+      // Wall moves vertically - constrain by room height
+      const roomTop = bounds.minY + originY;
+      const roomBottom = bounds.maxY + originY;
+      const currentY = wall.startPoint.y;
+
+      // Can't move past room boundaries minus minimum size
+      minPos = Math.max(minPos, roomTop + minRoomSize);
+      maxPos = Math.min(maxPos, roomBottom - minRoomSize);
+    } else {
+      // Wall moves horizontally - constrain by room width
+      const roomLeft = bounds.minX + originX;
+      const roomRight = bounds.maxX + originX;
+
+      minPos = Math.max(minPos, roomLeft + minRoomSize);
+      maxPos = Math.min(maxPos, roomRight - minRoomSize);
+    }
+  }
+
+  return { min: minPos, max: maxPos };
+}
+
+// Snap value to grid
+export function snapToGrid(value: number, gridSize: number = 0.5): number {
+  return Math.round(value / gridSize) * gridSize;
 }
