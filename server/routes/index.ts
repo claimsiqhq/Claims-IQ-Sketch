@@ -17,6 +17,7 @@ import organizationsRoutes from './organizations';
 import documentsRoutes from './documents';
 import aiRoutes from './ai';
 import pricingRoutes from './pricing';
+import scopeRoutes from './scopeRoutes';
 
 const log = createLogger({ module: 'routes' });
 
@@ -144,6 +145,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Pricing routes
   app.use('/api', pricingRoutes);
 
+  // Scope Engine routes
+  app.use('/api/scope', scopeRoutes);
+
   // =================================================
   // Health Check
   // =================================================
@@ -188,4 +192,5 @@ export {
   documentsRoutes,
   aiRoutes,
   pricingRoutes,
+  scopeRoutes,
 };
