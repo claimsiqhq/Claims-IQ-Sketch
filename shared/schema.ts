@@ -4062,3 +4062,237 @@ export const inspectionAppointmentsRelations = relations(inspectionAppointments,
     references: [claims.id],
   }),
 }));
+
+// ============================================
+// SCOPE ENGINE FOUNDATION TABLES
+// ============================================
+// Scope defines WHAT work is required, independent of pricing.
+// See: docs/SCOPE_ENGINE.md for architecture details.
+
+/**
+ * Scope Trades - Canonical trade definitions for construction work
+ * Maps to Xactimate trades and drives O&P eligibility
+ */
+export const scopeTrades = pgTable("scope_trades", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code", { length: 10 }).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  xactCategoryPrefix: varchar("xact_category_prefix", { length: 10 }),
+  sortOrder: integer("sort_order").default(0),
+  opEligible: boolean("op_eligible").default(true),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  codeIdx: index("scope_trades_code_idx").on(table.code),
+}));
+
+export const insertScopeTradeSchema = createInsertSchema(scopeTrades).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertScopeTrade = z.infer<typeof insertScopeTradeSchema>;
+export type ScopeTrade = typeof scopeTrades.$inferSelect;
+
+/**
+ * Scope Line Items - Catalog of line items with Xactimate-style codes
+ * Focused on scope (what work) not pricing (how much)
+ */
+export const scopeLineItems = pgTable("scope_line_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code", { length: 30 }).notNull().unique(),
+  description: text("description").notNull(),
+  unit: varchar("unit", { length: 10 }).notNull(),
+  tradeCode: varchar("trade_code", { length: 10 }).notNull(),
+  xactCategoryCode: varchar("xact_category_code", { length: 10 }),
+  defaultWasteFactor: decimal("default_waste_factor", { precision: 4, scale: 3 }).default("0.00"),
+  quantityFormula: varchar("quantity_formula", { length: 50 }),
+  companionRules: jsonb("companion_rules").default(sql`'{}'::jsonb`),
+  scopeConditions: jsonb("scope_conditions").default(sql`'{}'::jsonb`),
+  coverageType: varchar("coverage_type", { length: 1 }).default("A"),
+  activityType: varchar("activity_type", { length: 20 }).default("install"),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  codeIdx: index("scope_line_items_code_idx").on(table.code),
+  tradeIdx: index("scope_line_items_trade_idx").on(table.tradeCode),
+  unitIdx: index("scope_line_items_unit_idx").on(table.unit),
+  activityIdx: index("scope_line_items_activity_idx").on(table.activityType),
+}));
+
+export const insertScopeLineItemSchema = createInsertSchema(scopeLineItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertScopeLineItem = z.infer<typeof insertScopeLineItemSchema>;
+export type ScopeLineItem = typeof scopeLineItems.$inferSelect;
+
+/**
+ * Scope Line Item Companion Rules TypeScript interface
+ */
+export interface ScopeCompanionRules {
+  requires?: string[];
+  auto_adds?: string[];
+  excludes?: string[];
+}
+
+/**
+ * Scope Conditions TypeScript interface
+ */
+export interface ScopeConditionsConfig {
+  damage_types?: string[];
+  surfaces?: string[];
+  severity?: string[];
+  zone_types?: string[];
+  room_types?: string[];
+  floor_levels?: string[];
+}
+
+/**
+ * Scope Items - Assembled scope linking zones to line items
+ * This is the "scope" - WHAT work is required
+ */
+export const scopeItems = pgTable("scope_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull(),
+  zoneId: uuid("zone_id"),
+  wallIndex: integer("wall_index"),
+  lineItemId: uuid("line_item_id"),
+  lineItemCode: varchar("line_item_code", { length: 30 }).notNull(),
+  quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
+  unit: varchar("unit", { length: 10 }).notNull(),
+  wasteFactor: decimal("waste_factor", { precision: 4, scale: 3 }).default("0.00"),
+  quantityWithWaste: decimal("quantity_with_waste", { precision: 12, scale: 4 }).notNull(),
+  provenance: varchar("provenance", { length: 30 }).notNull().default("geometry_derived"),
+  provenanceDetails: jsonb("provenance_details").default(sql`'{}'::jsonb`),
+  tradeCode: varchar("trade_code", { length: 10 }),
+  coverageType: varchar("coverage_type", { length: 1 }).default("A"),
+  sortOrder: integer("sort_order").default(0),
+  status: varchar("status", { length: 20 }).default("pending"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  estimateIdx: index("scope_items_estimate_idx").on(table.estimateId),
+  zoneIdx: index("scope_items_zone_idx").on(table.zoneId),
+  lineItemIdx: index("scope_items_line_item_idx").on(table.lineItemId),
+  tradeIdx: index("scope_items_trade_idx").on(table.tradeCode),
+  statusIdx: index("scope_items_status_idx").on(table.status),
+}));
+
+export const insertScopeItemSchema = createInsertSchema(scopeItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertScopeItem = z.infer<typeof insertScopeItemSchema>;
+export type ScopeItem = typeof scopeItems.$inferSelect;
+
+/**
+ * Provenance types for scope items
+ */
+export type ScopeProvenance =
+  | 'geometry_derived'
+  | 'manual'
+  | 'template'
+  | 'ai_suggested'
+  | 'voice_command';
+
+/**
+ * Provenance details TypeScript interface
+ */
+export interface ScopeProvenanceDetails {
+  source_metric?: string;
+  formula?: string;
+  computed_at?: string;
+  template_id?: string;
+  voice_transcript?: string;
+  original_quantity?: number;
+  modification_reason?: string;
+}
+
+/**
+ * Scope Summary - Aggregate scope by trade
+ * NO pricing - just counts and quantities
+ */
+export const scopeSummary = pgTable("scope_summary", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  estimateId: uuid("estimate_id").notNull(),
+  tradeCode: varchar("trade_code", { length: 10 }).notNull(),
+  lineItemCount: integer("line_item_count").default(0),
+  zoneCount: integer("zone_count").default(0),
+  quantitiesByUnit: jsonb("quantities_by_unit").default(sql`'{}'::jsonb`),
+  pendingCount: integer("pending_count").default(0),
+  approvedCount: integer("approved_count").default(0),
+  excludedCount: integer("excluded_count").default(0),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  estimateIdx: index("scope_summary_estimate_idx").on(table.estimateId),
+  tradeIdx: index("scope_summary_trade_idx").on(table.tradeCode),
+}));
+
+export const insertScopeSummarySchema = createInsertSchema(scopeSummary).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertScopeSummary = z.infer<typeof insertScopeSummarySchema>;
+export type ScopeSummary = typeof scopeSummary.$inferSelect;
+
+// ============================================
+// SCOPE ENGINE RELATIONS
+// ============================================
+
+export const scopeTradesRelations = relations(scopeTrades, ({ many }) => ({
+  lineItems: many(scopeLineItems),
+  scopeItems: many(scopeItems),
+}));
+
+export const scopeLineItemsRelations = relations(scopeLineItems, ({ one, many }) => ({
+  trade: one(scopeTrades, {
+    fields: [scopeLineItems.tradeCode],
+    references: [scopeTrades.code],
+  }),
+  scopeItems: many(scopeItems),
+}));
+
+export const scopeItemsRelations = relations(scopeItems, ({ one }) => ({
+  estimate: one(estimates, {
+    fields: [scopeItems.estimateId],
+    references: [estimates.id],
+  }),
+  zone: one(estimateZones, {
+    fields: [scopeItems.zoneId],
+    references: [estimateZones.id],
+  }),
+  lineItem: one(scopeLineItems, {
+    fields: [scopeItems.lineItemId],
+    references: [scopeLineItems.id],
+  }),
+  trade: one(scopeTrades, {
+    fields: [scopeItems.tradeCode],
+    references: [scopeTrades.code],
+  }),
+}));
+
+export const scopeSummaryRelations = relations(scopeSummary, ({ one }) => ({
+  estimate: one(estimates, {
+    fields: [scopeSummary.estimateId],
+    references: [estimates.id],
+  }),
+  trade: one(scopeTrades, {
+    fields: [scopeSummary.tradeCode],
+    references: [scopeTrades.code],
+  }),
+}));
