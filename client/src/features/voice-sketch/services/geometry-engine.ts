@@ -1433,13 +1433,15 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     let updatedRoom = { ...currentRoom, updated_at: new Date().toISOString() };
     
     // Handle length change - affects room dimensions
+    // North/South walls run east-west so their "length" is the room's width
+    // East/West walls run north-south so their "length" is the room's length
     if (params.length_ft !== undefined) {
       if (wallDirection === 'north' || wallDirection === 'south') {
         updatedRoom.width_ft = params.length_ft;
-        changes.push(`width to ${formatDimension(params.length_ft)}`);
+        changes.push(`${wallDirection} wall length (room width) to ${formatDimension(params.length_ft)}`);
       } else {
         updatedRoom.length_ft = params.length_ft;
-        changes.push(`length to ${formatDimension(params.length_ft)}`);
+        changes.push(`${wallDirection} wall length (room length) to ${formatDimension(params.length_ft)}`);
       }
       // Regenerate polygon
       updatedRoom.polygon = generatePolygon(
@@ -1508,6 +1510,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     
     set((state) => ({
       currentRoom: updatedRoom,
+      rooms: state.rooms.map(r => r.id === updatedRoom.id ? updatedRoom : r),
       undoStack: [...state.undoStack, state.currentRoom!],
       commandHistory: [...state.commandHistory, command],
     }));
@@ -1547,11 +1550,15 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       return 'Error: No wall selected. Use select_wall first or provide a wall reference.';
     }
     
-    // Calculate dimension change based on direction
+    // Calculate dimension change based on wall direction and move direction
+    // Moving a wall "out" expands the room perpendicular to that wall
+    // Moving a wall "in" shrinks the room perpendicular to that wall
     let updatedRoom = { ...currentRoom, updated_at: new Date().toISOString() };
     let offset = params.offset_ft;
     
     // Adjust offset sign based on move direction
+    // "out" = expand room, "in" = shrink room
+    // "left"/"right" are relative to facing the wall from inside the room
     if (params.direction === 'in') {
       offset = -Math.abs(offset);
     } else if (params.direction === 'out') {
@@ -1563,11 +1570,13 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     }
     
     // Apply offset to room dimensions
+    // Moving north/south walls changes the room's LENGTH (the dimension perpendicular to E-W)
+    // Moving east/west walls changes the room's WIDTH (the dimension perpendicular to N-S)
     if (wallDirection === 'north' || wallDirection === 'south') {
-      // North/South walls affect room length
+      // North/South walls run east-west; moving them changes room's north-south extent (length)
       updatedRoom.length_ft = Math.max(2, updatedRoom.length_ft + offset);
     } else {
-      // East/West walls affect room width
+      // East/West walls run north-south; moving them changes room's east-west extent (width)
       updatedRoom.width_ft = Math.max(2, updatedRoom.width_ft + offset);
     }
     
@@ -1590,6 +1599,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     
     set((state) => ({
       currentRoom: updatedRoom,
+      rooms: state.rooms.map(r => r.id === updatedRoom.id ? updatedRoom : r),
       undoStack: [...state.undoStack, state.currentRoom!],
       commandHistory: [...state.commandHistory, command],
     }));
@@ -1671,12 +1681,15 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       result: `Updated ${opening.type} on ${opening.wall} wall: ${changes.join(', ')}`,
     };
     
+    const updatedRoom = {
+      ...currentRoom,
+      openings: currentRoom.openings.map((o, i) => i === openingIndex ? updatedOpening : o),
+      updated_at: new Date().toISOString(),
+    };
+    
     set((state) => ({
-      currentRoom: {
-        ...state.currentRoom!,
-        openings: state.currentRoom!.openings.map((o, i) => i === openingIndex ? updatedOpening : o),
-        updated_at: new Date().toISOString(),
-      },
+      currentRoom: updatedRoom,
+      rooms: state.rooms.map(r => r.id === updatedRoom.id ? updatedRoom : r),
       undoStack: [...state.undoStack, state.currentRoom!],
       commandHistory: [...state.commandHistory, command],
     }));

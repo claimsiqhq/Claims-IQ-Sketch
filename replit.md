@@ -37,7 +37,7 @@ Claims IQ is a full-stack application built with a clear separation between fron
 - **Unified Claim Context**: A service (`unifiedClaimContextService.ts`) aggregates all extracted and calculated claim data into a single, comprehensive context for AI and other features.
 - **AI-Generated Briefings & Workflows**: Utilizes OpenAI to create personalized inspection strategies, policy watch-outs, depreciation guidance, and step-by-step inspection workflows tailored to peril types.
 - **Voice-Driven Interfaces**:
-    - **Voice Sketch**: Allows users to describe rooms and damages using natural language, which the system converts into floor plans and damage zones. It uses OpenAI Realtime API for recognition and a `geometry-engine.ts` for calculations.
+    - **Voice Sketch**: Allows users to describe rooms and damages using natural language, which the system converts into floor plans and damage zones. It uses OpenAI Realtime API for recognition and a `geometry-engine.ts` for calculations. Supports wall-first editing with four operations: select_wall (by direction or index), update_wall_properties (length, height, exterior/missing status), move_wall (in/out/left/right by offset), and update_opening (modify door/window dimensions on specific walls).
     - **Voice Scope**: Maps natural language damage descriptions to Xactimate line items, automatically calculating quantities.
 - **Estimate Builder**: A hierarchical structure for building estimates, integrating Xactimate pricing, regional adjustments, and export capabilities.
 - **Multi-Tenancy**: Enforced at both application and database levels (`organizationId` filtering, Supabase RLS).
