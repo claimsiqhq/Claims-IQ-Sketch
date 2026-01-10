@@ -36,6 +36,11 @@ import type {
   DeleteObjectParams,
   CapturePhotoParams,
   HierarchyLevel,
+  SelectWallParams,
+  UpdateWallPropertiesParams,
+  MoveWallParams,
+  UpdateOpeningParams,
+  WallDirection,
 } from '../types/geometry';
 import {
   generateId,
@@ -101,6 +106,13 @@ interface GeometryEngineState {
   editObject: (params: EditObjectParams) => string;
   deleteObject: (params: DeleteObjectParams) => string;
   
+  // Wall-first editing actions
+  selectedWallId: string | null;
+  selectWall: (params: SelectWallParams) => string;
+  updateWallProperties: (params: UpdateWallPropertiesParams) => string;
+  moveWall: (params: MoveWallParams) => string;
+  updateOpening: (params: UpdateOpeningParams) => string;
+  
   // Photo actions
   capturePhoto: (params: CapturePhotoParams, file?: File) => Promise<string>;
   addPhoto: (photo: SketchPhoto) => void;
@@ -148,6 +160,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   undoStack: [],
   transcript: [],
   sessionState: initialSessionState,
+  selectedWallId: null,
 
   // Structure actions
   createStructure: (params) => {
@@ -1320,6 +1333,357 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     return `Deleted object: ${deletedObject.name}`;
   },
 
+  // ============================================
+  // WALL-FIRST EDITING ACTIONS
+  // ============================================
+
+  selectWall: (params) => {
+    const { currentRoom, rooms } = get();
+    
+    // Find target room
+    let targetRoom = currentRoom;
+    if (params.room_name) {
+      targetRoom = rooms.find(r => r.name.toLowerCase() === params.room_name!.toLowerCase()) || currentRoom;
+    }
+    
+    if (!targetRoom) {
+      return 'Error: No room selected. Please create or select a room first.';
+    }
+    
+    // Map wall reference to direction
+    const directionMap: Record<string, WallDirection> = {
+      north: 'north',
+      south: 'south', 
+      east: 'east',
+      west: 'west',
+    };
+    
+    let wallId: string;
+    let wallDirection: string;
+    
+    if (params.reference === 'nearest') {
+      // For nearest, default to north wall
+      wallId = `${targetRoom.id}_wall_north`;
+      wallDirection = 'north';
+    } else if (params.reference.startsWith('wall_')) {
+      // Index-based selection
+      const index = parseInt(params.reference.replace('wall_', ''), 10);
+      const walls = ['north', 'east', 'south', 'west'];
+      wallDirection = walls[index % 4];
+      wallId = `${targetRoom.id}_wall_${wallDirection}`;
+    } else if (directionMap[params.reference]) {
+      // Direction-based selection
+      wallDirection = params.reference;
+      wallId = `${targetRoom.id}_wall_${wallDirection}`;
+    } else {
+      return `Error: Invalid wall reference "${params.reference}". Use north, south, east, west, nearest, or wall_N.`;
+    }
+    
+    set({ selectedWallId: wallId });
+    
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'select_wall',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Selected ${wallDirection} wall of ${formatRoomName(targetRoom.name)}`,
+    };
+    
+    set((state) => ({
+      commandHistory: [...state.commandHistory, command],
+    }));
+    
+    return command.result;
+  },
+
+  updateWallProperties: (params) => {
+    const { currentRoom, selectedWallId } = get();
+    
+    if (!currentRoom) {
+      return 'Error: No room selected. Please create or select a room first.';
+    }
+    
+    // Determine which wall to update
+    let wallDirection: WallDirection | null = null;
+    
+    if (params.reference) {
+      const directionMap: Record<string, WallDirection> = {
+        north: 'north', south: 'south', east: 'east', west: 'west',
+      };
+      if (directionMap[params.reference]) {
+        wallDirection = directionMap[params.reference];
+      } else if (params.reference.startsWith('wall_')) {
+        const index = parseInt(params.reference.replace('wall_', ''), 10);
+        const walls: WallDirection[] = ['north', 'east', 'south', 'west'];
+        wallDirection = walls[index % 4];
+      }
+    } else if (selectedWallId) {
+      // Extract direction from selectedWallId format: roomId_wall_direction
+      const match = selectedWallId.match(/_wall_(north|south|east|west)$/);
+      if (match) {
+        wallDirection = match[1] as WallDirection;
+      }
+    }
+    
+    if (!wallDirection) {
+      return 'Error: No wall selected. Use select_wall first or provide a wall reference.';
+    }
+    
+    const changes: string[] = [];
+    let updatedRoom = { ...currentRoom, updated_at: new Date().toISOString() };
+    
+    // Handle length change - affects room dimensions
+    if (params.length_ft !== undefined) {
+      if (wallDirection === 'north' || wallDirection === 'south') {
+        updatedRoom.width_ft = params.length_ft;
+        changes.push(`width to ${formatDimension(params.length_ft)}`);
+      } else {
+        updatedRoom.length_ft = params.length_ft;
+        changes.push(`length to ${formatDimension(params.length_ft)}`);
+      }
+      // Regenerate polygon
+      updatedRoom.polygon = generatePolygon(
+        updatedRoom.shape,
+        updatedRoom.width_ft,
+        updatedRoom.length_ft,
+        updatedRoom.l_shape_config,
+        updatedRoom.t_shape_config
+      );
+    }
+    
+    // Handle height change
+    if (params.height_ft !== undefined) {
+      updatedRoom.ceiling_height_ft = params.height_ft;
+      changes.push(`${wallDirection} wall height to ${formatDimension(params.height_ft)}`);
+    }
+    
+    // Handle exterior/missing status via notes
+    if (params.is_exterior !== undefined) {
+      const noteText = params.is_exterior 
+        ? `${wallDirection} wall marked as exterior`
+        : `${wallDirection} wall marked as interior`;
+      const existingNote = updatedRoom.notes.find(n => n.target === `wall_${wallDirection}`);
+      if (existingNote) {
+        existingNote.note = noteText;
+      } else {
+        updatedRoom.notes.push({
+          id: generateId(),
+          target: `wall_${wallDirection}`,
+          note: noteText,
+          created_at: new Date().toISOString(),
+        });
+      }
+      changes.push(params.is_exterior ? `${wallDirection} wall set to exterior` : `${wallDirection} wall set to interior`);
+    }
+    
+    if (params.is_missing !== undefined) {
+      const noteText = params.is_missing
+        ? `${wallDirection} wall marked as missing/open`
+        : `${wallDirection} wall marked as present`;
+      const existingNote = updatedRoom.notes.find(n => n.target === `wall_${wallDirection}_missing`);
+      if (existingNote) {
+        existingNote.note = noteText;
+      } else {
+        updatedRoom.notes.push({
+          id: generateId(),
+          target: `wall_${wallDirection}_missing`,
+          note: noteText,
+          created_at: new Date().toISOString(),
+        });
+      }
+      changes.push(params.is_missing ? `${wallDirection} wall marked as missing` : `${wallDirection} wall marked as present`);
+    }
+    
+    if (changes.length === 0) {
+      return 'No changes specified. Provide length_ft, height_ft, is_exterior, or is_missing.';
+    }
+    
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'update_wall',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Updated ${wallDirection} wall: ${changes.join(', ')}`,
+    };
+    
+    set((state) => ({
+      currentRoom: updatedRoom,
+      undoStack: [...state.undoStack, state.currentRoom!],
+      commandHistory: [...state.commandHistory, command],
+    }));
+    
+    return command.result;
+  },
+
+  moveWall: (params) => {
+    const { currentRoom, selectedWallId } = get();
+    
+    if (!currentRoom) {
+      return 'Error: No room selected. Please create or select a room first.';
+    }
+    
+    // Determine which wall to move
+    let wallDirection: WallDirection | null = null;
+    
+    if (params.reference) {
+      const directionMap: Record<string, WallDirection> = {
+        north: 'north', south: 'south', east: 'east', west: 'west',
+      };
+      if (directionMap[params.reference]) {
+        wallDirection = directionMap[params.reference];
+      } else if (params.reference.startsWith('wall_')) {
+        const index = parseInt(params.reference.replace('wall_', ''), 10);
+        const walls: WallDirection[] = ['north', 'east', 'south', 'west'];
+        wallDirection = walls[index % 4];
+      }
+    } else if (selectedWallId) {
+      const match = selectedWallId.match(/_wall_(north|south|east|west)$/);
+      if (match) {
+        wallDirection = match[1] as WallDirection;
+      }
+    }
+    
+    if (!wallDirection) {
+      return 'Error: No wall selected. Use select_wall first or provide a wall reference.';
+    }
+    
+    // Calculate dimension change based on direction
+    let updatedRoom = { ...currentRoom, updated_at: new Date().toISOString() };
+    let offset = params.offset_ft;
+    
+    // Adjust offset sign based on move direction
+    if (params.direction === 'in') {
+      offset = -Math.abs(offset);
+    } else if (params.direction === 'out') {
+      offset = Math.abs(offset);
+    } else if (params.direction === 'left') {
+      offset = -Math.abs(offset);
+    } else if (params.direction === 'right') {
+      offset = Math.abs(offset);
+    }
+    
+    // Apply offset to room dimensions
+    if (wallDirection === 'north' || wallDirection === 'south') {
+      // North/South walls affect room length
+      updatedRoom.length_ft = Math.max(2, updatedRoom.length_ft + offset);
+    } else {
+      // East/West walls affect room width
+      updatedRoom.width_ft = Math.max(2, updatedRoom.width_ft + offset);
+    }
+    
+    // Regenerate polygon
+    updatedRoom.polygon = generatePolygon(
+      updatedRoom.shape,
+      updatedRoom.width_ft,
+      updatedRoom.length_ft,
+      updatedRoom.l_shape_config,
+      updatedRoom.t_shape_config
+    );
+    
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'move_wall',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Moved ${wallDirection} wall ${Math.abs(params.offset_ft)}ft ${params.direction}. Room is now ${formatDimension(updatedRoom.width_ft)} × ${formatDimension(updatedRoom.length_ft)}.`,
+    };
+    
+    set((state) => ({
+      currentRoom: updatedRoom,
+      undoStack: [...state.undoStack, state.currentRoom!],
+      commandHistory: [...state.commandHistory, command],
+    }));
+    
+    return command.result;
+  },
+
+  updateOpening: (params) => {
+    const { currentRoom } = get();
+    
+    if (!currentRoom) {
+      return 'Error: No room selected. Please create or select a room first.';
+    }
+    
+    // Find the opening to update
+    let openingIndex = -1;
+    let opening: Opening | null = null;
+    
+    if (params.opening_id) {
+      openingIndex = currentRoom.openings.findIndex(o => o.id === params.opening_id);
+      opening = openingIndex >= 0 ? currentRoom.openings[openingIndex] : null;
+    } else if (params.wall) {
+      // Find by wall and optionally index
+      const wallOpenings = currentRoom.openings
+        .map((o, i) => ({ opening: o, index: i }))
+        .filter(item => item.opening.wall === params.wall);
+      
+      if (wallOpenings.length === 0) {
+        return `Error: No openings found on ${params.wall} wall.`;
+      }
+      
+      const targetIndex = params.opening_index ?? 0;
+      if (targetIndex >= wallOpenings.length) {
+        return `Error: Opening index ${targetIndex} out of range. ${params.wall} wall has ${wallOpenings.length} opening(s).`;
+      }
+      
+      openingIndex = wallOpenings[targetIndex].index;
+      opening = wallOpenings[targetIndex].opening;
+    } else {
+      return 'Error: Specify opening_id or wall to identify the opening.';
+    }
+    
+    if (!opening || openingIndex < 0) {
+      return 'Error: Opening not found.';
+    }
+    
+    const changes: string[] = [];
+    let updatedOpening = { ...opening };
+    
+    if (params.width_ft !== undefined) {
+      changes.push(`width to ${formatDimension(params.width_ft)}`);
+      updatedOpening.width_ft = params.width_ft;
+    }
+    
+    if (params.height_ft !== undefined) {
+      changes.push(`height to ${formatDimension(params.height_ft)}`);
+      updatedOpening.height_ft = params.height_ft;
+    }
+    
+    if (params.sill_height_ft !== undefined) {
+      changes.push(`sill height to ${formatDimension(params.sill_height_ft)}`);
+      updatedOpening.sill_height_ft = params.sill_height_ft;
+    }
+    
+    if (params.type) {
+      changes.push(`type to ${params.type}`);
+      updatedOpening.type = params.type;
+    }
+    
+    if (changes.length === 0) {
+      return 'No changes specified. Provide width_ft, height_ft, sill_height_ft, or type.';
+    }
+    
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'update_opening',
+      params,
+      timestamp: new Date().toISOString(),
+      result: `Updated ${opening.type} on ${opening.wall} wall: ${changes.join(', ')}`,
+    };
+    
+    set((state) => ({
+      currentRoom: {
+        ...state.currentRoom!,
+        openings: state.currentRoom!.openings.map((o, i) => i === openingIndex ? updatedOpening : o),
+        updated_at: new Date().toISOString(),
+      },
+      undoStack: [...state.undoStack, state.currentRoom!],
+      commandHistory: [...state.commandHistory, command],
+    }));
+    
+    return command.result;
+  },
+
   // Photo actions
   capturePhoto: async (params, file) => {
     const { currentStructure, currentRoom } = get();
@@ -1560,6 +1924,11 @@ export const geometryEngine = {
   addObject: (params: AddObjectParams) => useGeometryEngine.getState().addObject(params),
   editObject: (params: EditObjectParams) => useGeometryEngine.getState().editObject(params),
   deleteObject: (params: DeleteObjectParams) => useGeometryEngine.getState().deleteObject(params),
+  // Wall-first editing actions
+  selectWall: (params: SelectWallParams) => useGeometryEngine.getState().selectWall(params),
+  updateWallProperties: (params: UpdateWallPropertiesParams) => useGeometryEngine.getState().updateWallProperties(params),
+  moveWall: (params: MoveWallParams) => useGeometryEngine.getState().moveWall(params),
+  updateOpening: (params: UpdateOpeningParams) => useGeometryEngine.getState().updateOpening(params),
   // Photo actions
   capturePhoto: (params: CapturePhotoParams, file?: File) => useGeometryEngine.getState().capturePhoto(params, file),
   // Helpers

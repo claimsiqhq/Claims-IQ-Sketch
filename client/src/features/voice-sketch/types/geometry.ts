@@ -293,9 +293,14 @@ export type VoiceCommandType =
   | 'edit_room'
   | 'delete_opening'
   | 'delete_feature'
+  | 'delete_damage'
   | 'edit_damage_zone'
   | 'capture_photo'
-  | 'load_claim';
+  | 'load_claim'
+  | 'select_wall'
+  | 'update_wall'
+  | 'move_wall'
+  | 'update_opening';
 
 // Structure command params
 export interface CreateStructureParams {
@@ -595,4 +600,48 @@ export interface SetRoomPositionParams {
   room_name?: string;
   x_ft: number;
   y_ft: number;
+}
+
+// ============================================
+// WALL-FIRST EDITING PARAMS
+// ============================================
+
+// Wall reference for voice selection
+export type WallReference = 'north' | 'south' | 'east' | 'west' | 'nearest' | `wall_${number}`;
+
+// Select a wall by reference
+export interface SelectWallParams {
+  reference: WallReference;
+  room_name?: string; // Optional room context
+}
+
+// Update wall properties
+export interface UpdateWallPropertiesParams {
+  wall_id?: string; // If not provided, uses selected wall
+  reference?: WallReference; // Alternative to wall_id
+  room_name?: string; // Room context for reference
+  length_ft?: number;
+  height_ft?: number;
+  is_exterior?: boolean;
+  is_missing?: boolean;
+}
+
+// Move a wall perpendicular to its orientation
+export interface MoveWallParams {
+  wall_id?: string; // If not provided, uses selected wall
+  reference?: WallReference; // Alternative to wall_id
+  room_name?: string; // Room context for reference
+  offset_ft: number;
+  direction: 'in' | 'out' | 'left' | 'right';
+}
+
+// Update opening properties
+export interface UpdateOpeningParams {
+  opening_id?: string;
+  wall?: WallDirection; // Find opening by wall
+  opening_index?: number; // Index if multiple on same wall
+  width_ft?: number;
+  height_ft?: number;
+  sill_height_ft?: number;
+  type?: OpeningType;
 }

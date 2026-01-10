@@ -440,6 +440,141 @@ const deleteDamageZoneTool = tool({
   },
 });
 
+// ============================================
+// WALL-FIRST EDITING TOOLS
+// ============================================
+
+// Tool: Select a wall by direction, index, or proximity
+const selectWallTool = tool({
+  name: 'select_wall',
+  description: `Select a wall for editing. Use this before modifying wall properties.
+
+Select by direction (most common):
+- "north", "south", "east", "west" - Select wall by cardinal direction
+
+Select by index:
+- "wall_0", "wall_1", "wall_2", etc. - Select by polygon index
+
+Select by proximity:
+- "nearest" - Select closest wall to current focus
+
+For multi-room properties, optionally specify room_name to clarify which room's wall.`,
+  parameters: z.object({
+    reference: z.union([
+      z.enum(['north', 'south', 'east', 'west', 'nearest']),
+      z.string().regex(/^wall_\d+$/).describe('Wall by index, e.g., "wall_0", "wall_3"'),
+    ]).describe('How to identify the wall'),
+    room_name: z.string().optional().describe('Room name for context if multiple rooms exist'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.selectWall({
+      reference: params.reference as any,
+      room_name: params.room_name,
+    });
+  },
+});
+
+// Tool: Update wall properties
+const updateWallPropertiesTool = tool({
+  name: 'update_wall_properties',
+  description: `Update properties of a wall. Use after selecting a wall with select_wall.
+
+Properties you can update:
+- length_ft: Change wall length (will adjust room dimensions)
+- height_ft: Change wall height (usually ceiling height)
+- is_exterior: Mark as exterior wall (affects quantities)
+- is_missing: Mark as missing wall (open to adjacent space)
+
+SAFETY: Changing length affects room area calculations. Changing to exterior affects exterior quantities.`,
+  parameters: z.object({
+    wall_id: z.string().optional().describe('Wall ID (if known)'),
+    reference: z.union([
+      z.enum(['north', 'south', 'east', 'west', 'nearest']),
+      z.string().regex(/^wall_\d+$/),
+    ]).optional().describe('Alternative to wall_id - identify by direction'),
+    room_name: z.string().optional().describe('Room name for context'),
+    length_ft: z.number().optional().describe('New wall length in feet'),
+    height_ft: z.number().optional().describe('New wall height in feet'),
+    is_exterior: z.boolean().optional().describe('Mark as exterior wall'),
+    is_missing: z.boolean().optional().describe('Mark as missing wall'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.updateWallProperties({
+      wall_id: params.wall_id,
+      reference: params.reference as any,
+      room_name: params.room_name,
+      length_ft: params.length_ft,
+      height_ft: params.height_ft,
+      is_exterior: params.is_exterior,
+      is_missing: params.is_missing,
+    });
+  },
+});
+
+// Tool: Move a wall
+const moveWallTool = tool({
+  name: 'move_wall',
+  description: `Move a wall perpendicular to its orientation. Use for adjusting room dimensions without recreating.
+
+SHARED WALL WARNING: If the wall is shared between rooms, BOTH rooms will be affected.
+Before moving shared walls, ask for confirmation: "This wall is shared with the kitchen. Move it for both rooms?"
+
+Direction meanings:
+- "in" - Move wall inward (shrink room)
+- "out" - Move wall outward (expand room)
+- "left" / "right" - For vertical walls, moves left or right`,
+  parameters: z.object({
+    wall_id: z.string().optional().describe('Wall ID (if known)'),
+    reference: z.union([
+      z.enum(['north', 'south', 'east', 'west', 'nearest']),
+      z.string().regex(/^wall_\d+$/),
+    ]).optional().describe('Alternative to wall_id - identify by direction'),
+    room_name: z.string().optional().describe('Room name for context'),
+    offset_ft: z.number().describe('How far to move the wall in feet'),
+    direction: z.enum(['in', 'out', 'left', 'right']).describe('Direction to move the wall'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.moveWall({
+      wall_id: params.wall_id,
+      reference: params.reference as any,
+      room_name: params.room_name,
+      offset_ft: params.offset_ft,
+      direction: params.direction,
+    });
+  },
+});
+
+// Tool: Update opening properties
+const updateOpeningTool = tool({
+  name: 'update_opening',
+  description: `Update properties of an existing door, window, or opening. Use to correct dimensions without recreating.
+
+Identify the opening by:
+- opening_id if known
+- wall + opening_index (e.g., "east wall, second opening")
+- Just wall if only one opening on that wall`,
+  parameters: z.object({
+    opening_id: z.string().optional().describe('Opening ID if known'),
+    wall: z.enum(['north', 'south', 'east', 'west']).optional().describe('Wall the opening is on'),
+    opening_index: z.number().optional().describe('Index of opening on the wall (0-based)'),
+    width_ft: z.number().optional().describe('New width in feet'),
+    height_ft: z.number().optional().describe('New height in feet'),
+    sill_height_ft: z.number().optional().describe('For windows: new sill height'),
+    type: z.enum(['door', 'window', 'archway', 'sliding_door', 'french_door']).optional().describe('Change opening type'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.updateOpening({
+      opening_id: params.opening_id,
+      wall: params.wall,
+      opening_index: params.opening_index,
+      width_ft: params.width_ft,
+      height_ft: params.height_ft,
+      sill_height_ft: params.sill_height_ft,
+      type: params.type,
+    });
+  },
+});
+
 // Floor Plan Tools
 const createFloorPlanTool = tool({
   name: 'create_floor_plan',
@@ -547,10 +682,12 @@ const saveFloorPlanTool = tool({
 
 // Tool list for agent creation
 const agentTools = [
+  // Structure tools
   createStructureTool,
   editStructureTool,
   deleteStructureTool,
   selectStructureTool,
+  // Room creation tools
   createRoomTool,
   addOpeningTool,
   addFeatureTool,
@@ -565,6 +702,12 @@ const agentTools = [
   deleteFeatureTool,
   editDamageZoneTool,
   deleteDamageZoneTool,
+  // Wall-first editing tools
+  selectWallTool,
+  updateWallPropertiesTool,
+  moveWallTool,
+  updateOpeningTool,
+  // Floor plan tools
   createFloorPlanTool,
   addRoomToPlanTool,
   connectRoomsTool,
