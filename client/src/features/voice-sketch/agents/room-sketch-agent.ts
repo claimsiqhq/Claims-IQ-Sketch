@@ -8,6 +8,7 @@ import { RealtimeAgent, tool } from '@openai/agents/realtime';
 import { z } from 'zod';
 import { geometryEngine } from '../services/geometry-engine';
 import { useFloorPlanEngine } from '../services/floor-plan-engine';
+import { sketchManipulationStore } from '../services/sketch-manipulation-store';
 
 // Prompt cache to avoid repeated API calls
 let cachedInstructions: string | null = null;
@@ -680,6 +681,346 @@ const saveFloorPlanTool = tool({
   },
 });
 
+// ============================================
+// ADVANCED ROOM MANIPULATION TOOLS
+// ============================================
+
+// Tool: Copy a room with offset
+const copyRoomTool = tool({
+  name: 'copy_room',
+  description: `Create a copy of an existing room with an offset position.
+
+Use this when the adjuster wants to duplicate a room (e.g., "Copy this bedroom" or "Make another room like this one").
+The copy will have the same dimensions, openings, and features but a new ID.
+
+Example: "Copy the master bedroom 20 feet to the east"`,
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room to copy'),
+    offset_x_ft: z.number().default(5).describe('Horizontal offset in feet (positive = east)'),
+    offset_y_ft: z.number().default(0).describe('Vertical offset in feet (positive = south)'),
+    new_name: z.string().optional().describe('Optional new name for the copied room'),
+  }),
+  execute: async (params) => {
+    const rooms = [...geometryEngine.state.rooms];
+    const sourceRoom = rooms.find(r => r.name.toLowerCase() === params.room_name.toLowerCase());
+
+    if (!sourceRoom) {
+      return `Error: Room "${params.room_name}" not found.`;
+    }
+
+    const result = sketchManipulationStore.copyRoom(sourceRoom.id, params.offset_x_ft, params.offset_y_ft, rooms);
+
+    if (params.new_name) {
+      result.newRoom.name = params.new_name.toLowerCase().replace(/\s+/g, '_');
+    }
+
+    // Update the geometry engine with the new rooms list
+    geometryEngine.state.rooms.push(result.newRoom);
+
+    return `Copied ${params.room_name} to ${result.newRoom.name}. New room positioned at (${result.newRoom.origin_x_ft ?? 0}', ${result.newRoom.origin_y_ft ?? 0}').`;
+  },
+});
+
+// Tool: Rotate a room
+const rotateRoomTool = tool({
+  name: 'rotate_room',
+  description: `Rotate a room by 90, 180, or 270 degrees around its center.
+
+This also rotates all openings and features to maintain their relative positions.
+Use when the adjuster says things like "rotate the kitchen 90 degrees" or "turn this room".
+
+IMPORTANT: Walls, doors, and windows will be reassigned to new directions after rotation.`,
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room to rotate'),
+    degrees: z.enum(['90', '180', '270']).describe('Degrees to rotate clockwise'),
+  }),
+  execute: async (params) => {
+    const rooms = [...geometryEngine.state.rooms];
+    const sourceRoom = rooms.find(r => r.name.toLowerCase() === params.room_name.toLowerCase());
+
+    if (!sourceRoom) {
+      return `Error: Room "${params.room_name}" not found.`;
+    }
+
+    const degrees = parseInt(params.degrees) as 90 | 180 | 270;
+    const updatedRooms = sketchManipulationStore.rotateRoom(sourceRoom.id, degrees, rooms);
+
+    // Find the updated room
+    const updatedRoom = updatedRooms.find(r => r.id === sourceRoom.id);
+    if (!updatedRoom) {
+      return `Error: Failed to rotate room.`;
+    }
+
+    // Update in geometry engine
+    const roomIndex = geometryEngine.state.rooms.findIndex(r => r.id === sourceRoom.id);
+    if (roomIndex >= 0) {
+      geometryEngine.state.rooms[roomIndex] = updatedRoom;
+    }
+
+    return `Rotated ${params.room_name} ${degrees} degrees. Room is now ${updatedRoom.width_ft}' × ${updatedRoom.length_ft}'.`;
+  },
+});
+
+// Tool: Move opening along wall
+const moveOpeningAlongWallTool = tool({
+  name: 'move_opening_along_wall',
+  description: `Move a door, window, or opening to a new position along its wall.
+
+Use when the adjuster says things like:
+- "Move the door closer to the corner"
+- "Slide the window 2 feet to the left"
+- "Center the door on the wall"
+
+Positions are measured from the start of the wall (left corner for north/south walls, top corner for east/west walls).`,
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room containing the opening'),
+    wall: z.enum(['north', 'south', 'east', 'west']).describe('Wall the opening is on'),
+    opening_index: z.number().default(0).describe('Index of the opening on the wall (0-based, use 0 for first opening)'),
+    new_position_ft: z.number().optional().describe('New position in feet from wall start'),
+    position: z.enum(['left', 'center', 'right']).optional().describe('Move to a named position on the wall'),
+    offset_ft: z.number().optional().describe('Move relative to current position (negative = toward start, positive = toward end)'),
+  }),
+  execute: async (params) => {
+    const rooms = [...geometryEngine.state.rooms];
+    const room = rooms.find(r => r.name.toLowerCase() === params.room_name.toLowerCase());
+
+    if (!room) {
+      return `Error: Room "${params.room_name}" not found.`;
+    }
+
+    const wallOpenings = room.openings.filter(o => o.wall === params.wall);
+    if (wallOpenings.length === 0) {
+      return `Error: No openings found on the ${params.wall} wall.`;
+    }
+
+    const opening = wallOpenings[params.opening_index];
+    if (!opening) {
+      return `Error: Opening index ${params.opening_index} not found. The ${params.wall} wall has ${wallOpenings.length} opening(s).`;
+    }
+
+    // Calculate wall length
+    const wallLength = (params.wall === 'north' || params.wall === 'south') ? room.width_ft : room.length_ft;
+
+    // Determine new position
+    let newPositionFt: number;
+
+    if (params.new_position_ft !== undefined) {
+      newPositionFt = params.new_position_ft;
+    } else if (params.position) {
+      const halfWidth = opening.width_ft / 2;
+      switch (params.position) {
+        case 'left':
+          newPositionFt = halfWidth + 0.5;
+          break;
+        case 'center':
+          newPositionFt = wallLength / 2;
+          break;
+        case 'right':
+          newPositionFt = wallLength - halfWidth - 0.5;
+          break;
+      }
+    } else if (params.offset_ft !== undefined) {
+      const currentPos = typeof opening.position === 'number' ? opening.position : wallLength / 2;
+      newPositionFt = currentPos + params.offset_ft;
+    } else {
+      return `Error: Specify new_position_ft, position, or offset_ft.`;
+    }
+
+    // Clamp position
+    const minPos = opening.width_ft / 2;
+    const maxPos = wallLength - opening.width_ft / 2;
+    newPositionFt = Math.max(minPos, Math.min(maxPos, newPositionFt));
+
+    // Update the opening
+    const updatedRooms = sketchManipulationStore.moveOpeningAlongWall(room.id, opening.id, newPositionFt, rooms);
+
+    // Update in geometry engine
+    const roomIndex = geometryEngine.state.rooms.findIndex(r => r.id === room.id);
+    if (roomIndex >= 0) {
+      geometryEngine.state.rooms[roomIndex] = updatedRooms[roomIndex];
+    }
+
+    return `Moved ${opening.type} on ${params.wall} wall to ${newPositionFt.toFixed(1)}' from start.`;
+  },
+});
+
+// Tool: Toggle wall as missing/open
+const toggleWallMissingTool = tool({
+  name: 'toggle_wall_missing',
+  description: `Mark a wall as missing (open) or present. Missing walls are rendered with dashed lines and don't count toward perimeter calculations.
+
+Use when the adjuster describes:
+- "This room opens to the living room with no wall"
+- "The wall is missing between these rooms"
+- "It's an open floor plan on the south side"
+
+Toggle again to restore the wall.`,
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room'),
+    wall: z.enum(['north', 'south', 'east', 'west']).describe('Which wall to toggle'),
+  }),
+  execute: async (params) => {
+    const rooms = [...geometryEngine.state.rooms];
+    const room = rooms.find(r => r.name.toLowerCase() === params.room_name.toLowerCase());
+
+    if (!room) {
+      return `Error: Room "${params.room_name}" not found.`;
+    }
+
+    const updatedRooms = sketchManipulationStore.toggleWallMissing(room.id, params.wall, rooms);
+
+    // Update in geometry engine
+    const roomIndex = geometryEngine.state.rooms.findIndex(r => r.id === room.id);
+    if (roomIndex >= 0) {
+      geometryEngine.state.rooms[roomIndex] = updatedRooms[roomIndex];
+    }
+
+    // Check new status
+    const status = sketchManipulationStore.getWallStatus(room.id, params.wall);
+    const isMissing = status?.isMissing ?? false;
+
+    return `${params.wall.charAt(0).toUpperCase() + params.wall.slice(1)} wall of ${params.room_name} is now ${isMissing ? 'missing/open' : 'present'}.`;
+  },
+});
+
+// Tool: Toggle wall as exterior
+const toggleWallExteriorTool = tool({
+  name: 'toggle_wall_exterior',
+  description: `Mark a wall as exterior (outside facing) or interior. Exterior walls are rendered with thicker lines.
+
+Use when the adjuster describes:
+- "This is an exterior wall"
+- "The north wall faces outside"
+- "This wall is shared with the garage (interior)"
+
+Note: Walls are auto-detected as exterior if they don't connect to another room.`,
+  parameters: z.object({
+    room_name: z.string().describe('Name of the room'),
+    wall: z.enum(['north', 'south', 'east', 'west']).describe('Which wall to toggle'),
+  }),
+  execute: async (params) => {
+    const rooms = [...geometryEngine.state.rooms];
+    const room = rooms.find(r => r.name.toLowerCase() === params.room_name.toLowerCase());
+
+    if (!room) {
+      return `Error: Room "${params.room_name}" not found.`;
+    }
+
+    const updatedRooms = sketchManipulationStore.toggleWallExterior(room.id, params.wall, rooms);
+
+    // Update in geometry engine
+    const roomIndex = geometryEngine.state.rooms.findIndex(r => r.id === room.id);
+    if (roomIndex >= 0) {
+      geometryEngine.state.rooms[roomIndex] = updatedRooms[roomIndex];
+    }
+
+    // Check new status
+    const status = sketchManipulationStore.getWallStatus(room.id, params.wall);
+    const isExterior = status?.isExterior ?? false;
+
+    return `${params.wall.charAt(0).toUpperCase() + params.wall.slice(1)} wall of ${params.room_name} is now marked as ${isExterior ? 'exterior' : 'interior'}.`;
+  },
+});
+
+// Tool: Check sketch completeness
+const checkSketchCompletenessTool = tool({
+  name: 'check_sketch_completeness',
+  description: `Check if the sketch has all required information for estimate generation.
+
+Returns a list of any issues found:
+- Rooms with missing ceiling heights
+- Rooms with missing walls
+- Rooms without openings
+- Rooms with unusual dimensions
+
+Use when the adjuster asks "Is the sketch complete?" or "What's missing?"`,
+  parameters: z.object({}),
+  execute: async () => {
+    const rooms = geometryEngine.state.rooms;
+
+    if (rooms.length === 0) {
+      return `No rooms in the sketch yet. Create rooms using create_room.`;
+    }
+
+    // Detect wall statuses first
+    sketchManipulationStore.state.detectExteriorWalls(rooms);
+
+    const issues = sketchManipulationStore.checkSketchCompleteness(rooms);
+
+    if (issues.length === 0) {
+      return `Sketch is complete! ${rooms.length} room(s) with all required geometry data.`;
+    }
+
+    const issueList = issues.map(i => `- ${i.message}`).join('\n');
+    const errorCount = issues.filter(i => i.severity === 'error').length;
+    const warningCount = issues.filter(i => i.severity === 'warning').length;
+
+    return `Found ${issues.length} issue(s) (${errorCount} errors, ${warningCount} warnings):\n${issueList}`;
+  },
+});
+
+// Tool: Align multiple rooms
+const alignRoomsTool = tool({
+  name: 'align_rooms',
+  description: `Align multiple rooms by their edges or centers.
+
+Use when the adjuster says:
+- "Align these rooms on the left"
+- "Line up the bedrooms"
+- "Make these rooms have the same left edge"
+
+Alignment options:
+- left: Align left (west) edges
+- right: Align right (east) edges
+- top: Align top (north) edges
+- bottom: Align bottom (south) edges
+- center_h: Align horizontal centers
+- center_v: Align vertical centers`,
+  parameters: z.object({
+    room_names: z.array(z.string()).min(2).describe('Names of rooms to align (at least 2)'),
+    alignment: z.enum(['left', 'right', 'top', 'bottom', 'center_h', 'center_v']).describe('How to align the rooms'),
+  }),
+  execute: async (params) => {
+    const rooms = [...geometryEngine.state.rooms];
+
+    // Find all specified rooms
+    const targetRooms = params.room_names.map(name =>
+      rooms.find(r => r.name.toLowerCase() === name.toLowerCase())
+    );
+
+    const missingRooms = params.room_names.filter((name, i) => !targetRooms[i]);
+    if (missingRooms.length > 0) {
+      return `Error: Room(s) not found: ${missingRooms.join(', ')}`;
+    }
+
+    // Select the rooms in the manipulation store
+    for (const room of targetRooms) {
+      if (room) {
+        sketchManipulationStore.selectEntity(
+          { type: 'room', id: room.id, roomId: room.id },
+          true // shift-click to multi-select
+        );
+      }
+    }
+
+    // Perform alignment
+    const updatedRooms = sketchManipulationStore.state.alignSelected(params.alignment, rooms);
+
+    // Update geometry engine
+    for (let i = 0; i < updatedRooms.length; i++) {
+      const roomIndex = geometryEngine.state.rooms.findIndex(r => r.id === updatedRooms[i].id);
+      if (roomIndex >= 0) {
+        geometryEngine.state.rooms[roomIndex] = updatedRooms[i];
+      }
+    }
+
+    // Deselect
+    sketchManipulationStore.deselectAll();
+
+    return `Aligned ${params.room_names.length} rooms by ${params.alignment.replace('_', ' ')}.`;
+  },
+});
+
 // Tool list for agent creation
 const agentTools = [
   // Structure tools
@@ -713,6 +1054,14 @@ const agentTools = [
   connectRoomsTool,
   moveRoomTool,
   saveFloorPlanTool,
+  // Advanced room manipulation tools
+  copyRoomTool,
+  rotateRoomTool,
+  moveOpeningAlongWallTool,
+  toggleWallMissingTool,
+  toggleWallExteriorTool,
+  checkSketchCompletenessTool,
+  alignRoomsTool,
 ];
 
 /**
@@ -755,4 +1104,12 @@ export const tools = {
   connectRooms: connectRoomsTool,
   moveRoom: moveRoomTool,
   saveFloorPlan: saveFloorPlanTool,
+  // Advanced room manipulation tools
+  copyRoom: copyRoomTool,
+  rotateRoom: rotateRoomTool,
+  moveOpeningAlongWall: moveOpeningAlongWallTool,
+  toggleWallMissing: toggleWallMissingTool,
+  toggleWallExterior: toggleWallExteriorTool,
+  checkSketchCompleteness: checkSketchCompletenessTool,
+  alignRooms: alignRoomsTool,
 };
