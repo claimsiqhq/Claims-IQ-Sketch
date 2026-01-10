@@ -1,0 +1,86 @@
+# TASK: Update OpenAI Voice Prompts and Tool Schemas for Wall-First Sketch Editing
+
+## Context
+The Sketch UI has been refactored to be wall-first and professional-grade.
+The OpenAI voice system must be updated to match this new interaction model.
+
+Voice must support editing existing geometry, not just creating rooms.
+
+## Objectives
+
+1. Update system prompts to reflect wall-first sketching
+2. Introduce new voice tools for wall editing
+3. Ensure voice commands map cleanly to UI actions
+4. Prevent destructive or ambiguous voice actions
+
+## Required Voice Behaviors
+
+Voice must support:
+- Selecting a wall by direction, index, or proximity
+- Editing wall length numerically
+- Toggling interior/exterior
+- Marking a wall as missing
+- Moving shared walls safely
+- Editing door/window properties on walls
+
+Voice must NOT:
+- Recreate rooms when editing is intended
+- Detach shared walls implicitly
+- Guess geometry without confirmation
+
+## Tool Schema Updates
+
+Add the following tools:
+
+### select_wall
+Parameters:
+- reference: "north" | "south" | "east" | "west" | "wall_3" | "nearest"
+- room_name (optional)
+
+### update_wall_properties
+Parameters:
+- wall_id
+- length_ft (optional)
+- is_exterior (optional)
+- is_missing (optional)
+- height_ft (optional)
+
+### move_wall
+Parameters:
+- wall_id
+- offset_ft
+- direction: "in" | "out" | "left" | "right"
+
+### update_opening
+Parameters:
+- opening_id
+- width_ft (optional)
+- height_ft (optional)
+- sill_height_ft (optional)
+- type: "door" | "window" | "opening"
+
+## Prompt Updates
+
+Update the system prompt to:
+
+- Treat walls as first-class entities
+- Prefer edit operations over creation
+- Ask clarification questions when ambiguity exists
+- Confirm destructive edits verbally
+
+Example confirmations:
+- "This wall is shared with the kitchen. Move it for both rooms?"
+- "Changing this wall to exterior will affect exterior quantities. Continue?"
+
+## Safety Rules
+
+- Never delete geometry without confirmation
+- Never modify multiple walls unless explicitly instructed
+- Always confirm shared-wall edits
+
+## Deliverables
+
+- Updated system prompt text
+- Updated tool schemas
+- Mapping of voice commands to UI actions
+- Tests demonstrating voice + UI parity
