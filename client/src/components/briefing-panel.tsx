@@ -379,7 +379,7 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
             </CollapsibleSection>
 
             {/* Sketch Requirements */}
-            {content.sketch_requirements.length > 0 && (
+            {content.sketch_requirements?.length > 0 && (
               <CollapsibleSection
                 title="Sketch Requirements"
                 icon={<Ruler className="h-4 w-4" />}
@@ -395,7 +395,7 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
             )}
 
             {/* Depreciation Considerations */}
-            {content.depreciation_considerations.length > 0 && (
+            {content.depreciation_considerations?.length > 0 && (
               <CollapsibleSection
                 title="Depreciation Considerations"
                 icon={<DollarSign className="h-4 w-4" />}
@@ -425,17 +425,17 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
             )}
 
             {/* Open Questions */}
-            {content.open_questions_for_adjuster.length > 0 && (
+            {content.open_questions_for_adjuster?.length > 0 && (
               <CollapsibleSection
                 title="Questions to Answer"
                 icon={<HelpCircle className="h-4 w-4" />}
                 isOpen={openSections.questions}
                 onToggle={() => toggleSection('questions')}
-                badgeCount={content.open_questions_for_adjuster.length}
+                badgeCount={content.open_questions_for_adjuster?.length || 0}
                 badgeVariant="destructive"
               >
                 <ul className="space-y-2">
-                  {content.open_questions_for_adjuster.map((question, i) => (
+                  {content.open_questions_for_adjuster?.map((question, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm">
                       <span className="text-red-500 font-bold">?</span>
                       <span>{question}</span>
