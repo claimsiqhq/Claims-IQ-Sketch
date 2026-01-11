@@ -4185,9 +4185,8 @@ export const lineItems = pgTable("line_items", {
 
 export type LineItem = typeof lineItems.$inferSelect;
 
-// Deprecated: Alias to lineItems or kept for temporary compat if needed, 
-// but practically we should use lineItems.
-// export const scopeLineItems = lineItems; 
+// Alias to lineItems for scope engine relations
+export const scopeLineItems = lineItems; 
 
 /**
  * Scope Line Item Companion Rules TypeScript interface
