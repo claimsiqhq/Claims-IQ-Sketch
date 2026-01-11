@@ -1,8 +1,10 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Room, DamageZone, RoomOpening, WallDirection, PositionType } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Move, Maximize2, X, Plus, AlertTriangle, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { Move, Maximize2, X, Plus, AlertTriangle, ZoomIn, ZoomOut, Maximize, DoorOpen, PanelTop } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSketchManipulationStore } from "@/features/voice-sketch/services/sketch-manipulation-store";
+import { generateId } from "@/features/voice-sketch/utils/polygon-math";
 
 interface SketchCanvasProps {
   rooms: Room[];
@@ -28,9 +30,16 @@ export default function SketchCanvas({
   readOnly = false
 }: SketchCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Get tool mode from sketch manipulation store
+  const { toolMode, setToolMode } = useSketchManipulationStore();
+
+  // Resize types: edges (n/s/e/w) and corners (ne/nw/se/sw)
+  type ResizeHandle = "resize" | "resize_n" | "resize_s" | "resize_e" | "resize_w" | "resize_ne" | "resize_nw" | "resize_se" | "resize_sw";
+
   const [dragState, setDragState] = useState<{
     roomId: string;
-    type: "move" | "resize";
+    type: "move" | ResizeHandle;
     startX: number;
     startY: number;
     initialX: number;
@@ -38,6 +47,9 @@ export default function SketchCanvas({
     initialW: number;
     initialH: number;
   } | null>(null);
+
+  // Track which handle is being dragged for visual feedback
+  const [activeHandle, setActiveHandle] = useState<string | null>(null);
 
   // View state for zoom and pan
   const [viewState, setViewState] = useState<ViewState>({
@@ -292,13 +304,131 @@ export default function SketchCanvas({
     setLastPinchDistance(null);
   };
 
-  const startDrag = (clientX: number, clientY: number, roomId: string, type: "move" | "resize") => {
+  // Convert screen coordinates to canvas coordinates (in feet)
+  const screenToCanvasFeet = useCallback((clientX: number, clientY: number) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - viewState.offsetX) / (BASE_PIXELS_PER_FOOT * viewState.scale),
+      y: (clientY - rect.top - viewState.offsetY) / (BASE_PIXELS_PER_FOOT * viewState.scale),
+    };
+  }, [viewState]);
+
+  // Calculate distance from point to line segment
+  const distanceToLineSegment = (point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) => {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+
+    if (lengthSquared === 0) {
+      return Math.sqrt(Math.pow(point.x - start.x, 2) + Math.pow(point.y - start.y, 2));
+    }
+
+    let t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+
+    const projectedPoint = {
+      x: start.x + t * dx,
+      y: start.y + t * dy
+    };
+
+    return Math.sqrt(Math.pow(point.x - projectedPoint.x, 2) + Math.pow(point.y - projectedPoint.y, 2));
+  };
+
+  // Get position along wall in feet
+  const getPositionAlongWall = (point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) => {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+
+    if (lengthSquared === 0) return 0;
+
+    let t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+
+    const wallLength = Math.sqrt(lengthSquared);
+    return t * wallLength;
+  };
+
+  // Handle wall click to add door/window
+  const handleWallClick = useCallback((clientX: number, clientY: number, openingType: 'door' | 'window') => {
+    if (readOnly) return;
+
+    const clickPoint = screenToCanvasFeet(clientX, clientY);
+    const TOLERANCE_FT = 1.5; // 1.5 foot tolerance for clicking on wall
+
+    // Find the nearest wall within tolerance
+    let nearestRoom: Room | null = null;
+    let nearestWall: WallDirection | null = null;
+    let nearestDistance = Infinity;
+    let positionAlongWall = 0;
+    let wallLength = 0;
+
+    for (const room of rooms) {
+      // Define wall segments for each room
+      const walls: { direction: WallDirection; start: { x: number; y: number }; end: { x: number; y: number } }[] = [
+        { direction: 'north', start: { x: room.x, y: room.y }, end: { x: room.x + room.width, y: room.y } },
+        { direction: 'south', start: { x: room.x, y: room.y + room.height }, end: { x: room.x + room.width, y: room.y + room.height } },
+        { direction: 'west', start: { x: room.x, y: room.y }, end: { x: room.x, y: room.y + room.height } },
+        { direction: 'east', start: { x: room.x + room.width, y: room.y }, end: { x: room.x + room.width, y: room.y + room.height } },
+      ];
+
+      for (const wall of walls) {
+        const distance = distanceToLineSegment(clickPoint, wall.start, wall.end);
+
+        if (distance < nearestDistance && distance <= TOLERANCE_FT) {
+          nearestDistance = distance;
+          nearestRoom = room;
+          nearestWall = wall.direction;
+          positionAlongWall = getPositionAlongWall(clickPoint, wall.start, wall.end);
+          wallLength = wall.direction === 'north' || wall.direction === 'south'
+            ? room.width
+            : room.height;
+        }
+      }
+    }
+
+    if (nearestRoom && nearestWall) {
+      // Create the opening
+      const defaultWidth = openingType === 'door' ? 3 : 4; // 3ft door, 4ft window
+      const defaultHeight = openingType === 'door' ? 7 : 4; // 7ft door, 4ft window
+
+      // Calculate position as offset from start of wall
+      // Clamp to ensure the opening fits on the wall
+      const maxOffset = wallLength - defaultWidth;
+      const openingOffset = Math.max(0, Math.min(positionAlongWall - defaultWidth / 2, maxOffset));
+
+      const newOpening: RoomOpening = {
+        id: generateId(),
+        type: openingType,
+        wall: nearestWall,
+        width: defaultWidth,
+        height: defaultHeight,
+        position: openingOffset, // Position in feet from wall start
+      };
+
+      // Add opening to the room
+      const existingOpenings = nearestRoom.openings || [];
+      onUpdateRoom(nearestRoom.id, {
+        openings: [...existingOpenings, newOpening]
+      });
+
+      // Select the room
+      onSelectRoom(nearestRoom.id);
+
+      // Switch back to select mode
+      setToolMode('select');
+    }
+  }, [readOnly, rooms, screenToCanvasFeet, onUpdateRoom, onSelectRoom, setToolMode]);
+
+  const startDrag = (clientX: number, clientY: number, roomId: string, type: "move" | ResizeHandle) => {
     if (readOnly) return;
 
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
 
     onSelectRoom(roomId);
+    setActiveHandle(type.startsWith('resize') ? type : null);
 
     setDragState({
       roomId,
@@ -312,13 +442,13 @@ export default function SketchCanvas({
     });
   };
 
-  const handleMouseDown = (e: React.MouseEvent, roomId: string, type: "move" | "resize") => {
+  const handleMouseDown = (e: React.MouseEvent, roomId: string, type: "move" | ResizeHandle) => {
     e.stopPropagation();
     const { clientX, clientY } = getEventCoordinates(e);
     startDrag(clientX, clientY, roomId, type);
   };
 
-  const handleTouchStart = (e: React.TouchEvent, roomId: string, type: "move" | "resize") => {
+  const handleTouchStart = (e: React.TouchEvent, roomId: string, type: "move" | ResizeHandle) => {
     e.stopPropagation();
     // Prevent scrolling while dragging
     if (!readOnly) {
@@ -336,6 +466,7 @@ export default function SketchCanvas({
     const currentScale = viewState.scale;
     const scaledPixelsPerFoot = BASE_PIXELS_PER_FOOT * currentScale;
     const scaledSnapGrid = 10 * currentScale;
+    const minSize = 2 * scaledPixelsPerFoot; // Minimum 2ft
 
     if (dragState.type === "move") {
       let newX = dragState.initialX + dx;
@@ -350,19 +481,133 @@ export default function SketchCanvas({
         x: newX / scaledPixelsPerFoot,
         y: newY / scaledPixelsPerFoot
       });
-    } else if (dragState.type === "resize") {
+    } else if (dragState.type === "resize" || dragState.type === "resize_se") {
+      // Original resize (bottom-right corner) or SE corner
       let newW = dragState.initialW + dx;
       let newH = dragState.initialH + dy;
 
-      // Minimum size constraints (2ft x 2ft)
-      newW = Math.max(newW, 2 * scaledPixelsPerFoot);
-      newH = Math.max(newH, 2 * scaledPixelsPerFoot);
-
-      // Snap
+      newW = Math.max(newW, minSize);
+      newH = Math.max(newH, minSize);
       newW = Math.round(newW / scaledSnapGrid) * scaledSnapGrid;
       newH = Math.round(newH / scaledSnapGrid) * scaledSnapGrid;
 
       onUpdateRoom(dragState.roomId, {
+        width: newW / scaledPixelsPerFoot,
+        height: newH / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_n") {
+      // North edge: change Y position and height
+      let newY = dragState.initialY + dy;
+      let newH = dragState.initialH - dy;
+
+      newH = Math.max(newH, minSize);
+      if (newH === minSize) {
+        newY = dragState.initialY + dragState.initialH - minSize;
+      }
+      newY = Math.round(newY / scaledSnapGrid) * scaledSnapGrid;
+      newH = Math.round(newH / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        y: newY / scaledPixelsPerFoot,
+        height: newH / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_s") {
+      // South edge: change height only
+      let newH = dragState.initialH + dy;
+      newH = Math.max(newH, minSize);
+      newH = Math.round(newH / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        height: newH / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_e") {
+      // East edge: change width only
+      let newW = dragState.initialW + dx;
+      newW = Math.max(newW, minSize);
+      newW = Math.round(newW / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        width: newW / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_w") {
+      // West edge: change X position and width
+      let newX = dragState.initialX + dx;
+      let newW = dragState.initialW - dx;
+
+      newW = Math.max(newW, minSize);
+      if (newW === minSize) {
+        newX = dragState.initialX + dragState.initialW - minSize;
+      }
+      newX = Math.round(newX / scaledSnapGrid) * scaledSnapGrid;
+      newW = Math.round(newW / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        x: newX / scaledPixelsPerFoot,
+        width: newW / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_ne") {
+      // NE corner: change Y position, height, and width
+      let newY = dragState.initialY + dy;
+      let newW = dragState.initialW + dx;
+      let newH = dragState.initialH - dy;
+
+      newW = Math.max(newW, minSize);
+      newH = Math.max(newH, minSize);
+      if (newH === minSize) {
+        newY = dragState.initialY + dragState.initialH - minSize;
+      }
+      newY = Math.round(newY / scaledSnapGrid) * scaledSnapGrid;
+      newW = Math.round(newW / scaledSnapGrid) * scaledSnapGrid;
+      newH = Math.round(newH / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        y: newY / scaledPixelsPerFoot,
+        width: newW / scaledPixelsPerFoot,
+        height: newH / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_nw") {
+      // NW corner: change X, Y positions, width, and height
+      let newX = dragState.initialX + dx;
+      let newY = dragState.initialY + dy;
+      let newW = dragState.initialW - dx;
+      let newH = dragState.initialH - dy;
+
+      newW = Math.max(newW, minSize);
+      newH = Math.max(newH, minSize);
+      if (newW === minSize) {
+        newX = dragState.initialX + dragState.initialW - minSize;
+      }
+      if (newH === minSize) {
+        newY = dragState.initialY + dragState.initialH - minSize;
+      }
+      newX = Math.round(newX / scaledSnapGrid) * scaledSnapGrid;
+      newY = Math.round(newY / scaledSnapGrid) * scaledSnapGrid;
+      newW = Math.round(newW / scaledSnapGrid) * scaledSnapGrid;
+      newH = Math.round(newH / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        x: newX / scaledPixelsPerFoot,
+        y: newY / scaledPixelsPerFoot,
+        width: newW / scaledPixelsPerFoot,
+        height: newH / scaledPixelsPerFoot
+      });
+    } else if (dragState.type === "resize_sw") {
+      // SW corner: change X position, width, and height
+      let newX = dragState.initialX + dx;
+      let newW = dragState.initialW - dx;
+      let newH = dragState.initialH + dy;
+
+      newW = Math.max(newW, minSize);
+      newH = Math.max(newH, minSize);
+      if (newW === minSize) {
+        newX = dragState.initialX + dragState.initialW - minSize;
+      }
+      newX = Math.round(newX / scaledSnapGrid) * scaledSnapGrid;
+      newW = Math.round(newW / scaledSnapGrid) * scaledSnapGrid;
+      newH = Math.round(newH / scaledSnapGrid) * scaledSnapGrid;
+
+      onUpdateRoom(dragState.roomId, {
+        x: newX / scaledPixelsPerFoot,
         width: newW / scaledPixelsPerFoot,
         height: newH / scaledPixelsPerFoot
       });
@@ -396,6 +641,7 @@ export default function SketchCanvas({
 
   const handleDragEnd = useCallback(() => {
     setDragState(null);
+    setActiveHandle(null);
     handlePanEnd();
   }, []);
 
@@ -451,8 +697,18 @@ export default function SketchCanvas({
     };
   }, [dragState, isPanning, handleDragEnd, handleTouchMove]);
 
-  // Handle canvas background click for pan start
+  // Handle canvas background click for pan start or tool-specific actions
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    // Handle door/window tool modes - click on wall to add opening
+    if (toolMode === 'draw_door') {
+      handleWallClick(e.clientX, e.clientY, 'door');
+      return;
+    }
+    if (toolMode === 'draw_window') {
+      handleWallClick(e.clientX, e.clientY, 'window');
+      return;
+    }
+
     // Only start pan if clicking on empty space (not a room)
     if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-content')) {
       handlePanStart(e.clientX, e.clientY);
@@ -463,6 +719,18 @@ export default function SketchCanvas({
     // Two-finger touch starts pinch zoom
     if (e.touches.length === 2) {
       setLastPinchDistance(getTouchDistance(e.touches));
+      return;
+    }
+
+    // Handle door/window tool modes - tap on wall to add opening
+    if (toolMode === 'draw_door') {
+      const { clientX, clientY } = getEventCoordinates(e);
+      handleWallClick(clientX, clientY, 'door');
+      return;
+    }
+    if (toolMode === 'draw_window') {
+      const { clientX, clientY } = getEventCoordinates(e);
+      handleWallClick(clientX, clientY, 'window');
       return;
     }
 
@@ -501,9 +769,25 @@ export default function SketchCanvas({
         backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
         backgroundSize: `${BASE_PIXELS_PER_FOOT * viewState.scale}px ${BASE_PIXELS_PER_FOOT * viewState.scale}px`,
         backgroundPosition: `${viewState.offsetX}px ${viewState.offsetY}px`,
-        cursor: isPanning ? 'grabbing' : 'grab'
+        cursor: isPanning ? 'grabbing' :
+          toolMode === 'draw_door' || toolMode === 'draw_window' ? 'crosshair' :
+          toolMode === 'pan' ? 'grab' : 'default'
       }}
     >
+      {/* Tool Mode Indicator */}
+      {(toolMode === 'draw_door' || toolMode === 'draw_window') && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20 bg-blue-500 text-white rounded-full shadow-md px-3 py-1.5">
+          {toolMode === 'draw_door' ? (
+            <DoorOpen className="h-4 w-4" />
+          ) : (
+            <PanelTop className="h-4 w-4" />
+          )}
+          <span className="text-sm font-medium">
+            Click on a wall to add {toolMode === 'draw_door' ? 'door' : 'window'}
+          </span>
+        </div>
+      )}
+
       {/* Zoom Controls - Horizontal Bar at Bottom */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20 bg-white/95 backdrop-blur rounded-full shadow-md px-3 py-1.5">
         <Button
@@ -623,15 +907,85 @@ export default function SketchCanvas({
                 </div>
               </div>
 
-              {/* Resize Handle - larger touch target on mobile */}
+              {/* Resize Handles - Edge and Corner handles for precise resizing */}
               {!readOnly && isSelected && (
-                <div
-                  className="absolute bottom-[-8px] right-[-8px] w-8 h-8 md:w-5 md:h-5 bg-white border-2 border-primary rounded-full cursor-nwse-resize shadow-md z-30 flex items-center justify-center touch-none"
-                  onMouseDown={(e) => handleMouseDown(e, room.id, "resize")}
-                  onTouchStart={(e) => handleTouchStart(e, room.id, "resize")}
-                >
-                  <div className="w-3 h-3 md:w-2 md:h-2 bg-primary rounded-full" />
-                </div>
+                <>
+                  {/* Edge Handles */}
+                  {/* North edge */}
+                  <div
+                    className={cn(
+                      "absolute top-[-4px] left-1/2 -translate-x-1/2 w-12 h-2 rounded-full cursor-ns-resize z-30 touch-none",
+                      activeHandle === "resize_n" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_n")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_n")}
+                  />
+                  {/* South edge */}
+                  <div
+                    className={cn(
+                      "absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-12 h-2 rounded-full cursor-ns-resize z-30 touch-none",
+                      activeHandle === "resize_s" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_s")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_s")}
+                  />
+                  {/* East edge */}
+                  <div
+                    className={cn(
+                      "absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-12 rounded-full cursor-ew-resize z-30 touch-none",
+                      activeHandle === "resize_e" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_e")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_e")}
+                  />
+                  {/* West edge */}
+                  <div
+                    className={cn(
+                      "absolute left-[-4px] top-1/2 -translate-y-1/2 w-2 h-12 rounded-full cursor-ew-resize z-30 touch-none",
+                      activeHandle === "resize_w" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_w")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_w")}
+                  />
+
+                  {/* Corner Handles */}
+                  {/* NW corner */}
+                  <div
+                    className={cn(
+                      "absolute top-[-6px] left-[-6px] w-3 h-3 rounded-full cursor-nwse-resize shadow-md z-30 touch-none border-2 border-white",
+                      activeHandle === "resize_nw" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_nw")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_nw")}
+                  />
+                  {/* NE corner */}
+                  <div
+                    className={cn(
+                      "absolute top-[-6px] right-[-6px] w-3 h-3 rounded-full cursor-nesw-resize shadow-md z-30 touch-none border-2 border-white",
+                      activeHandle === "resize_ne" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_ne")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_ne")}
+                  />
+                  {/* SW corner */}
+                  <div
+                    className={cn(
+                      "absolute bottom-[-6px] left-[-6px] w-3 h-3 rounded-full cursor-nesw-resize shadow-md z-30 touch-none border-2 border-white",
+                      activeHandle === "resize_sw" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_sw")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_sw")}
+                  />
+                  {/* SE corner */}
+                  <div
+                    className={cn(
+                      "absolute bottom-[-6px] right-[-6px] w-3 h-3 rounded-full cursor-nwse-resize shadow-md z-30 touch-none border-2 border-white",
+                      activeHandle === "resize_se" ? "bg-orange-500" : "bg-blue-500 hover:bg-blue-600"
+                    )}
+                    onMouseDown={(e) => handleMouseDown(e, room.id, "resize_se")}
+                    onTouchStart={(e) => handleTouchStart(e, room.id, "resize_se")}
+                  />
+                </>
               )}
 
               {/* Type Badge */}

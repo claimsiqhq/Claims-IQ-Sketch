@@ -3,7 +3,7 @@
 // Hierarchy: Structure > Room > Sub-room > Object
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera, Layers, Triangle } from 'lucide-react';
+import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera, Layers, Triangle, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
@@ -55,6 +55,7 @@ export function VoiceSketchController({
     currentStructure,
     photos,
     pendingPhotoCapture,
+    undoStack,
     resetSession,
     createRoom,
     confirmRoom,
@@ -64,6 +65,7 @@ export function VoiceSketchController({
     addPhoto,
     clearPendingPhotoCapture,
     setLastCapturedPhotoId,
+    undo,
   } = useGeometryEngine();
 
   // Get current hierarchy path for display
@@ -593,21 +595,35 @@ export function VoiceSketchController({
         </div>
       </div>
 
-      {/* Compact Header with Voice Controls and Waveform - combined for desktop */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-background">
-        {/* Voice controls - left side */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+      {/* Compact Voice Dock - reorganized: level selector left, mic center, undo/redo right */}
+      <div className="flex items-center gap-1 px-2 py-1 border-b bg-background">
+        {/* Left side: Level selector / hierarchy indicator */}
+        <div className="flex items-center gap-1 flex-shrink-0 min-w-0">
+          {currentStructure && (
+            <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded truncate max-w-[80px]" title={currentStructure.name}>
+              {currentStructure.name}
+            </span>
+          )}
+          {currentRoom && (
+            <span className="text-[10px] text-primary bg-primary/10 px-1 py-0.5 rounded truncate max-w-[60px]" title={currentRoom.name}>
+              {currentRoom.name}
+            </span>
+          )}
+        </div>
+
+        {/* Center: Voice controls and waveform */}
+        <div className="flex items-center gap-1 flex-1 justify-center">
           {!isConnected ? (
-            <Button 
-              onClick={handleStartSession} 
-              variant="default" 
-              size="sm" 
-              className="h-7"
+            <Button
+              onClick={handleStartSession}
+              variant="default"
+              size="sm"
+              className="h-6 px-2"
               disabled={!userName}
               title={!userName ? "Loading user..." : "Start voice sketching"}
             >
-              <Mic className="h-3.5 w-3.5 mr-1" />
-              <span className="text-xs">Start</span>
+              <Mic className="h-3 w-3 mr-1" />
+              <span className="text-[10px]">Start</span>
             </Button>
           ) : (
             <>
@@ -615,54 +631,63 @@ export function VoiceSketchController({
                 onClick={interruptAgent}
                 variant="outline"
                 size="sm"
-                className="h-7"
+                className="h-6 w-6 p-0"
                 disabled={!isSpeaking}
                 title="Stop speaking"
               >
-                <Square className="h-3.5 w-3.5" />
+                <Square className="h-3 w-3" />
               </Button>
-              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-7" title="End session">
-                <MicOff className="h-3.5 w-3.5" />
+              <VoiceWaveform
+                isConnected={isConnected}
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                className="flex-1 h-6 max-w-[120px]"
+                compact
+              />
+              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-6 w-6 p-0" title="End session">
+                <MicOff className="h-3 w-3" />
               </Button>
             </>
           )}
-          <Button onClick={handleReset} variant="ghost" size="sm" className="h-7 w-7 p-0" title="Reset session">
-            <RotateCcw className="h-3.5 w-3.5" />
-          </Button>
         </div>
 
-        {/* Waveform - center, grows to fill space */}
-        <VoiceWaveform
-          isConnected={isConnected}
-          isListening={isListening}
-          isSpeaking={isSpeaking}
-          className="flex-1 h-7"
-          compact
-        />
-
-        {/* Status and actions - right side */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Right side: Undo/Redo, photos, save */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Undo button */}
+          <Button
+            onClick={() => undo(1)}
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            disabled={undoStack.length === 0}
+            title="Undo"
+          >
+            <Undo2 className="h-3 w-3" />
+          </Button>
+          {/* Reset button */}
+          <Button onClick={handleReset} variant="ghost" size="sm" className="h-6 w-6 p-0" title="Reset session">
+            <RotateCcw className="h-3 w-3" />
+          </Button>
           {photos.length > 0 && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-              <Camera className="h-3 w-3" />
+            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded">
+              <Camera className="h-2.5 w-2.5" />
               {photos.length}
             </span>
           )}
           {onSave && hasRooms && (
-            <Button 
-              onClick={handleSave} 
-              variant="default" 
+            <Button
+              onClick={handleSave}
+              variant="default"
               size="sm"
-              className="h-7"
+              className="h-6 px-2"
               disabled={isSaving}
               data-testid="button-save-sketch"
             >
               {isSaving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Save className="h-3.5 w-3.5 mr-1" />
+                <Save className="h-3 w-3" />
               )}
-              <span className="text-xs">{isSaving ? 'Saving...' : 'Save'}</span>
             </Button>
           )}
         </div>

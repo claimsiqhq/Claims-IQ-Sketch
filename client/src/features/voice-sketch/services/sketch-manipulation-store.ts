@@ -18,6 +18,7 @@ import {
   distanceBetweenPoints,
   calculatePositionInFeet,
   getWallLength,
+  calculatePolygonArea,
 } from '../utils/polygon-math';
 
 // ============================================
@@ -30,8 +31,13 @@ export type SketchToolMode =
   | 'move_room'        // Drag room to move
   | 'move_wall'        // Drag wall perpendicular
   | 'move_opening'     // Drag opening along wall
-  | 'draw_room'        // Draw new room
+  | 'draw_room'        // Draw new room/polygon
+  | 'draw_door'        // Click on wall to add door
+  | 'draw_window'      // Click on wall to add window
   | 'rotate_room';     // Rotate selected room
+
+// Zone types for the zone type dropdown
+export type ZoneType = 'room' | 'garage' | 'porch' | 'deck' | 'structure';
 
 export type SelectableEntityType = 'room' | 'wall' | 'opening' | 'feature';
 
@@ -146,6 +152,9 @@ interface SketchManipulationState {
   // Tool mode
   toolMode: SketchToolMode;
 
+  // Zone type for drawing (Room, Garage, Porch, Deck, Structure)
+  selectedZoneType: ZoneType;
+
   // Drag state
   isDragging: boolean;
   dragStartPoint: Point | null;
@@ -189,6 +198,7 @@ interface SketchManipulationState {
   // ============================================
 
   setToolMode: (mode: SketchToolMode) => void;
+  setSelectedZoneType: (zoneType: ZoneType) => void;
 
   // ============================================
   // ROOM MANIPULATION ACTIONS
@@ -392,6 +402,7 @@ const initialState = {
   hoveredEntity: null as SelectedEntity | null,
   isMultiSelectMode: false,
   toolMode: 'select' as SketchToolMode,
+  selectedZoneType: 'room' as ZoneType,
   isDragging: false,
   dragStartPoint: null as Point | null,
   dragCurrentPoint: null as Point | null,
@@ -460,6 +471,9 @@ export const useSketchManipulationStore = create<SketchManipulationState>((set, 
   },
 
   selectRoomAtPoint: (point, rooms, isShiftClick) => {
+    // Find ALL rooms that contain the click point
+    const matchingRooms: { room: RoomGeometry; area: number }[] = [];
+
     for (const room of rooms) {
       // Account for room's floor plan position
       const originX = room.origin_x_ft ?? 0;
@@ -472,14 +486,25 @@ export const useSketchManipulationStore = create<SketchManipulationState>((set, 
       };
 
       if (pointInPolygon(localPoint, room.polygon)) {
-        const entity: SelectedEntity = {
-          type: 'room',
-          id: room.id,
-          roomId: room.id,
-        };
-        get().selectEntity(entity, isShiftClick);
-        return room;
+        // Calculate the area of this room's polygon
+        const area = calculatePolygonArea(room.polygon);
+        matchingRooms.push({ room, area });
       }
+    }
+
+    // If multiple rooms match, select the smallest one (most intuitive for nested rooms)
+    if (matchingRooms.length > 0) {
+      // Sort by area ascending and pick the smallest
+      matchingRooms.sort((a, b) => a.area - b.area);
+      const selectedRoom = matchingRooms[0].room;
+
+      const entity: SelectedEntity = {
+        type: 'room',
+        id: selectedRoom.id,
+        roomId: selectedRoom.id,
+      };
+      get().selectEntity(entity, isShiftClick);
+      return selectedRoom;
     }
 
     // Clicked outside all rooms - deselect if not shift-clicking
@@ -544,6 +569,10 @@ export const useSketchManipulationStore = create<SketchManipulationState>((set, 
     if (mode !== 'select' && mode !== 'move_room' && mode !== 'move_opening') {
       get().deselectAll();
     }
+  },
+
+  setSelectedZoneType: (zoneType) => {
+    set({ selectedZoneType: zoneType });
   },
 
   // ============================================
@@ -1739,6 +1768,8 @@ export const sketchManipulationStore = {
   deselectAll: () => useSketchManipulationStore.getState().deselectAll(),
   setToolMode: (mode: SketchToolMode) =>
     useSketchManipulationStore.getState().setToolMode(mode),
+  setSelectedZoneType: (zoneType: ZoneType) =>
+    useSketchManipulationStore.getState().setSelectedZoneType(zoneType),
   moveRoom: (roomId: string, deltaX: number, deltaY: number, rooms: RoomGeometry[]) =>
     useSketchManipulationStore.getState().moveRoom(roomId, deltaX, deltaY, rooms),
   copyRoom: (roomId: string, offsetX: number, offsetY: number, rooms: RoomGeometry[]) =>
