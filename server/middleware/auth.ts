@@ -75,6 +75,11 @@ export function setupAuth(app: Express): void {
 
   console.log(`[auth] Using ${useSupabaseStore ? 'Supabase' : 'Memory'} session store`);
 
+  // In Replit dev environment, use 'lax' sameSite to allow internal requests (like Playwright tests)
+  // In production, use 'none' with secure for cross-origin requests
+  const cookieSecure = isProduction ? true : 'auto';
+  const cookieSameSite = isProduction ? 'none' : 'lax';
+
   app.use(session({
     name: 'claimsiq.sid',
     store: sessionStore,
@@ -83,10 +88,10 @@ export function setupAuth(app: Express): void {
     saveUninitialized: false,
     rolling: true,
     cookie: {
-      secure: isProduction || isReplit,
+      secure: cookieSecure,
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000,
-      sameSite: (isProduction || isReplit) ? 'none' : 'lax',
+      sameSite: cookieSameSite,
     },
   }));
 
