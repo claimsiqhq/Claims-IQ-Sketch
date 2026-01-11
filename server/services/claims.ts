@@ -831,7 +831,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
 
   // ====== NOW DELETE DATABASE RECORDS ======
 
-  // 1. Get all estimates for these claims (claim_id can be uuid or string)
+  // 3. Get all estimates for these claims
   const { data: estimates } = await supabaseAdmin
     .from('estimates')
     .select('id')
@@ -839,7 +839,38 @@ export async function purgeAllClaims(organizationId: string): Promise<{
   
   const estimateIds = estimates?.map(e => e.id) || [];
 
-  // 2. Get all structures for these estimates
+  // 4. Get all inspection workflows for these claims
+  const { data: workflows } = await supabaseAdmin
+    .from('inspection_workflows')
+    .select('id')
+    .in('claim_id', claimIds);
+
+  const workflowIds = workflows?.map(w => w.id) || [];
+
+  // 5. Delete workflow child tables first
+  if (workflowIds.length > 0) {
+    const workflowChildTables = [
+      'workflow_step_evidence',
+      'inspection_workflow_steps',
+      'inspection_workflow_rooms',
+      'inspection_workflow_assets',
+      'workflow_mutations',
+    ];
+
+    for (const table of workflowChildTables) {
+      try {
+        await supabaseAdmin
+          .from(table)
+          .delete()
+          .in('workflow_id', workflowIds);
+        relatedRecordsDeleted += workflowIds.length;
+      } catch (e) {
+        console.log(`[purge] Could not delete from ${table}:`, e);
+      }
+    }
+  }
+
+  // 6. Get all structures for these estimates
   if (estimateIds.length > 0) {
     const { data: structures } = await supabaseAdmin
       .from('estimate_structures')
@@ -848,7 +879,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     
     const structureIds = structures?.map(s => s.id) || [];
 
-    // 3. Get all areas for these structures
+    // 7. Get all areas for these structures
     if (structureIds.length > 0) {
       const { data: areas } = await supabaseAdmin
         .from('estimate_areas')
@@ -857,7 +888,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
       
       const areaIds = areas?.map(a => a.id) || [];
 
-      // 4. Get all zones for these areas
+      // 8. Get all zones for these areas
       if (areaIds.length > 0) {
         const { data: zones } = await supabaseAdmin
           .from('estimate_zones')
@@ -866,16 +897,28 @@ export async function purgeAllClaims(organizationId: string): Promise<{
         
         const zoneIds = zones?.map(z => z.id) || [];
 
-        // 5. Delete estimate_line_items by zone_id
+        // 9. Delete zone child tables
         if (zoneIds.length > 0) {
-          await supabaseAdmin
-            .from('estimate_line_items')
-            .delete()
-            .in('zone_id', zoneIds);
-          relatedRecordsDeleted += zoneIds.length;
+          const zoneChildTables = [
+            'estimate_line_items',
+            'zone_openings',
+            'zone_connections',
+            'damage_zones',
+          ];
+          for (const table of zoneChildTables) {
+            try {
+              await supabaseAdmin
+                .from(table)
+                .delete()
+                .in('zone_id', zoneIds);
+              relatedRecordsDeleted += zoneIds.length;
+            } catch (e) {
+              console.log(`[purge] Could not delete from ${table}:`, e);
+            }
+          }
         }
 
-        // 6. Delete estimate_zones by area_id
+        // 10. Delete estimate_zones by area_id
         await supabaseAdmin
           .from('estimate_zones')
           .delete()
@@ -883,7 +926,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
         relatedRecordsDeleted += areaIds.length;
       }
 
-      // 7. Delete estimate_areas by structure_id
+      // 11. Delete estimate_areas by structure_id
       await supabaseAdmin
         .from('estimate_areas')
         .delete()
@@ -891,7 +934,30 @@ export async function purgeAllClaims(organizationId: string): Promise<{
       relatedRecordsDeleted += structureIds.length;
     }
 
-    // 8. Delete estimate_structures by estimate_id
+    // 12. Delete estimate child tables
+    const estimateChildTables = [
+      'estimate_subrooms',
+      'estimate_missing_walls',
+      'estimate_totals',
+      'estimate_coverages',
+      'estimate_coverage_summary',
+      'scope_items',
+      'scope_summary',
+    ];
+
+    for (const table of estimateChildTables) {
+      try {
+        await supabaseAdmin
+          .from(table)
+          .delete()
+          .in('estimate_id', estimateIds);
+        relatedRecordsDeleted += estimateIds.length;
+      } catch (e) {
+        console.log(`[purge] Could not delete from ${table}:`, e);
+      }
+    }
+
+    // 13. Delete estimate_structures by estimate_id
     await supabaseAdmin
       .from('estimate_structures')
       .delete()
@@ -899,19 +965,20 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     relatedRecordsDeleted += estimateIds.length;
   }
 
-  // 9. Delete from tables with claim_id foreign key
-  // Order matters: delete child tables before parent tables
+  // 14. Delete from tables with claim_id foreign key
   const directClaimTables = [
-    'claim_damage_zones',       // Must delete before claim_rooms (has roomId FK)
-    'claim_rooms',              // Must delete before claim_structures (has structureId FK)
+    'claim_damage_zones',
+    'claim_rooms',
     'claim_structures',
     'inspection_workflows',
     'claim_briefings', 
     'claim_photos',
     'claim_checklists',
+    'claim_checklist_items',
     'documents',
     'policy_form_extractions',
     'endorsement_extractions',
+    'inspection_appointments',
   ];
 
   for (const table of directClaimTables) {
@@ -922,12 +989,11 @@ export async function purgeAllClaims(organizationId: string): Promise<{
         .in('claim_id', claimIds);
       relatedRecordsDeleted += claimIds.length;
     } catch (e) {
-      // Table may not exist or have different FK, continue
       console.log(`[purge] Could not delete from ${table}:`, e);
     }
   }
 
-  // 10. Delete estimates
+  // 15. Delete estimates
   if (estimateIds.length > 0) {
     await supabaseAdmin
       .from('estimates')
@@ -936,7 +1002,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     relatedRecordsDeleted += estimateIds.length;
   }
 
-  // 11. Finally delete claims
+  // 16. Finally delete claims
   await supabaseAdmin
     .from('claims')
     .delete()
