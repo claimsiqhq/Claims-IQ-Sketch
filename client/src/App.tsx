@@ -16,6 +16,7 @@ import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import Photos from "@/pages/photos";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { UploadStatusBar } from "@/components/UploadStatusBar";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function Router() {
   return (
@@ -73,15 +74,17 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <DeviceModeProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-          <UploadStatusBar />
-        </TooltipProvider>
-      </DeviceModeProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <DeviceModeProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+            <UploadStatusBar />
+          </TooltipProvider>
+        </DeviceModeProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

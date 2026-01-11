@@ -178,6 +178,25 @@ export default function ClaimDetail() {
   const [, setLocation] = useLocation();
   const { layoutMode, isMobile, isTablet } = useDeviceMode();
   const isMobileLayout = layoutMode === "mobile";
+
+  // Early return if no claim ID
+  if (!params?.id) {
+    return (
+      <Layout>
+        <div className="p-4">
+          <div className="text-center py-12">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Claim Not Found</h2>
+            <p className="text-muted-foreground mb-4">No claim ID provided in the URL.</p>
+            <Button onClick={() => setLocation('/claims')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Claims
+            </Button>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
   const {
     activeClaim: claim,
     setActiveClaim,
@@ -233,8 +252,18 @@ export default function ClaimDetail() {
       const needsPolling = photos.some((p: ClaimPhoto) =>
         p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing'
       );
+      
+      // Stop polling after 5 minutes to prevent infinite polling
+      const startTime = query.state.dataUpdatedAt || Date.now();
+      const elapsed = Date.now() - startTime;
+      if (elapsed > 5 * 60 * 1000) {
+        return false;
+      }
+      
       return needsPolling ? 3000 : false;
     },
+    retry: 3, // Retry failed requests up to 3 times
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
   });
 
   // Convert ClaimPhotos to SketchPhotos for PhotoAlbum
@@ -296,7 +325,7 @@ export default function ClaimDetail() {
         latitude = position.coords.latitude;
         longitude = position.coords.longitude;
       } catch (e) {
-        console.log('GPS not available:', e);
+        // GPS not available - continue without coordinates
       }
 
       return uploadPhoto({

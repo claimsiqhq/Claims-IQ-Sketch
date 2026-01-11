@@ -311,6 +311,12 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
     },
     enabled: open && !!photo?.id,
     refetchInterval: (query) => {
+      // Stop polling after 5 minutes to prevent infinite polling
+      const startTime = query.state.dataUpdatedAt || Date.now();
+      const elapsed = Date.now() - startTime;
+      if (elapsed > 5 * 60 * 1000) {
+        return false;
+      }
       // Poll every 2 seconds if analysis is pending or analyzing
       const photoData = query.state.data;
       if (photoData && (photoData.analysisStatus === 'pending' || photoData.analysisStatus === 'analyzing')) {

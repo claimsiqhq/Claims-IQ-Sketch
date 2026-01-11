@@ -6,6 +6,7 @@ import { RealtimeSession } from '@openai/agents/realtime';
 import type { RealtimeItem } from '@openai/agents/realtime';
 import { createRoomSketchAgentAsync } from '../agents/room-sketch-agent';
 import { useGeometryEngine } from '../services/geometry-engine';
+import { logger } from '@/lib/logger';
 
 interface UseVoiceSessionOptions {
   userName?: string;
@@ -53,9 +54,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         // Stop the stream immediately - we just needed to trigger the permission prompt
         stream.getTracks().forEach(track => track.stop());
-        console.log('Microphone permission granted');
+        logger.debug('Microphone permission granted');
       } catch (micError) {
-        console.error('Microphone permission denied:', micError);
+        logger.error('Microphone permission denied:', micError);
         const micErrorMessage = micError instanceof Error ? micError.message : 'Unknown error';
         if (micErrorMessage.includes('not allowed') || micErrorMessage.includes('denied') || micErrorMessage.includes('Permission denied')) {
           throw new Error('Microphone access denied. Please allow microphone access in your browser settings and try again.');
@@ -108,11 +109,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
 
       // Tool call events
       session.on('agent_tool_start', (_context, _agent, tool, details) => {
-        console.log('Tool call started:', tool.name, details);
+        logger.debug('Tool call started:', tool.name, details);
       });
 
       session.on('agent_tool_end', (_context, _agent, tool, result, details) => {
-        console.log('Tool call completed:', tool.name, result);
+        logger.debug('Tool call completed:', tool.name, result);
         // Extract arguments from toolCall if it's a function call type
         const toolCall = details?.toolCall;
         const args = toolCall && 'arguments' in toolCall ? toolCall.arguments : undefined;
@@ -151,8 +152,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
 
       // Error handling
       session.on('error', (err) => {
-        console.error('Session error (full):', JSON.stringify(err, null, 2));
-        console.error('Session error object:', err);
+        logger.error('Session error:', err);
         let errorMessage = 'Unknown session error';
         if (err?.error instanceof Error) {
           errorMessage = err.error.message;
@@ -183,7 +183,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
       setIsListening(true);
 
     } catch (err) {
-      console.error('Failed to start session:', err);
+      logger.error('Failed to start session:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
       options.onError?.(err instanceof Error ? err : new Error(errorMessage));
@@ -195,7 +195,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
       try {
         sessionRef.current.close();
       } catch (err) {
-        console.error('Error closing session:', err);
+        logger.error('Error closing session:', err);
       }
       sessionRef.current = null;
     }
@@ -217,7 +217,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
         try {
           sessionRef.current.close();
         } catch (err) {
-          console.error('Error closing session on unmount:', err);
+          logger.error('Error closing session on unmount:', err);
         }
       }
     };

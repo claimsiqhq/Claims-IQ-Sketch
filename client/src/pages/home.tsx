@@ -239,7 +239,7 @@ export default function Home() {
           }
         }
       } catch (err) {
-        console.error('Failed to fetch weather:', err);
+        // Weather fetch failed - continue without weather data
       } finally {
         setWeatherLoading(false);
       }

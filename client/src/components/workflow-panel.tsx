@@ -488,6 +488,28 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   // Handle step skip
   const handleStepSkip = async (stepId: string, reason: string) => {
     if (!workflow) return;
+    
+    // Find the step
+    const step = workflow.steps.find(s => s.id === stepId);
+    if (!step) return;
+
+    // Enforce blocking step rules - cannot skip required steps
+    if (step.required) {
+      toast.error('Cannot skip required steps. Please complete this step or mark it as blocked.');
+      return;
+    }
+
+    // Check if previous blocking steps are incomplete
+    const stepIndex = workflow.steps.findIndex(s => s.id === stepId);
+    const previousBlockingIncomplete = workflow.steps
+      .filter((s, idx) => idx < stepIndex && s.required)
+      .some(s => s.status !== 'completed' && s.status !== 'skipped');
+    
+    if (previousBlockingIncomplete) {
+      toast.error('Cannot skip this step. Please complete previous required steps first.');
+      return;
+    }
+
     setIsSubmittingStep(true);
 
     try {
@@ -1159,6 +1181,12 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         onComplete={handleStepComplete}
         onSkip={handleStepSkip}
         isSubmitting={isSubmittingStep}
+        validateEvidence={(step) => {
+          if (!workflow) return { valid: true };
+          const workflowStep = workflow.steps.find(s => s.id === step.id);
+          if (!workflowStep) return { valid: true };
+          return validateStepEvidence(workflowStep);
+        }}
       />
 
       {/* Add Room Dialog */}

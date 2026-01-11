@@ -96,6 +96,7 @@ interface StepCompletionDialogProps {
   onComplete: (data: StepCompletionData) => void;
   onSkip?: (stepId: string, reason: string) => void;
   isSubmitting?: boolean;
+  validateEvidence?: (step: StepData) => { valid: boolean; message?: string };
 }
 
 export function StepCompletionDialog({
@@ -105,6 +106,7 @@ export function StepCompletionDialog({
   onComplete,
   onSkip,
   isSubmitting = false,
+  validateEvidence,
 }: StepCompletionDialogProps) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
@@ -141,10 +143,24 @@ export function StepCompletionDialog({
   const requiredPhotos = step.assets?.filter(a => a.required && a.assetType === "photo").length || 1;
   const hasEnoughPhotos = photos.length >= requiredPhotos;
 
-  // Check if can complete
-  const canComplete = !step.required || (hasEnoughPhotos && findings.trim().length > 0);
+  // Validate evidence using provided validator or fallback to basic check
+  const evidenceValidation = validateEvidence ? validateEvidence(step) : { valid: true };
+  const hasBasicRequirements = !step.required || (hasEnoughPhotos && findings.trim().length > 0);
+  
+  // Check if can complete - must pass both basic requirements and evidence validation
+  const canComplete = hasBasicRequirements && evidenceValidation.valid;
+  const validationMessage = evidenceValidation.message;
 
   const handleComplete = () => {
+    // Double-check validation before submitting
+    if (validateEvidence) {
+      const finalValidation = validateEvidence(step);
+      if (!finalValidation.valid) {
+        // Show error toast
+        return;
+      }
+    }
+    
     onComplete({
       stepId: step.id,
       status: "completed",
@@ -416,6 +432,12 @@ export function StepCompletionDialog({
       <div className="flex-1" />
       {!showSkipConfirm && (
         <>
+          {validationMessage && !canComplete && (
+            <div className="text-sm text-destructive flex items-center gap-2 p-2 bg-destructive/10 rounded mr-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{validationMessage}</span>
+            </div>
+          )}
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
