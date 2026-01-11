@@ -1,6 +1,15 @@
 // Voice Session Service
 // Generates ephemeral client keys for secure browser WebRTC connections
 
+import {
+  mapVoiceToXactimateCode,
+  getSuggestions,
+  processRoomVoiceCommand
+} from './voiceCodeMapper';
+
+// Re-export voice code mapper functions for convenience
+export { mapVoiceToXactimateCode, getSuggestions, processRoomVoiceCommand };
+
 interface SessionConfig {
   model: string;
   voice?: string;

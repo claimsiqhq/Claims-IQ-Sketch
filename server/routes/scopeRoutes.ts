@@ -16,6 +16,7 @@ import {
   getScopeItems,
   updateScopeSummary,
 } from '../services/scopeAssemblyService';
+import { validateScopeForLaborMinimums, getLaborMinimumThresholds } from '../services/laborMinimumValidator';
 
 const router = Router();
 
@@ -408,5 +409,45 @@ function groupByZone(items: any[]): Record<string, any[]> {
 
   return grouped;
 }
+
+// ============================================
+// LABOR MINIMUM VALIDATION
+// ============================================
+
+/**
+ * POST /api/scope/:claimId/validate-labor-minimums
+ * Validate proposed scope items against labor minimum thresholds
+ */
+router.post('/:claimId/validate-labor-minimums', async (req: Request, res: Response) => {
+  try {
+    const { claimId } = req.params;
+    const { proposedItems } = req.body;
+
+    if (!Array.isArray(proposedItems)) {
+      return res.status(400).json({ error: 'proposedItems must be an array' });
+    }
+
+    const warnings = await validateScopeForLaborMinimums(claimId, proposedItems);
+
+    res.json({
+      warnings,
+      thresholds: getLaborMinimumThresholds()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/scope/labor-minimums
+ * Get labor minimum thresholds
+ */
+router.get('/labor-minimums', async (req: Request, res: Response) => {
+  try {
+    res.json({ thresholds: getLaborMinimumThresholds() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;

@@ -3568,6 +3568,10 @@ export interface PropertyDetails {
   };
   exteriorDamaged: boolean;
   interiorDamaged: boolean;
+  // Multi-structure detection (Coverage B - Other Structures)
+  hasOtherStructures?: boolean;
+  otherStructuresCoverage?: number;
+  otherStructuresPercentage?: number;
 }
 
 /**

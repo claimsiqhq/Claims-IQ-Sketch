@@ -594,10 +594,12 @@ function buildDeductibles(
 
 /**
  * Build property details from FNOL data
+ * Includes multi-structure detection based on Coverage B
  */
 function buildPropertyDetails(
   fnol: FNOLExtractionRaw | null,
-  dateOfLoss: string | undefined
+  dateOfLoss: string | undefined,
+  coverages?: UnifiedClaimContext['coverages']
 ): PropertyDetails {
   const propInfo = fnol?.property_damage_information;
   const policyInfo = fnol?.policy_information;
@@ -609,6 +611,16 @@ function buildPropertyDetails(
   const yearBuilt = parseYear(propInfo?.year_built);
   const yearRoofInstalled = parseYear(propInfo?.year_roof_installed);
   const roofAge = calculateRoofAge(yearRoofInstalled, dateOfLoss);
+
+  // Multi-Structure Detection (Coverage B - Other Structures)
+  const coverageBAmount = coverages?.otherStructures?.limit;
+  const coverageAAmount = coverages?.dwelling?.limit;
+  const hasSeparateStructures = coverageBAmount !== undefined && coverageBAmount > 0;
+
+  // Calculate percentage of dwelling coverage
+  const coverageBPercentage = coverageAAmount && coverageBAmount
+    ? Math.round((coverageBAmount / coverageAAmount) * 100)
+    : undefined;
 
   return {
     address,
@@ -625,6 +637,10 @@ function buildPropertyDetails(
     },
     exteriorDamaged: propInfo?.exterior_damages?.toLowerCase() === 'yes',
     interiorDamaged: propInfo?.interior_damages?.toLowerCase() === 'yes',
+    // Multi-structure fields
+    hasOtherStructures: hasSeparateStructures,
+    otherStructuresCoverage: coverageBAmount,
+    otherStructuresPercentage: coverageBPercentage,
   };
 }
 
@@ -1220,11 +1236,11 @@ export async function buildUnifiedClaimContext(
     const claimNumber = fnolData?.claim_information_report?.claim_number || claim.claim_number || '';
     const policyNumber = fnolData?.claim_information_report?.policy_number || claim.policy_number;
 
-    // Build property details
-    const property = buildPropertyDetails(fnolData, dateOfLoss);
-
-    // Build coverage limits
+    // Build coverage limits first (needed for multi-structure detection)
     const coverages = buildCoverageLimits(fnolData);
+
+    // Build property details (includes multi-structure detection based on Coverage B)
+    const property = buildPropertyDetails(fnolData, dateOfLoss, coverages);
 
     // Build deductibles
     const primaryPeril = normalizePeril(fnolData?.claim_information_report?.loss_details?.cause);
