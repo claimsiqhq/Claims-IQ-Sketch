@@ -2845,6 +2845,16 @@ export const inspectionWorkflowSteps = pgTable("inspection_workflow_steps", {
   // Peril-specific flag
   perilSpecific: varchar("peril_specific", { length: 50 }), // If set, this step only applies to this peril
 
+  // Dynamic workflow fields (from migration 038)
+  origin: varchar("origin", { length: 30 }).default("manual"), // base_rule, policy_rule, peril_rule, discovery, geometry, manual
+  sourceRuleId: varchar("source_rule_id", { length: 100 }),
+  conditions: jsonb("conditions").default(sql`'{}'::jsonb`),
+  evidenceRequirements: jsonb("evidence_requirements").default(sql`'[]'::jsonb`),
+  blocking: varchar("blocking", { length: 20 }).default("advisory"), // blocking, advisory, conditional
+  blockingCondition: jsonb("blocking_condition"),
+  geometryBinding: jsonb("geometry_binding"),
+  endorsementSource: varchar("endorsement_source", { length: 100 }),
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),

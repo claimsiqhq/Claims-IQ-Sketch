@@ -2,7 +2,7 @@
  * Upload Status Bar - Global floating component for tracking background uploads
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Upload,
   X,
@@ -10,6 +10,7 @@ import {
   ChevronDown,
   RefreshCw,
   Trash2,
+  GripVertical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,95 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUploadQueue, useUploadQueueStats } from '@/lib/uploadQueue';
 import { UploadQueueRow } from './UploadQueueRow';
+
+// Custom hook for drag functionality
+function useDraggable(initialPosition: { x: number; y: number }) {
+  const [position, setPosition] = useState(initialPosition);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const elementRef = useRef<HTMLDivElement>(null);
+
+  const handleStart = useCallback((clientX: number, clientY: number) => {
+    if (!elementRef.current) return;
+    const rect = elementRef.current.getBoundingClientRect();
+    dragOffset.current = {
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+    };
+    setIsDragging(true);
+  }, []);
+
+  const handleMove = useCallback((clientX: number, clientY: number) => {
+    if (!isDragging) return;
+
+    const newX = clientX - dragOffset.current.x;
+    const newY = clientY - dragOffset.current.y;
+
+    // Keep within viewport bounds
+    const maxX = window.innerWidth - (elementRef.current?.offsetWidth || 384);
+    const maxY = window.innerHeight - (elementRef.current?.offsetHeight || 100);
+
+    setPosition({
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY)),
+    });
+  }, [isDragging]);
+
+  const handleEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+      handleMove(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        handleMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+
+    const handleMouseUp = () => handleEnd();
+    const handleTouchEnd = () => handleEnd();
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging, handleMove, handleEnd]);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    handleStart(e.clientX, e.clientY);
+  }, [handleStart]);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      handleStart(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, [handleStart]);
+
+  return {
+    position,
+    isDragging,
+    elementRef,
+    dragHandlers: {
+      onMouseDown,
+      onTouchStart,
+    },
+  };
+}
 
 // ============================================
 // MAIN COMPONENT
@@ -26,6 +116,14 @@ export function UploadStatusBar() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const autoClearTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Calculate initial position (bottom-right corner with padding)
+  const getInitialPosition = () => ({
+    x: typeof window !== 'undefined' ? window.innerWidth - 400 : 16,
+    y: typeof window !== 'undefined' ? window.innerHeight - 120 : 16,
+  });
+
+  const { position, isDragging, elementRef, dragHandlers } = useDraggable(getInitialPosition());
 
   const queue = useUploadQueue((state) => state.queue);
   const { clearCompleted, clearFailed, retryAllFailed, retryFailed, removeFromQueue, clearAll } = useUploadQueue();
@@ -63,7 +161,7 @@ export function UploadStatusBar() {
   const { overallProgress } = stats;
   const activeCount = pending + uploading + classifying + processing;
 
-  // Minimized view - just a small floating indicator
+  // Minimized view - just a small floating indicator (not draggable - fixed position)
   if (isMinimized) {
     return (
       <div className="fixed bottom-4 right-4 z-50">
@@ -91,60 +189,89 @@ export function UploadStatusBar() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-96 max-w-[calc(100vw-2rem)]">
-      <div className="bg-background border border-border rounded-lg shadow-xl overflow-hidden">
-        {/* Header */}
+    <div
+      ref={elementRef}
+      className="fixed z-50 w-96 max-w-[calc(100vw-2rem)]"
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+      }}
+    >
+      <div className={cn(
+        "bg-background border border-border rounded-lg shadow-xl overflow-hidden",
+        isDragging && "opacity-90"
+      )}>
+        {/* Header with drag handle */}
         <div
           className={cn(
-            'flex items-center gap-3 px-4 py-3 cursor-pointer select-none',
+            'flex items-center gap-2 px-2 py-3 select-none',
             isActive ? 'bg-blue-50 dark:bg-blue-950/30' : 'bg-muted/30'
           )}
-          onClick={() => setIsExpanded(!isExpanded)}
         >
-          <div className="relative">
-            <Upload className={cn('h-5 w-5', isActive && 'text-blue-500')} />
-            {isActive && (
-              <span className="absolute -top-1 -right-1 h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
+          {/* Drag handle */}
+          <div
+            className={cn(
+              'flex items-center justify-center h-8 w-6 cursor-grab active:cursor-grabbing touch-none rounded hover:bg-muted/50',
+              isDragging && 'cursor-grabbing'
             )}
+            {...dragHandlers}
+            title="Drag to move"
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm">
-                {isActive
-                  ? `Uploading ${activeCount} document${activeCount !== 1 ? 's' : ''}`
-                  : `${completed} document${completed !== 1 ? 's' : ''} uploaded`}
-              </span>
-              {failed > 0 && (
-                <span className="text-xs text-red-500">
-                  ({failed} failed)
-                </span>
+          {/* Clickable area for expand/collapse */}
+          <div
+            className="flex items-center gap-3 flex-1 cursor-pointer"
+            onClick={() => setIsExpanded(!isExpanded)}
+          >
+            <div className="relative">
+              <Upload className={cn('h-5 w-5', isActive && 'text-blue-500')} />
+              {isActive && (
+                <span className="absolute -top-1 -right-1 h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
               )}
             </div>
-            {isActive && (
-              <Progress value={overallProgress} className="h-1.5 mt-1.5" />
-            )}
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm">
+                  {isActive
+                    ? `Uploading ${activeCount} document${activeCount !== 1 ? 's' : ''}`
+                    : `${completed} document${completed !== 1 ? 's' : ''} uploaded`}
+                </span>
+                {failed > 0 && (
+                  <span className="text-xs text-red-500">
+                    ({failed} failed)
+                  </span>
+                )}
+              </div>
+              {isActive && (
+                <Progress value={overallProgress} className="h-1.5 mt-1.5" />
+              )}
+            </div>
+
+            <div className="flex items-center gap-1">
+              {isExpanded ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-1">
-            {isExpanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMinimized(true);
-              }}
-              title="Minimize"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* Minimize button - outside clickable area */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMinimized(true);
+            }}
+            title="Minimize"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
 
         {/* Expanded view */}
