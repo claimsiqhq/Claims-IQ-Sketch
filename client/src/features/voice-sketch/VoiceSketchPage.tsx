@@ -572,46 +572,169 @@ export default function VoiceSketchPage() {
   return (
     <Layout>
       <div className="flex flex-col h-full">
-        <div className="bg-white border-b border-border px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {claim ? (
-              <Link href={`/claim/${claimId}`}>
-                <Button variant="ghost" size="sm" data-testid="button-back-to-claim">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Claim
-                </Button>
-              </Link>
-            ) : (
-              <Link href="/claims">
-                <Button variant="ghost" size="sm" data-testid="button-back-to-claims">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Claims
-                </Button>
-              </Link>
-            )}
-            <div>
-              <h1 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
-                <Mic className="h-5 w-5 text-primary" />
-                Voice Room Sketching
-              </h1>
-              {claim ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Claim: {claim.policyholder || 'Unknown'} - {claim.propertyAddress || claim.riskLocation || 'No address'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Create your sketch, then save it to a claim when ready
-                </p>
-              )}
+        <div className="bg-white border-b border-border px-3 py-3 md:px-6 md:py-4">
+          {/* Mobile Layout: Stacked */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {/* Top row: Back button + Title + Actions */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {claim ? (
+                  <Link href={`/claim/${claimId}`}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" data-testid="button-back-to-claim-mobile">
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                ) : (
+                  <Link href="/claims">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" data-testid="button-back-to-claims-mobile">
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                  </Link>
+                )}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Mic className="h-4 w-4 text-primary shrink-0" />
+                  <h1 className="text-base font-display font-bold text-slate-900 truncate">
+                    Voice Sketch
+                  </h1>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {!claimId && (
+                  <Popover open={isSavedSketchesOpen} onOpenChange={setIsSavedSketchesOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="icon" className="h-8 w-8" data-testid="button-saved-sketches-mobile">
+                        <FolderOpen className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 p-0" align="end">
+                      <div className="p-3 border-b border-border">
+                        <h3 className="font-semibold text-sm">Saved Sketches</h3>
+                        <p className="text-xs text-muted-foreground">Edit or delete saved sketches</p>
+                      </div>
+                      <ScrollArea className="max-h-64">
+                        <div className="p-2 space-y-1">
+                          {isLoadingSavedSketches ? (
+                            <div className="flex items-center justify-center py-6">
+                              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                            </div>
+                          ) : savedSketches.length === 0 ? (
+                            <div className="text-center py-6 text-muted-foreground text-sm">
+                              <Home className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                              <p>No saved sketches yet</p>
+                            </div>
+                          ) : (
+                            savedSketches.map((sketch: any) => (
+                              <div
+                                key={sketch.id}
+                                className="flex items-center justify-between gap-2 p-2 rounded-md hover:bg-muted/50"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    {sketch.policyholder || 'Unknown'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {sketch.roomCount} room{sketch.roomCount !== 1 ? 's' : ''}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => {
+                                      setIsSavedSketchesOpen(false);
+                                      setLocation(`/voice-sketch/${sketch.id}`);
+                                    }}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-destructive hover:text-destructive"
+                                    onClick={() => {
+                                      setIsSavedSketchesOpen(false);
+                                      setDeleteConfirmClaimId(sketch.id);
+                                    }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                {hasRooms && (
+                  <Button 
+                    onClick={handleSaveToClaimClick} 
+                    disabled={isSaving}
+                    size="sm"
+                    className="h-8"
+                    data-testid="button-save-to-claim-mobile"
+                  >
+                    {isSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    <span className="ml-1.5">{roomCount}</span>
+                  </Button>
+                )}
+              </div>
             </div>
+            {/* Description row - only on mobile when there's context */}
+            {claim && (
+              <p className="text-xs text-muted-foreground truncate pl-10">
+                {claim.policyholder || 'Unknown'} - {claim.causeOfLoss || 'Unknown loss'}
+              </p>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Desktop Layout: Horizontal */}
+          <div className="hidden md:flex md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              {claim ? (
+                <Link href={`/claim/${claimId}`}>
+                  <Button variant="ghost" size="sm" data-testid="button-back-to-claim">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Claim
+                  </Button>
+                </Link>
+              ) : (
+                <Link href="/claims">
+                  <Button variant="ghost" size="sm" data-testid="button-back-to-claims">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Claims
+                  </Button>
+                </Link>
+              )}
+              <div>
+                <h1 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
+                  <Mic className="h-5 w-5 text-primary" />
+                  Voice Room Sketching
+                </h1>
+                {claim ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Claim: {claim.policyholder || 'Unknown'} - {claim.propertyAddress || claim.riskLocation || 'No address'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {claim.claimId} | {claim.causeOfLoss || 'Unknown loss type'}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Create your sketch, then save it to a claim when ready
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
             {/* Saved Sketches dropdown - only shown when no claim is attached */}
             {!claimId && (
               <Popover open={isSavedSketchesOpen} onOpenChange={setIsSavedSketchesOpen}>
@@ -706,6 +829,7 @@ export default function VoiceSketchPage() {
                 {isSaving ? 'Saving...' : claim ? `Save to Claim (${roomCount})` : `Save Sketch (${roomCount})`}
               </Button>
             )}
+            </div>
           </div>
         </div>
 
