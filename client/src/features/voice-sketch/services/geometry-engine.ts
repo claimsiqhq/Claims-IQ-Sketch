@@ -158,6 +158,15 @@ interface GeometryEngineState {
 
   // Load existing rooms (for editing saved sketches)
   loadRooms: (rooms: RoomGeometry[]) => void;
+
+  // Workflow integration methods
+  claimId: string | null;
+  setClaimId: (claimId: string) => void;
+  getCurrentWorkflowStep: (phase?: string) => Promise<string>;
+  getStepPhotoRequirements: (roomId?: string, stepId?: string) => Promise<string>;
+  completeWorkflowStep: (stepId: string, notes?: string) => Promise<string>;
+  capturePhotoForStep: (stepId: string, config?: { targetType?: string; suggestedLabel?: string; framingGuidance?: string }) => Promise<string>;
+  getWorkflowStatus: () => Promise<string>;
 }
 
 const initialSessionState: VoiceSessionState = {
@@ -181,6 +190,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   selectedWallId: null,
   pendingPhotoCapture: null,
   lastCapturedPhotoId: null,
+  claimId: null,
 
   // Structure actions
   createStructure: (params) => {
@@ -2034,6 +2044,278 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       sessionState: initialSessionState,
     });
   },
+
+  // Workflow integration methods
+  setClaimId: (claimId: string) => {
+    set({ claimId });
+  },
+
+  getCurrentWorkflowStep: async (phase?: string) => {
+    const { claimId } = get();
+    if (!claimId) {
+      return 'No claim ID set. Cannot retrieve workflow steps.';
+    }
+
+    try {
+      const params = new URLSearchParams();
+      if (phase) params.set('phase', phase);
+      params.set('status', 'pending');
+
+      const response = await fetch(`/api/claims/${claimId}/workflow?${params.toString()}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        return 'Failed to retrieve workflow steps.';
+      }
+
+      const data = await response.json();
+      const steps = data.steps || [];
+      const pendingSteps = steps.filter((s: { status: string }) => s.status === 'pending' || s.status === 'in_progress');
+
+      if (pendingSteps.length === 0) {
+        return phase
+          ? `All ${phase} steps are complete.`
+          : 'All workflow steps are complete.';
+      }
+
+      const nextStep = pendingSteps[0];
+      return JSON.stringify({
+        step_id: nextStep.id,
+        title: nextStep.title,
+        instructions: nextStep.instructions,
+        step_type: nextStep.stepType,
+        phase: nextStep.phase,
+        blocking: nextStep.required,
+        required_evidence: nextStep.evidenceRequirements,
+        related_room: nextStep.roomName
+      });
+    } catch (error) {
+      console.error('[GeometryEngine] Failed to get workflow step:', error);
+      return 'Error retrieving workflow step.';
+    }
+  },
+
+  getStepPhotoRequirements: async (roomId?: string, stepId?: string) => {
+    const { claimId, currentRoom } = get();
+    if (!claimId) {
+      return 'No claim ID set.';
+    }
+
+    const targetRoomId = roomId || currentRoom?.id;
+
+    try {
+      const response = await fetch(`/api/claims/${claimId}/workflow`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        return 'Failed to retrieve workflow.';
+      }
+
+      const data = await response.json();
+      const steps = data.steps || [];
+
+      // Filter to photo steps, optionally by room or step ID
+      let photoSteps = steps.filter((s: { stepType: string; evidenceRequirements?: unknown[] }) =>
+        s.stepType === 'photo' || (s.evidenceRequirements && Array.isArray(s.evidenceRequirements) &&
+          s.evidenceRequirements.some((r: { type: string }) => r.type === 'photo'))
+      );
+
+      if (stepId) {
+        photoSteps = photoSteps.filter((s: { id: string }) => s.id === stepId);
+      } else if (targetRoomId) {
+        photoSteps = photoSteps.filter((s: { roomId?: string }) => s.roomId === targetRoomId);
+      }
+
+      if (photoSteps.length === 0) {
+        return 'No photo requirements found.';
+      }
+
+      const requirements = photoSteps.map((step: {
+        id: string;
+        title: string;
+        status: string;
+        evidenceRequirements?: Array<{
+          type: string;
+          photo?: { minCount?: number; count?: number; angles?: string[] };
+        }>;
+        assets?: Array<{ assetType: string }>;
+      }) => {
+        const photoReq = step.evidenceRequirements?.find(r => r.type === 'photo');
+        const requiredCount = photoReq?.photo?.minCount || photoReq?.photo?.count || 1;
+        const currentCount = step.assets?.filter(a => a.assetType === 'photo').length || 0;
+        return {
+          step_id: step.id,
+          step_title: step.title,
+          required_count: requiredCount,
+          current_count: currentCount,
+          angles: photoReq?.photo?.angles || [],
+          fulfilled: currentCount >= requiredCount,
+          status: step.status
+        };
+      });
+
+      const totalNeeded = requirements.reduce(
+        (sum: number, r: { required_count: number; current_count: number }) =>
+          sum + Math.max(0, r.required_count - r.current_count), 0
+      );
+
+      return JSON.stringify({
+        room_id: targetRoomId,
+        photo_requirements: requirements,
+        total_needed: totalNeeded
+      });
+    } catch (error) {
+      console.error('[GeometryEngine] Failed to get photo requirements:', error);
+      return 'Error retrieving photo requirements.';
+    }
+  },
+
+  completeWorkflowStep: async (stepId: string, notes?: string) => {
+    const { claimId } = get();
+    if (!claimId) {
+      return 'No claim ID set.';
+    }
+
+    try {
+      // First get the workflow ID
+      const workflowResponse = await fetch(`/api/claims/${claimId}/workflow`, {
+        credentials: 'include'
+      });
+
+      if (!workflowResponse.ok) {
+        return 'Failed to retrieve workflow.';
+      }
+
+      const workflowData = await workflowResponse.json();
+      const workflowId = workflowData.workflow?.id;
+
+      if (!workflowId) {
+        return 'No active workflow found.';
+      }
+
+      // Update the step status
+      const updateResponse = await fetch(`/api/workflow/${workflowId}/steps/${stepId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          status: 'completed',
+          notes
+        })
+      });
+
+      if (!updateResponse.ok) {
+        const errorData = await updateResponse.json();
+        if (errorData.details) {
+          return JSON.stringify({
+            status: 'blocked',
+            message: errorData.error,
+            missing: errorData.details
+          });
+        }
+        return `Failed to complete step: ${errorData.error}`;
+      }
+
+      return JSON.stringify({ status: 'completed', step_id: stepId });
+    } catch (error) {
+      console.error('[GeometryEngine] Failed to complete step:', error);
+      return 'Error completing step.';
+    }
+  },
+
+  capturePhotoForStep: async (stepId: string, config?: { targetType?: string; suggestedLabel?: string; framingGuidance?: string }) => {
+    const { claimId, triggerPhotoCapture } = get();
+    if (!claimId) {
+      return 'No claim ID set.';
+    }
+
+    try {
+      // Get step details for context
+      const workflowResponse = await fetch(`/api/claims/${claimId}/workflow`, {
+        credentials: 'include'
+      });
+
+      if (!workflowResponse.ok) {
+        return 'Failed to retrieve workflow.';
+      }
+
+      const workflowData = await workflowResponse.json();
+      const steps = workflowData.steps || [];
+      const step = steps.find((s: { id: string }) => s.id === stepId);
+
+      if (!step) {
+        return 'Step not found.';
+      }
+
+      // Trigger photo capture with step context
+      const captureConfig: PhotoCaptureConfig = {
+        targetType: (config?.targetType || 'room_overview') as PhotoCaptureConfig['targetType'],
+        roomId: step.roomId,
+        damageZoneId: step.geometryBinding?.zoneId,
+        suggestedLabel: config?.suggestedLabel || step.title,
+        framingGuidance: config?.framingGuidance || step.instructions,
+      };
+
+      // Store step ID for when photo is captured
+      // This will be passed to the photo upload API
+      (window as unknown as { __pendingWorkflowStepId?: string }).__pendingWorkflowStepId = stepId;
+
+      triggerPhotoCapture(captureConfig);
+
+      return JSON.stringify({
+        status: 'awaiting_capture',
+        step_id: stepId,
+        step_title: step.title
+      });
+    } catch (error) {
+      console.error('[GeometryEngine] Failed to capture photo for step:', error);
+      return 'Error setting up photo capture.';
+    }
+  },
+
+  getWorkflowStatus: async () => {
+    const { claimId } = get();
+    if (!claimId) {
+      return 'No claim ID set.';
+    }
+
+    try {
+      const response = await fetch(`/api/claims/${claimId}/workflow`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        return 'Failed to retrieve workflow.';
+      }
+
+      const data = await response.json();
+      const stats = data.stats || {};
+      const steps = data.steps || [];
+
+      const pendingSteps = steps.filter((s: { status: string }) => s.status === 'pending');
+      const inProgressSteps = steps.filter((s: { status: string }) => s.status === 'in_progress');
+      const blockingPending = pendingSteps.filter((s: { required: boolean }) => s.required);
+
+      return JSON.stringify({
+        total_steps: stats.totalSteps || steps.length,
+        completed_steps: stats.completedSteps || steps.filter((s: { status: string }) => s.status === 'completed').length,
+        pending_steps: pendingSteps.length,
+        in_progress_steps: inProgressSteps.length,
+        blocking_pending: blockingPending.length,
+        progress_percent: stats.totalSteps ? Math.round((stats.completedSteps / stats.totalSteps) * 100) : 0,
+        next_step: pendingSteps.length > 0 ? {
+          id: pendingSteps[0].id,
+          title: pendingSteps[0].title,
+          phase: pendingSteps[0].phase
+        } : null
+      });
+    } catch (error) {
+      console.error('[GeometryEngine] Failed to get workflow status:', error);
+      return 'Error retrieving workflow status.';
+    }
+  },
 }));
 
 // Export a singleton for use in tool execute functions
@@ -2089,4 +2371,12 @@ export const geometryEngine = {
   loadFromClaimData: (structures: Structure[], rooms: RoomGeometry[]) =>
     useGeometryEngine.getState().loadFromClaimData(structures, rooms),
   resetSession: () => useGeometryEngine.getState().resetSession(),
+  // Workflow integration methods
+  setClaimId: (claimId: string) => useGeometryEngine.getState().setClaimId(claimId),
+  getCurrentWorkflowStep: (phase?: string) => useGeometryEngine.getState().getCurrentWorkflowStep(phase),
+  getStepPhotoRequirements: (roomId?: string, stepId?: string) => useGeometryEngine.getState().getStepPhotoRequirements(roomId, stepId),
+  completeWorkflowStep: (stepId: string, notes?: string) => useGeometryEngine.getState().completeWorkflowStep(stepId, notes),
+  capturePhotoForStep: (stepId: string, config?: { targetType?: string; suggestedLabel?: string; framingGuidance?: string }) =>
+    useGeometryEngine.getState().capturePhotoForStep(stepId, config),
+  getWorkflowStatus: () => useGeometryEngine.getState().getWorkflowStatus(),
 };

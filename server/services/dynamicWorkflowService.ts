@@ -997,6 +997,188 @@ export async function validateWorkflowForExport(
   return validationResult;
 }
 
+// ============================================
+// PHOTO-TO-STEP LINKING
+// ============================================
+
+export interface LinkPhotoToStepResult {
+  success: boolean;
+  stepId?: string;
+  stepProgress?: string;
+  stepComplete?: boolean;
+  error?: string;
+}
+
+/**
+ * Link a photo to a workflow step.
+ * If no explicit step is provided, attempts to auto-match based on context.
+ */
+export async function linkPhotoToWorkflowStep(params: {
+  claimId: string;
+  photoId: string;
+  roomId?: string;
+  damageZoneId?: string;
+  explicitStepId?: string;
+  organizationId: string;
+}): Promise<LinkPhotoToStepResult> {
+  const { claimId, photoId, roomId, damageZoneId, explicitStepId, organizationId } = params;
+
+  try {
+    // Get the active workflow for this claim
+    const { data: workflow } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('id')
+      .eq('claim_id', claimId)
+      .eq('organization_id', organizationId)
+      .in('status', ['draft', 'active'])
+      .order('version', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!workflow) {
+      return { success: false, error: 'No active workflow found for claim' };
+    }
+
+    // Get workflow steps
+    const { data: steps } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .select(`
+        id,
+        title,
+        step_type,
+        status,
+        room_id,
+        geometry_binding,
+        evidence_requirements
+      `)
+      .eq('workflow_id', workflow.id)
+      .order('step_index', { ascending: true });
+
+    if (!steps || steps.length === 0) {
+      return { success: false, error: 'No steps in workflow' };
+    }
+
+    let targetStepId = explicitStepId;
+
+    // If no explicit step, find matching step based on context
+    if (!targetStepId) {
+      // Priority 1: Match by damage zone
+      if (damageZoneId) {
+        const damageStep = steps.find(s => {
+          const binding = s.geometry_binding as { zoneId?: string } | null;
+          return binding?.zoneId === damageZoneId &&
+            s.step_type === 'photo' &&
+            s.status !== 'completed';
+        });
+        if (damageStep) targetStepId = damageStep.id;
+      }
+
+      // Priority 2: Match by room
+      if (!targetStepId && roomId) {
+        const roomStep = steps.find(s => {
+          const binding = s.geometry_binding as { roomId?: string } | null;
+          return (s.room_id === roomId || binding?.roomId === roomId) &&
+            s.step_type === 'photo' &&
+            s.status !== 'completed';
+        });
+        if (roomStep) targetStepId = roomStep.id;
+      }
+
+      // Priority 3: Find any pending photo step
+      if (!targetStepId) {
+        const anyPhotoStep = steps.find(s =>
+          s.step_type === 'photo' &&
+          s.status !== 'completed'
+        );
+        if (anyPhotoStep) targetStepId = anyPhotoStep.id;
+      }
+    }
+
+    // If we found a step, link the photo
+    if (targetStepId) {
+      // Get the step for context
+      const step = steps.find(s => s.id === targetStepId);
+
+      // Generate requirement ID based on step
+      const evidenceReqs = step?.evidence_requirements as Array<{ type: string; label?: string }> | null;
+      const photoReqIndex = evidenceReqs?.findIndex(r => r.type === 'photo') ?? 0;
+      const requirementId = `${targetStepId}-evidence-${photoReqIndex}`;
+
+      // Insert evidence record
+      const { error: insertError } = await supabaseAdmin
+        .from('workflow_step_evidence')
+        .insert({
+          step_id: targetStepId,
+          requirement_id: requirementId,
+          evidence_type: 'photo',
+          photo_id: photoId,
+          captured_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        console.error('[linkPhotoToWorkflowStep] Failed to insert evidence:', insertError);
+        return { success: false, error: insertError.message };
+      }
+
+      // Update the photo record with step binding
+      await supabaseAdmin
+        .from('claim_photos')
+        .update({
+          workflow_step_id: targetStepId,
+          evidence_context: {
+            requirementId,
+            attachedAt: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', photoId);
+
+      // Check step progress
+      const { data: evidenceData } = await supabaseAdmin
+        .from('workflow_step_evidence')
+        .select('id')
+        .eq('step_id', targetStepId)
+        .eq('evidence_type', 'photo');
+
+      const photoCount = evidenceData?.length || 0;
+      const evidenceReqsTyped = evidenceReqs as Array<{
+        type: string;
+        required: boolean;
+        photo?: { minCount?: number; count?: number };
+      }> | null;
+      const photoReq = evidenceReqsTyped?.find(r => r.type === 'photo' && r.required);
+      const requiredCount = photoReq?.photo?.minCount || photoReq?.photo?.count || 1;
+      const stepComplete = photoCount >= requiredCount;
+
+      // Update step if evidence requirements are now met
+      if (stepComplete) {
+        await supabaseAdmin
+          .from('inspection_workflow_steps')
+          .update({
+            evidence_fulfilled: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', targetStepId);
+      }
+
+      return {
+        success: true,
+        stepId: targetStepId,
+        stepProgress: `${photoCount}/${requiredCount} photos`,
+        stepComplete,
+      };
+    }
+
+    return { success: false, error: 'No matching workflow step found' };
+  } catch (error) {
+    console.error('[linkPhotoToWorkflowStep] Error:', error);
+    return {
+      success: false,
+      error: (error as Error).message,
+    };
+  }
+}
+
 /**
  * Get workflow with full evidence status
  */

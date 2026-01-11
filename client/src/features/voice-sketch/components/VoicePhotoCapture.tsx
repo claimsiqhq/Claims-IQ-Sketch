@@ -29,6 +29,10 @@ interface VoicePhotoCaptureProps {
   onCapture: (data: { blob: Blob; timestamp: Date }) => Promise<PhotoCaptureResult>;
   onCancel: () => void;
   onComplete: (result: PhotoCaptureResult) => void;
+  // Workflow step context
+  workflowStepId?: string;
+  stepTitle?: string;
+  stepProgress?: { current: number; required: number };
 }
 
 type CapturePhase = 'preview' | 'capturing' | 'analyzing' | 'analysis_result' | 'annotation';
@@ -40,6 +44,9 @@ export function VoicePhotoCapture({
   onCapture,
   onCancel,
   onComplete,
+  workflowStepId,
+  stepTitle,
+  stepProgress,
 }: VoicePhotoCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -184,6 +191,17 @@ export function VoicePhotoCapture({
         {/* Top bar */}
         <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/70 to-transparent">
           <div className="text-white">
+            {/* Workflow Step Context Banner */}
+            {workflowStepId && stepTitle && (
+              <div className="bg-blue-500/80 text-white px-3 py-1.5 rounded-lg mb-2">
+                <p className="text-sm font-medium">Workflow Step: {stepTitle}</p>
+                {stepProgress && (
+                  <p className="text-xs opacity-80">
+                    {stepProgress.current}/{stepProgress.required} photos captured
+                  </p>
+                )}
+              </div>
+            )}
             <p className="text-sm opacity-80">{targetType}</p>
             <p className="font-medium">{suggestedLabel}</p>
             {roomName && <p className="text-xs opacity-60">{roomName}</p>}
