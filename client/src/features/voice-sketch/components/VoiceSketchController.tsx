@@ -25,6 +25,7 @@ import { VoicePhotoCapture, type PhotoCaptureResult } from './VoicePhotoCapture'
 import { cn } from '@/lib/utils';
 import { uploadPhoto } from '@/lib/api';
 import { toast } from 'sonner';
+import { logger } from '@/lib/logger';
 import type { StructureType } from '../types/geometry';
 
 interface VoiceSketchControllerProps {
@@ -87,7 +88,7 @@ export function VoiceSketchController({
   // Manual room creation handler
   const handleAddRoom = useCallback((roomType: string) => {
     if (!currentStructure) {
-      console.warn('Please create a structure first before adding rooms');
+      // Structure required - user will see UI feedback
       return;
     }
 
@@ -117,7 +118,7 @@ export function VoiceSketchController({
   // Exterior zone creation handler (Roof, Elevations, Deck)
   const handleAddExteriorZone = useCallback((zoneType: string) => {
     if (!currentStructure) {
-      console.warn('Please create a structure first before adding exterior zones');
+      // Structure required - user will see UI feedback
       return;
     }
 
@@ -202,7 +203,7 @@ export function VoiceSketchController({
   );
 
   const handleError = useCallback((error: Error) => {
-    console.error('Voice session error:', error);
+    // Error handled by useVoiceSession hook
   }, []);
 
   const {
@@ -247,11 +248,7 @@ export function VoiceSketchController({
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   
   const handlePhotoCaptured = useCallback(async (file: File) => {
-    console.log('Photo captured in VoiceSketchController:', {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-    });
+    logger.debug('Photo captured in VoiceSketchController', { name: file.name, size: file.size, type: file.type });
     
     setIsUploadingPhoto(true);
     const loadingToast = toast.loading('Uploading photo and analyzing...');
@@ -303,10 +300,10 @@ export function VoiceSketchController({
         aiAnalysis: uploadedPhoto.analysis ?? undefined,
       });
       
-      console.log('Photo uploaded and analyzed:', uploadedPhoto);
+      logger.debug('Photo uploaded and analyzed', { photoId: uploadedPhoto.id });
     } catch (error) {
       toast.dismiss(loadingToast);
-      console.error('Photo upload error:', error);
+      logger.error('Photo upload error', error);
       toast.error(error instanceof Error ? error.message : 'Failed to upload photo');
       
       addPhoto({
@@ -374,7 +371,7 @@ export function VoiceSketchController({
           quality_assessment: qualityAssessment,
         };
       } catch (error) {
-        console.error('Voice photo capture error:', error);
+        logger.error('Voice photo capture error', error);
         return {
           status: 'error',
           error: error instanceof Error ? error.message : 'Failed to capture photo',

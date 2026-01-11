@@ -271,27 +271,47 @@ export default function ClaimDetail() {
     return claimPhotos.map(claimPhotoToSketchPhoto);
   }, [claimPhotos]);
 
-  // Photo delete mutation
+  // Photo delete mutation with optimistic updates
   const deletePhotoMutation = useMutation({
     mutationFn: deletePhoto,
+    onMutate: async (photoId) => {
+      await queryClient.cancelQueries({ queryKey: ['claimPhotos', params?.id] });
+      const previousPhotos = queryClient.getQueryData<ClaimPhoto[]>(['claimPhotos', params?.id]);
+      queryClient.setQueryData<ClaimPhoto[]>(['claimPhotos', params?.id], (old = []) =>
+        old.filter(p => p.id !== photoId)
+      );
+      return { previousPhotos };
+    },
     onSuccess: () => {
       toast.success('Photo deleted');
-      queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
     },
-    onError: (error) => {
+    onError: (error, _photoId, context) => {
+      if (context?.previousPhotos) {
+        queryClient.setQueryData(['claimPhotos', params?.id], context.previousPhotos);
+      }
       toast.error('Failed to delete photo: ' + (error as Error).message);
     },
   });
 
-  // Photo update mutation
+  // Photo update mutation with optimistic updates
   const updatePhotoMutation = useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: { label?: string; hierarchyPath?: string; claimId?: string | null } }) =>
       updatePhoto(id, updates),
+    onMutate: async ({ id, updates }) => {
+      await queryClient.cancelQueries({ queryKey: ['claimPhotos', params?.id] });
+      const previousPhotos = queryClient.getQueryData<ClaimPhoto[]>(['claimPhotos', params?.id]);
+      queryClient.setQueryData<ClaimPhoto[]>(['claimPhotos', params?.id], (old = []) =>
+        old.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p)
+      );
+      return { previousPhotos };
+    },
     onSuccess: () => {
       toast.success('Photo updated');
-      queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
     },
-    onError: (error) => {
+    onError: (error, _variables, context) => {
+      if (context?.previousPhotos) {
+        queryClient.setQueryData(['claimPhotos', params?.id], context.previousPhotos);
+      }
       toast.error('Failed to update photo: ' + (error as Error).message);
     },
   });
@@ -308,7 +328,7 @@ export default function ClaimDetail() {
     },
   });
 
-  // Photo upload mutation (uses proper photo API with AI analysis)
+  // Photo upload mutation (uses proper photo API with AI analysis) with optimistic updates
   const uploadPhotoMutation = useMutation({
     mutationFn: async (file: File) => {
       // Get GPS coordinates if available
@@ -337,11 +357,59 @@ export default function ClaimDetail() {
         longitude,
       });
     },
+    onMutate: async (file) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['claimPhotos', params?.id] });
+
+      // Snapshot previous value
+      const previousPhotos = queryClient.getQueryData<ClaimPhoto[]>(['claimPhotos', params?.id]);
+
+      // Optimistically add photo
+      const optimisticPhoto: ClaimPhoto = {
+        id: `temp-${Date.now()}`,
+        claimId: params?.id || null,
+        label: 'Photo',
+        hierarchyPath: 'Exterior',
+        publicUrl: URL.createObjectURL(file),
+        storagePath: '',
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        analysisStatus: 'pending',
+        aiAnalysis: {},
+        damageDetected: false,
+        qualityScore: undefined,
+        capturedAt: new Date().toISOString(),
+        analyzedAt: null,
+        uploadedBy: authUser?.id || null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        latitude,
+        longitude,
+        geoAddress: null,
+        analysisError: null,
+        structureId: null,
+        roomId: null,
+        damageZoneId: null,
+      };
+
+      // Optimistically update cache
+      queryClient.setQueryData<ClaimPhoto[]>(['claimPhotos', params?.id], (old = []) => [
+        ...old,
+        optimisticPhoto,
+      ]);
+
+      return { previousPhotos };
+    },
     onSuccess: () => {
       toast.success('Photo uploaded - AI analysis in progress');
       queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
     },
-    onError: (error) => {
+    onError: (error, _file, context) => {
+      // Rollback optimistic update
+      if (context?.previousPhotos) {
+        queryClient.setQueryData(['claimPhotos', params?.id], context.previousPhotos);
+      }
       toast.error('Failed to upload photo: ' + (error as Error).message);
     },
   });

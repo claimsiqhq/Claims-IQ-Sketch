@@ -12,6 +12,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { logger } from './logger';
 
 // ============================================
 // TYPES
@@ -318,7 +319,7 @@ async function processQueue() {
       }
 
       // Start upload (don't await - let it run in background)
-      uploadItem(nextItem.id).catch(console.error);
+      uploadItem(nextItem.id).catch((err) => logger.error('Upload item error', err));
 
       // Small delay to allow state updates
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -372,7 +373,7 @@ async function uploadItem(itemId: string): Promise<void> {
     setTimeout(() => processQueue(), 0);
 
   } catch (error) {
-    console.error(`Upload failed for ${item.fileName}:`, error);
+    logger.error(`Upload failed for ${item.fileName}`, error);
 
     store._updateItem(itemId, {
       status: 'failed',
@@ -518,7 +519,7 @@ async function pollProcessingStatus(itemId: string, documentId: string): Promise
       setTimeout(poll, POLL_INTERVAL);
 
     } catch (error) {
-      console.error('Error polling processing status:', error);
+      logger.error('Error polling processing status', error);
       // Continue polling on error
       setTimeout(poll, POLL_INTERVAL);
     }
@@ -544,7 +545,7 @@ export async function pollBatchStatus(documentIds: string[]): Promise<Record<str
 
     return response.json();
   } catch (error) {
-    console.error('Error fetching batch status:', error);
+    logger.error('Error fetching batch status', error);
     return {};
   }
 }

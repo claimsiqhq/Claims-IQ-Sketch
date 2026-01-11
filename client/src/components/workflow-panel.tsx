@@ -315,7 +315,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         });
       }
     } catch (err) {
-      console.error("Failed to fetch claim info:", err);
+      // Failed to fetch claim info - will show error state
     }
   }, [claimId]);
 
@@ -428,7 +428,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
               hierarchyPath: `Workflow / ${step?.phase || 'unknown'} / ${roomName}`,
             });
           } catch (photoErr) {
-            console.error('Failed to upload photo:', photoErr);
+            // Photo upload failed - continue with step completion
             // Don't fail the whole step if photo upload fails
           }
         });

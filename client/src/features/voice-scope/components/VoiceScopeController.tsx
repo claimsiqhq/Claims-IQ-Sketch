@@ -46,7 +46,7 @@ export function VoiceScopeController({
   );
 
   const handleError = useCallback((error: Error) => {
-    console.error('Voice scope session error:', error);
+    // Error handled by useVoiceScopeSession hook
   }, []);
 
   const {

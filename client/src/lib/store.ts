@@ -148,7 +148,7 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       await apiLogout();
     } catch (error) {
-      console.error('Logout error:', error);
+      // Logout error - user will see error toast
     }
     set({
       authUser: null,
