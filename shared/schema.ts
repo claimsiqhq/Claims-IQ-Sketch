@@ -4149,42 +4149,45 @@ export type InsertScopeTrade = z.infer<typeof insertScopeTradeSchema>;
 export type ScopeTrade = typeof scopeTrades.$inferSelect;
 
 /**
- * Scope Line Items - Catalog of line items with Xactimate-style codes
- * Focused on scope (what work) not pricing (how much)
+ * Line Items - Main catalog of items (V2)
+ * Replaces scope_line_items
  */
-export const scopeLineItems = pgTable("scope_line_items", {
+export const lineItems = pgTable("line_items", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  code: varchar("code", { length: 30 }).notNull().unique(),
-  description: text("description").notNull(),
-  unit: varchar("unit", { length: 10 }).notNull(),
-  tradeCode: varchar("trade_code", { length: 10 }).notNull(),
-  xactCategoryCode: varchar("xact_category_code", { length: 10 }),
-  defaultWasteFactor: decimal("default_waste_factor", { precision: 4, scale: 3 }).default("0.00"),
-  quantityFormula: varchar("quantity_formula", { length: 50 }),
-  companionRules: jsonb("companion_rules").default(sql`'{}'::jsonb`),
-  scopeConditions: jsonb("scope_conditions").default(sql`'{}'::jsonb`),
-  coverageType: varchar("coverage_type", { length: 1 }).default("A"),
-  activityType: varchar("activity_type", { length: 20 }).default("install"),
-  sortOrder: integer("sort_order").default(0),
+  categoryId: varchar("category_id"),
+  code: varchar("code").notNull().unique(),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  unit: varchar("unit").notNull(),
+  unitPrice: decimal("unit_price").default("0"),
+  materialCost: decimal("material_cost").default("0"),
+  laborCost: decimal("labor_cost").default("0"),
+  equipmentCost: decimal("equipment_cost").default("0"),
+  tradeCode: varchar("trade_code"),
+  depreciationType: varchar("depreciation_type"),
+  defaultCoverageCode: varchar("default_coverage_code").default("A"),
+  laborHoursPerUnit: decimal("labor_hours_per_unit"),
+  xactimateCode: varchar("xactimate_code"),
+  quantityFormula: text("quantity_formula"),
+  scopeConditions: jsonb("scope_conditions"),
+  requiresItems: jsonb("requires_items").default(sql`'[]'::jsonb`),
+  autoAddItems: jsonb("auto_add_items").default(sql`'[]'::jsonb`),
+  excludesItems: jsonb("excludes_items").default(sql`'[]'::jsonb`),
+  replacesItems: jsonb("replaces_items").default(sql`'[]'::jsonb`),
+  carrierSensitivityLevel: varchar("carrier_sensitivity_level").default("medium"),
+  validationRules: jsonb("validation_rules"),
   isActive: boolean("is_active").default(true),
-  notes: text("notes"),
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
 }, (table) => ({
-  codeIdx: index("scope_line_items_code_idx").on(table.code),
-  tradeIdx: index("scope_line_items_trade_idx").on(table.tradeCode),
-  unitIdx: index("scope_line_items_unit_idx").on(table.unit),
-  activityIdx: index("scope_line_items_activity_idx").on(table.activityType),
+  // Add indexes if needed
 }));
 
-export const insertScopeLineItemSchema = createInsertSchema(scopeLineItems).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export type LineItem = typeof lineItems.$inferSelect;
 
-export type InsertScopeLineItem = z.infer<typeof insertScopeLineItemSchema>;
-export type ScopeLineItem = typeof scopeLineItems.$inferSelect;
+// Deprecated: Alias to lineItems or kept for temporary compat if needed, 
+// but practically we should use lineItems.
+// export const scopeLineItems = lineItems; 
 
 /**
  * Scope Line Item Companion Rules TypeScript interface

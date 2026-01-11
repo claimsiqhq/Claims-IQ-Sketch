@@ -1,29 +1,47 @@
--- Migration: Migrate estimate_missing_walls to zone_openings
+-- Migration: Migrate estimate_missing_walls to zone_openings (Fixed)
 -- 
 -- PURPOSE: Consolidate opening storage to use canonical zone_openings table
 -- which uses wall_index instead of wall names, enabling precise geometry.
 --
--- PREREQUISITE: This migration requires zone_openings table to exist
--- (created by migration 033_create_zone_openings_table.sql)
---
 -- This migration:
--- 1. Migrates all openings from estimate_missing_walls to zone_openings
--- 2. Converts wall names (north/south/east/west) to wall_index based on polygon
--- 3. Sets offset_from_vertex_ft to 0 (center of wall) for legacy data
--- 4. Preserves all opening metadata
+-- 1. Adds missing canonical geometry columns to estimate_zones if they don't exist
+-- 2. Migrates all openings from estimate_missing_walls to zone_openings
+-- 3. Converts wall names (north/south/east/west) to wall_index based on polygon
+-- 4. Sets offset_from_vertex_ft to 0 (center of wall) for legacy data
 
 BEGIN;
 
--- Verify zone_openings table exists
+-- ============================================
+-- 1. Add canonical geometry columns
+-- ============================================
+
+ALTER TABLE estimate_zones
+ADD COLUMN IF NOT EXISTS origin_x_ft DECIMAL(8, 2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS origin_y_ft DECIMAL(8, 2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS polygon_ft JSONB DEFAULT '[]'::jsonb,
+ADD COLUMN IF NOT EXISTS shape_type VARCHAR(10) DEFAULT 'RECT',
+ADD COLUMN IF NOT EXISTS level_name VARCHAR(50) DEFAULT 'Main Level';
+
+-- Try to populate polygon_ft from sketch_polygon if it exists and polygon_ft is empty
+UPDATE estimate_zones
+SET polygon_ft = sketch_polygon
+WHERE (polygon_ft IS NULL OR jsonb_array_length(polygon_ft) = 0)
+  AND sketch_polygon IS NOT NULL 
+  AND sketch_polygon != 'null'::jsonb;
+
+-- Verify zone_openings table exists (should be from 033)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'zone_openings') THEN
-    RAISE EXCEPTION 'zone_openings table does not exist. Please run migration 024_create_zone_openings_table.sql first.';
+    RAISE EXCEPTION 'zone_openings table does not exist. Please run migration 033_create_zone_openings_and_connections.sql first.';
   END IF;
 END $$;
 
+-- ============================================
+-- 2. Migration Logic
+-- ============================================
+
 -- Function to convert wall name to wall index based on polygon
--- This is a helper function for the migration
 CREATE OR REPLACE FUNCTION get_wall_index_from_name(
   polygon_ft jsonb,
   wall_name text
@@ -35,8 +53,6 @@ DECLARE
   max_x numeric;
   min_y numeric;
   max_y numeric;
-  center_x numeric;
-  center_y numeric;
   i integer;
   p1 jsonb;
   p2 jsonb;
@@ -45,6 +61,11 @@ DECLARE
 BEGIN
   -- Get polygon points
   points := polygon_ft;
+  
+  IF points IS NULL OR jsonb_typeof(points) != 'array' THEN
+    RETURN 0;
+  END IF;
+
   point_count := jsonb_array_length(points);
   
   IF point_count < 3 THEN
@@ -59,9 +80,6 @@ BEGIN
     MAX((pt->>'y')::numeric)
   INTO min_x, max_x, min_y, max_y
   FROM jsonb_array_elements(points) pt;
-  
-  center_x := (min_x + max_x) / 2;
-  center_y := (min_y + max_y) / 2;
   
   -- Find wall that matches the direction
   FOR i IN 0..point_count-1 LOOP
@@ -89,7 +107,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Migrate openings from estimate_missing_walls to zone_openings
--- Only migrate if zone has a valid polygon
 INSERT INTO zone_openings (
   zone_id,
   opening_type,
@@ -99,6 +116,7 @@ INSERT INTO zone_openings (
   height_ft,
   sill_height_ft,
   connects_to_zone_id,
+  notes,
   sort_order,
   created_at
 )
@@ -122,35 +140,27 @@ SELECT
   emw.height_ft,
   CASE 
     WHEN emw.goes_to_floor = false THEN emw.height_ft / 2
-    ELSE NULL
+    ELSE 0
   END as sill_height_ft,
   NULL as connects_to_zone_id, -- Legacy data doesn't have this
+  CASE 
+    WHEN emw.name IS NOT NULL THEN 'Legacy Name: ' || emw.name 
+    ELSE NULL 
+  END as notes,
   emw.sort_order,
   emw.created_at
 FROM estimate_missing_walls emw
 INNER JOIN estimate_zones ez ON emw.zone_id = ez.id
-WHERE ez.polygon_ft IS NOT NULL 
-  AND jsonb_array_length(ez.polygon_ft) >= 3
-  -- Avoid duplicates (check if opening already exists)
-  AND NOT EXISTS (
+-- Only migrate if not already present (avoid duplicates if re-run)
+WHERE NOT EXISTS (
     SELECT 1 
     FROM zone_openings zo 
     WHERE zo.zone_id = emw.zone_id
-      AND zo.wall_index = get_wall_index_from_name(ez.polygon_ft, emw.name)
-      AND zo.opening_type = CASE 
-        WHEN emw.opening_type = 'missing_wall' THEN 'missing_wall'
-        WHEN emw.opening_type = 'door' THEN 'door'
-        WHEN emw.opening_type = 'window' THEN 'window'
-        WHEN emw.opening_type = 'opening' THEN 'cased_opening'
-        ELSE 'door'
-      END
-  );
+      AND zo.width_ft = emw.width_ft
+      AND zo.height_ft = emw.height_ft
+);
 
 -- Drop the helper function
 DROP FUNCTION IF EXISTS get_wall_index_from_name(jsonb, text);
-
--- Note: We do NOT drop estimate_missing_walls table yet
--- It will be deprecated but kept for backward compatibility during transition
--- A future migration will drop it after all code is updated
 
 COMMIT;

@@ -30,16 +30,21 @@ const router = Router();
 router.get('/trades', async (req: Request, res: Response) => {
   try {
     const { data, error } = await supabaseAdmin
-      .from('scope_trades')
-      .select('*')
-      .eq('is_active', true)
-      .order('sort_order');
+      .from('xact_categories') // Use xact_categories as trades
+      .select('code, description') // map description to name
+      .order('code');
 
     if (error) {
       return res.status(500).json({ error: error.message });
     }
 
-    res.json({ trades: data });
+    const trades = data.map(t => ({
+      code: t.code,
+      name: t.description,
+      is_active: true
+    }));
+
+    res.json({ trades });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -58,10 +63,9 @@ router.get('/catalog', async (req: Request, res: Response) => {
     const { trade, unit, activity, search } = req.query;
 
     let query = supabaseAdmin
-      .from('scope_line_items')
+      .from('line_items')
       .select(`
-        *,
-        trade:scope_trades!trade_code(code, name)
+        *
       `)
       .eq('is_active', true);
 
@@ -103,10 +107,9 @@ router.get('/catalog/:code', async (req: Request, res: Response) => {
     const { code } = req.params;
 
     const { data, error } = await supabaseAdmin
-      .from('scope_line_items')
+      .from('line_items')
       .select(`
-        *,
-        trade:scope_trades!trade_code(code, name, description)
+        *
       `)
       .eq('code', code)
       .single();
@@ -138,7 +141,7 @@ router.get('/estimate/:estimateId', async (req: Request, res: Response) => {
       .from('scope_items')
       .select(`
         *,
-        line_item:scope_line_items!line_item_id(code, description, unit, trade_code),
+        line_item:line_items!line_item_id(code, description, unit, trade_code),
         zone:estimate_zones!zone_id(id, name, zone_type, room_type)
       `)
       .eq('estimate_id', estimateId)
@@ -246,8 +249,7 @@ router.get('/estimate/:estimateId/summary', async (req: Request, res: Response) 
     const { data, error } = await supabaseAdmin
       .from('scope_summary')
       .select(`
-        *,
-        trade:scope_trades!trade_code(code, name, op_eligible)
+        *
       `)
       .eq('estimate_id', estimateId)
       .order('trade_code');

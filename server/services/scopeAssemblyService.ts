@@ -381,10 +381,10 @@ async function fetchZonesWithRelations(estimateId: string): Promise<ZoneWithRela
   const result: ZoneWithRelations[] = [];
 
   for (const zone of zones || []) {
-    // Fetch missing walls for this zone
-    const { data: missingWalls } = await supabaseAdmin
-      .from('estimate_missing_walls')
-      .select('width_ft, height_ft, quantity')
+    // Fetch openings for this zone (including missing walls, doors, windows)
+    const { data: openings } = await supabaseAdmin
+      .from('zone_openings')
+      .select('width_ft, height_ft, opening_type')
       .eq('zone_id', zone.id);
 
     // Fetch subrooms for this zone
@@ -413,10 +413,10 @@ async function fetchZonesWithRelations(estimateId: string): Promise<ZoneWithRela
       affectedSurfaces: zone.affected_surfaces,
       roomType: zone.room_type,
       floorLevel: zone.floor_level,
-      missingWalls: (missingWalls || []).map(mw => ({
-        widthFt: parseFloat(String(mw.width_ft)),
-        heightFt: parseFloat(String(mw.height_ft)),
-        quantity: mw.quantity,
+      missingWalls: (openings || []).map(op => ({
+        widthFt: parseFloat(String(op.width_ft)),
+        heightFt: parseFloat(String(op.height_ft)),
+        quantity: 1, // zone_openings are individual items
       })),
       subrooms: (subrooms || []).map(sr => ({
         lengthFt: parseFloat(String(sr.length_ft)),
@@ -464,27 +464,26 @@ function mapZoneFromDB(zone: any): ZoneWithRelations {
  */
 async function fetchCatalogLineItems(): Promise<CatalogLineItem[]> {
   const { data, error } = await supabaseAdmin
-    .from('scope_line_items')
+    .from('line_items')
     .select(`
       id,
       code,
       description,
       unit,
       trade_code,
-      xact_category_code,
-      default_waste_factor,
+      xactimate_code,
       quantity_formula,
-      companion_rules,
+      requires_items,
+      auto_add_items,
+      excludes_items,
+      replaces_items,
       scope_conditions,
-      coverage_type,
-      activity_type,
-      sort_order,
-      is_active,
-      notes
+      default_coverage_code,
+      is_active
     `)
     .eq('is_active', true)
     .order('trade_code')
-    .order('sort_order');
+    .order('code');
 
   if (error) {
     throw new Error(`Failed to fetch catalog: ${error.message}`);
@@ -496,16 +495,20 @@ async function fetchCatalogLineItems(): Promise<CatalogLineItem[]> {
     description: item.description,
     unit: item.unit,
     tradeCode: item.trade_code,
-    xactCategoryCode: item.xact_category_code,
-    defaultWasteFactor: parseFloat(item.default_waste_factor) || 0,
+    xactCategoryCode: item.xactimate_code,
+    defaultWasteFactor: 0, // Not in DB
     quantityFormula: item.quantity_formula,
-    companionRules: item.companion_rules,
+    companionRules: {
+      requires: item.requires_items,
+      auto_adds: item.auto_add_items,
+      excludes: item.excludes_items,
+    },
     scopeConditions: item.scope_conditions,
-    coverageType: item.coverage_type,
-    activityType: item.activity_type,
-    sortOrder: item.sort_order,
+    coverageType: item.default_coverage_code,
+    activityType: 'install', // Default
+    sortOrder: 0, // Not in DB
     isActive: item.is_active,
-    notes: item.notes,
+    notes: null,
   }));
 }
 

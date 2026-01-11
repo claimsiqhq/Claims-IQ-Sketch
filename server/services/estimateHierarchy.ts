@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { computeZoneMetrics } from './zoneMetrics';
 import type {
   EstimateZone,
   EstimateStructure,
@@ -413,9 +414,9 @@ export async function getZoneWithChildren(zoneId: string): Promise<ZoneWithChild
 
   const zone = mapZoneRow(zoneData);
 
-  // Get missing walls
+  // Get missing walls (now from zone_openings)
   const { data: wallsData, error: wallsError } = await supabaseAdmin
-    .from('estimate_missing_walls')
+    .from('zone_openings')
     .select('*')
     .eq('zone_id', zoneId)
     .order('sort_order');
@@ -447,7 +448,7 @@ export async function getZoneWithChildren(zoneId: string): Promise<ZoneWithChild
   return {
     ...zone,
     dimensions: (zone.dimensions as ZoneDimensions) || {},
-    missingWalls: (wallsData || []).map(mapMissingWallRow),
+    missingWalls: (wallsData || []).map(row => mapZoneOpeningToMissingWall(row)),
     subrooms: (subroomsData || []).map(mapSubroomRow),
     lineItemCount: count,
     zoneTotals: {
@@ -542,14 +543,69 @@ export async function deleteZone(zoneId: string): Promise<boolean> {
 }
 
 export async function recalculateZoneDimensions(zoneId: string): Promise<ZoneDimensions> {
-  // Use the database function via RPC
-  const { data, error } = await supabaseAdmin.rpc('calculate_zone_dimensions', {
-    p_zone_id: zoneId,
-  });
+  // Fetch zone, openings (as missing walls), and subrooms
+  const zoneWithChildren = await getZoneWithChildren(zoneId);
+  
+  if (!zoneWithChildren) {
+    throw new Error(`Zone ${zoneId} not found`);
+  }
 
-  if (error) throw error;
+  // Convert to metrics input format
+  const zoneForMetrics = {
+    id: zoneWithChildren.id,
+    name: zoneWithChildren.name,
+    zoneType: zoneWithChildren.zoneType,
+    lengthFt: zoneWithChildren.lengthFt,
+    widthFt: zoneWithChildren.widthFt,
+    heightFt: zoneWithChildren.heightFt,
+    pitch: zoneWithChildren.pitch,
+    pitchMultiplier: zoneWithChildren.pitchMultiplier,
+    dimensions: zoneWithChildren.dimensions,
+    sketchPolygon: zoneWithChildren.sketchPolygon,
+    damageType: zoneWithChildren.damageType,
+    damageSeverity: zoneWithChildren.damageSeverity,
+    waterCategory: zoneWithChildren.waterCategory,
+    waterClass: zoneWithChildren.waterClass,
+    affectedSurfaces: zoneWithChildren.affectedSurfaces,
+  };
 
-  const dimensions = data || {};
+  const missingWallsForMetrics = zoneWithChildren.missingWalls.map(mw => ({
+    widthFt: mw.widthFt,
+    heightFt: mw.heightFt,
+    quantity: mw.quantity
+  }));
+
+  const subroomsForMetrics = zoneWithChildren.subrooms.map(sr => ({
+    lengthFt: sr.lengthFt,
+    widthFt: sr.widthFt,
+    heightFt: sr.heightFt,
+    isAddition: sr.isAddition
+  }));
+
+  // Compute metrics locally
+  const metrics = computeZoneMetrics(zoneForMetrics, missingWallsForMetrics, subroomsForMetrics);
+
+  // Convert metrics to ZoneDimensions format
+  // Note: ZoneDimensions type in schema matches ZoneMetrics fields mostly
+  const dimensions: ZoneDimensions = {
+    sfFloor: metrics.floorSquareFeet,
+    syFloor: Math.ceil(metrics.floorSquareFeet / 9),
+    sfCeiling: metrics.ceilingSquareFeet,
+    sfWalls: metrics.wallSquareFeet, // gross
+    sfWallsCeiling: metrics.wallsAndCeilingSquareFeet,
+    lfFloorPerim: metrics.perimeterLinearFeet,
+    lfCeilingPerim: metrics.perimeterLinearFeet,
+    sfLongWall: metrics.longWallSquareFeet,
+    sfShortWall: metrics.shortWallSquareFeet,
+    sfTotal: metrics.floorSquareFeet + metrics.wallSquareFeet + metrics.ceilingSquareFeet, // Rough approximation of total surface? Or metrics.wallsAndCeilingSquareFeet + floor?
+    // zoneMetrics doesn't output sfTotal in this exact way, but let's approximate or use what's available
+    // metrics has wallsAndCeilingSquareFeet (net walls + ceiling). Total usually includes floor too?
+    // Let's assume sfTotal = walls + ceiling + floor
+    
+    // Add roof specific if available
+    sfSkRoof: metrics.roofSquareFeet,
+    skRoofSquares: metrics.roofSquares,
+  };
 
   // Update the zone with calculated dimensions
   const { error: updateError } = await supabaseAdmin
@@ -566,13 +622,13 @@ export async function recalculateZoneDimensions(zoneId: string): Promise<ZoneDim
 }
 
 // ============================================
-// MISSING WALL MANAGEMENT
+// MISSING WALL MANAGEMENT (Now using zone_openings)
 // ============================================
 
 export async function createMissingWall(input: CreateMissingWallInput): Promise<EstimateMissingWall> {
   // Get next sort order
   const { data: orderData, error: orderError } = await supabaseAdmin
-    .from('estimate_missing_walls')
+    .from('zone_openings')
     .select('sort_order')
     .eq('zone_id', input.zoneId)
     .order('sort_order', { ascending: false })
@@ -581,33 +637,49 @@ export async function createMissingWall(input: CreateMissingWallInput): Promise<
   if (orderError) throw orderError;
 
   const sortOrder = (orderData && orderData.length > 0 ? orderData[0].sort_order : -1) + 1;
+  const quantity = input.quantity || 1;
+  const openingType = input.openingType || 'door';
+  
+  // Calculate sill height based on flags
+  // If goes to floor, sill is 0. Otherwise, we default to 0 for now as we don't have enough info
+  const sillHeight = input.goesToFloor === false ? 3 : 0; 
 
-  const { data, error } = await supabaseAdmin
-    .from('estimate_missing_walls')
-    .insert({
-      zone_id: input.zoneId,
-      name: input.name || null,
-      opening_type: input.openingType || 'door',
-      width_ft: input.widthFt,
-      height_ft: input.heightFt,
-      quantity: input.quantity || 1,
-      goes_to_floor: input.goesToFloor !== false,
-      goes_to_ceiling: input.goesToCeiling === true,
-      opens_into: input.opensInto || null,
-      sort_order: sortOrder,
-    })
-    .select('*')
-    .single();
+  let createdId = '';
+  let createdData: any = null;
 
-  if (error) throw error;
+  // Loop to create multiple openings if quantity > 1
+  for (let i = 0; i < quantity; i++) {
+    const { data, error } = await supabaseAdmin
+      .from('zone_openings')
+      .insert({
+        zone_id: input.zoneId,
+        opening_type: openingType,
+        wall_index: 0, // Default to 0 as we don't have spatial info here
+        offset_from_vertex_ft: 0, // Default to 0
+        width_ft: input.widthFt,
+        height_ft: input.heightFt,
+        sill_height_ft: sillHeight,
+        notes: input.name ? `Name: ${input.name}` : null, // Store name in notes
+        sort_order: sortOrder + i,
+      })
+      .select('*')
+      .single();
 
-  // Trigger will recalculate zone dimensions
-  return mapMissingWallRow(data);
+    if (error) throw error;
+    
+    // Keep track of the first one to return (or the last one)
+    createdId = data.id;
+    createdData = data;
+  }
+
+  // Trigger will recalculate zone dimensions (if set up on zone_openings)
+  // We return the last created item mapped to the legacy interface
+  return mapZoneOpeningToMissingWall(createdData, quantity);
 }
 
 export async function getMissingWall(wallId: string): Promise<EstimateMissingWall | null> {
   const { data, error } = await supabaseAdmin
-    .from('estimate_missing_walls')
+    .from('zone_openings')
     .select('*')
     .eq('id', wallId)
     .single();
@@ -617,7 +689,7 @@ export async function getMissingWall(wallId: string): Promise<EstimateMissingWal
     throw error;
   }
 
-  return mapMissingWallRow(data);
+  return mapZoneOpeningToMissingWall(data);
 }
 
 export async function updateMissingWall(
@@ -626,9 +698,7 @@ export async function updateMissingWall(
 ): Promise<EstimateMissingWall | null> {
   const updateData: any = {};
 
-  if (updates.name !== undefined) {
-    updateData.name = updates.name;
-  }
+  // Map updates to zone_openings columns
   if (updates.openingType !== undefined) {
     updateData.opening_type = updates.openingType;
   }
@@ -638,25 +708,22 @@ export async function updateMissingWall(
   if (updates.heightFt !== undefined) {
     updateData.height_ft = updates.heightFt;
   }
-  if (updates.quantity !== undefined) {
-    updateData.quantity = updates.quantity;
+  if (updates.name !== undefined) {
+    updateData.notes = updates.name ? `Name: ${updates.name}` : null;
   }
+  // Handle goesToFloor
   if (updates.goesToFloor !== undefined) {
-    updateData.goes_to_floor = updates.goesToFloor;
-  }
-  if (updates.goesToCeiling !== undefined) {
-    updateData.goes_to_ceiling = updates.goesToCeiling;
-  }
-  if (updates.opensInto !== undefined) {
-    updateData.opens_into = updates.opensInto;
+    updateData.sill_height_ft = updates.goesToFloor === false ? 3 : 0;
   }
 
   if (Object.keys(updateData).length === 0) {
     return getMissingWall(wallId);
   }
 
+  updateData.updated_at = new Date().toISOString();
+
   const { data, error } = await supabaseAdmin
-    .from('estimate_missing_walls')
+    .from('zone_openings')
     .update(updateData)
     .eq('id', wallId)
     .select('*')
@@ -667,13 +734,12 @@ export async function updateMissingWall(
     throw error;
   }
 
-  // Trigger will recalculate zone dimensions
-  return mapMissingWallRow(data);
+  return mapZoneOpeningToMissingWall(data);
 }
 
 export async function deleteMissingWall(wallId: string): Promise<boolean> {
   const { error } = await supabaseAdmin
-    .from('estimate_missing_walls')
+    .from('zone_openings')
     .delete()
     .eq('id', wallId);
 
@@ -1066,9 +1132,9 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
       for (const zoneRow of zonesData || []) {
         const zone = mapZoneRow(zoneRow);
 
-        // Get missing walls
+        // Get missing walls (from zone_openings)
         const { data: wallsData, error: wallsError } = await supabaseAdmin
-          .from('estimate_missing_walls')
+          .from('zone_openings')
           .select('*')
           .eq('zone_id', zone.id)
           .order('sort_order');
@@ -1100,7 +1166,7 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
         zones.push({
           ...zone,
           dimensions: (zone.dimensions as ZoneDimensions) || {},
-          missingWalls: (wallsData || []).map(mapMissingWallRow),
+          missingWalls: (wallsData || []).map(row => mapZoneOpeningToMissingWall(row)),
           subrooms: (subroomsData || []).map(mapSubroomRow),
           lineItemCount: count,
           zoneTotals: {
@@ -1474,18 +1540,24 @@ function mapZoneRow(row: any): EstimateZone {
   };
 }
 
-function mapMissingWallRow(row: any): EstimateMissingWall {
+function mapZoneOpeningToMissingWall(row: any, quantity: number = 1): EstimateMissingWall {
+  // Extract name from notes if present (format "Name: X")
+  let name = null;
+  if (row.notes && row.notes.startsWith('Name: ')) {
+    name = row.notes.substring(6);
+  }
+
   return {
     id: row.id,
     zoneId: row.zone_id,
-    name: row.name,
+    name: name,
     openingType: row.opening_type,
-    widthFt: row.width_ft,
-    heightFt: row.height_ft,
-    quantity: row.quantity,
-    goesToFloor: row.goes_to_floor,
-    goesToCeiling: row.goes_to_ceiling,
-    opensInto: row.opens_into,
+    widthFt: parseFloat(row.width_ft),
+    heightFt: parseFloat(row.height_ft),
+    quantity: quantity,
+    goesToFloor: parseFloat(row.sill_height_ft || '0') === 0,
+    goesToCeiling: false, // Infer?
+    opensInto: null, // Not stored in zone_openings
     sortOrder: row.sort_order,
     createdAt: row.created_at,
   };
