@@ -326,6 +326,57 @@ export const BASE_WORKFLOW_RULES: WorkflowRule[] = [
     priority: 2,
     origin: 'base_rule',
   },
+
+  // Multi-Structure Classification (from 60-claim validation)
+  {
+    id: 'base-006',
+    name: 'Multi-Structure Classification',
+    description: 'Classify each sketch area as main dwelling or other structure for proper coverage allocation',
+    version: '1.0.0',
+    conditions: {
+      logic: 'and',
+      conditions: [
+        {
+          id: 'has-other-structures',
+          source: 'property',
+          field: 'hasOtherStructures',
+          operator: 'equals',
+          value: true,
+        },
+      ],
+    },
+    step: {
+      phase: 'pre_inspection',
+      stepType: 'observation',
+      title: 'Structure Classification',
+      instructions: 'For each structure you inspect, classify as: (1) Main Dwelling, or (2) Other Structure (detached garage, shed, deck, etc). This affects coverage allocation. Coverage B limit applies to other structures.',
+      estimatedMinutes: 5,
+      tags: ['classification', 'coverage', 'multi_structure'],
+    },
+    evidence: [
+      {
+        type: 'note',
+        label: 'Structure Classification',
+        description: 'Document each structure inspected and its classification for coverage allocation',
+        required: true,
+        note: {
+          promptText: 'Document each structure inspected and its classification',
+          structuredFields: [
+            {
+              field: 'structures',
+              type: 'text',
+              required: true,
+              placeholder: 'e.g., Main House: Dwelling, Detached Garage: Other Structure (40% roof shared with dwelling)',
+            },
+          ],
+        },
+      },
+    ],
+    blocking: 'blocking',
+    priority: 98,
+    origin: 'base_rule',
+    sourceReference: 'Claim #29 IL - Multi-structure allocation validation',
+  },
 ];
 
 /**
@@ -622,6 +673,115 @@ export const WIND_HAIL_RULES: WorkflowRule[] = [
     priority: 25,
     origin: 'peril_rule',
     sourceReference: 'wind_hail_peril_rules',
+  },
+
+  // Hail Test Square Documentation (from 60-claim validation)
+  {
+    id: 'wind-hail-006',
+    name: 'Hail Test Square Documentation',
+    description: 'Document 10x10 test squares with hail hit counts per InterNACHI standards',
+    version: '1.0.0',
+    conditions: {
+      logic: 'and',
+      conditions: [
+        {
+          id: 'peril-wind-hail-test-square',
+          source: 'claim',
+          field: 'peril.primary',
+          operator: 'equals',
+          value: 'wind_hail',
+        },
+        {
+          logic: 'or',
+          conditions: [
+            {
+              id: 'fnol-hail-description',
+              source: 'fnol',
+              field: 'lossDescription',
+              operator: 'contains',
+              value: 'hail',
+            },
+            {
+              id: 'fnol-hail-cause',
+              source: 'fnol',
+              field: 'cause',
+              operator: 'contains',
+              value: 'hail',
+            },
+          ],
+        },
+      ],
+    },
+    step: {
+      phase: 'exterior',
+      stepType: 'inspection',
+      title: 'Hail Test Square Documentation',
+      instructions: 'Mark 10×10 foot test squares on each roof facet. Count hail strikes within each square. Document storm direction. Industry standard: 8+ hits typically triggers full replacement.',
+      estimatedMinutes: 20,
+      tags: ['hail', 'roof', 'test_square', 'critical'],
+      perilSpecific: 'wind_hail',
+    },
+    evidence: [
+      {
+        type: 'photo',
+        label: 'Test Square Photos',
+        description: '10x10 test squares marked with chalk showing hail impacts',
+        required: true,
+        photo: {
+          minCount: 1,
+          maxCount: 10,
+          subjects: ['10x10 test square marked with chalk', 'visible hail impacts'],
+          quality: {
+            minResolution: 2,
+            requireNoBlur: true,
+          },
+          metadata: {
+            requireGps: true,
+            requireTimestamp: true,
+          },
+        },
+      },
+      {
+        type: 'measurement',
+        label: 'Hail Hit Count Per Test Square',
+        description: 'Count of hail strikes within each 10x10 test square',
+        required: true,
+        measurement: {
+          type: 'count',
+          unit: 'hits',
+          minReadings: 1,
+          locations: ['test_square_alpha', 'test_square_bravo', 'test_square_charlie'],
+          threshold: 8,
+        },
+      },
+      {
+        type: 'note',
+        label: 'Storm Direction and Pattern',
+        required: true,
+        note: {
+          promptText: 'Document storm direction and damage pattern across roof facets',
+          minLength: 50,
+          structuredFields: [
+            {
+              field: 'stormDirection',
+              type: 'select',
+              required: true,
+              options: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+            },
+            {
+              field: 'testSquares',
+              type: 'text',
+              required: true,
+              placeholder: 'e.g., Alpha: 9 hits (front slope), Bravo: 12 hits (south slope)',
+            },
+          ],
+        },
+      },
+    ],
+    blocking: 'blocking',
+    priority: 95,
+    origin: 'peril_rule',
+    sourceReference: 'Claim #3 MO - CAT 2524 Tornado/Hail validation',
   },
 ];
 
@@ -1009,6 +1169,350 @@ export const ROOM_INSPECTION_RULES: WorkflowRule[] = [
   },
 ];
 
+/**
+ * State-Specific Workflow Rules
+ * Based on validation across 10 states (MO, TX, IL, MI, OH, PA, NJ, CT, KY, TN)
+ */
+export const STATE_SPECIFIC_RULES: Record<string, WorkflowRule[]> = {
+  // Missouri - END 584E Age/Condition Depreciation
+  MO: [
+    {
+      id: 'mo-001',
+      name: 'Missouri END 584E Roof Documentation',
+      description: 'Document roof age and condition for END 584E age-based depreciation calculation',
+      version: '1.0.0',
+      conditions: {
+        logic: 'and',
+        conditions: [
+          {
+            id: 'state-mo',
+            source: 'property',
+            field: 'state',
+            operator: 'equals',
+            value: 'MO',
+          },
+          {
+            logic: 'or',
+            conditions: [
+              {
+                id: 'fnol-roof-description',
+                source: 'fnol',
+                field: 'lossDescription',
+                operator: 'contains',
+                value: 'roof',
+              },
+              {
+                id: 'peril-wind-hail',
+                source: 'claim',
+                field: 'peril.primary',
+                operator: 'in',
+                value: ['wind_hail', 'impact'],
+              },
+            ],
+          },
+        ],
+      },
+      step: {
+        phase: 'exterior',
+        stepType: 'observation',
+        title: 'Missouri Roof Age & Condition Assessment',
+        instructions: 'Document roof age and current condition for END 584E depreciation calculation. Missouri requires age-based depreciation schedules.',
+        estimatedMinutes: 10,
+        tags: ['missouri', 'depreciation', 'roof', 'state_specific'],
+      },
+      evidence: [
+        {
+          type: 'note',
+          label: 'Roof Age and Condition',
+          description: 'Document roof installation year and current condition assessment',
+          required: true,
+          note: {
+            promptText: 'Document roof installation year and current condition assessment',
+            structuredFields: [
+              {
+                field: 'roofInstallYear',
+                type: 'number',
+                required: true,
+                placeholder: 'Year roof was installed or replaced',
+              },
+              {
+                field: 'roofCondition',
+                type: 'select',
+                required: true,
+                options: ['excellent', 'good', 'fair', 'poor'],
+              },
+              {
+                field: 'conditionNotes',
+                type: 'text',
+                required: false,
+                placeholder: 'Observable wear, missing granules, curling, etc.',
+              },
+            ],
+          },
+        },
+      ],
+      blocking: 'blocking',
+      priority: 90,
+      origin: 'state_rule' as StepOrigin,
+      sourceReference: 'Claims #3, #32 MO - END 584E depreciation variance',
+    },
+  ],
+
+  // Michigan - Steep Roof Safety Equipment
+  MI: [
+    {
+      id: 'mi-001',
+      name: 'Michigan Steep Roof Safety Documentation',
+      description: 'Document safety equipment usage for steep pitch roofs requiring specialized access',
+      version: '1.0.0',
+      conditions: {
+        logic: 'and',
+        conditions: [
+          {
+            id: 'state-mi',
+            source: 'property',
+            field: 'state',
+            operator: 'equals',
+            value: 'MI',
+          },
+        ],
+      },
+      step: {
+        phase: 'exterior',
+        stepType: 'observation',
+        title: 'Steep Roof Safety Equipment Documentation',
+        instructions: 'Document safety equipment used for steep pitch roof access. Photograph goat/harness equipment. This may trigger $125 safety equipment charge.',
+        estimatedMinutes: 5,
+        tags: ['michigan', 'safety', 'steep_roof', 'state_specific'],
+      },
+      evidence: [
+        {
+          type: 'photo',
+          label: 'Safety Equipment Photos',
+          description: 'Photos of safety equipment used for steep pitch roof access',
+          required: true,
+          photo: {
+            minCount: 2,
+            subjects: ['goat safety equipment', 'harness system', 'steep pitch angle'],
+          },
+        },
+        {
+          type: 'note',
+          label: 'Roof Pitch and Safety Notes',
+          required: true,
+          note: {
+            promptText: 'Document roof pitch and safety equipment used',
+            structuredFields: [
+              {
+                field: 'roofPitch',
+                type: 'text',
+                required: true,
+                placeholder: 'e.g., 9/12, 10/12, 12/12',
+              },
+              {
+                field: 'safetyEquipmentUsed',
+                type: 'select',
+                required: true,
+                options: ['goat', 'harness', 'ladder_stabilizer', 'roof_jacks', 'scaffolding'],
+              },
+            ],
+          },
+        },
+      ],
+      blocking: 'advisory',
+      priority: 85,
+      origin: 'state_rule' as StepOrigin,
+      sourceReference: 'Claim #6 MI - $125 steep roof assist charge',
+    },
+  ],
+
+  // Texas - State/Local Tax Documentation
+  TX: [
+    {
+      id: 'tx-001',
+      name: 'Texas Tax Documentation',
+      description: 'Verify property location for accurate state and local tax calculation',
+      version: '1.0.0',
+      conditions: {
+        logic: 'and',
+        conditions: [
+          {
+            id: 'state-tx',
+            source: 'property',
+            field: 'state',
+            operator: 'equals',
+            value: 'TX',
+          },
+        ],
+      },
+      step: {
+        phase: 'pre_inspection',
+        stepType: 'observation',
+        title: 'Texas Property Location Verification',
+        instructions: 'Verify exact property address and jurisdiction for state/local tax calculation. Texas has varying local tax rates.',
+        estimatedMinutes: 3,
+        tags: ['texas', 'tax', 'jurisdiction', 'state_specific'],
+      },
+      evidence: [
+        {
+          type: 'photo',
+          label: 'Address Verification Photo',
+          description: 'Clear photo showing property address for tax jurisdiction verification',
+          required: true,
+          photo: {
+            minCount: 1,
+            subjects: ['street sign', 'house number', 'mailbox'],
+          },
+        },
+      ],
+      blocking: 'advisory',
+      priority: 95,
+      origin: 'state_rule' as StepOrigin,
+      sourceReference: 'Claim #26 TX - Separate state/local tax line item',
+    },
+  ],
+};
+
+/**
+ * Get state-specific rules for a given state code
+ */
+export function getStateSpecificRules(stateCode: string): WorkflowRule[] {
+  return STATE_SPECIFIC_RULES[stateCode?.toUpperCase()] || [];
+}
+
+/**
+ * Regional Expense Rules
+ * Auto-populate expense tracking based on geography and claim characteristics
+ */
+export const REGIONAL_EXPENSE_RULES: WorkflowRule[] = [
+  // Rural mileage tracking (OH, PA)
+  {
+    id: 'regional-001',
+    name: 'Rural Area Mileage Tracking',
+    description: 'Track mileage for rural inspections requiring significant travel',
+    version: '1.0.0',
+    conditions: {
+      logic: 'and',
+      conditions: [
+        {
+          id: 'rural-states',
+          source: 'property',
+          field: 'state',
+          operator: 'in',
+          value: ['OH', 'PA', 'KY', 'TN'],
+        },
+      ],
+    },
+    step: {
+      phase: 'post_inspection',
+      stepType: 'observation',
+      title: 'Mileage Documentation',
+      instructions: 'Document round-trip mileage from office to property for reimbursement. Standard rate: $0.70/mile after first 100 miles.',
+      estimatedMinutes: 2,
+      tags: ['expense', 'mileage', 'rural', 'reimbursement'],
+    },
+    evidence: [
+      {
+        type: 'note',
+        label: 'Mileage Record',
+        required: true,
+        note: {
+          promptText: 'Record mileage for expense reimbursement',
+          structuredFields: [
+            {
+              field: 'startingOdometer',
+              type: 'number',
+              required: true,
+              placeholder: 'Odometer at office departure',
+            },
+            {
+              field: 'endingOdometer',
+              type: 'number',
+              required: true,
+              placeholder: 'Odometer at office return',
+            },
+            {
+              field: 'totalMiles',
+              type: 'number',
+              required: true,
+              placeholder: 'Total round-trip miles',
+            },
+          ],
+        },
+      },
+    ],
+    blocking: 'advisory',
+    priority: 70,
+    origin: 'regional_rule' as StepOrigin,
+    sourceReference: 'Claims #33 OH ($270.90 / 387 mi), #2 PA ($111.30 / 159 mi)',
+  },
+
+  // Urban toll expenses (NJ, Northeast metro areas)
+  {
+    id: 'regional-002',
+    name: 'Urban Toll Expense Tracking',
+    description: 'Document toll expenses for urban inspections',
+    version: '1.0.0',
+    conditions: {
+      logic: 'and',
+      conditions: [
+        {
+          id: 'urban-toll-states',
+          source: 'property',
+          field: 'state',
+          operator: 'in',
+          value: ['NJ', 'NY', 'MA', 'CT'],
+        },
+      ],
+    },
+    step: {
+      phase: 'post_inspection',
+      stepType: 'observation',
+      title: 'Toll Expense Documentation',
+      instructions: 'Document toll road expenses incurred during inspection travel. Save receipts or toll transponder records.',
+      estimatedMinutes: 2,
+      tags: ['expense', 'toll', 'urban', 'reimbursement'],
+    },
+    evidence: [
+      {
+        type: 'photo',
+        label: 'Toll Receipts',
+        required: false,
+        photo: {
+          minCount: 1,
+          subjects: ['toll receipt', 'EZPass statement'],
+        },
+      },
+      {
+        type: 'note',
+        label: 'Toll Expenses',
+        required: true,
+        note: {
+          promptText: 'Record toll expenses for reimbursement',
+          structuredFields: [
+            {
+              field: 'totalTollExpense',
+              type: 'number',
+              required: true,
+              placeholder: 'Total toll charges',
+            },
+            {
+              field: 'tollDetails',
+              type: 'text',
+              required: false,
+              placeholder: 'Route taken, toll plazas crossed',
+            },
+          ],
+        },
+      },
+    ],
+    blocking: 'advisory',
+    priority: 70,
+    origin: 'regional_rule' as StepOrigin,
+    sourceReference: 'Claim #27 NJ - $44.44 toll expenses',
+  },
+];
+
 // ============================================
 // RULE ENGINE CLASS
 // ============================================
@@ -1028,10 +1532,22 @@ export class WorkflowRulesEngine {
       ...FIRE_DAMAGE_RULES,
       ...POLICY_DRIVEN_RULES,
       ...ROOM_INSPECTION_RULES,
+      ...REGIONAL_EXPENSE_RULES,
     ];
 
     // Sort by priority
     this.rules.sort((a, b) => a.priority - b.priority);
+  }
+
+  /**
+   * Load state-specific rules for a given context
+   */
+  loadStateRules(stateCode: string): void {
+    const stateRules = getStateSpecificRules(stateCode);
+    if (stateRules.length > 0) {
+      this.rules = [...this.rules, ...stateRules];
+      this.rules.sort((a, b) => a.priority - b.priority);
+    }
   }
 
   /**

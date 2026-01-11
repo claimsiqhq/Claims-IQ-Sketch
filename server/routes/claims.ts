@@ -18,6 +18,7 @@ import {
 } from '../services/claims';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createLogger } from '../lib/logger';
+import { checkSublimitStatus, getAllSublimitAlerts } from '../services/sublimitTracker';
 
 const router = Router();
 const log = createLogger({ module: 'claims-routes' });
@@ -376,6 +377,34 @@ router.post('/:id/scope-items', requireAuth, requireOrganization, async (req: Re
   } catch (error) {
     log.error({ err: error }, 'Add scope item error');
     res.status(500).json({ message: 'Failed to add scope item' });
+  }
+});
+
+// =================================================
+// Sublimit Tracking
+// =================================================
+
+/**
+ * POST /api/claims/:id/check-sublimits
+ * Check if current estimate exceeds policy sublimits
+ */
+router.post('/:id/check-sublimits', requireAuth, requireOrganization, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { currentEstimate, coverageType } = req.body;
+
+    if (!currentEstimate || typeof currentEstimate !== 'number') {
+      return res.status(400).json({ error: 'currentEstimate is required and must be a number' });
+    }
+
+    const alerts = coverageType
+      ? [await checkSublimitStatus(id, currentEstimate, coverageType)]
+      : await getAllSublimitAlerts(id, currentEstimate);
+
+    res.json({ alerts: alerts.filter(a => a !== null) });
+  } catch (error) {
+    log.error({ err: error }, 'Check sublimits error');
+    res.status(500).json({ message: 'Failed to check sublimits' });
   }
 });
 

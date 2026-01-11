@@ -190,7 +190,9 @@ export type StepOrigin =
   | 'peril_rule'     // Generated from peril-specific rules
   | 'discovery'      // Added during inspection based on findings
   | 'geometry'       // Added when room/zone added
-  | 'manual';        // Manually added by adjuster
+  | 'manual'         // Manually added by adjuster
+  | 'state_rule'     // State-specific rules (MO, MI, TX, etc.)
+  | 'regional_rule'; // Regional expense rules (mileage, tolls, etc.)
 
 /**
  * Blocking behavior for a step

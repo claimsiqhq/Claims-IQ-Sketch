@@ -22,6 +22,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getPromptWithFallback, substituteVariables } from './promptService';
 import { recomputeEffectivePolicyIfNeeded } from './effectivePolicyService';
 import { queueGeocoding } from './geocoding';
+import { extractCatastropheNumber, storeCatastropheNumber } from './catastropheIntelligence';
 
 /**
  * Auto-trigger AI generation pipeline after document processing
@@ -1791,6 +1792,12 @@ export async function createClaimFromDocuments(
   const rawClaimNumber = claimInfo.claim_number || '';
   const claimNumber = rawClaimNumber.split(' ')[0] || await generateClaimId(organizationId);
 
+  // Extract catastrophe number from claim number (e.g., "01-002-161543 (CAT-PCS2532-2532)")
+  const catastropheNumber = extractCatastropheNumber(rawClaimNumber);
+  if (catastropheNumber) {
+    console.log(`[FNOL] Extracted catastrophe number: ${catastropheNumber}`);
+  }
+
   // Build insured name from name_1 and name_2
   const insuredName = [insuredInfo.name_1, insuredInfo.name_2]
     .filter(Boolean)
@@ -1918,6 +1925,11 @@ export async function createClaimFromDocuments(
   }
 
   const claimId = newClaim.id;
+
+  // Store catastrophe number if extracted
+  if (catastropheNumber) {
+    await storeCatastropheNumber(claimId, catastropheNumber);
+  }
 
   // Associate documents with claim
   for (const docId of documentIds) {
