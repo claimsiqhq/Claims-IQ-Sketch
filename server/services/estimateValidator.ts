@@ -1153,3 +1153,490 @@ export function formatExtendedValidationResult(result: ExtendedValidationResult)
 
   return lines.join('\n');
 }
+
+// ============================================
+// PRICED ESTIMATE VALIDATION
+// ============================================
+
+import type { PricedEstimateResult, PricedLineItem, TradeTotals } from './estimatePricingEngine';
+
+/**
+ * Priced estimate validation result
+ */
+export interface PricedEstimateValidationResult {
+  isValid: boolean;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  issues: ValidationIssue[];
+  validatedAt: Date;
+  summary: {
+    missingCompanions: number;
+    quantityMismatches: number;
+    tradeIncomplete: number;
+    coverageIssues: number;
+    pricingAnomalies: number;
+    duplicateItems: number;
+  };
+}
+
+/**
+ * Extended companion rules for priced estimates
+ */
+const PRICED_COMPANION_RULES: Array<{
+  primaryPattern: RegExp;
+  companionPattern: RegExp;
+  relationship: 'requires' | 'suggests' | 'often_with';
+  description: string;
+}> = [
+  // Drywall work
+  {
+    primaryPattern: /^DRY.*HANG/i,
+    companionPattern: /^DRY.*TAPE/i,
+    relationship: 'requires',
+    description: 'Hanging drywall requires taping and finishing',
+  },
+  {
+    primaryPattern: /^DRY.*TAPE/i,
+    companionPattern: /^PNT.*PRIME/i,
+    relationship: 'suggests',
+    description: 'Taped drywall typically needs priming',
+  },
+  {
+    primaryPattern: /^PNT.*PRIME/i,
+    companionPattern: /^PNT.*(WALL|CEIL)/i,
+    relationship: 'requires',
+    description: 'Priming requires finish paint',
+  },
+  // Flooring work
+  {
+    primaryPattern: /^FLR.*REMOVE/i,
+    companionPattern: /^FLR.*INSTALL/i,
+    relationship: 'suggests',
+    description: 'Flooring removal typically followed by installation',
+  },
+  {
+    primaryPattern: /^FLR.*INSTALL/i,
+    companionPattern: /^FLR.*(BASE|TRIM)/i,
+    relationship: 'suggests',
+    description: 'Flooring installation often needs baseboard',
+  },
+  // Demo work
+  {
+    primaryPattern: /^DEM.*DRY/i,
+    companionPattern: /^DRY.*HANG/i,
+    relationship: 'suggests',
+    description: 'Drywall demolition typically followed by replacement',
+  },
+  {
+    primaryPattern: /^DEM.*INSUL/i,
+    companionPattern: /^INS.*(BATT|BLOW)/i,
+    relationship: 'suggests',
+    description: 'Insulation removal typically followed by replacement',
+  },
+  // Mitigation
+  {
+    primaryPattern: /^MIT.*EXTRACT/i,
+    companionPattern: /^MIT.*DEHU/i,
+    relationship: 'requires',
+    description: 'Water extraction requires dehumidification',
+  },
+  {
+    primaryPattern: /^MIT.*DEHU/i,
+    companionPattern: /^MIT.*AIR/i,
+    relationship: 'often_with',
+    description: 'Dehumidification often paired with air movers',
+  },
+  // Electrical
+  {
+    primaryPattern: /^ELE.*OUTLET/i,
+    companionPattern: /^ELE.*(COVER|PLATE)/i,
+    relationship: 'requires',
+    description: 'Outlet installation requires cover plates',
+  },
+];
+
+/**
+ * Trade completion sequences
+ */
+const TRADE_SEQUENCES: Record<string, { steps: string[]; description: string }> = {
+  DRY: {
+    steps: ['DEM', 'HANG', 'TAPE', 'PRIME', 'PAINT'],
+    description: 'Drywall: demo -> hang -> tape -> prime -> paint',
+  },
+  FLR: {
+    steps: ['REMOVE', 'PREP', 'INSTALL', 'BASE'],
+    description: 'Flooring: remove -> prep -> install -> baseboard',
+  },
+  MIT: {
+    steps: ['EXTRACT', 'DEHU', 'AIR', 'FINAL'],
+    description: 'Mitigation: extraction -> drying -> final',
+  },
+  RFG: {
+    steps: ['TEAR', 'DECK', 'FELT', 'SHINGLE'],
+    description: 'Roofing: tear-off -> deck -> underlayment -> shingles',
+  },
+  PNT: {
+    steps: ['PREP', 'PRIME', 'COAT'],
+    description: 'Painting: prep -> prime -> finish coat',
+  },
+};
+
+/**
+ * Validate a priced estimate result
+ */
+export async function validatePricedEstimate(
+  estimate: PricedEstimateResult
+): Promise<PricedEstimateValidationResult> {
+  const issues: ValidationIssue[] = [];
+
+  // Run all validation checks
+  const companionIssues = validatePricedCompanionItems(estimate.lineItems);
+  const quantityIssues = validatePricedQuantities(estimate.lineItems);
+  const tradeIssues = validatePricedTradeCompleteness(estimate.lineItems, estimate.tradeBreakdown);
+  const coverageIssues = validatePricedCoverageAssignments(estimate.lineItems);
+  const pricingIssues = validatePricedPricingAnomalies(estimate.lineItems);
+  const duplicateIssues = validatePricedDuplicates(estimate.lineItems);
+
+  issues.push(
+    ...companionIssues,
+    ...quantityIssues,
+    ...tradeIssues,
+    ...coverageIssues,
+    ...pricingIssues,
+    ...duplicateIssues
+  );
+
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+  const warningCount = issues.filter((i) => i.severity === 'warning').length;
+  const infoCount = issues.filter((i) => i.severity === 'info').length;
+
+  return {
+    isValid: errorCount === 0,
+    errorCount,
+    warningCount,
+    infoCount,
+    issues,
+    validatedAt: new Date(),
+    summary: {
+      missingCompanions: companionIssues.length,
+      quantityMismatches: quantityIssues.length,
+      tradeIncomplete: tradeIssues.length,
+      coverageIssues: coverageIssues.length,
+      pricingAnomalies: pricingIssues.length,
+      duplicateItems: duplicateIssues.length,
+    },
+  };
+}
+
+/**
+ * Validate companion items in priced estimate
+ */
+function validatePricedCompanionItems(items: PricedLineItem[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const itemCodes = items.map((i) => i.lineItemCode);
+
+  for (const rule of PRICED_COMPANION_RULES) {
+    const primaryMatches = itemCodes.filter((code) => rule.primaryPattern.test(code));
+    const hasCompanion = itemCodes.some((code) => rule.companionPattern.test(code));
+
+    if (primaryMatches.length > 0 && !hasCompanion) {
+      const severity: ValidationSeverity =
+        rule.relationship === 'requires' ? 'error' :
+        rule.relationship === 'suggests' ? 'warning' : 'info';
+
+      issues.push({
+        code: `CMP-${rule.relationship.toUpperCase()}`,
+        severity,
+        category: 'completeness',
+        message: `${primaryMatches[0]} typically needs companion item`,
+        details: rule.description,
+        suggestion: `Consider adding matching item for: ${rule.companionPattern}`,
+        relatedItems: primaryMatches,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Validate quantities in priced estimate
+ */
+function validatePricedQuantities(items: PricedLineItem[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  for (const item of items) {
+    // Check for zero or negative quantities
+    if (item.quantity <= 0) {
+      issues.push({
+        code: 'QTY-ZERO',
+        severity: 'error',
+        category: 'quantity',
+        message: `${item.lineItemCode} has invalid quantity: ${item.quantity}`,
+        details: `Quantity must be greater than zero`,
+        suggestion: 'Remove this item or set a valid quantity',
+        relatedItems: [item.lineItemCode],
+        zoneId: item.zoneId,
+        zoneName: item.zoneName,
+      });
+    }
+
+    // Check for unusually large quantities
+    if (item.unit === 'SF' && item.quantity > 10000) {
+      issues.push({
+        code: 'QTY-LARGE',
+        severity: 'warning',
+        category: 'quantity',
+        message: `${item.lineItemCode} has large quantity: ${item.quantity} SF`,
+        details: 'This exceeds typical residential room sizes',
+        suggestion: 'Verify measurements are correct',
+        relatedItems: [item.lineItemCode],
+        zoneId: item.zoneId,
+        zoneName: item.zoneName,
+      });
+    }
+
+    // Check for fractional EA items
+    if (item.unit === 'EA' && item.quantity !== Math.floor(item.quantity)) {
+      issues.push({
+        code: 'QTY-FRAC-EA',
+        severity: 'warning',
+        category: 'quantity',
+        message: `${item.lineItemCode} has fractional EA quantity: ${item.quantity}`,
+        details: 'Each items should typically be whole numbers',
+        suggestion: 'Round to nearest whole number',
+        relatedItems: [item.lineItemCode],
+        zoneId: item.zoneId,
+        zoneName: item.zoneName,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Validate trade completeness in priced estimate
+ */
+function validatePricedTradeCompleteness(
+  items: PricedLineItem[],
+  tradeBreakdown: TradeTotals[]
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  // Group items by trade
+  const itemsByTrade = new Map<string, PricedLineItem[]>();
+  for (const item of items) {
+    const trade = item.tradeCode || 'GEN';
+    if (!itemsByTrade.has(trade)) {
+      itemsByTrade.set(trade, []);
+    }
+    itemsByTrade.get(trade)!.push(item);
+  }
+
+  // Check each trade against completion rules
+  for (const [trade, sequence] of Object.entries(TRADE_SEQUENCES)) {
+    const tradeItems = itemsByTrade.get(trade);
+    if (!tradeItems || tradeItems.length === 0) continue;
+
+    // Extract step keywords from item codes
+    const presentSteps = new Set<string>();
+    for (const item of tradeItems) {
+      for (const step of sequence.steps) {
+        if (item.lineItemCode.toUpperCase().includes(step)) {
+          presentSteps.add(step);
+        }
+      }
+    }
+
+    // Find missing sequence items
+    const missing = sequence.steps.filter((step) => !presentSteps.has(step));
+
+    if (missing.length > 0 && missing.length < sequence.steps.length) {
+      issues.push({
+        code: 'TRD-INCOMPLETE',
+        severity: 'warning',
+        category: 'completeness',
+        message: `${trade} trade may be incomplete`,
+        details: `Missing steps: ${missing.join(', ')}. ${sequence.description}`,
+        suggestion: `Consider adding items for: ${missing.join(', ')}`,
+        relatedItems: tradeItems.map((i) => i.lineItemCode),
+      });
+    }
+  }
+
+  // Check for isolated trade items
+  for (const [trade, tradeItems] of itemsByTrade) {
+    if (tradeItems.length === 1 && !['GEN', 'CLN', 'OTH'].includes(trade)) {
+      issues.push({
+        code: 'TRD-SINGLE',
+        severity: 'info',
+        category: 'completeness',
+        message: `Only one ${trade} item in estimate`,
+        details: `${tradeItems[0].lineItemCode} is the only item for this trade`,
+        suggestion: 'Verify no additional work is needed',
+        relatedItems: [tradeItems[0].lineItemCode],
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Coverage assignment rules by trade
+ */
+const COVERAGE_BY_TRADE: Record<string, { expected: string[]; forbidden: string[] }> = {
+  MIT: { expected: ['A'], forbidden: ['C'] },
+  RFG: { expected: ['A', 'B'], forbidden: ['C'] },
+  EXT: { expected: ['A', 'B'], forbidden: ['C'] },
+  APP: { expected: ['C'], forbidden: ['A', 'B'] },
+  FRN: { expected: ['C'], forbidden: ['A', 'B'] },
+  ELE: { expected: ['A'], forbidden: [] },
+  PLM: { expected: ['A'], forbidden: [] },
+  DRY: { expected: ['A'], forbidden: ['C'] },
+  PNT: { expected: ['A'], forbidden: ['C'] },
+  FLR: { expected: ['A'], forbidden: [] },
+};
+
+/**
+ * Validate coverage assignments in priced estimate
+ */
+function validatePricedCoverageAssignments(items: PricedLineItem[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  for (const item of items) {
+    const trade = item.tradeCode || 'GEN';
+    const rules = COVERAGE_BY_TRADE[trade];
+
+    if (rules) {
+      // Check forbidden coverage
+      if (rules.forbidden.includes(item.coverageCode)) {
+        issues.push({
+          code: 'COV-FORBIDDEN',
+          severity: 'error',
+          category: 'coverage',
+          message: `${item.lineItemCode} assigned to wrong coverage`,
+          details: `${trade} items should not be under Coverage ${item.coverageCode}`,
+          suggestion: `Move to Coverage ${rules.expected[0]}`,
+          relatedItems: [item.lineItemCode],
+          zoneId: item.zoneId,
+          zoneName: item.zoneName,
+        });
+      }
+
+      // Check unusual coverage (info only)
+      if (rules.expected.length > 0 && !rules.expected.includes(item.coverageCode)) {
+        issues.push({
+          code: 'COV-UNUSUAL',
+          severity: 'info',
+          category: 'coverage',
+          message: `${item.lineItemCode} in unusual coverage`,
+          details: `${trade} items are typically under Coverage ${rules.expected.join(' or ')}`,
+          relatedItems: [item.lineItemCode],
+          zoneId: item.zoneId,
+          zoneName: item.zoneName,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Validate pricing anomalies
+ */
+function validatePricedPricingAnomalies(items: PricedLineItem[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  for (const item of items) {
+    // Check for zero price
+    if (item.unitPrice <= 0) {
+      issues.push({
+        code: 'PRC-ZERO',
+        severity: 'error',
+        category: 'quantity', // Using quantity as proxy for pricing category
+        message: `${item.lineItemCode} has no pricing`,
+        details: 'Unit price is zero or negative',
+        suggestion: 'Verify item exists in pricing catalog',
+        relatedItems: [item.lineItemCode],
+        zoneId: item.zoneId,
+        zoneName: item.zoneName,
+      });
+    }
+
+    // Check for unusually high unit prices
+    if (item.unitPrice > 500 && item.unit !== 'EA') {
+      issues.push({
+        code: 'PRC-HIGH',
+        severity: 'warning',
+        category: 'quantity',
+        message: `${item.lineItemCode} has high unit price: $${item.unitPrice.toFixed(2)}/${item.unit}`,
+        details: 'This exceeds typical pricing for this unit type',
+        suggestion: 'Verify regional pricing is correct',
+        relatedItems: [item.lineItemCode],
+        zoneId: item.zoneId,
+        zoneName: item.zoneName,
+      });
+    }
+
+    // Check for items where labor greatly exceeds material
+    if (
+      item.totalLabor > item.totalMaterial * 3 &&
+      item.totalMaterial > 0 &&
+      !['MIT', 'CLN', 'GEN'].includes(item.tradeCode || '')
+    ) {
+      issues.push({
+        code: 'PRC-LABOR-HEAVY',
+        severity: 'info',
+        category: 'quantity',
+        message: `${item.lineItemCode} is heavily labor-weighted`,
+        details: `Labor: $${item.totalLabor.toFixed(2)}, Material: $${item.totalMaterial.toFixed(2)}`,
+        relatedItems: [item.lineItemCode],
+        zoneId: item.zoneId,
+        zoneName: item.zoneName,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Validate for duplicate items
+ */
+function validatePricedDuplicates(items: PricedLineItem[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  // Group by code and zone
+  const seen = new Map<string, PricedLineItem[]>();
+  for (const item of items) {
+    const key = `${item.lineItemCode}-${item.zoneId || 'global'}`;
+    if (!seen.has(key)) {
+      seen.set(key, []);
+    }
+    seen.get(key)!.push(item);
+  }
+
+  // Find duplicates
+  for (const [key, duplicates] of seen) {
+    if (duplicates.length > 1) {
+      const totalQty = duplicates.reduce((sum, i) => sum + i.quantity, 0);
+      issues.push({
+        code: 'DUP-ITEM',
+        severity: 'warning',
+        category: 'completeness',
+        message: `${duplicates[0].lineItemCode} appears ${duplicates.length} times`,
+        details: `Total quantity: ${totalQty} ${duplicates[0].unit}`,
+        suggestion: 'Consider consolidating into single line item',
+        relatedItems: [duplicates[0].lineItemCode],
+        zoneId: duplicates[0].zoneId,
+        zoneName: duplicates[0].zoneName,
+      });
+    }
+  }
+
+  return issues;
+}
