@@ -1,23 +1,16 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import pkg from 'pg';
-const { Pool } = pkg;
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 
 /**
  * Database Connection Configuration
  *
- * This module connects to the Supabase PostgreSQL database.
- *
- * NEW VARIABLE (recommended):
- * - SUPABASE_DATABASE_URL - Direct PostgreSQL connection string
- *
- * LEGACY VARIABLE (deprecated):
- * - DATABASE_URL - Legacy database URL (for backwards compatibility)
+ * This module connects to the Supabase PostgreSQL database using postgres.js.
+ * Uses the Supabase connection pooler with prepare: false for transaction mode.
  *
  * Connection string format:
- * postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+ * postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
  */
 
-// NEW variable name (preferred), falls back to legacy DATABASE_URL
 const databaseUrl =
   process.env.SUPABASE_DATABASE_URL ||
   process.env.DATABASE_URL;
@@ -30,21 +23,20 @@ if (!databaseUrl) {
   );
 }
 
-// Log if using legacy variable
 if (!process.env.SUPABASE_DATABASE_URL && process.env.DATABASE_URL) {
   console.warn(
     '[database] Using legacy DATABASE_URL. Consider renaming to SUPABASE_DATABASE_URL.'
   );
 }
 
-export const pool = new Pool({
-  connectionString: databaseUrl,
-  // Supabase pooler requires SSL
-  ssl: { rejectUnauthorized: false },
-  // Supabase pooler recommended settings
+const client = postgres(databaseUrl, {
+  prepare: false,
+  ssl: 'require',
   max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  idle_timeout: 30,
+  connect_timeout: 10,
 });
 
-export const db = drizzle(pool);
+export const db = drizzle(client);
+
+export { client as pool };
