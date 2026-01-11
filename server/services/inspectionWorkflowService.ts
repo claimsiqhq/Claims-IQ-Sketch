@@ -36,6 +36,7 @@ import {
   EndorsementImpact,
   RoofPaymentScheduleEntry,
   EffectivePolicy,
+  WorkflowJsonStep,
 } from '../../shared/schema';
 import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
 import { getPromptWithFallback } from './promptService';
@@ -584,6 +585,141 @@ function validateWorkflowSchema(response: unknown): response is AIWorkflowRespon
   return true;
 }
 
+/**
+ * Validate that workflow_json.steps exists and is non-empty.
+ * This is a CRITICAL invariant: inspection_workflow_steps can ONLY be created
+ * if workflow_json.steps is present and non-empty.
+ *
+ * @throws Error if workflow_json.steps is missing or empty
+ */
+function validateWorkflowJsonSteps(workflowJson: InspectionWorkflowJson): void {
+  if (!workflowJson.steps) {
+    throw new Error(
+      'WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps is missing. ' +
+      'Cannot create inspection_workflow_steps without a source of truth.'
+    );
+  }
+
+  if (!Array.isArray(workflowJson.steps)) {
+    throw new Error(
+      'WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps is not an array. ' +
+      'Cannot create inspection_workflow_steps without a valid steps array.'
+    );
+  }
+
+  if (workflowJson.steps.length === 0) {
+    throw new Error(
+      'WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps is empty. ' +
+      'Cannot create inspection_workflow_steps without at least one step in the source of truth.'
+    );
+  }
+
+  // Validate each step has required fields
+  for (let i = 0; i < workflowJson.steps.length; i++) {
+    const step = workflowJson.steps[i];
+    if (!step.phase || !step.step_type || !step.title || !step.instructions) {
+      throw new Error(
+        `WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps[${i}] is missing required fields. ` +
+        `Required: phase, step_type, title, instructions. Got: ${JSON.stringify(Object.keys(step))}`
+      );
+    }
+  }
+
+  console.log(`[InspectionWorkflow] Validated workflow_json.steps: ${workflowJson.steps.length} steps`);
+}
+
+/**
+ * Creates inspection_workflow_steps from workflow_json.steps (source of truth).
+ * step_index is assigned based on array position (1-indexed).
+ *
+ * @throws Error if workflow_json.steps validation fails
+ */
+async function createStepsFromWorkflowJson(
+  workflowId: string,
+  workflowJson: InspectionWorkflowJson
+): Promise<{ stepsCreated: number; error?: string }> {
+  // CRITICAL: Validate workflow_json.steps before creating any step records
+  validateWorkflowJsonSteps(workflowJson);
+
+  let stepsCreated = 0;
+
+  for (let i = 0; i < workflowJson.steps.length; i++) {
+    const step = workflowJson.steps[i];
+    // step_index is 1-indexed: steps[0] → step_index=1, steps[n-1] → step_index=n
+    const stepIndex = i + 1;
+
+    try {
+      const { data: insertedStepData, error: stepError } = await supabaseAdmin
+        .from('inspection_workflow_steps')
+        .insert({
+          workflow_id: workflowId,
+          step_index: stepIndex,
+          phase: step.phase,
+          step_type: step.step_type,
+          title: step.title,
+          instructions: step.instructions,
+          required: step.required,
+          tags: step.tags || [],
+          estimated_minutes: step.estimated_minutes,
+          peril_specific: step.peril_specific || null,
+          status: InspectionStepStatus.PENDING,
+          endorsement_source: step.endorsement_source || null,
+          // Dynamic workflow fields
+          origin: step.origin || null,
+          source_rule_id: step.source_rule_id || null,
+          conditions: step.conditions || null,
+          evidence_requirements: step.evidence_requirements || null,
+          blocking: step.blocking || null,
+          blocking_condition: step.blocking_condition || null,
+          geometry_binding: step.geometry_binding || null,
+          room_id: step.room_id || null,
+          room_name: step.room_name || null,
+        })
+        .select()
+        .single();
+
+      if (stepError || !insertedStepData) {
+        console.error(`[InspectionWorkflow] Error inserting step ${stepIndex}:`, stepError?.message);
+        continue;
+      }
+
+      const insertedStep = mapStepFromDb(insertedStepData);
+      stepsCreated++;
+
+      // Insert assets for this step if defined in workflow_json
+      if (step.assets && step.assets.length > 0) {
+        const assetInserts = step.assets.map(asset => ({
+          step_id: insertedStep.id,
+          asset_type: asset.asset_type,
+          label: asset.label,
+          required: asset.required,
+          metadata: asset.metadata || {},
+          status: 'pending',
+        }));
+
+        try {
+          await supabaseAdmin.from('inspection_workflow_assets').insert(assetInserts);
+        } catch (assetsError) {
+          console.error(`[InspectionWorkflow] Error inserting assets for step ${stepIndex}:`, assetsError);
+        }
+      }
+    } catch (stepError) {
+      console.error(`[InspectionWorkflow] Exception inserting step ${stepIndex}:`, stepError);
+      continue;
+    }
+  }
+
+  // Final invariant check: verify all steps were created
+  if (stepsCreated !== workflowJson.steps.length) {
+    console.warn(
+      `[InspectionWorkflow] Step count mismatch: workflow_json.steps has ${workflowJson.steps.length} steps, ` +
+      `but only ${stepsCreated} were created in inspection_workflow_steps.`
+    );
+  }
+
+  return { stepsCreated };
+}
+
 // ============================================
 // WIZARD CONTEXT TYPES
 // ============================================
@@ -871,7 +1007,46 @@ export async function generateInspectionWorkflow(
       return { success: false, error: `Failed to parse AI response: ${(parseError as Error).message}` };
     }
 
-    // Step 8: Build the workflow JSON with endorsement-driven steps merged
+    // Step 8: Build the STEPS array FIRST (source of truth)
+    // Endorsement-driven steps come first, then AI-generated steps
+    const workflowSteps: WorkflowJsonStep[] = [];
+
+    // 8a: Add endorsement-driven steps (policy requirements take priority)
+    for (const step of endorsementSteps) {
+      workflowSteps.push({
+        phase: step.phase as InspectionPhase,
+        step_type: step.step_type as InspectionStepType,
+        title: step.title,
+        instructions: step.instructions,
+        required: step.required,
+        tags: [...(step.tags || []), 'endorsement_requirement'],
+        estimated_minutes: step.estimated_minutes,
+        peril_specific: step.peril_specific || null,
+        endorsement_source: step.policySource,
+      });
+    }
+
+    // 8b: Add AI-generated steps
+    for (const step of (aiResponse.steps || [])) {
+      workflowSteps.push({
+        phase: step.phase as InspectionPhase,
+        step_type: step.step_type as InspectionStepType,
+        title: step.title,
+        instructions: step.instructions,
+        required: step.required,
+        tags: step.tags || [],
+        estimated_minutes: step.estimated_minutes,
+        peril_specific: step.peril_specific || null,
+        assets: step.assets?.map(asset => ({
+          asset_type: asset.asset_type,
+          label: asset.label,
+          required: asset.required,
+          metadata: asset.metadata,
+        })),
+      });
+    }
+
+    // Step 9: Build the workflow JSON with steps as SOURCE OF TRUTH
     const workflowJson: InspectionWorkflowJson = {
       metadata: {
         claim_number: context.claimNumber,
@@ -890,6 +1065,8 @@ export async function generateInspectionWorkflow(
         estimated_minutes: p.estimated_minutes,
         step_count: p.step_count,
       })) || [],
+      // SOURCE OF TRUTH: All steps in order
+      steps: workflowSteps,
       room_template: aiResponse.room_template
         ? {
             standard_steps: aiResponse.room_template.standard_steps.map(s => ({
@@ -919,6 +1096,15 @@ export async function generateInspectionWorkflow(
       open_questions: aiResponse.open_questions,
     };
 
+    // CRITICAL INVARIANT: Validate workflow_json.steps BEFORE saving
+    // This throws if steps is missing or empty - generation will abort
+    try {
+      validateWorkflowJsonSteps(workflowJson);
+    } catch (validationError) {
+      console.error('[InspectionWorkflow] Workflow JSON steps validation failed:', validationError);
+      return { success: false, error: (validationError as Error).message };
+    }
+
     // Build generated_from metadata
     const generatedFrom: WorkflowGeneratedFrom = {
       briefing_id: briefing?.id,
@@ -929,7 +1115,7 @@ export async function generateInspectionWorkflow(
       endorsement_ids: context.endorsements.extracted.map(e => e.formCode),
     };
 
-    // Step 9: Insert the workflow
+    // Step 10: Insert the workflow with workflow_json containing steps
     const { data: workflowData, error: workflowError } = await supabaseAdmin
       .from('inspection_workflows')
       .insert({
@@ -953,83 +1139,20 @@ export async function generateInspectionWorkflow(
 
     const workflow = mapWorkflowFromDb(workflowData);
 
-    // Step 10: Insert endorsement-driven steps FIRST (policy requirements take priority)
-    let stepIndex = 0;
-    for (const step of endorsementSteps) {
-      try {
-        await supabaseAdmin
-          .from('inspection_workflow_steps')
-          .insert({
-            workflow_id: workflow.id,
-            step_index: stepIndex++,
-            phase: step.phase,
-            step_type: step.step_type,
-            title: step.title,
-            instructions: step.instructions,
-            required: step.required,
-            tags: [...(step.tags || []), 'endorsement_requirement'],
-            estimated_minutes: step.estimated_minutes,
-            peril_specific: null,
-            status: InspectionStepStatus.PENDING,
-            endorsement_source: step.policySource,
-          });
-      } catch (stepError) {
-        console.error('[InspectionWorkflow] Error inserting endorsement step:', stepError);
-      }
+    // Step 11: Create inspection_workflow_steps FROM workflow_json.steps (source of truth)
+    // This function validates that workflow_json.steps exists and is non-empty,
+    // and creates step records with step_index matching array position (1-indexed)
+    const { stepsCreated, error: stepsError } = await createStepsFromWorkflowJson(
+      workflow.id,
+      workflowJson
+    );
+
+    if (stepsError) {
+      console.error('[InspectionWorkflow] Error creating steps from workflow_json:', stepsError);
+      // Note: workflow was created but steps failed - this should be investigated
     }
 
-    // Step 11: Insert AI-generated steps
-    for (const step of (aiResponse.steps || [])) {
-      try {
-        const { data: insertedStepData, error: stepError } = await supabaseAdmin
-          .from('inspection_workflow_steps')
-          .insert({
-            workflow_id: workflow.id,
-            step_index: stepIndex++,
-            phase: step.phase,
-            step_type: step.step_type,
-            title: step.title,
-            instructions: step.instructions,
-            required: step.required,
-            tags: step.tags || [],
-            estimated_minutes: step.estimated_minutes,
-            peril_specific: step.peril_specific || null,
-            status: InspectionStepStatus.PENDING,
-          })
-          .select()
-          .single();
-
-        if (stepError || !insertedStepData) {
-          console.error('Error inserting step:', stepError?.message);
-          continue;
-        }
-
-        const insertedStep = mapStepFromDb(insertedStepData);
-
-        // Insert assets for this step
-        if (step.assets && step.assets.length > 0) {
-          const assetInserts = step.assets.map(asset => ({
-            step_id: insertedStep.id,
-            asset_type: asset.asset_type,
-            label: asset.label,
-            required: asset.required,
-            metadata: asset.metadata || {},
-            status: 'pending',
-          }));
-
-          try {
-            await supabaseAdmin.from('inspection_workflow_assets').insert(assetInserts);
-          } catch (assetsError) {
-            console.error('Error inserting assets:', assetsError);
-          }
-        }
-      } catch (stepError) {
-        console.error('Error inserting step:', stepError);
-        continue;
-      }
-    }
-
-    console.log(`[InspectionWorkflow] Generated enhanced workflow v${nextVersion} for claim ${claimId}: ${stepIndex} total steps (${endorsementSteps.length} endorsement-driven), data completeness: ${context.meta.dataCompleteness.completenessScore}%`);
+    console.log(`[InspectionWorkflow] Generated enhanced workflow v${nextVersion} for claim ${claimId}: ${stepsCreated} steps created from workflow_json.steps (${workflowJson.steps.length} in source, ${endorsementSteps.length} endorsement-driven), data completeness: ${context.meta.dataCompleteness.completenessScore}%`);
 
     return {
       success: true,
@@ -1129,17 +1252,18 @@ export async function expandWorkflowForRooms(
       return { success: false, addedSteps: 0, error: 'Workflow has no room template' };
     }
 
-    // Get the current max step index
-    const { data: maxIndexData, error: maxIndexError } = await supabaseAdmin
-      .from('inspection_workflow_steps')
-      .select('step_index')
-      .eq('workflow_id', workflowId)
-      .order('step_index', { ascending: false })
-      .limit(1);
+    // Ensure workflow_json.steps exists (source of truth)
+    if (!workflowJson.steps) {
+      workflowJson.steps = [];
+    }
 
-    let nextIndex = (!maxIndexError && maxIndexData && maxIndexData.length > 0) ? maxIndexData[0].step_index + 1 : 0;
-
+    // Track new steps to add to workflow_json.steps
+    const newSteps: WorkflowJsonStep[] = [];
     let addedSteps = 0;
+    let roomSortOrder = 0;
+
+    // First, collect all steps to add and create room records
+    const roomRecords: { roomId: string; roomName: string }[] = [];
 
     for (const roomName of roomNames) {
       // Create the room record
@@ -1148,7 +1272,7 @@ export async function expandWorkflowForRooms(
         .insert({
           workflow_id: workflowId,
           name: roomName,
-          sort_order: addedSteps,
+          sort_order: roomSortOrder++,
         })
         .select()
         .single();
@@ -1159,70 +1283,98 @@ export async function expandWorkflowForRooms(
       }
 
       const room = mapRoomFromDb(roomData);
-      const roomId = room.id;
+      roomRecords.push({ roomId: room.id, roomName });
 
-      // Add standard room steps
-      const standardSteps = workflowJson.room_template.standard_steps.map(step => ({
-        workflow_id: workflowId,
-        step_index: nextIndex++,
-        phase: 'interior',
-        step_type: step.step_type,
-        title: `${roomName}: ${step.title}`,
-        instructions: step.instructions.replace('{room}', roomName),
-        required: step.required,
-        estimated_minutes: step.estimated_minutes,
-        room_id: roomId,
-        room_name: roomName,
-        status: 'pending',
-      }));
-
-      if (standardSteps.length > 0) {
-        try {
-          await supabaseAdmin.from('inspection_workflow_steps').insert(standardSteps);
-          addedSteps += standardSteps.length;
-        } catch (stepsError) {
-          console.error('Error inserting standard steps:', stepsError);
-        }
-      }
-
-      // Add peril-specific steps if applicable
-      const primaryPeril = workflow.primaryPeril;
-      const perilSteps = primaryPeril ? workflowJson.room_template.peril_specific_steps?.[primaryPeril] : null;
-
-      if (perilSteps && perilSteps.length > 0) {
-        const perilSpecificSteps = perilSteps.map(step => ({
-          workflow_id: workflowId,
-          step_index: nextIndex++,
-          phase: 'interior',
+      // Build standard room steps for workflow_json.steps
+      for (const step of workflowJson.room_template.standard_steps) {
+        newSteps.push({
+          phase: 'interior' as InspectionPhase,
           step_type: step.step_type,
           title: `${roomName}: ${step.title}`,
           instructions: step.instructions.replace('{room}', roomName),
           required: step.required,
           estimated_minutes: step.estimated_minutes,
-          room_id: roomId,
+          tags: ['room_step'],
+          room_id: room.id,
           room_name: roomName,
-          peril_specific: primaryPeril,
-          status: 'pending',
-        }));
+        });
+      }
 
-        try {
-          await supabaseAdmin.from('inspection_workflow_steps').insert(perilSpecificSteps);
-          addedSteps += perilSpecificSteps.length;
-        } catch (perilStepsError) {
-          console.error('Error inserting peril-specific steps:', perilStepsError);
+      // Build peril-specific steps for workflow_json.steps
+      const primaryPeril = workflow.primaryPeril;
+      const perilSteps = primaryPeril ? workflowJson.room_template.peril_specific_steps?.[primaryPeril] : null;
+
+      if (perilSteps && perilSteps.length > 0) {
+        for (const step of perilSteps) {
+          newSteps.push({
+            phase: 'interior' as InspectionPhase,
+            step_type: step.step_type,
+            title: `${roomName}: ${step.title}`,
+            instructions: step.instructions.replace('{room}', roomName),
+            required: step.required,
+            estimated_minutes: step.estimated_minutes,
+            tags: ['room_step', 'peril_specific'],
+            peril_specific: primaryPeril,
+            room_id: room.id,
+            room_name: roomName,
+          });
         }
       }
     }
 
-    // Update the workflow updated_at
-    try {
-      await supabaseAdmin
-        .from('inspection_workflows')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', workflowId);
-    } catch (updateError) {
-      console.error('Error updating workflow timestamp:', updateError);
+    if (newSteps.length === 0) {
+      return { success: true, addedSteps: 0 };
     }
+
+    // Update workflow_json.steps with new steps (source of truth first)
+    const updatedSteps = [...workflowJson.steps, ...newSteps];
+    workflowJson.steps = updatedSteps;
+
+    // Update workflow with new workflow_json
+    const { error: updateWorkflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .update({
+        workflow_json: workflowJson,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', workflowId);
+
+    if (updateWorkflowError) {
+      console.error('Error updating workflow_json:', updateWorkflowError);
+      return { success: false, addedSteps: 0, error: 'Failed to update workflow_json' };
+    }
+
+    // Now create step records from the new steps in workflow_json.steps
+    // step_index is based on position in workflow_json.steps (1-indexed)
+    const baseIndex = workflowJson.steps.length - newSteps.length;
+    const stepsToInsert = newSteps.map((step, i) => ({
+      workflow_id: workflowId,
+      // step_index = position in workflow_json.steps + 1 (1-indexed)
+      step_index: baseIndex + i + 1,
+      phase: step.phase,
+      step_type: step.step_type,
+      title: step.title,
+      instructions: step.instructions,
+      required: step.required,
+      estimated_minutes: step.estimated_minutes,
+      tags: step.tags || [],
+      room_id: step.room_id,
+      room_name: step.room_name,
+      peril_specific: step.peril_specific || null,
+      status: InspectionStepStatus.PENDING,
+    }));
+
+    const { error: insertError } = await supabaseAdmin
+      .from('inspection_workflow_steps')
+      .insert(stepsToInsert);
+
+    if (insertError) {
+      console.error('Error inserting room steps:', insertError);
+      return { success: false, addedSteps: 0, error: 'Failed to insert step records' };
+    }
+
+    addedSteps = stepsToInsert.length;
+    console.log(`[InspectionWorkflow] expandWorkflowForRooms: Added ${addedSteps} steps to workflow_json.steps and created step records`);
 
     return { success: true, addedSteps };
   } catch (error) {
@@ -1466,6 +1618,7 @@ export async function updateWorkflowStep(
 
 /**
  * Add a custom step to a workflow
+ * Updates workflow_json.steps (source of truth) first, then creates step record
  */
 export async function addWorkflowStep(
   workflowId: string,
@@ -1481,21 +1634,61 @@ export async function addWorkflowStep(
   }
 ): Promise<InspectionWorkflowStep | null> {
   try {
-    // Get the next step index
-    const { data: maxIndexData, error: maxIndexError } = await supabaseAdmin
-      .from('inspection_workflow_steps')
-      .select('step_index')
-      .eq('workflow_id', workflowId)
-      .order('step_index', { ascending: false })
-      .limit(1);
+    // Get the workflow to update workflow_json.steps
+    const { data: workflowData, error: workflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('workflow_json')
+      .eq('id', workflowId)
+      .single();
 
-    const nextIndex = (!maxIndexError && maxIndexData && maxIndexData.length > 0) ? maxIndexData[0].step_index + 1 : 0;
+    if (workflowError || !workflowData) {
+      console.error('Error getting workflow:', workflowError?.message);
+      return null;
+    }
 
+    const workflowJson = workflowData.workflow_json as InspectionWorkflowJson;
+    if (!workflowJson.steps) {
+      workflowJson.steps = [];
+    }
+
+    // Build the new step for workflow_json.steps
+    const newStep: WorkflowJsonStep = {
+      phase: step.phase as InspectionPhase,
+      step_type: step.stepType as InspectionStepType,
+      title: step.title,
+      instructions: step.instructions || '',
+      required: step.required ?? true,
+      estimated_minutes: step.estimatedMinutes ?? 5,
+      tags: ['manual'],
+      room_id: step.roomId,
+      room_name: step.roomName,
+      origin: 'manual',
+    };
+
+    // Add to workflow_json.steps (source of truth)
+    workflowJson.steps.push(newStep);
+    const stepIndex = workflowJson.steps.length; // 1-indexed
+
+    // Update workflow with new workflow_json
+    const { error: updateError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .update({
+        workflow_json: workflowJson,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', workflowId);
+
+    if (updateError) {
+      console.error('Error updating workflow_json:', updateError);
+      return null;
+    }
+
+    // Now create the step record with step_index matching workflow_json.steps position
     const { data, error } = await supabaseAdmin
       .from('inspection_workflow_steps')
       .insert({
         workflow_id: workflowId,
-        step_index: nextIndex,
+        step_index: stepIndex,
         phase: step.phase,
         step_type: step.stepType,
         title: step.title,
@@ -1505,6 +1698,7 @@ export async function addWorkflowStep(
         room_id: step.roomId || null,
         room_name: step.roomName || null,
         status: 'pending',
+        origin: 'manual',
       })
       .select()
       .single();
@@ -1513,6 +1707,8 @@ export async function addWorkflowStep(
       console.error('Error adding workflow step:', error?.message);
       return null;
     }
+
+    console.log(`[InspectionWorkflow] addWorkflowStep: Added step to workflow_json.steps[${stepIndex - 1}] and created step record with step_index=${stepIndex}`);
 
     return mapStepFromDb(data);
   } catch (error) {
