@@ -6,6 +6,7 @@ import { RealtimeSession } from '@openai/agents/realtime';
 import type { RealtimeItem } from '@openai/agents/realtime';
 import { createScopeAgentAsync } from '../agents/scope-agent';
 import { useScopeEngine } from '../services/scope-engine';
+import { logger } from '@/lib/logger';
 
 interface UseVoiceScopeSessionOptions {
   claimId?: string; // Claim ID for context-aware prompt injection
@@ -63,7 +64,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
         const response = await fetch(`/api/ai/search-line-items?${searchParams}`);
         if (response.ok) {
           const { results } = await response.json();
-          console.log('Search results:', results);
+          logger.debug('Search results', { count: results?.length });
           // The results would be used by the agent in its next response
         }
       } else if (parsed.action === 'suggest') {
