@@ -96,6 +96,11 @@ import {
   deleteScopeItem as apiDeleteScopeItem,
   getClaimContext,
   getCoverageAnalysisSummary,
+  getClaimPhotos,
+  uploadPhoto,
+  deletePhoto,
+  updatePhoto,
+  reanalyzePhoto,
   type Claim,
   type Document,
   type EndorsementExtraction,
@@ -106,10 +111,14 @@ import {
   type UnifiedClaimContext,
   type CoverageAnalysisSummary,
   type CoverageAlert,
+  type ClaimPhoto,
 } from "@/lib/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { PhotoAlbum } from "@/features/voice-sketch/components/PhotoAlbum";
+import type { SketchPhoto } from "@/features/voice-sketch/types/geometry";
 
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
@@ -130,6 +139,39 @@ import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DoorOpen } from "lucide-react";
 import { useUploadQueue } from "@/lib/uploadQueue";
+
+// Helper to convert ClaimPhoto to SketchPhoto for PhotoAlbum compatibility
+interface ExtendedSketchPhoto extends SketchPhoto {
+  claimId?: string | null;
+}
+
+function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
+  return {
+    id: cp.id,
+    label: cp.label || 'Photo',
+    hierarchyPath: cp.hierarchyPath || 'Unassigned',
+    storageUrl: cp.publicUrl,
+    localUri: cp.publicUrl,
+    storagePath: cp.storagePath,
+    latitude: cp.latitude,
+    longitude: cp.longitude,
+    geoAddress: cp.geoAddress,
+    uploadedBy: cp.uploadedBy,
+    claimId: cp.claimId,
+    aiAnalysis: cp.aiAnalysis && Object.keys(cp.aiAnalysis).length > 0 ? {
+      quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
+      content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },
+      metadata: cp.aiAnalysis.metadata || { lighting: 'fair', focus: 'acceptable', angle: 'acceptable', coverage: 'partial' },
+    } : null,
+    capturedAt: cp.capturedAt || new Date().toISOString(),
+    analyzedAt: cp.analyzedAt || undefined,
+    structureId: cp.structureId || undefined,
+    roomId: cp.roomId || undefined,
+    subRoomId: cp.damageZoneId || undefined,
+    analysisStatus: cp.analysisStatus || null,
+    analysisError: cp.analysisError || null,
+  };
+}
 
 export default function ClaimDetail() {
   const [, params] = useRoute("/claim/:id");
@@ -173,6 +215,141 @@ export default function ClaimDetail() {
 
   // Bulk upload queue integration
   const { addToQueue } = useUploadQueue();
+
+  // React Query client for cache management
+  const queryClient = useQueryClient();
+
+  // Photo upload state
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  // Fetch claim photos using react-query
+  const { data: claimPhotos = [], refetch: refetchPhotos } = useQuery({
+    queryKey: ['claimPhotos', params?.id],
+    queryFn: () => getClaimPhotos(params!.id),
+    enabled: !!params?.id,
+    refetchInterval: (query) => {
+      // Poll every 3 seconds if any photos are pending/analyzing
+      const photos = query.state.data || [];
+      const needsPolling = photos.some((p: ClaimPhoto) =>
+        p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing'
+      );
+      return needsPolling ? 3000 : false;
+    },
+  });
+
+  // Convert ClaimPhotos to SketchPhotos for PhotoAlbum
+  const sketchPhotos: ExtendedSketchPhoto[] = useMemo(() => {
+    return claimPhotos.map(claimPhotoToSketchPhoto);
+  }, [claimPhotos]);
+
+  // Photo delete mutation
+  const deletePhotoMutation = useMutation({
+    mutationFn: deletePhoto,
+    onSuccess: () => {
+      toast.success('Photo deleted');
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
+    },
+    onError: (error) => {
+      toast.error('Failed to delete photo: ' + (error as Error).message);
+    },
+  });
+
+  // Photo update mutation
+  const updatePhotoMutation = useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: { label?: string; hierarchyPath?: string; claimId?: string | null } }) =>
+      updatePhoto(id, updates),
+    onSuccess: () => {
+      toast.success('Photo updated');
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
+    },
+    onError: (error) => {
+      toast.error('Failed to update photo: ' + (error as Error).message);
+    },
+  });
+
+  // Photo reanalyze mutation
+  const reanalyzePhotoMutation = useMutation({
+    mutationFn: reanalyzePhoto,
+    onSuccess: () => {
+      toast.success('Photo re-analysis started');
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
+    },
+    onError: (error) => {
+      toast.error('Failed to re-analyze photo: ' + (error as Error).message);
+    },
+  });
+
+  // Photo upload mutation (uses proper photo API with AI analysis)
+  const uploadPhotoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      // Get GPS coordinates if available
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+          });
+        });
+        latitude = position.coords.latitude;
+        longitude = position.coords.longitude;
+      } catch (e) {
+        console.log('GPS not available:', e);
+      }
+
+      return uploadPhoto({
+        file,
+        claimId: params?.id,
+        label: 'Photo',
+        hierarchyPath: 'Exterior',
+        latitude,
+        longitude,
+      });
+    },
+    onSuccess: () => {
+      toast.success('Photo uploaded - AI analysis in progress');
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
+    },
+    onError: (error) => {
+      toast.error('Failed to upload photo: ' + (error as Error).message);
+    },
+  });
+
+  // Photo action handlers
+  const handleDeletePhoto = (photoId: string) => {
+    if (confirm('Are you sure you want to delete this photo?')) {
+      deletePhotoMutation.mutate(photoId);
+    }
+  };
+
+  const handleUpdatePhoto = (photoId: string, updates: { label?: string; hierarchyPath?: string; claimId?: string | null }) => {
+    updatePhotoMutation.mutate({ id: photoId, updates });
+  };
+
+  const handleReanalyzePhoto = (photoId: string) => {
+    reanalyzePhotoMutation.mutate(photoId);
+  };
+
+  // Handle photo upload for Photos tab (uses proper photo API)
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0 || !params?.id) return;
+
+    setIsUploadingPhoto(true);
+
+    try {
+      // Upload each file sequentially
+      for (const file of Array.from(files)) {
+        await uploadPhotoMutation.mutateAsync(file);
+      }
+    } finally {
+      setIsUploadingPhoto(false);
+      // Clear the input so the same files can be re-selected if needed
+      event.target.value = '';
+    }
+  };
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(false);
@@ -2980,57 +3157,48 @@ export default function ClaimDetail() {
             
             {/* TAB: PHOTOS */}
             <TabsContent value="photos" className="h-full p-4 md:p-6 m-0 overflow-auto">
-               <div className="max-w-6xl mx-auto">
-                 {/* Filter documents to only show actual photos (image content types) */}
-                 {(() => {
-                   const photoDocuments = documents.filter(doc => 
-                     doc.type === 'photo' || 
-                     (doc.mimeType && doc.mimeType.startsWith('image/'))
-                   );
-                   
-                   return (
-                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                       <label htmlFor="photo-upload" className="aspect-square bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 hover:border-primary/50 hover:text-primary cursor-pointer transition-colors">
-                         <Camera className="h-8 w-8 mb-2" />
-                         <span className="text-sm font-medium">Add Photo</span>
-                       </label>
-                       <input
-                         id="photo-upload"
-                         type="file"
-                         accept="image/*"
-                         className="hidden"
-                         onChange={handleDocumentUpload}
-                       />
-                       {photoDocuments.length === 0 ? (
-                         <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
-                           <Camera className="h-12 w-12 text-slate-300 mb-4" />
-                           <h3 className="text-lg font-semibold text-slate-900 mb-2">No photos yet</h3>
-                           <p className="text-slate-500">
-                             Take or upload photos to document damage
-                           </p>
-                         </div>
-                       ) : (
-                         photoDocuments.map((photo) => (
-                           <div key={photo.id} className="aspect-square bg-slate-200 rounded-lg overflow-hidden relative group cursor-pointer" onClick={() => handleDocumentPreview(photo.id, photo.name || photo.fileName)}>
-                             <img 
-                               src={getDocumentDownloadUrl(photo.id)} 
-                               alt={photo.name || 'Photo'} 
-                               className="w-full h-full object-cover"
-                               onError={(e) => {
-                                 // Hide broken images
-                                 (e.target as HTMLImageElement).style.display = 'none';
-                               }}
-                             />
-                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                               <p className="text-white text-xs truncate">{photo.name || 'Photo'}</p>
-                             </div>
-                           </div>
-                         ))
-                       )}
-                     </div>
-                   );
-                 })()}
-               </div>
+              <div className="max-w-6xl mx-auto space-y-4">
+                {/* Upload button header */}
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Claim Photos</h2>
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="claim-photo-upload"
+                      className={cn(
+                        "inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium cursor-pointer transition-colors",
+                        "bg-primary text-primary-foreground hover:bg-primary/90",
+                        isUploadingPhoto && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {isUploadingPhoto ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Camera className="h-4 w-4" />
+                      )}
+                      {isUploadingPhoto ? 'Uploading...' : 'Add Photo'}
+                    </label>
+                    <input
+                      id="claim-photo-upload"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      capture="environment"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                      disabled={isUploadingPhoto}
+                    />
+                  </div>
+                </div>
+
+                {/* Photo Album with AI analysis and proper dialog */}
+                <PhotoAlbum
+                  photos={sketchPhotos}
+                  onDeletePhoto={handleDeletePhoto}
+                  onUpdatePhoto={handleUpdatePhoto}
+                  onReanalyzePhoto={handleReanalyzePhoto}
+                  isReanalyzing={reanalyzePhotoMutation.isPending}
+                />
+              </div>
             </TabsContent>
 
           </div>
