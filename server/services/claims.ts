@@ -762,6 +762,7 @@ export async function getClaimStats(organizationId: string): Promise<{
 export async function purgeAllClaims(organizationId: string): Promise<{
   claimsDeleted: number;
   relatedRecordsDeleted: number;
+  storageFilesDeleted: number;
 }> {
   const { data: claims } = await supabaseAdmin
     .from('claims')
@@ -769,11 +770,66 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     .eq('organization_id', organizationId);
 
   if (!claims || claims.length === 0) {
-    return { claimsDeleted: 0, relatedRecordsDeleted: 0 };
+    return { claimsDeleted: 0, relatedRecordsDeleted: 0, storageFilesDeleted: 0 };
   }
 
   const claimIds = claims.map(c => c.id);
   let relatedRecordsDeleted = 0;
+  let storageFilesDeleted = 0;
+
+  // ====== DELETE STORAGE FILES FIRST (before database records) ======
+
+  // 1. Get all claim photos and delete from storage
+  const { data: photos } = await supabaseAdmin
+    .from('claim_photos')
+    .select('storage_path')
+    .in('claim_id', claimIds);
+
+  if (photos && photos.length > 0) {
+    const photoPaths = photos.map(p => p.storage_path).filter(Boolean);
+    if (photoPaths.length > 0) {
+      try {
+        const { error: photoStorageError } = await supabaseAdmin.storage
+          .from('claim-photos')
+          .remove(photoPaths);
+        if (photoStorageError) {
+          console.error('[purge] Error deleting photos from storage:', photoStorageError);
+        } else {
+          storageFilesDeleted += photoPaths.length;
+          console.log(`[purge] Deleted ${photoPaths.length} photos from storage`);
+        }
+      } catch (e) {
+        console.error('[purge] Error deleting photos from storage:', e);
+      }
+    }
+  }
+
+  // 2. Get all documents and delete from storage
+  const { data: documents } = await supabaseAdmin
+    .from('documents')
+    .select('storage_path')
+    .in('claim_id', claimIds);
+
+  if (documents && documents.length > 0) {
+    const docPaths = documents.map(d => d.storage_path).filter(Boolean);
+    if (docPaths.length > 0) {
+      try {
+        const { error: docStorageError } = await supabaseAdmin.storage
+          .from('documents')
+          .remove(docPaths);
+        if (docStorageError) {
+          console.error('[purge] Error deleting documents from storage:', docStorageError);
+        } else {
+          storageFilesDeleted += docPaths.length;
+          console.log(`[purge] Deleted ${docPaths.length} documents from storage`);
+        }
+      } catch (e) {
+        console.error('[purge] Error deleting documents from storage:', e);
+      }
+    }
+  }
+
+  // ====== NOW DELETE DATABASE RECORDS ======
 
   // 1. Get all estimates for these claims (claim_id can be uuid or string)
   const { data: estimates } = await supabaseAdmin
@@ -886,8 +942,9 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     .delete()
     .eq('organization_id', organizationId);
 
-  return { 
-    claimsDeleted: claimIds.length, 
-    relatedRecordsDeleted 
+  return {
+    claimsDeleted: claimIds.length,
+    relatedRecordsDeleted,
+    storageFilesDeleted
   };
 }

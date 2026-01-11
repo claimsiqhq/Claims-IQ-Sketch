@@ -2272,6 +2272,35 @@ export interface InspectionWorkflowStep {
   createdAt: string;
   updatedAt: string;
   assets?: InspectionWorkflowAsset[];
+  // Dynamic workflow fields
+  origin?: string;
+  sourceRuleId?: string;
+  conditions?: Record<string, unknown>;
+  evidenceRequirements?: Array<{
+    type: string;
+    label: string;
+    required: boolean;
+    description?: string;
+    photo?: {
+      minCount?: number;
+      maxCount?: number;
+      angles?: string[];
+      subjects?: string[];
+    };
+    measurement?: {
+      type: string;
+      unit: string;
+      minReadings?: number;
+    };
+    note?: {
+      promptText: string;
+      minLength?: number;
+    };
+  }>;
+  blocking?: string;
+  blockingCondition?: Record<string, unknown>;
+  geometryBinding?: Record<string, unknown>;
+  endorsementSource?: string;
 }
 
 export interface InspectionWorkflowRoom {

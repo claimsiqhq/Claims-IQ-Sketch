@@ -307,7 +307,7 @@ export default function Home() {
                 Hi, {displayName.split(' ')[0]}
               </h1>
               <p className="text-sm text-slate-500">
-                {stats ? `${(stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims` : 'Loading...'}
+                {stats ? `${(stats.byStatus.fnol || 0) + (stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims` : 'Loading...'}
               </p>
             </div>
             {weatherLoading ? (
@@ -489,7 +489,7 @@ export default function Home() {
               <h1 className="text-3xl font-display font-bold text-slate-900">Dashboard</h1>
               <p className="text-slate-500 mt-1">
                 Welcome back, {displayName}.
-                {stats && ` You have ${stats.byStatus.open || 0} active claims.`}
+                {stats && ` You have ${(stats.byStatus.fnol || 0) + (stats.byStatus.open || 0) + (stats.byStatus.in_progress || 0)} active claims.`}
               </p>
             </div>
             {weatherLoading ? (

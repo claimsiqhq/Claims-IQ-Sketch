@@ -236,13 +236,13 @@ export default function PhotosPage() {
 
   const claims = claimsData?.claims || [];
 
-  const { data: claimPhotos = [], isLoading: claimPhotosLoading, refetch: refetchClaimPhotos } = useQuery({
+  const { data: claimPhotos = [], isLoading: claimPhotosLoading, isFetching: claimPhotosFetching, refetch: refetchClaimPhotos } = useQuery({
     queryKey: ['claimPhotos', selectedClaimId],
     queryFn: () => getClaimPhotos(selectedClaimId),
     enabled: selectedClaimId !== 'all' && !!selectedClaimId,
   });
 
-  const { data: allPhotos = [], isLoading: allPhotosLoading, refetch: refetchAllPhotos } = useQuery({
+  const { data: allPhotos = [], isLoading: allPhotosLoading, isFetching: allPhotosFetching, refetch: refetchAllPhotos } = useQuery({
     queryKey: ['allPhotos'],
     queryFn: getAllPhotos,
     enabled: selectedClaimId === 'all',
@@ -250,6 +250,7 @@ export default function PhotosPage() {
 
   const photos = selectedClaimId === 'all' ? allPhotos : claimPhotos;
   const photosLoading = selectedClaimId === 'all' ? allPhotosLoading : claimPhotosLoading;
+  const isRefreshing = selectedClaimId === 'all' ? allPhotosFetching : claimPhotosFetching;
 
   // Auto-refetch while photos are being analyzed
   useEffect(() => {
@@ -502,11 +503,16 @@ export default function PhotosPage() {
       },
     ]);
 
+    // Show immediate feedback toast
+    toast.loading('Uploading photo...', { id: pendingId });
+
     setIsUploading(true);
 
     try {
       await uploadMutation.mutateAsync({ file, pendingId });
+      toast.dismiss(pendingId);
     } catch (error) {
+      toast.dismiss(pendingId);
       // Error handling in mutation
     } finally {
       setIsUploading(false);
@@ -531,11 +537,16 @@ export default function PhotosPage() {
       },
     ]);
 
+    // Show immediate feedback toast
+    toast.loading('Uploading photo...', { id: pendingId });
+
     setIsUploading(true);
 
     try {
       await uploadMutation.mutateAsync({ file, pendingId });
+      toast.dismiss(pendingId);
     } catch (error) {
+      toast.dismiss(pendingId);
       // Error handling in mutation
     } finally {
       setIsUploading(false);
@@ -603,10 +614,10 @@ export default function PhotosPage() {
               variant="outline"
               size="icon"
               onClick={handleRefresh}
-              disabled={photosLoading}
+              disabled={isRefreshing}
               data-testid="button-refresh-photos"
             >
-              <RefreshCw className={`h-4 w-4 ${photosLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </Button>
 
             {/* Hidden file input for file uploads */}

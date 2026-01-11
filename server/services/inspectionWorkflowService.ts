@@ -196,6 +196,15 @@ function mapStepFromDb(data: any): InspectionWorkflowStep {
     perilSpecific: data.peril_specific,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
+    // Dynamic workflow fields
+    origin: data.origin,
+    sourceRuleId: data.source_rule_id,
+    conditions: data.conditions,
+    evidenceRequirements: data.evidence_requirements,
+    blocking: data.blocking,
+    blockingCondition: data.blocking_condition,
+    geometryBinding: data.geometry_binding,
+    endorsementSource: data.endorsement_source,
   };
 }
 
