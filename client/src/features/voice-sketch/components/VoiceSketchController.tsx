@@ -16,11 +16,12 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useVoiceSession } from '../hooks/useVoiceSession';
-import { useGeometryEngine } from '../services/geometry-engine';
+import { useGeometryEngine, type PhotoCaptureConfig } from '../services/geometry-engine';
 import { VoiceWaveform } from './VoiceWaveform';
 import { RoomPreview } from './RoomPreview';
 import { CommandHistory } from './CommandHistory';
 import { FieldCameraButton } from './FieldCameraButton';
+import { VoicePhotoCapture, type PhotoCaptureResult } from './VoicePhotoCapture';
 import { cn } from '@/lib/utils';
 import { uploadPhoto } from '@/lib/api';
 import { toast } from 'sonner';
@@ -47,19 +48,22 @@ export function VoiceSketchController({
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const { 
-    currentRoom, 
-    rooms, 
+  const {
+    currentRoom,
+    rooms,
     structures,
     currentStructure,
     photos,
-    resetSession, 
-    createRoom, 
+    pendingPhotoCapture,
+    resetSession,
+    createRoom,
     confirmRoom,
     createStructure,
     selectStructure,
     getCurrentHierarchyPath,
     addPhoto,
+    clearPendingPhotoCapture,
+    setLastCapturedPhotoId,
   } = useGeometryEngine();
 
   // Get current hierarchy path for display
@@ -315,6 +319,102 @@ export function VoiceSketchController({
       setIsUploadingPhoto(false);
     }
   }, [addPhoto, claimId, currentStructure, currentRoom, hierarchyPath]);
+
+  // Handler for voice-triggered photo capture
+  const handleVoicePhotoCapture = useCallback(
+    async (data: { blob: Blob; timestamp: Date }): Promise<PhotoCaptureResult> => {
+      try {
+        const hierarchyContext = hierarchyPath || 'Exterior';
+        const uploadedPhoto = await uploadPhoto({
+          file: new File([data.blob], `voice-capture-${Date.now()}.jpg`, {
+            type: 'image/jpeg',
+          }),
+          claimId,
+          structureId: currentStructure?.id,
+          roomId: pendingPhotoCapture?.roomId || currentRoom?.id,
+          hierarchyPath: hierarchyContext,
+        });
+
+        // Track the last captured photo ID
+        setLastCapturedPhotoId(uploadedPhoto.id);
+
+        // Add to photo album
+        addPhoto({
+          id: uploadedPhoto.id,
+          storageUrl: uploadedPhoto.url,
+          label: pendingPhotoCapture?.suggestedLabel || uploadedPhoto.label,
+          hierarchyPath: uploadedPhoto.hierarchyPath,
+          structureId: uploadedPhoto.structureId,
+          roomId: uploadedPhoto.roomId || pendingPhotoCapture?.roomId,
+          subRoomId: uploadedPhoto.subRoomId,
+          objectId: uploadedPhoto.objectId,
+          capturedAt: uploadedPhoto.capturedAt,
+          uploadedAt: uploadedPhoto.analyzedAt,
+          aiAnalysis: uploadedPhoto.analysis ?? undefined,
+        });
+
+        // Determine quality assessment from score
+        const qualityScore = uploadedPhoto.analysis?.quality?.score || 5;
+        let qualityAssessment: 'good' | 'fair' | 'poor' = 'fair';
+        if (qualityScore >= 7) qualityAssessment = 'good';
+        else if (qualityScore < 5) qualityAssessment = 'poor';
+
+        return {
+          status: 'captured',
+          photo_id: uploadedPhoto.id,
+          ai_analysis: {
+            description: uploadedPhoto.analysis?.content?.description,
+            damage_detected: uploadedPhoto.analysis?.content?.damageDetected,
+            damage_types: uploadedPhoto.analysis?.content?.damageTypes,
+            quality_issues: uploadedPhoto.analysis?.quality?.issues,
+            quality_score: qualityScore,
+          },
+          quality_assessment: qualityAssessment,
+        };
+      } catch (error) {
+        console.error('Voice photo capture error:', error);
+        return {
+          status: 'error',
+          error: error instanceof Error ? error.message : 'Failed to capture photo',
+        };
+      }
+    },
+    [
+      addPhoto,
+      claimId,
+      currentRoom,
+      currentStructure,
+      hierarchyPath,
+      pendingPhotoCapture,
+      setLastCapturedPhotoId,
+    ]
+  );
+
+  // Handler for voice photo capture cancel
+  const handleVoicePhotoCaptureCancel = useCallback(() => {
+    clearPendingPhotoCapture();
+  }, [clearPendingPhotoCapture]);
+
+  // Handler for voice photo capture complete
+  const handleVoicePhotoCaptureComplete = useCallback(
+    (result: PhotoCaptureResult) => {
+      clearPendingPhotoCapture();
+
+      // Show toast based on result
+      if (result.status === 'captured') {
+        if (result.quality_assessment === 'good') {
+          toast.success('Photo captured successfully!');
+        } else if (result.quality_assessment === 'poor') {
+          toast.warning('Photo quality is low. Consider retaking.');
+        } else {
+          toast.info('Photo captured.');
+        }
+      } else if (result.status === 'error') {
+        toast.error(result.error || 'Photo capture failed');
+      }
+    },
+    [clearPendingPhotoCapture]
+  );
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -761,6 +861,16 @@ export function VoiceSketchController({
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
+
+      {/* Voice-triggered photo capture overlay */}
+      <VoicePhotoCapture
+        isOpen={!!pendingPhotoCapture}
+        config={pendingPhotoCapture}
+        roomName={currentRoom?.name}
+        onCapture={handleVoicePhotoCapture}
+        onCancel={handleVoicePhotoCaptureCancel}
+        onComplete={handleVoicePhotoCaptureComplete}
+      />
     </div>
   );
 }

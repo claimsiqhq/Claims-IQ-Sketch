@@ -922,6 +922,95 @@ Note: Walls are auto-detected as exterior if they don't connect to another room.
   },
 });
 
+// ============================================
+// PHOTO CAPTURE TOOLS
+// ============================================
+
+// Tool: Capture a photo
+const capturePhotoTool = tool({
+  name: 'capture_photo',
+  description: `Trigger camera to capture a photo and attach it to a room or damage zone.
+
+The user will be prompted to point their camera and confirm capture.
+After capture, AI analysis results will be returned including quality assessment and damage detection.
+
+PHOTO WORKFLOW:
+1. Call this tool with appropriate target_type and framing_guidance
+2. User sees camera preview with guidance
+3. User says "capture" or taps button
+4. Photo is analyzed by AI
+5. Results are returned with quality score and detected content
+
+WHEN TO PROMPT FOR PHOTOS:
+- After creating a room: prompt for overview photo
+- After marking damage: prompt for damage detail photo
+- Bathrooms/Kitchens: prompt for fixtures photo
+- Before confirming room: check if minimum photos are met`,
+  parameters: z.object({
+    target_type: z.enum([
+      'room_overview',
+      'damage_detail',
+      'opening',
+      'material',
+      'measurement_reference',
+      'context',
+      'fixtures',
+      'flooring'
+    ]).describe('What type of photo is being captured'),
+    room_id: z.string().optional().describe('ID of the room to attach photo to. Uses current room if not specified.'),
+    damage_zone_id: z.string().optional().describe('ID of damage zone if this is a damage detail photo'),
+    suggested_label: z.string().describe('Descriptive label for the photo based on conversation context, e.g., "Kitchen overview", "Water damage on north wall"'),
+    framing_guidance: z.string().optional().describe('Instructions for how to frame the shot, e.g., "Point at the ceiling damage", "Capture the full room from the doorway"'),
+  }),
+  execute: async (params) => {
+    // This tool triggers the UI to show camera - actual capture happens via callback
+    // The geometry engine will handle the photo capture flow
+    return geometryEngine.triggerPhotoCapture({
+      targetType: params.target_type,
+      roomId: params.room_id,
+      damageZoneId: params.damage_zone_id,
+      suggestedLabel: params.suggested_label,
+      framingGuidance: params.framing_guidance,
+    });
+  },
+});
+
+// Tool: Get photo status for a room
+const getPhotoStatusTool = tool({
+  name: 'get_photo_status',
+  description: `Get the photo count and status for a room to check if minimum requirements are met.
+
+MINIMUM PHOTO REQUIREMENTS:
+- Standard room: 2 photos (overview + detail)
+- Room with damage: 3 photos (overview + damage detail + context)
+- Bathroom/Kitchen: 3 photos (overview + fixtures + flooring)
+- Roof plane: 3 photos (overall + damage + measurement reference)
+
+Use this before confirming a room to ensure adequate documentation.`,
+  parameters: z.object({
+    room_id: z.string().optional().describe('Room ID to check. Uses current room if not specified.'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.getPhotoStatus(params.room_id);
+  },
+});
+
+// Tool: Add annotation to a photo
+const addPhotoAnnotationTool = tool({
+  name: 'add_photo_annotation',
+  description: `Add voice annotation to the most recently captured photo.
+
+After capturing a photo, prompt the user: "Anything to note about this photo?"
+Then use this tool to attach their spoken annotation to the photo metadata.`,
+  parameters: z.object({
+    annotation: z.string().describe('The transcribed voice annotation from the user'),
+    photo_id: z.string().optional().describe('Photo ID to annotate. Uses most recent photo if not specified.'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.addPhotoAnnotation(params.annotation, params.photo_id);
+  },
+});
+
 // Tool: Check sketch completeness
 const checkSketchCompletenessTool = tool({
   name: 'check_sketch_completeness',
@@ -1062,6 +1151,10 @@ const agentTools = [
   toggleWallExteriorTool,
   checkSketchCompletenessTool,
   alignRoomsTool,
+  // Photo capture tools
+  capturePhotoTool,
+  getPhotoStatusTool,
+  addPhotoAnnotationTool,
 ];
 
 /**
@@ -1112,4 +1205,8 @@ export const tools = {
   toggleWallExterior: toggleWallExteriorTool,
   checkSketchCompleteness: checkSketchCompletenessTool,
   alignRooms: alignRoomsTool,
+  // Photo capture tools
+  capturePhoto: capturePhotoTool,
+  getPhotoStatus: getPhotoStatusTool,
+  addPhotoAnnotation: addPhotoAnnotationTool,
 };
