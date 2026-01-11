@@ -37,6 +37,10 @@ import {
   InspectionStepStatus,
   InspectionWorkflow,
   InspectionWorkflowStep,
+  InspectionWorkflowJson,
+  WorkflowJsonStep,
+  InspectionPhase,
+  InspectionStepType,
   WorkflowStepEvidence,
   WorkflowMutation,
 } from '../../shared/schema';
@@ -80,6 +84,104 @@ export interface WorkflowWithEvidence {
     evidenceComplete: number;
     evidenceMissing: number;
   };
+}
+
+// ============================================
+// WORKFLOW JSON VALIDATION
+// ============================================
+
+/**
+ * Validate that workflow_json.steps exists and is non-empty.
+ * This is a CRITICAL invariant: inspection_workflow_steps can ONLY be created
+ * if workflow_json.steps is present and non-empty.
+ *
+ * @throws Error if workflow_json.steps is missing or empty
+ */
+function validateWorkflowJsonSteps(workflowJson: InspectionWorkflowJson): void {
+  if (!workflowJson.steps) {
+    throw new Error(
+      'WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps is missing. ' +
+      'Cannot create inspection_workflow_steps without a source of truth.'
+    );
+  }
+
+  if (!Array.isArray(workflowJson.steps)) {
+    throw new Error(
+      'WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps is not an array. ' +
+      'Cannot create inspection_workflow_steps without a valid steps array.'
+    );
+  }
+
+  if (workflowJson.steps.length === 0) {
+    throw new Error(
+      'WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps is empty. ' +
+      'Cannot create inspection_workflow_steps without at least one step in the source of truth.'
+    );
+  }
+
+  // Validate each step has required fields
+  for (let i = 0; i < workflowJson.steps.length; i++) {
+    const step = workflowJson.steps[i];
+    if (!step.phase || !step.step_type || !step.title || !step.instructions) {
+      throw new Error(
+        `WORKFLOW_JSON_STEPS_INVARIANT_VIOLATION: workflow_json.steps[${i}] is missing required fields. ` +
+        `Required: phase, step_type, title, instructions. Got: ${JSON.stringify(Object.keys(step))}`
+      );
+    }
+  }
+
+  console.log(`[DynamicWorkflow] Validated workflow_json.steps: ${workflowJson.steps.length} steps`);
+}
+
+/**
+ * Creates inspection_workflow_steps from workflow_json.steps (source of truth).
+ * step_index is assigned based on array position (1-indexed).
+ *
+ * @throws Error if workflow_json.steps validation fails
+ */
+async function createStepsFromWorkflowJson(
+  workflowId: string,
+  workflowJson: InspectionWorkflowJson
+): Promise<{ stepsCreated: number; error?: string }> {
+  // CRITICAL: Validate workflow_json.steps before creating any step records
+  validateWorkflowJsonSteps(workflowJson);
+
+  const stepsToInsert = workflowJson.steps.map((step, index) => ({
+    workflow_id: workflowId,
+    // step_index is 1-indexed: steps[0] → step_index=1, steps[n-1] → step_index=n
+    step_index: index + 1,
+    phase: step.phase,
+    step_type: step.step_type,
+    title: step.title,
+    instructions: step.instructions,
+    required: step.required,
+    tags: step.tags || [],
+    estimated_minutes: step.estimated_minutes,
+    status: InspectionStepStatus.PENDING,
+    room_id: step.room_id || null,
+    room_name: step.room_name || null,
+    peril_specific: step.peril_specific || null,
+    // Dynamic workflow fields
+    origin: step.origin || null,
+    source_rule_id: step.source_rule_id || null,
+    conditions: step.conditions || null,
+    evidence_requirements: step.evidence_requirements || null,
+    blocking: step.blocking || null,
+    blocking_condition: step.blocking_condition || null,
+    geometry_binding: step.geometry_binding || null,
+    endorsement_source: step.endorsement_source || null,
+  }));
+
+  const { error: stepsError } = await supabaseAdmin
+    .from('inspection_workflow_steps')
+    .insert(stepsToInsert);
+
+  if (stepsError) {
+    console.error('[DynamicWorkflow] Error inserting workflow steps:', stepsError);
+    return { stepsCreated: 0, error: stepsError.message };
+  }
+
+  return { stepsCreated: stepsToInsert.length };
 }
 
 // ============================================
@@ -254,8 +356,31 @@ export async function generateDynamicWorkflow(
     // Generate steps using rules engine
     const dynamicSteps = workflowRulesEngine.generateSteps(context);
 
-    // Build workflow JSON
-    const workflowJson = {
+    // Build steps array FIRST (source of truth)
+    // Cast complex types to Record<string, unknown> for JSONB storage
+    const workflowSteps: WorkflowJsonStep[] = dynamicSteps.map((step) => ({
+      phase: step.phase as InspectionPhase,
+      step_type: step.stepType as InspectionStepType,
+      title: step.title,
+      instructions: step.instructions,
+      required: step.blocking === 'blocking',
+      tags: step.tags,
+      estimated_minutes: step.estimatedMinutes,
+      peril_specific: step.tags.find((t) => t.endsWith('_peril')) || null,
+      // Dynamic workflow fields - cast to Record<string, unknown> for JSONB
+      origin: step.origin,
+      source_rule_id: step.sourceRuleId,
+      conditions: step.conditions as Record<string, unknown> | undefined,
+      evidence_requirements: step.evidenceRequirements as Record<string, unknown>[] | undefined,
+      blocking: step.blocking,
+      blocking_condition: step.blockingCondition as Record<string, unknown> | undefined,
+      geometry_binding: step.geometryBinding as Record<string, unknown> | undefined,
+      room_id: step.roomId,
+      room_name: step.roomName,
+    }));
+
+    // Build workflow JSON with steps as SOURCE OF TRUTH
+    const workflowJson: InspectionWorkflowJson = {
       metadata: {
         claim_number: claimId,
         primary_peril: context.peril.primary,
@@ -265,14 +390,25 @@ export async function generateDynamicWorkflow(
           (sum, s) => sum + s.estimatedMinutes,
           0
         ),
-        rules_applied: dynamicSteps.map((s) => s.sourceRuleId).filter(Boolean),
+        rules_applied: dynamicSteps.map((s) => s.sourceRuleId).filter(Boolean) as string[],
       },
       phases: generatePhaseSummary(dynamicSteps),
+      // SOURCE OF TRUTH: All steps in order
+      steps: workflowSteps,
       tools_and_equipment: [], // Could be generated from rules
       open_questions: [],
     };
 
-    // Create workflow record
+    // CRITICAL INVARIANT: Validate workflow_json.steps BEFORE saving
+    // This throws if steps is missing or empty - generation will abort
+    try {
+      validateWorkflowJsonSteps(workflowJson);
+    } catch (validationError) {
+      console.error('[DynamicWorkflow] Workflow JSON steps validation failed:', validationError);
+      return { success: false, error: (validationError as Error).message };
+    }
+
+    // Create workflow record with workflow_json containing steps
     const { data: workflowData, error: workflowError } = await supabaseAdmin
       .from('inspection_workflows')
       .insert({
@@ -302,49 +438,28 @@ export async function generateDynamicWorkflow(
       return { success: false, error: `Failed to create workflow: ${workflowError?.message}` };
     }
 
-    // Insert workflow steps
-    const stepsToInsert = dynamicSteps.map((step, index) => ({
-      workflow_id: workflowData.id,
-      step_index: index,
-      phase: step.phase,
-      step_type: step.stepType,
-      title: step.title,
-      instructions: step.instructions,
-      required: step.blocking === 'blocking',
-      tags: step.tags,
-      estimated_minutes: step.estimatedMinutes,
-      status: InspectionStepStatus.PENDING,
-      room_id: step.roomId,
-      room_name: step.roomName,
-      peril_specific: step.tags.find((t) => t.endsWith('_peril')) || null,
-      // New fields for dynamic workflow
-      origin: step.origin,
-      source_rule_id: step.sourceRuleId,
-      conditions: step.conditions,
-      evidence_requirements: step.evidenceRequirements,
-      blocking: step.blocking,
-      blocking_condition: step.blockingCondition,
-      geometry_binding: step.geometryBinding,
-    }));
-
-    const { error: stepsError } = await supabaseAdmin
-      .from('inspection_workflow_steps')
-      .insert(stepsToInsert);
+    // Create inspection_workflow_steps FROM workflow_json.steps (source of truth)
+    // This function validates that workflow_json.steps exists and is non-empty,
+    // and creates step records with step_index matching array position (1-indexed)
+    const { stepsCreated, error: stepsError } = await createStepsFromWorkflowJson(
+      workflowData.id,
+      workflowJson
+    );
 
     if (stepsError) {
-      console.error('Error inserting workflow steps:', stepsError);
-      return { success: false, error: `Failed to insert steps: ${stepsError.message}` };
+      console.error('[DynamicWorkflow] Error creating steps from workflow_json:', stepsError);
+      return { success: false, error: `Failed to insert steps: ${stepsError}` };
     }
 
     console.log(
-      `[DynamicWorkflow] Generated workflow v${nextVersion} for claim ${claimId}: ${dynamicSteps.length} steps`
+      `[DynamicWorkflow] Generated workflow v${nextVersion} for claim ${claimId}: ${stepsCreated} steps created from workflow_json.steps (${workflowJson.steps.length} in source)`
     );
 
     return {
       success: true,
       workflowId: workflowData.id,
       version: nextVersion,
-      stepsGenerated: dynamicSteps.length,
+      stepsGenerated: stepsCreated,
     };
   } catch (error) {
     console.error('[DynamicWorkflow] Error generating workflow:', error);
@@ -606,13 +721,62 @@ export async function handleWorkflowMutation(
     // Process mutation through rules engine
     const result = workflowRulesEngine.handleMutation(event, mappedSteps, context);
 
-    // Apply changes to database
-    // 1. Insert new steps
+    // Get current workflow_json (source of truth)
+    const workflowJson = workflow.workflow_json as InspectionWorkflowJson;
+    if (!workflowJson.steps) {
+      workflowJson.steps = [];
+    }
+
+    // Apply changes to workflow_json.steps FIRST (source of truth)
+    // 1. Add new steps to workflow_json.steps
     if (result.stepsAdded.length > 0) {
-      const maxIndex = Math.max(...(currentSteps || []).map((s) => s.step_index), 0);
+      // Cast complex types to Record<string, unknown> for JSONB storage
+      const newWorkflowJsonSteps: WorkflowJsonStep[] = result.stepsAdded.map((step) => ({
+        phase: step.phase as InspectionPhase,
+        step_type: step.stepType as InspectionStepType,
+        title: step.title,
+        instructions: step.instructions,
+        required: step.blocking === 'blocking',
+        tags: step.tags,
+        estimated_minutes: step.estimatedMinutes,
+        peril_specific: step.tags.find((t) => t.endsWith('_peril')) || null,
+        origin: step.origin,
+        source_rule_id: step.sourceRuleId,
+        evidence_requirements: step.evidenceRequirements as Record<string, unknown>[] | undefined,
+        blocking: step.blocking,
+        geometry_binding: step.geometryBinding as Record<string, unknown> | undefined,
+        room_id: step.roomId,
+        room_name: step.roomName,
+      }));
+
+      workflowJson.steps = [...workflowJson.steps, ...newWorkflowJsonSteps];
+    }
+
+    // 2. Mark removed steps in workflow_json.steps (we don't delete to preserve structure)
+    // Note: For simplicity, we track removed step indices but keep them in the array
+    // The step_index in inspection_workflow_steps still maps to array position
+
+    // Update workflow with new workflow_json
+    const { error: updateWorkflowError } = await supabaseAdmin
+      .from('inspection_workflows')
+      .update({
+        workflow_json: workflowJson,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', workflowId);
+
+    if (updateWorkflowError) {
+      console.error('[DynamicWorkflow] Error updating workflow_json:', updateWorkflowError);
+    }
+
+    // Now apply changes to inspection_workflow_steps table
+    // 1. Insert new steps (step_index based on workflow_json.steps position)
+    if (result.stepsAdded.length > 0) {
+      const baseIndex = workflowJson.steps.length - result.stepsAdded.length;
       const stepsToInsert = result.stepsAdded.map((step, i) => ({
         workflow_id: workflowId,
-        step_index: maxIndex + 1 + i,
+        // step_index = position in workflow_json.steps + 1 (1-indexed)
+        step_index: baseIndex + i + 1,
         phase: step.phase,
         step_type: step.stepType,
         title: step.title,
@@ -667,12 +831,6 @@ export async function handleWorkflowMutation(
       triggered_by: triggeredBy,
       triggered_at: event.timestamp,
     });
-
-    // Update workflow timestamp
-    await supabaseAdmin
-      .from('inspection_workflows')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', workflowId);
 
     console.log(
       `[DynamicWorkflow] Mutation ${event.trigger}: +${result.stepsAdded.length}, -${result.stepsRemoved.length}, ~${result.stepsModified.length}`

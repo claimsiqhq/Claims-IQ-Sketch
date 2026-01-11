@@ -2641,7 +2641,48 @@ export interface WorkflowGeneratedFrom {
 }
 
 /**
+ * Asset definition within a workflow step (source of truth in workflow_json)
+ */
+export interface WorkflowJsonAsset {
+  asset_type: string;
+  label: string;
+  required: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Step definition within workflow_json (source of truth)
+ * step_index in inspection_workflow_steps MUST match the array position here (1-indexed compatible)
+ * steps[0] → step_index = 1, steps[n-1] → step_index = n
+ */
+export interface WorkflowJsonStep {
+  phase: InspectionPhase;
+  step_type: InspectionStepType;
+  title: string;
+  instructions: string;
+  required: boolean;
+  tags?: string[];
+  estimated_minutes: number;
+  assets?: WorkflowJsonAsset[];
+  peril_specific?: string | null;
+  // Endorsement/policy source if step was generated from policy requirements
+  endorsement_source?: string | null;
+  // Dynamic workflow fields (optional)
+  origin?: string;
+  source_rule_id?: string;
+  conditions?: Record<string, unknown>;
+  evidence_requirements?: Record<string, unknown>[];
+  blocking?: string;
+  blocking_condition?: Record<string, unknown>;
+  geometry_binding?: Record<string, unknown>;
+  room_id?: string;
+  room_name?: string;
+}
+
+/**
  * Structure for workflow JSON content
+ * IMPORTANT: workflow_json.steps is the SOURCE OF TRUTH for all inspection steps.
+ * inspection_workflow_steps table entries MUST be derived from this array.
  */
 export interface InspectionWorkflowJson {
   metadata: {
@@ -2651,6 +2692,9 @@ export interface InspectionWorkflowJson {
     property_type?: string;
     estimated_total_time_minutes: number;
     generated_at: string;
+    data_completeness?: number;
+    endorsement_driven_steps?: number;
+    rules_applied?: string[];
   };
   phases: {
     phase: InspectionPhase;
@@ -2659,6 +2703,13 @@ export interface InspectionWorkflowJson {
     estimated_minutes: number;
     step_count: number;
   }[];
+  /**
+   * SOURCE OF TRUTH: All workflow steps in order.
+   * - This array MUST be non-empty for a valid workflow
+   * - step_index = array position + 1 (1-indexed)
+   * - inspection_workflow_steps rows are derived from this array
+   */
+  steps: WorkflowJsonStep[];
   room_template?: {
     standard_steps: {
       step_type: InspectionStepType;
