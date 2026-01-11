@@ -151,7 +151,19 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
     }
   }, [loading, briefing, error, generating]);
 
-  const content = briefing?.briefingJson;
+  const rawContent = briefing?.briefingJson as any;
+  
+  // Normalize content to handle both API response formats
+  // Some briefings have depreciation_considerations at top level
+  // Others have it nested under coverage_considerations.depreciation_factors
+  const content = rawContent ? {
+    ...rawContent,
+    depreciation_considerations: rawContent.depreciation_considerations || 
+      rawContent.coverage_considerations?.depreciation_factors || 
+      [],
+    sketch_requirements: rawContent.sketch_requirements || [],
+    open_questions_for_adjuster: rawContent.open_questions_for_adjuster || [],
+  } : null;
 
   return (
     <div className={cn("space-y-4", className)}>
