@@ -1,0 +1,188 @@
+[
+  {
+    "table_name": "ai_prompts"
+  },
+  {
+    "table_name": "carrier_excluded_items"
+  },
+  {
+    "table_name": "carrier_item_caps"
+  },
+  {
+    "table_name": "carrier_profiles"
+  },
+  {
+    "table_name": "carrier_rules"
+  },
+  {
+    "table_name": "claim_briefings"
+  },
+  {
+    "table_name": "claim_checklist_items"
+  },
+  {
+    "table_name": "claim_checklists"
+  },
+  {
+    "table_name": "claim_damage_zones"
+  },
+  {
+    "table_name": "claim_photos"
+  },
+  {
+    "table_name": "claim_rooms"
+  },
+  {
+    "table_name": "claim_structures"
+  },
+  {
+    "table_name": "claims"
+  },
+  {
+    "table_name": "coverage_types"
+  },
+  {
+    "table_name": "damage_areas"
+  },
+  {
+    "table_name": "damage_zones"
+  },
+  {
+    "table_name": "depreciation_schedules"
+  },
+  {
+    "table_name": "documents"
+  },
+  {
+    "table_name": "endorsement_extractions"
+  },
+  {
+    "table_name": "estimate_areas"
+  },
+  {
+    "table_name": "estimate_coverage_summary"
+  },
+  {
+    "table_name": "estimate_coverages"
+  },
+  {
+    "table_name": "estimate_line_items"
+  },
+  {
+    "table_name": "estimate_missing_walls"
+  },
+  {
+    "table_name": "estimate_structures"
+  },
+  {
+    "table_name": "estimate_subrooms"
+  },
+  {
+    "table_name": "estimate_templates"
+  },
+  {
+    "table_name": "estimate_totals"
+  },
+  {
+    "table_name": "estimate_zones"
+  },
+  {
+    "table_name": "estimates"
+  },
+  {
+    "table_name": "inspection_appointments"
+  },
+  {
+    "table_name": "inspection_workflow_assets"
+  },
+  {
+    "table_name": "inspection_workflow_rooms"
+  },
+  {
+    "table_name": "inspection_workflow_steps"
+  },
+  {
+    "table_name": "inspection_workflows"
+  },
+  {
+    "table_name": "jurisdiction_rules"
+  },
+  {
+    "table_name": "jurisdictions"
+  },
+  {
+    "table_name": "labor_rates"
+  },
+  {
+    "table_name": "labor_rates_enhanced"
+  },
+  {
+    "table_name": "line_item_categories"
+  },
+  {
+    "table_name": "line_items"
+  },
+  {
+    "table_name": "material_regional_prices"
+  },
+  {
+    "table_name": "materials"
+  },
+  {
+    "table_name": "organization_memberships"
+  },
+  {
+    "table_name": "organizations"
+  },
+  {
+    "table_name": "policy_form_extractions"
+  },
+  {
+    "table_name": "price_lists"
+  },
+  {
+    "table_name": "price_scrape_jobs"
+  },
+  {
+    "table_name": "regional_multipliers"
+  },
+  {
+    "table_name": "regions"
+  },
+  {
+    "table_name": "rule_effects"
+  },
+  {
+    "table_name": "session"
+  },
+  {
+    "table_name": "sessions"
+  },
+  {
+    "table_name": "tax_rates"
+  },
+  {
+    "table_name": "user_ms365_tokens"
+  },
+  {
+    "table_name": "users"
+  },
+  {
+    "table_name": "workflow_step_evidence"
+  },
+  {
+    "table_name": "xact_categories"
+  },
+  {
+    "table_name": "xact_components"
+  },
+  {
+    "table_name": "xact_line_items"
+  },
+  {
+    "table_name": "zone_connections"
+  },
+  {
+    "table_name": "zone_openings"
+  }
+]
