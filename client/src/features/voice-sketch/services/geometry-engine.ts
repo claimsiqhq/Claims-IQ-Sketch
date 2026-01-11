@@ -52,6 +52,15 @@ import {
   formatDimension,
 } from '../utils/polygon-math';
 
+// Photo capture configuration for voice-triggered capture
+export interface PhotoCaptureConfig {
+  targetType: 'room_overview' | 'damage_detail' | 'opening' | 'material' | 'measurement_reference' | 'context' | 'fixtures' | 'flooring';
+  roomId?: string;
+  damageZoneId?: string;
+  suggestedLabel: string;
+  framingGuidance?: string;
+}
+
 interface GeometryEngineState {
   // Track which claim ID rooms were loaded for (to detect cross-claim navigation)
   loadedForClaimId: string | null;
@@ -118,6 +127,15 @@ interface GeometryEngineState {
   addPhoto: (photo: SketchPhoto) => void;
   updatePhotoAnalysis: (photoId: string, analysis: SketchPhoto['aiAnalysis']) => void;
 
+  // Voice-triggered photo capture
+  pendingPhotoCapture: PhotoCaptureConfig | null;
+  lastCapturedPhotoId: string | null;
+  triggerPhotoCapture: (config: PhotoCaptureConfig) => string;
+  getPhotoStatus: (roomId?: string) => string;
+  addPhotoAnnotation: (annotation: string, photoId?: string) => string;
+  clearPendingPhotoCapture: () => void;
+  setLastCapturedPhotoId: (photoId: string) => void;
+
   // Transcript management
   addTranscriptEntry: (entry: Omit<TranscriptEntry, 'id' | 'timestamp'>) => void;
   clearTranscript: () => void;
@@ -161,6 +179,8 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   transcript: [],
   sessionState: initialSessionState,
   selectedWallId: null,
+  pendingPhotoCapture: null,
+  lastCapturedPhotoId: null,
 
   // Structure actions
   createStructure: (params) => {
@@ -1809,10 +1829,118 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
 
   updatePhotoAnalysis: (photoId, analysis) => {
     set((state) => ({
-      photos: state.photos.map((p) => 
+      photos: state.photos.map((p) =>
         p.id === photoId ? { ...p, aiAnalysis: analysis } : p
       ),
     }));
+  },
+
+  // Voice-triggered photo capture methods
+  triggerPhotoCapture: (config) => {
+    const { currentRoom } = get();
+
+    // Use current room if no room ID specified
+    const targetRoomId = config.roomId || currentRoom?.id;
+    const targetRoom = targetRoomId
+      ? (currentRoom?.id === targetRoomId ? currentRoom : get().rooms.find(r => r.id === targetRoomId))
+      : null;
+
+    // Store the pending capture config
+    set({
+      pendingPhotoCapture: {
+        ...config,
+        roomId: targetRoomId,
+      }
+    });
+
+    // Return a message for the voice agent
+    const roomName = targetRoom?.name ? formatRoomName(targetRoom.name) : 'current location';
+    const guidance = config.framingGuidance || `Ready to capture ${config.targetType.replace(/_/g, ' ')} photo`;
+
+    return `Camera ready for ${roomName}. ${guidance}. Say "capture" or tap the button when ready.`;
+  },
+
+  getPhotoStatus: (roomId?: string) => {
+    const { currentRoom, rooms, photos } = get();
+
+    // Determine target room
+    const targetRoomId = roomId || currentRoom?.id;
+    const targetRoom = targetRoomId
+      ? (currentRoom?.id === targetRoomId ? currentRoom : rooms.find(r => r.id === targetRoomId))
+      : null;
+
+    if (!targetRoom) {
+      return 'No room selected. Please create or select a room first.';
+    }
+
+    // Count photos for this room
+    const roomPhotos = photos.filter(p => p.roomId === targetRoomId);
+    const photoCount = roomPhotos.length;
+
+    // Determine minimum required based on room type and damage
+    const hasDamage = targetRoom.damageZones && targetRoom.damageZones.length > 0;
+    const roomNameLower = targetRoom.name.toLowerCase();
+    const isKitchenOrBath = roomNameLower.includes('kitchen') || roomNameLower.includes('bathroom') || roomNameLower.includes('bath');
+    const isRoof = roomNameLower.includes('roof');
+
+    let minimumRequired = 2; // Standard room
+    if (hasDamage) {
+      minimumRequired = 3;
+    } else if (isKitchenOrBath) {
+      minimumRequired = 3;
+    } else if (isRoof) {
+      minimumRequired = 3;
+    }
+
+    const requirementMet = photoCount >= minimumRequired;
+    const photoTypes = roomPhotos.map(p => p.label || 'unlabeled').join(', ');
+
+    // Build status message
+    if (requirementMet) {
+      return `${formatRoomName(targetRoom.name)} has ${photoCount} photo(s) (minimum ${minimumRequired} met). Photos: ${photoTypes || 'none'}`;
+    } else {
+      const remaining = minimumRequired - photoCount;
+      return `${formatRoomName(targetRoom.name)} has ${photoCount} of ${minimumRequired} required photos (${remaining} more needed). Photos captured: ${photoTypes || 'none'}`;
+    }
+  },
+
+  addPhotoAnnotation: (annotation: string, photoId?: string) => {
+    const { lastCapturedPhotoId, photos } = get();
+
+    const targetPhotoId = photoId || lastCapturedPhotoId;
+
+    if (!targetPhotoId) {
+      return 'No photo to annotate. Please capture a photo first.';
+    }
+
+    const targetPhoto = photos.find(p => p.id === targetPhotoId);
+    if (!targetPhoto) {
+      return 'Photo not found.';
+    }
+
+    // Update the photo with annotation
+    const now = new Date().toISOString();
+    set((state) => ({
+      photos: state.photos.map((p) =>
+        p.id === targetPhotoId
+          ? {
+              ...p,
+              voiceAnnotation: annotation,
+              label: p.label ? `${p.label} - ${annotation}` : annotation,
+            }
+          : p
+      ),
+    }));
+
+    return `Added annotation to photo: "${annotation}"`;
+  },
+
+  clearPendingPhotoCapture: () => {
+    set({ pendingPhotoCapture: null });
+  },
+
+  setLastCapturedPhotoId: (photoId: string) => {
+    set({ lastCapturedPhotoId: photoId });
   },
 
   // Hierarchy helpers
@@ -1944,6 +2072,10 @@ export const geometryEngine = {
   updateOpening: (params: UpdateOpeningParams) => useGeometryEngine.getState().updateOpening(params),
   // Photo actions
   capturePhoto: (params: CapturePhotoParams, file?: File) => useGeometryEngine.getState().capturePhoto(params, file),
+  // Voice-triggered photo capture
+  triggerPhotoCapture: (config: PhotoCaptureConfig) => useGeometryEngine.getState().triggerPhotoCapture(config),
+  getPhotoStatus: (roomId?: string) => useGeometryEngine.getState().getPhotoStatus(roomId),
+  addPhotoAnnotation: (annotation: string, photoId?: string) => useGeometryEngine.getState().addPhotoAnnotation(annotation, photoId),
   // Helpers
   getRoomByName: (name: string) => {
     const state = useGeometryEngine.getState();

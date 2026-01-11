@@ -184,6 +184,8 @@ export interface SketchPhoto {
   // Analysis status
   analysisStatus?: AnalysisStatus | null;
   analysisError?: string | null;
+  // Voice annotation from the voice capture flow
+  voiceAnnotation?: string;
 }
 
 // AI analysis of a photo (matches server PhotoAnalysis response)
