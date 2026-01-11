@@ -24,6 +24,13 @@ import {
   Square,
   SquareDashed,
   Home,
+  DoorOpen,
+  PanelTop,
+  Pencil,
+  Car,
+  Trees,
+  Building2,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
@@ -43,7 +50,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { RoomGeometry, WallDirection } from '../types/geometry';
-import type { SketchToolMode, SelectedEntity } from '../services/sketch-manipulation-store';
+import type { SketchToolMode, SelectedEntity, ZoneType } from '../services/sketch-manipulation-store';
 import { useSketchManipulationStore } from '../services/sketch-manipulation-store';
 import { SketchStatusBadge } from './SketchCompletenessIndicator';
 import { cn } from '@/lib/utils';
@@ -63,6 +70,8 @@ export function SketchToolbar({
     selectedEntities,
     toolMode,
     setToolMode,
+    selectedZoneType,
+    setSelectedZoneType,
     snappingConfig,
     setSnappingConfig,
     completenessIssues,
@@ -211,6 +220,81 @@ export function SketchToolbar({
             shortcut="Space"
             active={toolMode === 'pan'}
             onClick={() => handleToolModeChange('pan')}
+          />
+        </ToolGroup>
+
+        <Separator orientation="vertical" className="h-6" />
+
+        {/* Draw Tools with Zone Type */}
+        <ToolGroup title="Draw">
+          <ToolButton
+            icon={<Pencil className="h-4 w-4" />}
+            label="Draw Room/Polygon"
+            shortcut="R"
+            active={toolMode === 'draw_room'}
+            onClick={() => handleToolModeChange('draw_room')}
+          />
+          {/* Zone Type Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 gap-1 min-w-[90px]"
+              >
+                {selectedZoneType === 'room' && <Home className="h-4 w-4" />}
+                {selectedZoneType === 'garage' && <Car className="h-4 w-4" />}
+                {selectedZoneType === 'porch' && <Building2 className="h-4 w-4" />}
+                {selectedZoneType === 'deck' && <Trees className="h-4 w-4" />}
+                {selectedZoneType === 'structure' && <Building2 className="h-4 w-4" />}
+                <span className="text-xs capitalize">{selectedZoneType}</span>
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuLabel>Zone Type</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setSelectedZoneType('room')}>
+                <Home className="h-4 w-4 mr-2" />
+                Room
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSelectedZoneType('garage')}>
+                <Car className="h-4 w-4 mr-2" />
+                Garage
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSelectedZoneType('porch')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Porch
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSelectedZoneType('deck')}>
+                <Trees className="h-4 w-4 mr-2" />
+                Deck
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSelectedZoneType('structure')}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Structure (detached)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ToolGroup>
+
+        <Separator orientation="vertical" className="h-6" />
+
+        {/* Door/Window Tools */}
+        <ToolGroup title="Openings">
+          <ToolButton
+            icon={<DoorOpen className="h-4 w-4" />}
+            label="Add Door"
+            shortcut="D"
+            active={toolMode === 'draw_door'}
+            onClick={() => handleToolModeChange('draw_door')}
+          />
+          <ToolButton
+            icon={<PanelTop className="h-4 w-4" />}
+            label="Add Window"
+            shortcut="W"
+            active={toolMode === 'draw_window'}
+            onClick={() => handleToolModeChange('draw_window')}
           />
         </ToolGroup>
 
