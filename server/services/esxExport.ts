@@ -15,18 +15,20 @@
  * The Tier A approach provides:
  * - Full claim metadata import (XACTDOC.XML)
  * - Line items with room/level grouping (GENERIC_ROUGHDRAFT.XML)
- * - Sketch renders as PDF underlay (visible but not editable)
+ * - Sketch geometry as structured XML (SKETCH.XML)
+ * - Sketch renders as PDF underlay (SKETCH_UNDERLAY.PDF)
  *
- * See: docs/sketch-esx-architecture.md for architecture details.
+ * See: docs/EXPORT_ESX.md for complete documentation.
  */
 
 import { buildZipArchive } from '../utils/zipBuilder';
 import { getEstimate, type SavedEstimate, type CalculatedLineItem } from './estimateCalculator';
-import { 
-  getEstimateSketch, 
-  type ZoneSketch, 
-  type ZoneConnectionData, 
-  validateEstimateSketchForExport 
+import {
+  getEstimateSketch,
+  type ZoneSketch,
+  type ZoneConnectionData,
+  type ZoneOpeningData,
+  validateEstimateSketchForExport
 } from './sketchService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
@@ -43,9 +45,44 @@ import {
 // TYPE DEFINITIONS
 // ============================================
 
-interface EsxConfig {
+export interface EsxConfig {
   includeSketchPdf?: boolean;
+  includeSketchXml?: boolean;
   includePhotos?: boolean;
+  maxPhotos?: number;
+  strictValidation?: boolean;
+}
+
+export interface EsxValidationError {
+  code: string;
+  message: string;
+  severity: 'error' | 'warning';
+  field?: string;
+  zoneId?: string;
+  zoneName?: string;
+}
+
+export interface EsxValidationResult {
+  isValid: boolean;
+  errors: EsxValidationError[];
+  warnings: EsxValidationError[];
+  canExport: boolean;
+}
+
+export interface EsxExportResult {
+  archive: Buffer;
+  validation: EsxValidationResult;
+  files: string[];
+  metadata: {
+    estimateId: string;
+    claimNumber: string;
+    exportDate: string;
+    totalRcv: number;
+    totalAcv: number;
+    zoneCount: number;
+    lineItemCount: number;
+    photoCount: number;
+  };
 }
 
 interface ClaimMetadata {
@@ -77,16 +114,238 @@ interface LineItemForExport {
 }
 
 // ============================================
+// VALIDATION CLASS
+// ============================================
+
+/**
+ * EsxExportValidator - Validates estimate data before ESX export
+ *
+ * Implements fail-loud validation: returns comprehensive error list
+ * rather than silently proceeding with invalid data.
+ */
+export class EsxExportValidator {
+  private errors: EsxValidationError[] = [];
+  private warnings: EsxValidationError[] = [];
+
+  constructor(private strictMode: boolean = true) {}
+
+  /**
+   * Validate entire estimate for ESX export
+   */
+  async validate(
+    estimate: SavedEstimate,
+    sketch: { zones: ZoneSketch[]; connections: ZoneConnectionData[] } | null
+  ): Promise<EsxValidationResult> {
+    this.errors = [];
+    this.warnings = [];
+
+    // Validate estimate basics
+    this.validateEstimate(estimate);
+
+    // Validate line items
+    this.validateLineItems(estimate.lineItems || []);
+
+    // Validate sketch if present
+    if (sketch && sketch.zones.length > 0) {
+      this.validateSketch(sketch);
+    }
+
+    const hasErrors = this.errors.length > 0;
+    const hasOnlyWarnings = !hasErrors && this.warnings.length > 0;
+
+    return {
+      isValid: !hasErrors,
+      errors: this.errors,
+      warnings: this.warnings,
+      canExport: !hasErrors || !this.strictMode,
+    };
+  }
+
+  private validateEstimate(estimate: SavedEstimate): void {
+    // Check estimate has required fields
+    if (!estimate.id) {
+      this.addError('MISSING_ESTIMATE_ID', 'Estimate ID is required', 'id');
+    }
+
+    // Validate totals are reasonable
+    if (estimate.totals?.totalRcv === undefined || estimate.totals?.totalRcv === null) {
+      this.addError('MISSING_RCV_TOTAL', 'RCV total is required', 'totals.totalRcv');
+    } else if (estimate.totals.totalRcv < 0) {
+      this.addError('NEGATIVE_RCV', 'RCV total cannot be negative', 'totals.totalRcv');
+    }
+
+    if (estimate.totals?.totalAcv === undefined || estimate.totals?.totalAcv === null) {
+      this.addWarning('MISSING_ACV_TOTAL', 'ACV total is not set', 'totals.totalAcv');
+    }
+
+    // Validate line items exist
+    if (!estimate.lineItems || estimate.lineItems.length === 0) {
+      this.addWarning('NO_LINE_ITEMS', 'Estimate has no line items', 'lineItems');
+    }
+  }
+
+  private validateLineItems(lineItems: CalculatedLineItem[]): void {
+    for (let i = 0; i < lineItems.length; i++) {
+      const item = lineItems[i];
+      const field = `lineItems[${i}]`;
+
+      // Check required fields
+      if (!item.description) {
+        this.addWarning('MISSING_DESCRIPTION', `Line item ${i + 1} has no description`, field);
+      }
+
+      if (item.quantity <= 0) {
+        this.addError('INVALID_QUANTITY', `Line item ${i + 1} has invalid quantity: ${item.quantity}`, field);
+      }
+
+      if (item.unitPrice < 0) {
+        this.addError('NEGATIVE_PRICE', `Line item ${i + 1} has negative unit price`, field);
+      }
+
+      // Validate Xactimate code format if present
+      if (item.xactimateCode) {
+        if (!/^[A-Z0-9]+/.test(item.xactimateCode)) {
+          this.addWarning('INVALID_XACT_CODE', `Line item ${i + 1} has non-standard Xactimate code: ${item.xactimateCode}`, field);
+        }
+      }
+    }
+  }
+
+  private validateSketch(sketch: { zones: ZoneSketch[]; connections: ZoneConnectionData[] }): void {
+    const zoneIds = new Set<string>();
+
+    for (const zone of sketch.zones) {
+      zoneIds.add(zone.id);
+
+      // Validate zone has name
+      if (!zone.name) {
+        this.addError('MISSING_ZONE_NAME', 'Zone has no name', 'name', zone.id);
+      }
+
+      // Validate polygon
+      if (!zone.polygonFt || zone.polygonFt.length < 3) {
+        this.addError('INVALID_POLYGON', `Zone "${zone.name}" has invalid polygon (${zone.polygonFt?.length || 0} points)`, 'polygonFt', zone.id, zone.name);
+      } else {
+        // Validate polygon area is reasonable
+        const area = this.calculatePolygonArea(zone.polygonFt);
+        if (area < 1) {
+          this.addError('TINY_ZONE', `Zone "${zone.name}" has very small area (${area.toFixed(2)} sq ft)`, 'polygonFt', zone.id, zone.name);
+        }
+        if (area > 100000) {
+          this.addWarning('HUGE_ZONE', `Zone "${zone.name}" has unusually large area (${area.toFixed(0)} sq ft)`, 'polygonFt', zone.id, zone.name);
+        }
+      }
+
+      // Validate dimensions
+      if (zone.lengthFt <= 0 || zone.widthFt <= 0) {
+        this.addWarning('ZERO_DIMENSIONS', `Zone "${zone.name}" has zero dimensions`, 'dimensions', zone.id, zone.name);
+      }
+
+      // Validate ceiling height
+      if (zone.ceilingHeightFt < 4 || zone.ceilingHeightFt > 50) {
+        this.addWarning('UNUSUAL_CEILING', `Zone "${zone.name}" has unusual ceiling height: ${zone.ceilingHeightFt}ft`, 'ceilingHeightFt', zone.id, zone.name);
+      }
+
+      // Validate openings
+      this.validateOpenings(zone);
+    }
+
+    // Validate connections reference valid zones
+    for (const conn of sketch.connections || []) {
+      if (!zoneIds.has(conn.toZoneId)) {
+        this.addWarning('INVALID_CONNECTION', `Connection references non-existent zone: ${conn.toZoneId}`, 'connections');
+      }
+    }
+  }
+
+  private validateOpenings(zone: ZoneSketch): void {
+    for (let i = 0; i < zone.openings.length; i++) {
+      const opening = zone.openings[i];
+      const wallCount = zone.polygonFt.length;
+
+      if (opening.wallIndex < 0 || opening.wallIndex >= wallCount) {
+        this.addError(
+          'INVALID_OPENING_WALL',
+          `Opening ${i + 1} in "${zone.name}" references invalid wall index ${opening.wallIndex}`,
+          `openings[${i}]`,
+          zone.id,
+          zone.name
+        );
+      }
+
+      if (opening.widthFt <= 0) {
+        this.addError('INVALID_OPENING_WIDTH', `Opening ${i + 1} in "${zone.name}" has invalid width`, `openings[${i}]`, zone.id, zone.name);
+      }
+
+      if (opening.heightFt <= 0) {
+        this.addError('INVALID_OPENING_HEIGHT', `Opening ${i + 1} in "${zone.name}" has invalid height`, `openings[${i}]`, zone.id, zone.name);
+      }
+    }
+  }
+
+  private calculatePolygonArea(polygon: Array<{ x: number; y: number }>): number {
+    let area = 0;
+    for (let i = 0; i < polygon.length; i++) {
+      const j = (i + 1) % polygon.length;
+      area += polygon[i].x * polygon[j].y;
+      area -= polygon[j].x * polygon[i].y;
+    }
+    return Math.abs(area / 2);
+  }
+
+  private addError(code: string, message: string, field?: string, zoneId?: string, zoneName?: string): void {
+    this.errors.push({ code, message, severity: 'error', field, zoneId, zoneName });
+  }
+
+  private addWarning(code: string, message: string, field?: string, zoneId?: string, zoneName?: string): void {
+    this.warnings.push({ code, message, severity: 'warning', field, zoneId, zoneName });
+  }
+}
+
+// ============================================
 // MAIN EXPORT FUNCTION
 // ============================================
 
 /**
  * Generate a complete ESX ZIP archive for an estimate
+ *
+ * @throws Error if validation fails in strict mode
  */
 export async function generateEsxZipArchive(
   estimateId: string,
   config: EsxConfig = {}
 ): Promise<Buffer> {
+  const result = await generateValidatedEsxArchive(estimateId, config);
+
+  if (!result.validation.canExport) {
+    const errorMessages = result.validation.errors
+      .map(e => `[${e.code}] ${e.message}`)
+      .join('\n');
+    throw new Error(`ESX Export validation failed:\n${errorMessages}`);
+  }
+
+  return result.archive;
+}
+
+/**
+ * Generate ESX archive with full validation results
+ *
+ * This is the primary export function that returns both the archive
+ * and detailed validation information.
+ */
+export async function generateValidatedEsxArchive(
+  estimateId: string,
+  config: EsxConfig = {}
+): Promise<EsxExportResult> {
+  const effectiveConfig: EsxConfig = {
+    includeSketchPdf: true,
+    includeSketchXml: true,
+    includePhotos: false,
+    maxPhotos: 50,
+    strictValidation: true,
+    ...config,
+  };
+
   // Load estimate data
   const estimate = await getEstimate(estimateId);
   if (!estimate) {
@@ -97,27 +356,41 @@ export async function generateEsxZipArchive(
   const claimMetadata = await getClaimMetadata(estimate.claimId);
 
   // Load sketch geometry
-  let sketch: Awaited<ReturnType<typeof getEstimateSketch>> | null = null;
+  let sketch: { zones: ZoneSketch[]; connections: ZoneConnectionData[] } | null = null;
   try {
-    sketch = await getEstimateSketch(estimateId);
-    
-    // Validate sketch before export if it exists
-    if (sketch && sketch.zones.length > 0) {
-      const validation = await validateEstimateSketchForExport(estimateId);
-      if (!validation.isValid) {
-        const errors = validation.zones
-          .filter(z => !z.validation.isValid)
-          .map(z => `${z.zoneName}: ${z.validation.warnings.map(w => w.message).join(', ')}`)
-          .join('; ');
-        throw new Error(`Sketch validation failed: ${errors}`);
-      }
+    const sketchData = await getEstimateSketch(estimateId);
+    if (sketchData && sketchData.zones.length > 0) {
+      sketch = {
+        zones: sketchData.zones,
+        connections: sketchData.connections || [],
+      };
     }
   } catch (error) {
-    // If validation fails, throw the error
-    if (error instanceof Error && error.message.includes('validation failed')) {
-      throw error;
-    }
-    // Otherwise, sketch may not exist, that's OK
+    // Sketch may not exist, that's OK
+    console.warn(`[ESX Export] Could not load sketch for estimate ${estimateId}:`, error);
+  }
+
+  // Validate before export
+  const validator = new EsxExportValidator(effectiveConfig.strictValidation);
+  const validation = await validator.validate(estimate, sketch);
+
+  // If strict validation fails and we can't export, return early with empty archive
+  if (!validation.canExport) {
+    return {
+      archive: Buffer.alloc(0),
+      validation,
+      files: [],
+      metadata: {
+        estimateId,
+        claimNumber: claimMetadata.claimNumber,
+        exportDate: new Date().toISOString(),
+        totalRcv: estimate.totals?.totalRcv || 0,
+        totalAcv: estimate.totals?.totalAcv || 0,
+        zoneCount: sketch?.zones.length || 0,
+        lineItemCount: estimate.lineItems?.length || 0,
+        photoCount: 0,
+      },
+    };
   }
 
   // Group line items by room and level
@@ -125,6 +398,7 @@ export async function generateEsxZipArchive(
 
   // Build the ESX files
   const entries: Array<{ name: string; data: Buffer; date: Date }> = [];
+  const files: string[] = [];
   const now = new Date();
 
   // 1. XACTDOC.XML - Claim metadata
@@ -134,6 +408,7 @@ export async function generateEsxZipArchive(
     data: Buffer.from(xactdocXml, 'utf8'),
     date: now,
   });
+  files.push('XACTDOC.XML');
 
   // 2. GENERIC_ROUGHDRAFT.XML - Estimate data
   const roughdraftXml = generateRoughdraftXml(
@@ -147,12 +422,24 @@ export async function generateEsxZipArchive(
     data: Buffer.from(roughdraftXml, 'utf8'),
     date: now,
   });
+  files.push('GENERIC_ROUGHDRAFT.XML');
 
-  // 3. SKETCH_UNDERLAY.PDF - Visual floorplan (if sketch exists)
-  if (config.includeSketchPdf !== false && sketch && sketch.zones.length > 0) {
+  // 3. SKETCH.XML - Geometry data (if sketch exists)
+  if (effectiveConfig.includeSketchXml !== false && sketch && sketch.zones.length > 0) {
+    const sketchXml = generateSketchXml(sketch.zones, sketch.connections);
+    entries.push({
+      name: 'SKETCH.XML',
+      data: Buffer.from(sketchXml, 'utf8'),
+      date: now,
+    });
+    files.push('SKETCH.XML');
+  }
+
+  // 4. SKETCH_UNDERLAY.PDF - Visual floorplan (if sketch exists)
+  if (effectiveConfig.includeSketchPdf !== false && sketch && sketch.zones.length > 0) {
     const sketchPdf = await generateSketchPdf(
       sketch.zones,
-      sketch.connections || [],
+      sketch.connections,
       claimMetadata.propertyAddress
     );
     entries.push({
@@ -160,24 +447,45 @@ export async function generateEsxZipArchive(
       data: sketchPdf,
       date: now,
     });
+    files.push('SKETCH_UNDERLAY.PDF');
   }
 
-  // 4. Photos (optional)
-  if (config.includePhotos) {
+  // 5. Photos (optional)
+  let photoCount = 0;
+  if (effectiveConfig.includePhotos) {
     const photos = await getEstimatePhotos(estimateId);
-    for (let i = 0; i < photos.length; i++) {
+    const maxPhotos = effectiveConfig.maxPhotos || 50;
+    for (let i = 0; i < Math.min(photos.length, maxPhotos); i++) {
       if (photos[i].data) {
         entries.push({
           name: `${i + 1}.JPG`,
           data: photos[i].data,
           date: now,
         });
+        files.push(`${i + 1}.JPG`);
+        photoCount++;
       }
     }
   }
 
   // Build the ZIP archive
-  return buildZipArchive(entries);
+  const archive = buildZipArchive(entries);
+
+  return {
+    archive,
+    validation,
+    files,
+    metadata: {
+      estimateId,
+      claimNumber: claimMetadata.claimNumber,
+      exportDate: now.toISOString(),
+      totalRcv: estimate.totals?.totalRcv || 0,
+      totalAcv: estimate.totals?.totalAcv || 0,
+      zoneCount: sketch?.zones.length || 0,
+      lineItemCount: estimate.lineItems?.length || 0,
+      photoCount,
+    },
+  };
 }
 
 // ============================================
@@ -243,11 +551,11 @@ function generateXactdocXml(metadata: ClaimMetadata, estimate: SavedEstimate): s
     </Adjuster>
   </Assignment>
   <Summary>
-    <TotalRCV>${(estimate.rcvTotal || 0).toFixed(2)}</TotalRCV>
-    <TotalACV>${(estimate.acvTotal || 0).toFixed(2)}</TotalACV>
-    <TotalDepreciation>${((estimate.rcvTotal || 0) - (estimate.acvTotal || 0)).toFixed(2)}</TotalDepreciation>
-    <Deductible>${(estimate.deductible || 0).toFixed(2)}</Deductible>
-    <NetClaim>${((estimate.acvTotal || 0) - (estimate.deductible || 0)).toFixed(2)}</NetClaim>
+    <TotalRCV>${(estimate.totals?.totalRcv || 0).toFixed(2)}</TotalRCV>
+    <TotalACV>${(estimate.totals?.totalAcv || 0).toFixed(2)}</TotalACV>
+    <TotalDepreciation>${(estimate.totals?.totalDepreciation || 0).toFixed(2)}</TotalDepreciation>
+    <Deductible>${(estimate.settlement?.totalDeductible || 0).toFixed(2)}</Deductible>
+    <NetClaim>${(estimate.totals?.netClaimTotal || 0).toFixed(2)}</NetClaim>
   </Summary>
 </XACTDOC>`;
 }
@@ -382,16 +690,16 @@ function generateRoughdraftXml(
   <Estimate>
     <ID>${estimate.id}</ID>
     <Totals>
-      <MaterialTotal>${(estimate.materialCost || 0).toFixed(2)}</MaterialTotal>
-      <LaborTotal>${(estimate.laborCost || 0).toFixed(2)}</LaborTotal>
-      <EquipmentTotal>${(estimate.equipmentCost || 0).toFixed(2)}</EquipmentTotal>
+      <MaterialTotal>${(estimate.totals?.subtotalMaterials || 0).toFixed(2)}</MaterialTotal>
+      <LaborTotal>${(estimate.totals?.subtotalLabor || 0).toFixed(2)}</LaborTotal>
+      <EquipmentTotal>${(estimate.totals?.subtotalEquipment || 0).toFixed(2)}</EquipmentTotal>
       <Subtotal>${(estimate.subtotal || 0).toFixed(2)}</Subtotal>
-      <Overhead>${(estimate.overhead || 0).toFixed(2)}</Overhead>
-      <Profit>${(estimate.profit || 0).toFixed(2)}</Profit>
-      <Tax>${(estimate.tax || 0).toFixed(2)}</Tax>
-      <RCVTotal>${(estimate.rcvTotal || 0).toFixed(2)}</RCVTotal>
-      <Depreciation>${((estimate.rcvTotal || 0) - (estimate.acvTotal || 0)).toFixed(2)}</Depreciation>
-      <ACVTotal>${(estimate.acvTotal || 0).toFixed(2)}</ACVTotal>
+      <Overhead>${(estimate.overheadAmount || 0).toFixed(2)}</Overhead>
+      <Profit>${(estimate.profitAmount || 0).toFixed(2)}</Profit>
+      <Tax>${(estimate.taxAmount || 0).toFixed(2)}</Tax>
+      <RCVTotal>${(estimate.totals?.totalRcv || 0).toFixed(2)}</RCVTotal>
+      <Depreciation>${(estimate.totals?.totalDepreciation || 0).toFixed(2)}</Depreciation>
+      <ACVTotal>${(estimate.totals?.totalAcv || 0).toFixed(2)}</ACVTotal>
     </Totals>
     <Structure>
       <Name>Main Structure</Name>
@@ -403,6 +711,167 @@ function generateRoughdraftXml(
 }
 
 // ============================================
+// SKETCH.XML GENERATION
+// ============================================
+
+/**
+ * Generate SKETCH.XML with full geometry data
+ *
+ * This is a structured XML representation of the sketch geometry
+ * that provides complete data for systems that can import it.
+ */
+function generateSketchXml(zones: ZoneSketch[], connections: ZoneConnectionData[]): string {
+  const escXml = (str: string | undefined | null): string => {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  let zonesXml = '';
+  for (const zone of zones) {
+    // Generate polygon points XML
+    let polygonXml = '';
+    for (let i = 0; i < zone.polygonFt.length; i++) {
+      const point = zone.polygonFt[i];
+      polygonXml += `
+        <Point Index="${i}">
+          <X>${point.x.toFixed(4)}</X>
+          <Y>${point.y.toFixed(4)}</Y>
+        </Point>`;
+    }
+
+    // Generate openings XML
+    let openingsXml = '';
+    for (const opening of zone.openings) {
+      openingsXml += `
+        <Opening>
+          <ID>${escXml(opening.id)}</ID>
+          <Type>${escXml(opening.openingType)}</Type>
+          <WallIndex>${opening.wallIndex}</WallIndex>
+          <OffsetFt>${opening.offsetFromVertexFt.toFixed(4)}</OffsetFt>
+          <WidthFt>${opening.widthFt.toFixed(4)}</WidthFt>
+          <HeightFt>${opening.heightFt.toFixed(4)}</HeightFt>
+          ${opening.sillHeightFt !== undefined ? `<SillHeightFt>${opening.sillHeightFt.toFixed(4)}</SillHeightFt>` : ''}
+          ${opening.connectsToZoneId ? `<ConnectsToZoneID>${escXml(opening.connectsToZoneId)}</ConnectsToZoneID>` : ''}
+        </Opening>`;
+    }
+
+    // Calculate area and perimeter
+    const area = calculatePolygonArea(zone.polygonFt);
+    const perimeter = calculatePolygonPerimeter(zone.polygonFt);
+
+    zonesXml += `
+    <Zone>
+      <ID>${escXml(zone.id)}</ID>
+      <Name>${escXml(zone.name)}</Name>
+      <ZoneCode>${escXml(zone.zoneCode || '')}</ZoneCode>
+      <ZoneType>${escXml(zone.zoneType)}</ZoneType>
+      <LevelName>${escXml(zone.levelName)}</LevelName>
+      <ShapeType>${escXml(zone.shapeType)}</ShapeType>
+      <Origin>
+        <XFt>${zone.originXFt.toFixed(4)}</XFt>
+        <YFt>${zone.originYFt.toFixed(4)}</YFt>
+      </Origin>
+      <Dimensions>
+        <LengthFt>${zone.lengthFt.toFixed(4)}</LengthFt>
+        <WidthFt>${zone.widthFt.toFixed(4)}</WidthFt>
+        <CeilingHeightFt>${zone.ceilingHeightFt.toFixed(4)}</CeilingHeightFt>
+        <AreaSqFt>${area.toFixed(2)}</AreaSqFt>
+        <PerimeterFt>${perimeter.toFixed(2)}</PerimeterFt>
+        <WallAreaSqFt>${(perimeter * zone.ceilingHeightFt).toFixed(2)}</WallAreaSqFt>
+      </Dimensions>
+      <Polygon PointCount="${zone.polygonFt.length}" WindingOrder="CCW">${polygonXml}
+      </Polygon>
+      <Openings Count="${zone.openings.length}">${openingsXml}
+      </Openings>
+    </Zone>`;
+  }
+
+  // Generate connections XML
+  let connectionsXml = '';
+  for (const conn of connections) {
+    connectionsXml += `
+    <Connection>
+      <ID>${escXml(conn.id)}</ID>
+      <ToZoneID>${escXml(conn.toZoneId)}</ToZoneID>
+      <Type>${escXml(conn.connectionType)}</Type>
+      ${conn.openingId ? `<OpeningID>${escXml(conn.openingId)}</OpeningID>` : ''}
+    </Connection>`;
+  }
+
+  // Calculate bounds
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const zone of zones) {
+    const offsetX = zone.originXFt || 0;
+    const offsetY = zone.originYFt || 0;
+    for (const point of zone.polygonFt) {
+      minX = Math.min(minX, point.x + offsetX);
+      maxX = Math.max(maxX, point.x + offsetX);
+      minY = Math.min(minY, point.y + offsetY);
+      maxY = Math.max(maxY, point.y + offsetY);
+    }
+  }
+
+  if (!isFinite(minX)) {
+    minX = 0; maxX = 0; minY = 0; maxY = 0;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<SKETCH Version="1.0">
+  <Header>
+    <ExportDate>${new Date().toISOString()}</ExportDate>
+    <Generator>Claims iQ Sketch</Generator>
+    <GeneratorVersion>1.0.0</GeneratorVersion>
+    <Units>feet</Units>
+    <CoordinateSystem>Cartesian</CoordinateSystem>
+  </Header>
+  <Bounds>
+    <MinX>${minX.toFixed(4)}</MinX>
+    <MaxX>${maxX.toFixed(4)}</MaxX>
+    <MinY>${minY.toFixed(4)}</MinY>
+    <MaxY>${maxY.toFixed(4)}</MaxY>
+    <TotalWidthFt>${(maxX - minX).toFixed(4)}</TotalWidthFt>
+    <TotalLengthFt>${(maxY - minY).toFixed(4)}</TotalLengthFt>
+  </Bounds>
+  <Zones Count="${zones.length}">${zonesXml}
+  </Zones>
+  <Connections Count="${connections.length}">${connectionsXml}
+  </Connections>
+</SKETCH>`;
+}
+
+/**
+ * Calculate polygon area using shoelace formula
+ */
+function calculatePolygonArea(polygon: Array<{ x: number; y: number }>): number {
+  let area = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const j = (i + 1) % polygon.length;
+    area += polygon[i].x * polygon[j].y;
+    area -= polygon[j].x * polygon[i].y;
+  }
+  return Math.abs(area / 2);
+}
+
+/**
+ * Calculate polygon perimeter
+ */
+function calculatePolygonPerimeter(polygon: Array<{ x: number; y: number }>): number {
+  let perimeter = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const j = (i + 1) % polygon.length;
+    const dx = polygon[j].x - polygon[i].x;
+    const dy = polygon[j].y - polygon[i].y;
+    perimeter += Math.sqrt(dx * dx + dy * dy);
+  }
+  return perimeter;
+}
+
+// ============================================
 // SKETCH PDF GENERATION
 // ============================================
 
@@ -411,7 +880,7 @@ function generateRoughdraftXml(
  *
  * Creates a simple PDF with room polygons rendered as a floor plan.
  * Uses a minimal PDF structure without external dependencies.
- * 
+ *
  * @param zones - Zone geometry data
  * @param connections - Zone connection data (room-to-room relationships)
  * @param propertyAddress - Property address for header
@@ -594,7 +1063,7 @@ async function generateSketchPdf(
           break;
         }
       }
-      
+
       const toZone = zoneMap.get(conn.toZoneId);
 
       if (!fromZone || !toZone) continue;
@@ -816,9 +1285,9 @@ function groupLineItemsForExport(estimate: SavedEstimate): LineItemForExport[] {
     let sel = '';
     let act = '';
 
-    if (item.xactCode) {
+    if (item.xactimateCode) {
       // Xact codes are typically in format: CAT>SEL>ACT or CAT-SEL-ACT
-      const parts = item.xactCode.split(/[>\-]/);
+      const parts = item.xactimateCode.split(/[>\-]/);
       cat = parts[0] || '';
       sel = parts[1] || '';
       act = parts[2] || '';
@@ -832,9 +1301,9 @@ function groupLineItemsForExport(estimate: SavedEstimate): LineItemForExport[] {
       qty: item.quantity || 0,
       unit: item.unit || 'EA',
       unitPrice: item.unitPrice || 0,
-      totalRcv: item.totalRcv || item.totalPrice || 0,
+      totalRcv: item.rcv || item.subtotal || 0,
       roomName: item.roomName || 'General',
-      levelName: item.levelName || 'Main Level',
+      levelName: (item as any).levelName || 'Main Level',
       notes: item.notes || undefined,
     });
   }
@@ -869,7 +1338,7 @@ async function getEstimatePhotos(estimateId: string): Promise<Array<{ name: stri
 
     // Download photos from storage
     const photoData: Array<{ name: string; data: Buffer }> = [];
-    
+
     for (const photo of photos) {
       try {
         // Try to download from storage path first, fall back to public URL
@@ -910,4 +1379,44 @@ async function getEstimatePhotos(estimateId: string): Promise<Array<{ name: stri
     console.error(`[ESX Export] Error loading photos for estimate ${estimateId}:`, error);
     return [];
   }
+}
+
+// ============================================
+// STANDALONE VALIDATION EXPORT
+// ============================================
+
+/**
+ * Validate an estimate for ESX export without generating the archive
+ *
+ * Use this to check export readiness before triggering the full export.
+ */
+export async function validateEsxExport(
+  estimateId: string,
+  strictMode: boolean = true
+): Promise<EsxValidationResult> {
+  const estimate = await getEstimate(estimateId);
+  if (!estimate) {
+    return {
+      isValid: false,
+      errors: [{ code: 'ESTIMATE_NOT_FOUND', message: `Estimate ${estimateId} not found`, severity: 'error' }],
+      warnings: [],
+      canExport: false,
+    };
+  }
+
+  let sketch: { zones: ZoneSketch[]; connections: ZoneConnectionData[] } | null = null;
+  try {
+    const sketchData = await getEstimateSketch(estimateId);
+    if (sketchData && sketchData.zones.length > 0) {
+      sketch = {
+        zones: sketchData.zones,
+        connections: sketchData.connections || [],
+      };
+    }
+  } catch {
+    // Sketch may not exist, that's OK
+  }
+
+  const validator = new EsxExportValidator(strictMode);
+  return validator.validate(estimate, sketch);
 }

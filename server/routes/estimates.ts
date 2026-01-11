@@ -34,6 +34,12 @@ import {
   generateEsxXml,
   generateCsvExport
 } from '../services/reportGenerator';
+import {
+  generateEsxZipArchive,
+  generateValidatedEsxArchive,
+  validateEsxExport,
+  type EsxConfig,
+} from '../services/esxExport';
 import { generateEstimatePdf, isPdfGenerationAvailable } from '../services/pdfGenerator';
 import { createLogger } from '../lib/logger';
 
@@ -377,6 +383,112 @@ router.get('/:id/export/csv', async (req: Request, res: Response) => {
   } catch (error) {
     log.error({ err: error }, 'Generate CSV error');
     res.status(500).json({ message: 'Failed to generate CSV export' });
+  }
+});
+
+/**
+ * GET /api/estimates/:id/export/esx-zip
+ * Export estimate as ESX ZIP archive with full validation
+ *
+ * Query params:
+ * - includeSketchPdf: boolean (default: true)
+ * - includeSketchXml: boolean (default: true)
+ * - includePhotos: boolean (default: false)
+ * - maxPhotos: number (default: 50)
+ * - strictValidation: boolean (default: true)
+ */
+router.get('/:id/export/esx-zip', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const config: EsxConfig = {
+      includeSketchPdf: req.query.includeSketchPdf !== 'false',
+      includeSketchXml: req.query.includeSketchXml !== 'false',
+      includePhotos: req.query.includePhotos === 'true',
+      maxPhotos: req.query.maxPhotos ? parseInt(req.query.maxPhotos as string, 10) : 50,
+      strictValidation: req.query.strictValidation !== 'false',
+    };
+
+    const result = await generateValidatedEsxArchive(id, config);
+
+    // If validation failed and can't export, return validation errors
+    if (!result.validation.canExport) {
+      log.warn({ estimateId: id, errors: result.validation.errors }, 'ESX export validation failed');
+      return res.status(400).json({
+        message: 'ESX export validation failed',
+        validation: result.validation,
+      });
+    }
+
+    // Log warnings if any
+    if (result.validation.warnings.length > 0) {
+      log.info({ estimateId: id, warnings: result.validation.warnings }, 'ESX export completed with warnings');
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="estimate-${id}.esx"`);
+    res.setHeader('X-ESX-Files', result.files.join(','));
+    res.setHeader('X-ESX-Zone-Count', result.metadata.zoneCount.toString());
+    res.setHeader('X-ESX-LineItem-Count', result.metadata.lineItemCount.toString());
+    res.send(result.archive);
+  } catch (error) {
+    log.error({ err: error }, 'Generate ESX ZIP error');
+    res.status(500).json({ message: 'Failed to generate ESX ZIP export' });
+  }
+});
+
+/**
+ * GET /api/estimates/:id/export/esx-validated
+ * Export estimate as ESX with full metadata and validation results in JSON response
+ *
+ * Returns JSON with base64-encoded archive and full validation results.
+ * Use this endpoint when you need to inspect validation before saving the file.
+ */
+router.get('/:id/export/esx-validated', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const config: EsxConfig = {
+      includeSketchPdf: req.query.includeSketchPdf !== 'false',
+      includeSketchXml: req.query.includeSketchXml !== 'false',
+      includePhotos: req.query.includePhotos === 'true',
+      maxPhotos: req.query.maxPhotos ? parseInt(req.query.maxPhotos as string, 10) : 50,
+      strictValidation: req.query.strictValidation !== 'false',
+    };
+
+    const result = await generateValidatedEsxArchive(id, config);
+
+    res.json({
+      success: result.validation.canExport,
+      validation: result.validation,
+      metadata: result.metadata,
+      files: result.files,
+      archive: result.archive.length > 0 ? result.archive.toString('base64') : null,
+    });
+  } catch (error) {
+    log.error({ err: error }, 'Generate ESX validated error');
+    res.status(500).json({ message: 'Failed to generate ESX export' });
+  }
+});
+
+/**
+ * GET /api/estimates/:id/export/esx-validate
+ * Validate estimate for ESX export without generating the archive
+ *
+ * Use this endpoint to check export readiness before triggering the full export.
+ */
+router.get('/:id/export/esx-validate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const strictMode = req.query.strict !== 'false';
+
+    const validation = await validateEsxExport(id, strictMode);
+
+    res.json({
+      estimateId: id,
+      validation,
+    });
+  } catch (error) {
+    log.error({ err: error }, 'Validate ESX export error');
+    res.status(500).json({ message: 'Failed to validate ESX export' });
   }
 });
 
