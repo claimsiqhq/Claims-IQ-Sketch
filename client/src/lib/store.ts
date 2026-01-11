@@ -383,7 +383,7 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }));
     } catch (error) {
-      console.error('Failed to load regions and carriers:', error);
+      // Failed to load regions and carriers - will retry on next attempt
     }
   },
 

@@ -2,6 +2,7 @@
 // Zustand store for voice-driven room sketching state management
 
 import { create } from 'zustand';
+import { logger } from '@/lib/logger';
 import type {
   RoomGeometry,
   Opening,
@@ -2091,7 +2092,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
         related_room: nextStep.roomName
       });
     } catch (error) {
-      console.error('[GeometryEngine] Failed to get workflow step:', error);
+      logger.error('[GeometryEngine] Failed to get workflow step', error);
       return 'Error retrieving workflow step.';
     }
   },
@@ -2167,7 +2168,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
         total_needed: totalNeeded
       });
     } catch (error) {
-      console.error('[GeometryEngine] Failed to get photo requirements:', error);
+      logger.error('[GeometryEngine] Failed to get photo requirements', error);
       return 'Error retrieving photo requirements.';
     }
   },
@@ -2220,7 +2221,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
 
       return JSON.stringify({ status: 'completed', step_id: stepId });
     } catch (error) {
-      console.error('[GeometryEngine] Failed to complete step:', error);
+      logger.error('[GeometryEngine] Failed to complete step', error);
       return 'Error completing step.';
     }
   },
@@ -2270,7 +2271,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
         step_title: step.title
       });
     } catch (error) {
-      console.error('[GeometryEngine] Failed to capture photo for step:', error);
+      logger.error('[GeometryEngine] Failed to capture photo for step', error);
       return 'Error setting up photo capture.';
     }
   },
@@ -2312,7 +2313,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
         } : null
       });
     } catch (error) {
-      console.error('[GeometryEngine] Failed to get workflow status:', error);
+      logger.error('[GeometryEngine] Failed to get workflow status', error);
       return 'Error retrieving workflow status.';
     }
   },
