@@ -372,4 +372,227 @@ router.get('/price-lists', async (req: Request, res: Response) => {
   }
 });
 
+// =================================================
+// Estimate Pricing Engine
+// =================================================
+
+import {
+  priceScopeResult,
+  priceEstimateScope,
+  getRegionalPriceSets,
+  getRegionalPriceSet,
+  type EstimatePricingConfig,
+} from '../services/estimatePricingEngine';
+import { evaluateZoneScope, evaluateEstimateScope } from '../services/scopeEngine';
+import { validatePricedEstimate } from '../services/estimateValidator';
+
+/**
+ * POST /api/pricing/scope
+ * Price a scope result (single zone)
+ */
+router.post('/pricing/scope', async (req: Request, res: Response) => {
+  try {
+    const { scopeResult, config } = req.body;
+
+    if (!scopeResult) {
+      return res.status(400).json({ message: 'Scope result required' });
+    }
+
+    const pricingConfig: EstimatePricingConfig = {
+      regionId: config?.regionId || 'US-NATIONAL',
+      carrierProfileId: config?.carrierProfileId,
+      overheadPct: config?.overheadPct,
+      profitPct: config?.profitPct,
+      defaultAgeYears: config?.defaultAgeYears,
+      defaultCondition: config?.defaultCondition,
+      deductibles: config?.deductibles,
+    };
+
+    const result = await priceScopeResult(scopeResult, pricingConfig);
+    res.json({ estimate: result });
+  } catch (error) {
+    log.error({ err: error }, 'Price scope error');
+    res.status(500).json({ message: 'Failed to price scope' });
+  }
+});
+
+/**
+ * POST /api/pricing/estimate-scope
+ * Price an entire estimate's scope (multiple zones)
+ */
+router.post('/pricing/estimate-scope', async (req: Request, res: Response) => {
+  try {
+    const { estimateScopeResult, config } = req.body;
+
+    if (!estimateScopeResult) {
+      return res.status(400).json({ message: 'Estimate scope result required' });
+    }
+
+    const pricingConfig: EstimatePricingConfig = {
+      regionId: config?.regionId || 'US-NATIONAL',
+      carrierProfileId: config?.carrierProfileId,
+      overheadPct: config?.overheadPct,
+      profitPct: config?.profitPct,
+      defaultAgeYears: config?.defaultAgeYears,
+      defaultCondition: config?.defaultCondition,
+      deductibles: config?.deductibles,
+    };
+
+    const result = await priceEstimateScope(estimateScopeResult, pricingConfig);
+    res.json({ estimate: result });
+  } catch (error) {
+    log.error({ err: error }, 'Price estimate scope error');
+    res.status(500).json({ message: 'Failed to price estimate scope' });
+  }
+});
+
+/**
+ * POST /api/pricing/zone-to-estimate
+ * Evaluate scope for a zone and price it in one call
+ */
+router.post('/pricing/zone-to-estimate', async (req: Request, res: Response) => {
+  try {
+    const { zone, missingWalls, subrooms, config } = req.body;
+
+    if (!zone || !zone.id) {
+      return res.status(400).json({ message: 'Zone with id required' });
+    }
+
+    // Evaluate scope
+    const scopeResult = await evaluateZoneScope(
+      zone,
+      missingWalls || [],
+      subrooms || []
+    );
+
+    // Price the scope
+    const pricingConfig: EstimatePricingConfig = {
+      regionId: config?.regionId || 'US-NATIONAL',
+      carrierProfileId: config?.carrierProfileId,
+      overheadPct: config?.overheadPct,
+      profitPct: config?.profitPct,
+      defaultAgeYears: config?.defaultAgeYears,
+      defaultCondition: config?.defaultCondition,
+      deductibles: config?.deductibles,
+    };
+
+    const pricedEstimate = await priceScopeResult(scopeResult, pricingConfig);
+
+    // Validate the priced estimate
+    const validation = await validatePricedEstimate(pricedEstimate);
+
+    res.json({
+      scope: scopeResult,
+      estimate: pricedEstimate,
+      validation,
+    });
+  } catch (error) {
+    log.error({ err: error }, 'Zone to estimate error');
+    res.status(500).json({ message: 'Failed to create estimate from zone' });
+  }
+});
+
+/**
+ * POST /api/pricing/validate
+ * Validate a priced estimate
+ */
+router.post('/pricing/validate', async (req: Request, res: Response) => {
+  try {
+    const { estimate } = req.body;
+
+    if (!estimate) {
+      return res.status(400).json({ message: 'Priced estimate required' });
+    }
+
+    const validation = await validatePricedEstimate(estimate);
+    res.json({ validation });
+  } catch (error) {
+    log.error({ err: error }, 'Validate estimate error');
+    res.status(500).json({ message: 'Failed to validate estimate' });
+  }
+});
+
+/**
+ * GET /api/pricing/regional-price-sets
+ * Get all available regional price sets
+ */
+router.get('/pricing/regional-price-sets', async (req: Request, res: Response) => {
+  try {
+    const priceSets = await getRegionalPriceSets();
+    res.json({ priceSets });
+  } catch (error) {
+    log.error({ err: error }, 'Get regional price sets error');
+    res.status(500).json({ message: 'Failed to get regional price sets' });
+  }
+});
+
+/**
+ * GET /api/pricing/regional-price-sets/:regionId
+ * Get a specific regional price set
+ */
+router.get('/pricing/regional-price-sets/:regionId', async (req: Request, res: Response) => {
+  try {
+    const { regionId } = req.params;
+    const priceSet = await getRegionalPriceSet(regionId);
+
+    if (!priceSet) {
+      return res.status(404).json({ message: 'Regional price set not found' });
+    }
+
+    res.json({ priceSet });
+  } catch (error) {
+    log.error({ err: error }, 'Get regional price set error');
+    res.status(500).json({ message: 'Failed to get regional price set' });
+  }
+});
+
+/**
+ * POST /api/pricing/full-estimate
+ * Create a full priced estimate from zones with scope evaluation, pricing, and validation
+ */
+router.post('/pricing/full-estimate', async (req: Request, res: Response) => {
+  try {
+    const { estimateId, zones, config } = req.body;
+
+    if (!zones || !Array.isArray(zones) || zones.length === 0) {
+      return res.status(400).json({ message: 'At least one zone required' });
+    }
+
+    // Evaluate scope for all zones
+    const scopeResult = await evaluateEstimateScope(
+      estimateId || 'preview',
+      zones.map(z => ({
+        ...z,
+        missingWalls: z.missingWalls || [],
+        subrooms: z.subrooms || [],
+      }))
+    );
+
+    // Price the scope
+    const pricingConfig: EstimatePricingConfig = {
+      regionId: config?.regionId || 'US-NATIONAL',
+      carrierProfileId: config?.carrierProfileId,
+      overheadPct: config?.overheadPct,
+      profitPct: config?.profitPct,
+      defaultAgeYears: config?.defaultAgeYears,
+      defaultCondition: config?.defaultCondition,
+      deductibles: config?.deductibles,
+    };
+
+    const pricedEstimate = await priceEstimateScope(scopeResult, pricingConfig);
+
+    // Validate
+    const validation = await validatePricedEstimate(pricedEstimate);
+
+    res.json({
+      scope: scopeResult,
+      estimate: pricedEstimate,
+      validation,
+    });
+  } catch (error) {
+    log.error({ err: error }, 'Full estimate error');
+    res.status(500).json({ message: 'Failed to create full estimate' });
+  }
+});
+
 export default router;
