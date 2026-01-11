@@ -52,6 +52,7 @@ import {
   Sparkles,
   Wand2,
   X,
+  Lock,
 } from "lucide-react";
 import {
   getClaimWorkflow,
@@ -163,6 +164,117 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+  }, []);
+
+  // ============================================
+  // BLOCKING ENFORCEMENT HELPERS
+  // ============================================
+
+  /**
+   * Check if a step can be skipped.
+   * Blocking steps cannot be skipped, and steps cannot be skipped if previous blocking steps are incomplete.
+   */
+  const canSkipStep = useCallback((step: InspectionWorkflowStep): boolean => {
+    if (!workflow) return false;
+
+    // Required/blocking steps cannot be skipped
+    if (step.required) return false;
+
+    // Check if any previous blocking steps are incomplete
+    const stepIndex = workflow.steps.findIndex(s => s.id === step.id);
+    const previousBlockingIncomplete = workflow.steps
+      .filter((s, idx) => idx < stepIndex && s.required)
+      .some(s => s.status !== 'completed' && s.status !== 'skipped');
+
+    return !previousBlockingIncomplete;
+  }, [workflow]);
+
+  /**
+   * Validate evidence requirements for a step.
+   * Returns validation result with whether it's valid and any error message.
+   */
+  const validateStepEvidence = useCallback((step: InspectionWorkflowStep): { valid: boolean; message?: string } => {
+    // If step doesn't have evidence requirements, it's valid
+    const evidenceReqs = step.evidenceRequirements as Array<{
+      type: string;
+      required: boolean;
+      label?: string;
+      photo?: { minCount?: number; count?: number };
+    }> | undefined;
+
+    if (!evidenceReqs || evidenceReqs.length === 0) {
+      return { valid: true };
+    }
+
+    const photos = step.assets?.filter(a => a.assetType === 'photo') || [];
+    const measurements = step.assets?.filter(a => a.assetType === 'measurement') || [];
+    const notes = step.notes || '';
+
+    // Check photo requirements
+    for (const req of evidenceReqs) {
+      if (req.type === 'photo' && req.required) {
+        const minPhotos = req.photo?.minCount || req.photo?.count || 1;
+        if (photos.length < minPhotos) {
+          return {
+            valid: false,
+            message: `This step requires ${minPhotos} photo(s). You have ${photos.length}.`
+          };
+        }
+      }
+
+      if (req.type === 'measurement' && req.required && measurements.length === 0) {
+        return {
+          valid: false,
+          message: 'This step requires measurements.'
+        };
+      }
+
+      if (req.type === 'note' && req.required && !notes.trim()) {
+        return {
+          valid: false,
+          message: 'This step requires notes.'
+        };
+      }
+    }
+
+    return { valid: true };
+  }, []);
+
+  /**
+   * Check if we can proceed past a step (for blocking enforcement).
+   * Blocking steps require evidence to be captured before proceeding.
+   */
+  const canProceedPastStep = useCallback((step: InspectionWorkflowStep): boolean => {
+    // Non-required steps can always be proceeded past
+    if (!step.required) return true;
+    // Completed steps can be proceeded past
+    if (step.status === 'completed') return true;
+
+    // For blocking steps, check if evidence requirements are met
+    const validation = validateStepEvidence(step);
+    return validation.valid;
+  }, [validateStepEvidence]);
+
+  /**
+   * Get the evidence progress for a step (photos captured vs required).
+   */
+  const getStepEvidenceProgress = useCallback((step: InspectionWorkflowStep): { current: number; required: number; complete: boolean } | null => {
+    const evidenceReqs = step.evidenceRequirements as Array<{
+      type: string;
+      required: boolean;
+      photo?: { minCount?: number; count?: number; angles?: string[] };
+    }> | undefined;
+
+    if (!evidenceReqs) return null;
+
+    const photoReq = evidenceReqs.find(r => r.type === 'photo' && r.required);
+    if (!photoReq) return null;
+
+    const required = photoReq.photo?.minCount || photoReq.photo?.count || 1;
+    const current = step.assets?.filter(a => a.assetType === 'photo').length || 0;
+    const complete = current >= required;
+
+    return { current, required, complete };
   }, []);
 
   // Phase order for swipe navigation
@@ -288,6 +400,16 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
     try {
       // Find the step to get room context
       const step = workflow.steps.find(s => s.id === data.stepId);
+
+      // Validate evidence requirements for blocking steps
+      if (step?.required) {
+        const validation = validateStepEvidence(step);
+        if (!validation.valid) {
+          toast.error(validation.message || 'Evidence requirements not met');
+          setIsSubmittingStep(false);
+          return;
+        }
+      }
       const roomName = step?.roomName || step?.title || 'Workflow Step';
 
       // Upload photos if any were captured
@@ -792,8 +914,25 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                             </div>
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                               {step.required && (
-                                <Badge variant="destructive" className="text-xs">Required</Badge>
+                                <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                                  <Lock className="h-3 w-3" />
+                                  Required
+                                </Badge>
                               )}
+                              {/* Evidence Progress Indicator */}
+                              {(() => {
+                                const progress = getStepEvidenceProgress(step);
+                                if (!progress) return null;
+                                return (
+                                  <span className={cn(
+                                    "flex items-center gap-1 text-xs",
+                                    progress.complete ? "text-green-600" : "text-amber-600"
+                                  )}>
+                                    <Camera className={cn("h-3 w-3", progress.complete ? "text-green-500" : "text-amber-500")} />
+                                    {progress.current}/{progress.required} photos
+                                  </span>
+                                );
+                              })()}
                               {step.roomName && (
                                 <Badge variant="secondary" className="text-xs">
                                   {step.roomName}
@@ -885,14 +1024,20 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                                 Complete Step
                               </Button>
                             )}
-                            {step.status !== 'skipped' && step.status !== 'completed' && !step.required && (
+                            {step.status !== 'skipped' && step.status !== 'completed' && (
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleQuickStatusChange(step, 'skipped');
+                                  if (canSkipStep(step)) {
+                                    handleQuickStatusChange(step, 'skipped');
+                                  }
                                 }}
+                                disabled={!canSkipStep(step)}
+                                title={!canSkipStep(step)
+                                  ? "This step is required and cannot be skipped"
+                                  : "Skip this step"}
                               >
                                 <SkipForward className="h-4 w-4 mr-1" />
                                 Skip

@@ -4441,10 +4441,68 @@ export async function registerRoutes(
   /**
    * PATCH /api/workflow/:id/steps/:stepId
    * Update a workflow step (status, notes, actual minutes, etc.)
+   * Enforces evidence requirements for blocking steps when completing.
    */
   app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const { status, notes, actualMinutes } = req.body;
+      const { status, notes, actualMinutes, skipValidation } = req.body;
+
+      // If completing a step, validate evidence requirements for blocking steps
+      if (status === 'completed' && !skipValidation) {
+        // Get the step with evidence to check requirements
+        const { data: stepData, error: fetchError } = await supabaseAdmin
+          .from('inspection_workflow_steps')
+          .select(`
+            id,
+            required,
+            evidence_requirements,
+            evidence:workflow_step_evidence(id, evidence_type, requirement_id)
+          `)
+          .eq('id', req.params.stepId)
+          .single();
+
+        if (fetchError || !stepData) {
+          return res.status(404).json({ error: 'Step not found' });
+        }
+
+        // Check if this is a blocking step with evidence requirements
+        if (stepData.required && stepData.evidence_requirements) {
+          const evidenceReqs = stepData.evidence_requirements as Array<{
+            type: string;
+            required: boolean;
+            photo?: { minCount?: number; count?: number };
+          }>;
+          const attachedEvidence = (stepData.evidence || []) as Array<{ evidence_type: string }>;
+
+          for (const req of evidenceReqs) {
+            if (req.required) {
+              if (req.type === 'photo') {
+                const photoCount = attachedEvidence.filter(e => e.evidence_type === 'photo').length;
+                const minPhotos = req.photo?.minCount || req.photo?.count || 1;
+                if (photoCount < minPhotos) {
+                  return res.status(400).json({
+                    error: 'Evidence requirements not met',
+                    details: {
+                      type: 'photos',
+                      required: minPhotos,
+                      current: photoCount
+                    }
+                  });
+                }
+              }
+              if (req.type === 'measurement') {
+                const measurementCount = attachedEvidence.filter(e => e.evidence_type === 'measurement').length;
+                if (measurementCount === 0) {
+                  return res.status(400).json({
+                    error: 'Evidence requirements not met',
+                    details: { type: 'measurements', required: 1, current: 0 }
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
 
       const updates: Parameters<typeof updateWorkflowStep>[1] = {};
       if (status !== undefined) updates.status = status;
@@ -4838,7 +4896,8 @@ export async function registerRoutes(
       }
 
       const { uploadAndAnalyzePhoto } = await import('./services/photos');
-      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude } = req.body;
+      const { linkPhotoToWorkflowStep } = await import('./services/dynamicWorkflowService');
+      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude, workflowStepId, damageZoneId } = req.body;
 
       // Get user display name for uploadedBy field
       const user = req.user;
@@ -4882,7 +4941,33 @@ export async function registerRoutes(
         storagePath: photo.storagePath,
       });
 
-      res.status(201).json(photo);
+      // Link photo to workflow step if workflowStepId is provided or try to auto-match
+      let stepLinkResult: { stepId?: string; stepProgress?: string; stepComplete?: boolean } = {};
+      if (claimId) {
+        try {
+          const linkResult = await linkPhotoToWorkflowStep({
+            claimId,
+            photoId: photo.id,
+            roomId,
+            damageZoneId,
+            explicitStepId: workflowStepId,
+            organizationId: req.organizationId!
+          });
+          if (linkResult.success) {
+            stepLinkResult = {
+              stepId: linkResult.stepId,
+              stepProgress: linkResult.stepProgress,
+              stepComplete: linkResult.stepComplete
+            };
+            console.log('[photos] Photo linked to workflow step:', stepLinkResult);
+          }
+        } catch (linkError) {
+          console.warn('[photos] Failed to link photo to workflow step:', linkError);
+          // Don't fail the upload if linking fails
+        }
+      }
+
+      res.status(201).json({ ...photo, ...stepLinkResult });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[photos] Upload error:', error);

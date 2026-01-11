@@ -1011,6 +1011,124 @@ Then use this tool to attach their spoken annotation to the photo metadata.`,
   },
 });
 
+// ============================================
+// WORKFLOW INTEGRATION TOOLS
+// ============================================
+
+// Tool: Get current workflow step
+const getCurrentWorkflowStepTool = tool({
+  name: 'get_current_workflow_step',
+  description: `Get the current or next pending workflow step for the inspection.
+
+Use this to know what evidence is still needed and guide the adjuster.
+
+Example triggers:
+- "What step am I on?"
+- "What do I need to do next?"
+- "What's the current step?"`,
+  parameters: z.object({
+    phase: z.enum(['pre_inspection', 'initial_walkthrough', 'exterior', 'interior', 'documentation', 'wrap_up']).optional()
+      .describe('Optional: filter by phase to get next step in a specific phase'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.getCurrentWorkflowStep(params.phase);
+  },
+});
+
+// Tool: Get photo requirements for a workflow step
+const getStepPhotoRequirementsTool = tool({
+  name: 'get_step_photo_requirements',
+  description: `Get photo requirements for a specific workflow step or the current room.
+
+Returns what photos are needed, how many, and which angles/perspectives are required.
+
+Example triggers:
+- "What photos do I need?"
+- "How many photos are required?"
+- "What else do I need to capture?"`,
+  parameters: z.object({
+    room_id: z.string().optional().describe('Room ID to check. Uses current room if not specified.'),
+    step_id: z.string().optional().describe('Specific step ID to check.'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.getStepPhotoRequirements(params.room_id, params.step_id);
+  },
+});
+
+// Tool: Complete a workflow step
+const completeWorkflowStepTool = tool({
+  name: 'complete_workflow_step',
+  description: `Mark a workflow step as complete. Only use after required evidence is captured.
+
+IMPORTANT: Will fail if evidence requirements are not met for blocking steps.
+Always check photo requirements first before attempting to complete.
+
+Example triggers:
+- "Mark this step complete"
+- "Done with this step"
+- "Step finished"`,
+  parameters: z.object({
+    step_id: z.string().describe('ID of the step to complete'),
+    notes: z.string().optional().describe('Optional completion notes or findings'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.completeWorkflowStep(params.step_id, params.notes);
+  },
+});
+
+// Tool: Capture photo specifically for a workflow step
+const capturePhotoForStepTool = tool({
+  name: 'capture_photo_for_step',
+  description: `Capture a photo specifically for a workflow step. Links the photo to the step automatically.
+
+Use this when the adjuster needs to capture photos to fulfill workflow step requirements.
+This tool provides step-specific context and guidance for the photo capture.
+
+Example triggers:
+- "Take a photo for this step"
+- "Capture the required photo"
+- "Get the photo evidence"`,
+  parameters: z.object({
+    step_id: z.string().describe('Workflow step ID to link photo to'),
+    target_type: z.enum([
+      'room_overview',
+      'damage_detail',
+      'opening',
+      'material',
+      'measurement_reference',
+      'context',
+      'fixtures',
+      'flooring'
+    ]).optional().describe('Type of photo - will be inferred from step if not provided'),
+    suggested_label: z.string().optional().describe('Label for the photo - uses step title if not provided'),
+    framing_guidance: z.string().optional().describe('Instructions for framing the shot - uses step instructions if not provided'),
+  }),
+  execute: async (params) => {
+    return geometryEngine.capturePhotoForStep(params.step_id, {
+      targetType: params.target_type,
+      suggestedLabel: params.suggested_label,
+      framingGuidance: params.framing_guidance,
+    });
+  },
+});
+
+// Tool: Get workflow completion status
+const getWorkflowStatusTool = tool({
+  name: 'get_workflow_status',
+  description: `Get overall workflow completion status and any remaining steps.
+
+Use this to give the adjuster a summary of their progress and what's left to do.
+
+Example triggers:
+- "How much is left?"
+- "What's my progress?"
+- "Am I done?"`,
+  parameters: z.object({}),
+  execute: async () => {
+    return geometryEngine.getWorkflowStatus();
+  },
+});
+
 // Tool: Check sketch completeness
 const checkSketchCompletenessTool = tool({
   name: 'check_sketch_completeness',
@@ -1155,6 +1273,12 @@ const agentTools = [
   capturePhotoTool,
   getPhotoStatusTool,
   addPhotoAnnotationTool,
+  // Workflow integration tools
+  getCurrentWorkflowStepTool,
+  getStepPhotoRequirementsTool,
+  completeWorkflowStepTool,
+  capturePhotoForStepTool,
+  getWorkflowStatusTool,
 ];
 
 /**
@@ -1209,4 +1333,10 @@ export const tools = {
   capturePhoto: capturePhotoTool,
   getPhotoStatus: getPhotoStatusTool,
   addPhotoAnnotation: addPhotoAnnotationTool,
+  // Workflow integration tools
+  getCurrentWorkflowStep: getCurrentWorkflowStepTool,
+  getStepPhotoRequirements: getStepPhotoRequirementsTool,
+  completeWorkflowStep: completeWorkflowStepTool,
+  capturePhotoForStep: capturePhotoForStepTool,
+  getWorkflowStatus: getWorkflowStatusTool,
 };
