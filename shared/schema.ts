@@ -4296,3 +4296,310 @@ export const scopeSummaryRelations = relations(scopeSummary, ({ one }) => ({
     references: [scopeTrades.code],
   }),
 }));
+
+// ============================================
+// DYNAMIC WORKFLOW EVIDENCE TYPES
+// ============================================
+
+/**
+ * Step origin - where the step came from
+ */
+export enum StepOrigin {
+  BASE_RULE = "base_rule",
+  POLICY_RULE = "policy_rule",
+  PERIL_RULE = "peril_rule",
+  DISCOVERY = "discovery",
+  GEOMETRY = "geometry",
+  MANUAL = "manual",
+}
+
+/**
+ * Blocking behavior for workflow steps
+ */
+export enum BlockingBehavior {
+  BLOCKING = "blocking",
+  ADVISORY = "advisory",
+  CONDITIONAL = "conditional",
+}
+
+/**
+ * Evidence types that can be required
+ */
+export enum EvidenceType {
+  PHOTO = "photo",
+  MEASUREMENT = "measurement",
+  NOTE = "note",
+  SIGNATURE = "signature",
+  DOCUMENT = "document",
+  CHECKLIST = "checklist",
+}
+
+/**
+ * Photo angle requirements
+ */
+export type PhotoAngle =
+  | "overview"
+  | "detail"
+  | "measurement"
+  | "before_after"
+  | "north"
+  | "south"
+  | "east"
+  | "west"
+  | "aerial"
+  | "cross_section";
+
+/**
+ * Photo requirement specification
+ */
+export interface PhotoRequirement {
+  minCount: number;
+  maxCount?: number;
+  angles?: PhotoAngle[];
+  subjects?: string[];
+  quality?: {
+    minResolution?: number;
+    requireFlash?: boolean;
+    requireNoBlur?: boolean;
+  };
+  metadata?: {
+    requireGps?: boolean;
+    requireTimestamp?: boolean;
+  };
+}
+
+/**
+ * Measurement requirement specification
+ */
+export interface MeasurementRequirement {
+  type: "linear" | "area" | "volume" | "moisture" | "temperature";
+  unit: string;
+  minReadings?: number;
+  locations?: string[];
+  tolerance?: number;
+}
+
+/**
+ * Note requirement specification
+ */
+export interface NoteRequirement {
+  minLength?: number;
+  promptText: string;
+  structuredFields?: {
+    field: string;
+    type: "text" | "number" | "boolean" | "select";
+    required: boolean;
+    options?: string[];
+  }[];
+}
+
+/**
+ * Evidence requirement for a workflow step
+ */
+export interface EvidenceRequirementSpec {
+  type: EvidenceType;
+  label: string;
+  description?: string;
+  required: boolean;
+  photo?: PhotoRequirement;
+  measurement?: MeasurementRequirement;
+  note?: NoteRequirement;
+}
+
+/**
+ * Geometry binding scope
+ */
+export type GeometryScope =
+  | "structure"
+  | "room"
+  | "wall"
+  | "zone"
+  | "feature"
+  | "exterior";
+
+/**
+ * Geometry binding specification
+ */
+export interface GeometryBindingSpec {
+  scope: GeometryScope;
+  structureId?: string;
+  roomId?: string;
+  wallDirection?: "north" | "south" | "east" | "west";
+  zoneId?: string;
+  featureId?: string;
+  exteriorFace?: "north" | "south" | "east" | "west" | "roof";
+}
+
+// ============================================
+// WORKFLOW STEP EVIDENCE TABLE
+// ============================================
+
+/**
+ * Tracks evidence attached to workflow steps
+ */
+export const workflowStepEvidence = pgTable("workflow_step_evidence", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  stepId: uuid("step_id").notNull(),
+  requirementId: varchar("requirement_id", { length: 100 }).notNull(),
+  evidenceType: varchar("evidence_type", { length: 30 }).notNull(),
+
+  // Reference to actual evidence
+  photoId: uuid("photo_id"),
+  measurementData: jsonb("measurement_data"),
+  noteData: jsonb("note_data"),
+
+  // Validation status
+  validated: boolean("validated").default(false),
+  validationErrors: jsonb("validation_errors").default(sql`'[]'::jsonb`),
+
+  // Capture info
+  capturedAt: timestamp("captured_at").default(sql`NOW()`),
+  capturedBy: varchar("captured_by", { length: 100 }),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  stepIdx: index("workflow_step_evidence_step_idx").on(table.stepId),
+  photoIdx: index("workflow_step_evidence_photo_idx").on(table.photoId),
+  typeIdx: index("workflow_step_evidence_type_idx").on(table.evidenceType),
+}));
+
+export const insertWorkflowStepEvidenceSchema = createInsertSchema(workflowStepEvidence).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertWorkflowStepEvidence = z.infer<typeof insertWorkflowStepEvidenceSchema>;
+export type WorkflowStepEvidence = typeof workflowStepEvidence.$inferSelect;
+
+// ============================================
+// WORKFLOW MUTATIONS TABLE
+// ============================================
+
+/**
+ * Audit trail for dynamic workflow changes
+ */
+export const workflowMutations = pgTable("workflow_mutations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  workflowId: uuid("workflow_id").notNull(),
+
+  // Mutation details
+  trigger: varchar("trigger", { length: 50 }).notNull(),
+  mutationData: jsonb("mutation_data").notNull(),
+
+  // Result
+  stepsAdded: jsonb("steps_added").default(sql`'[]'::jsonb`),
+  stepsRemoved: jsonb("steps_removed").default(sql`'[]'::jsonb`),
+  stepsModified: jsonb("steps_modified").default(sql`'[]'::jsonb`),
+
+  // Audit
+  triggeredBy: varchar("triggered_by", { length: 100 }),
+  triggeredAt: timestamp("triggered_at").default(sql`NOW()`),
+
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  workflowIdx: index("workflow_mutations_workflow_idx").on(table.workflowId),
+  triggerIdx: index("workflow_mutations_trigger_idx").on(table.trigger),
+}));
+
+export const insertWorkflowMutationSchema = createInsertSchema(workflowMutations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertWorkflowMutation = z.infer<typeof insertWorkflowMutationSchema>;
+export type WorkflowMutation = typeof workflowMutations.$inferSelect;
+
+// ============================================
+// WORKFLOW RULES TABLE
+// ============================================
+
+/**
+ * Configurable workflow rules for dynamic step generation
+ */
+export const workflowRules = pgTable("workflow_rules", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id"),
+
+  // Rule identification
+  ruleId: varchar("rule_id", { length: 100 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  version: varchar("version", { length: 20 }).default("1.0"),
+
+  // Rule definition
+  conditions: jsonb("conditions").notNull(),
+  stepTemplate: jsonb("step_template").notNull(),
+  evidence: jsonb("evidence").default(sql`'[]'::jsonb`),
+  blocking: varchar("blocking", { length: 20 }).default("advisory"),
+  blockingCondition: jsonb("blocking_condition"),
+  geometryScope: varchar("geometry_scope", { length: 30 }),
+  priority: integer("priority").default(50),
+  origin: varchar("origin", { length: 30 }).default("base_rule"),
+  sourceReference: varchar("source_reference", { length: 100 }),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+  isSystem: boolean("is_system").default(false),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("workflow_rules_org_idx").on(table.organizationId),
+  activeIdx: index("workflow_rules_active_idx").on(table.isActive),
+  originIdx: index("workflow_rules_origin_idx").on(table.origin),
+}));
+
+export const insertWorkflowRuleSchema = createInsertSchema(workflowRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertWorkflowRule = z.infer<typeof insertWorkflowRuleSchema>;
+export type WorkflowRule = typeof workflowRules.$inferSelect;
+
+// ============================================
+// EXPORT VALIDATION TYPES
+// ============================================
+
+/**
+ * Risk level for export
+ */
+export type ExportRiskLevel =
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "blocked";
+
+/**
+ * Evidence gap in export validation
+ */
+export interface EvidenceGap {
+  stepId: string;
+  stepTitle: string;
+  requirement: EvidenceRequirementSpec;
+  isBlocking: boolean;
+  reason: string;
+}
+
+/**
+ * Export validation result
+ */
+export interface ExportValidationResult {
+  canExport: boolean;
+  riskLevel: ExportRiskLevel;
+  gaps: EvidenceGap[];
+  summary: {
+    totalSteps: number;
+    completedSteps: number;
+    blockedSteps: number;
+    evidenceComplete: number;
+    evidenceMissing: number;
+  };
+  warnings: string[];
+}

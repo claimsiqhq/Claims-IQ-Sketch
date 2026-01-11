@@ -4582,6 +4582,177 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // DYNAMIC WORKFLOW ROUTES (Rule-Driven)
+  // ============================================
+
+  /**
+   * POST /api/claims/:id/workflow/dynamic/generate
+   * Generate a rule-driven dynamic workflow for a claim.
+   */
+  app.post('/api/claims/:id/workflow/dynamic/generate', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { generateDynamicWorkflow } = await import('./services/dynamicWorkflowService');
+      const { forceRegenerate } = req.body;
+
+      const result = await generateDynamicWorkflow(
+        req.params.id,
+        req.organizationId!,
+        req.user?.id,
+        forceRegenerate
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        workflowId: result.workflowId,
+        version: result.version,
+        stepsGenerated: result.stepsGenerated,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/workflow/:id/evidence
+   * Get workflow with full evidence status.
+   */
+  app.get('/api/workflow/:id/evidence', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getWorkflowWithEvidence } = await import('./services/dynamicWorkflowService');
+      const result = await getWorkflowWithEvidence(req.params.id, req.organizationId!);
+
+      if (!result) {
+        return res.status(404).json({ error: 'Workflow not found' });
+      }
+
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/steps/:stepId/evidence
+   * Attach evidence to a workflow step.
+   */
+  app.post('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { attachEvidenceToStep } = await import('./services/dynamicWorkflowService');
+      const { requirementId, type, photoId, measurementData, noteData } = req.body;
+
+      if (!requirementId || !type) {
+        return res.status(400).json({ error: 'requirementId and type are required' });
+      }
+
+      const result = await attachEvidenceToStep(
+        req.params.stepId,
+        requirementId,
+        { type, photoId, measurementData, noteData },
+        req.user?.id
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        evidenceId: result.evidenceId,
+        fulfilled: result.fulfilled,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/workflow/:id/steps/:stepId/evidence
+   * Get evidence attached to a step.
+   */
+  app.get('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getStepEvidence } = await import('./services/dynamicWorkflowService');
+      const evidence = await getStepEvidence(req.params.stepId);
+      res.json({ evidence });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/validate-export
+   * Validate workflow for export readiness with evidence completeness check.
+   */
+  app.post('/api/workflow/:id/validate-export', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { validateWorkflowForExport } = await import('./services/dynamicWorkflowService');
+      const result = await validateWorkflowForExport(req.params.id, req.organizationId!);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/mutation/room-added
+   * Trigger workflow mutation when a room is added.
+   */
+  app.post('/api/workflow/:id/mutation/room-added', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { onRoomAdded } = await import('./services/dynamicWorkflowService');
+      const { roomId, roomName } = req.body;
+
+      if (!roomId || !roomName) {
+        return res.status(400).json({ error: 'roomId and roomName are required' });
+      }
+
+      const result = await onRoomAdded(req.params.id, roomId, roomName, req.user?.id);
+      res.json({
+        success: true,
+        stepsAdded: result.stepsAdded.length,
+        stepsModified: result.stepsModified.length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/:id/mutation/damage-added
+   * Trigger workflow mutation when a damage zone is added.
+   */
+  app.post('/api/workflow/:id/mutation/damage-added', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { onDamageZoneAdded } = await import('./services/dynamicWorkflowService');
+      const { zoneId, roomId, damageType } = req.body;
+
+      if (!zoneId || !roomId || !damageType) {
+        return res.status(400).json({ error: 'zoneId, roomId, and damageType are required' });
+      }
+
+      const result = await onDamageZoneAdded(req.params.id, zoneId, roomId, damageType, req.user?.id);
+      res.json({
+        success: true,
+        stepsAdded: result.stepsAdded.length,
+        stepsModified: result.stepsModified.length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ============================================
   // CARRIER OVERLAY ROUTES
   // ============================================
 
