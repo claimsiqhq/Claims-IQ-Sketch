@@ -74,10 +74,11 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     const userId = (req.user as any).id;
     const estimateData = req.body;
 
-    const estimate = await saveEstimate({
-      ...estimateData,
-      createdBy: userId,
-    });
+    // First calculate the estimate
+    const calculation = await calculateEstimate(estimateData);
+    
+    // Then save with both input and calculation
+    const estimate = await saveEstimate(estimateData, calculation);
 
     log.info({ estimateId: estimate.id }, 'Estimate created');
     res.status(201).json({ estimate });
@@ -199,7 +200,7 @@ router.post('/:id/submit', requireAuth, async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = (req.user as any).id;
 
-    const result = await submitEstimate(id, userId);
+    const result = await submitEstimate(id);
     log.info({ estimateId: id }, 'Estimate submitted');
     res.json(result);
   } catch (error) {

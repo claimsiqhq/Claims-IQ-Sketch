@@ -10,11 +10,11 @@ import { requireAuth } from '../middleware/auth';
 import { requireOrganization } from '../middleware/tenant';
 import { storage } from '../storage';
 import {
-  uploadDocument,
-  getDocuments,
+  createDocument,
+  getClaimDocuments,
   getDocument,
   deleteDocument,
-  processDocument
+  updateDocument
 } from '../services/documents';
 import { createLogger } from '../lib/logger';
 
@@ -65,18 +65,24 @@ router.post('/claims/:claimId/documents', requireAuth, requireOrganization, uplo
       return res.status(400).json({ message: 'No file provided' });
     }
 
-    const document = await uploadDocument({
-      claimId,
+    const document = await createDocument(
       organizationId,
-      uploadedBy: userId,
-      file: {
+      {
         buffer: file.buffer,
         originalname: file.originalname,
         mimetype: file.mimetype,
         size: file.size,
       },
-      metadata: req.body,
-    });
+      {
+        claimId,
+        type: req.body.type || 'other',
+        category: req.body.category,
+        name: req.body.name,
+        description: req.body.description,
+        tags: req.body.tags,
+        uploadedBy: userId,
+      }
+    );
 
     log.info({ documentId: document.id, claimId }, 'Document uploaded');
     res.status(201).json({ document });
@@ -95,7 +101,7 @@ router.get('/claims/:claimId/documents', requireAuth, requireOrganization, async
     const { claimId } = req.params;
     const organizationId = (req as any).organizationId;
 
-    const documents = await getDocuments(claimId, organizationId);
+    const documents = await getClaimDocuments(claimId, organizationId);
     res.json({ documents });
   } catch (error) {
     log.error({ err: error }, 'Get documents error');
@@ -145,6 +151,8 @@ router.delete('/:id', requireAuth, requireOrganization, async (req: Request, res
 /**
  * POST /api/documents/:id/process
  * Trigger AI processing for a document
+ * Note: Document processing is handled automatically on upload via the DocumentQueue.
+ * This endpoint allows manual re-triggering of processing.
  */
 router.post('/:id/process', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
@@ -152,9 +160,17 @@ router.post('/:id/process', requireAuth, requireOrganization, async (req: Reques
     const organizationId = (req as any).organizationId;
     const { forceReprocess } = req.body;
 
-    const result = await processDocument(id, organizationId, { forceReprocess });
-    log.info({ documentId: id, status: result.status }, 'Document processed');
-    res.json(result);
+    // Update document status to trigger reprocessing
+    const document = await updateDocument(id, organizationId, { 
+      processingStatus: forceReprocess ? 'pending' : 'queued' 
+    });
+    
+    if (!document) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    log.info({ documentId: id, status: document.processingStatus }, 'Document queued for processing');
+    res.json({ status: document.processingStatus, message: 'Document queued for processing' });
   } catch (error) {
     log.error({ err: error }, 'Process document error');
     res.status(500).json({ message: 'Failed to process document' });
@@ -181,17 +197,20 @@ router.post('/claims/:claimId/documents/bulk', requireAuth, requireOrganization,
     }
 
     const results = await Promise.allSettled(
-      files.map(file => uploadDocument({
-        claimId,
+      files.map(file => createDocument(
         organizationId,
-        uploadedBy: userId,
-        file: {
+        {
           buffer: file.buffer,
           originalname: file.originalname,
           mimetype: file.mimetype,
           size: file.size,
         },
-      }))
+        {
+          claimId,
+          type: req.body.type || 'other',
+          uploadedBy: userId,
+        }
+      ))
     );
 
     const uploaded = results

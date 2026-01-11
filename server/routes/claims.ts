@@ -36,9 +36,8 @@ router.post('/', requireAuth, requireOrganization, async (req: Request, res: Res
     const userId = (req.user as any).id;
     const claimData = req.body;
 
-    const claim = await createClaim({
+    const claim = await createClaim(organizationId, {
       ...claimData,
-      organizationId,
       createdBy: userId,
     });
 
