@@ -417,27 +417,27 @@ export function VoiceSketchController({
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Hierarchy Breadcrumb */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b text-sm">
-        <Building2 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-        <div className="flex items-center gap-1 overflow-x-auto">
+      {/* Combined Hierarchy + Voice Controls Bar */}
+      <div className="flex items-center gap-1 px-2 py-1 bg-muted/50 border-b text-sm">
+        {/* Left: Hierarchy breadcrumb */}
+        <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
+          <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
           {structures.length === 0 ? (
-            <span className="text-muted-foreground italic">No structure selected</span>
+            <span className="text-xs text-muted-foreground italic">No structure</span>
           ) : (
             <>
-              {/* Structure selector dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-6 px-2 font-medium">
-                    {currentStructure?.name || 'Select Structure'}
+                  <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs font-medium">
+                    {currentStructure?.name || 'Select'}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuLabel>Structures</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {structures.map((s) => (
-                    <DropdownMenuItem 
-                      key={s.id} 
+                    <DropdownMenuItem
+                      key={s.id}
                       onClick={() => selectStructure({ structure_id: s.id })}
                       className={s.id === currentStructure?.id ? 'bg-accent' : ''}
                     >
@@ -449,22 +449,61 @@ export function VoiceSketchController({
               </DropdownMenu>
               {currentRoom && (
                 <>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="font-medium truncate">{currentRoom.name}</span>
+                  <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                  <span className="text-xs font-medium truncate max-w-[80px]">{currentRoom.name}</span>
                 </>
               )}
             </>
           )}
         </div>
-        
-        {/* Quick add buttons */}
-        <div className="flex items-center gap-1 ml-auto flex-shrink-0">
-          {/* Add Structure dropdown */}
+
+        {/* Center: Voice controls */}
+        <div className="flex items-center gap-1 flex-1 justify-center">
+          {!isConnected ? (
+            <Button
+              onClick={handleStartSession}
+              variant="default"
+              size="sm"
+              className="h-6 px-2"
+              disabled={!userName}
+              title={!userName ? "Loading user..." : "Start voice sketching"}
+            >
+              <Mic className="h-3 w-3 mr-1" />
+              <span className="text-[10px]">Start</span>
+            </Button>
+          ) : (
+            <>
+              <Button
+                onClick={interruptAgent}
+                variant="outline"
+                size="sm"
+                className="h-6 w-6 p-0"
+                disabled={!isSpeaking}
+                title="Stop speaking"
+              >
+                <Square className="h-3 w-3" />
+              </Button>
+              <VoiceWaveform
+                isConnected={isConnected}
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                className="flex-1 h-6 max-w-[100px]"
+                compact
+              />
+              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-6 w-6 p-0" title="End session">
+                <MicOff className="h-3 w-3" />
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* Right: Add buttons + actions */}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {/* Add Structure */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 px-2">
-                <Plus className="h-3 w-3 mr-1" />
-                <Building2 className="h-3 w-3" />
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                <Plus className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -498,159 +537,31 @@ export function VoiceSketchController({
                 <Building2 className="h-4 w-4 mr-2" />
                 Barn
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          
-          {/* Add Room dropdown - only enabled when a structure is selected */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2"
-                disabled={!currentStructure}
-                title={!currentStructure ? 'Add a structure first' : 'Add room'}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                <Home className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Add Room to {currentStructure?.name || 'Structure'}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => handleAddRoom('bedroom')}>Bedroom</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('bathroom')}>Bathroom</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('kitchen')}>Kitchen</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('living_room')}>Living Room</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('dining_room')}>Dining Room</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('office')}>Office</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('laundry')}>Laundry Room</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddRoom('hallway')}>Hallway</DropdownMenuItem>
+              <DropdownMenuLabel>Add Room</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => handleAddRoom('closet')}>Closet (Sub-room)</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Add Exterior Zone dropdown - for roof, elevations, deck (wind/hail claims) */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2"
-                disabled={!currentStructure}
-                title={!currentStructure ? 'Add a structure first' : 'Add exterior zone (roof, elevation)'}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                <Triangle className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Add Exterior Zone</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleAddRoom('bedroom')} disabled={!currentStructure}>Bedroom</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('bathroom')} disabled={!currentStructure}>Bathroom</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('kitchen')} disabled={!currentStructure}>Kitchen</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('living_room')} disabled={!currentStructure}>Living Room</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('dining_room')} disabled={!currentStructure}>Dining Room</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddRoom('office')} disabled={!currentStructure}>Office</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Roof Sections</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_main')}>
+              <DropdownMenuLabel>Exterior Zones</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_main')} disabled={!currentStructure}>
                 <Triangle className="h-4 w-4 mr-2" />
                 Roof - Main
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_garage')}>
-                <Triangle className="h-4 w-4 mr-2" />
-                Roof - Garage
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('roof_porch')}>
-                <Triangle className="h-4 w-4 mr-2" />
-                Roof - Porch/Addition
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Exterior Elevations</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_front')}>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_front')} disabled={!currentStructure}>
                 <Layers className="h-4 w-4 mr-2" />
                 Front Elevation
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_back')}>
-                <Layers className="h-4 w-4 mr-2" />
-                Back Elevation
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_left')}>
-                <Layers className="h-4 w-4 mr-2" />
-                Left Side Elevation
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('elevation_right')}>
-                <Layers className="h-4 w-4 mr-2" />
-                Right Side Elevation
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Other Exterior</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('siding')}>Siding Section</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('gutters')}>Gutters</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('deck')}>Deck</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('patio')}>Patio</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('fence')}>Fence</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddExteriorZone('driveway')}>Driveway</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddExteriorZone('deck')} disabled={!currentStructure}>Deck</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      </div>
 
-      {/* Compact Voice Dock - reorganized: level selector left, mic center, undo/redo right */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b bg-background">
-        {/* Left side: Level selector / hierarchy indicator */}
-        <div className="flex items-center gap-1 flex-shrink-0 min-w-0">
-          {currentStructure && (
-            <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded truncate max-w-[80px]" title={currentStructure.name}>
-              {currentStructure.name}
-            </span>
-          )}
-          {currentRoom && (
-            <span className="text-[10px] text-primary bg-primary/10 px-1 py-0.5 rounded truncate max-w-[60px]" title={currentRoom.name}>
-              {currentRoom.name}
-            </span>
-          )}
-        </div>
-
-        {/* Center: Voice controls and waveform */}
-        <div className="flex items-center gap-1 flex-1 justify-center">
-          {!isConnected ? (
-            <Button
-              onClick={handleStartSession}
-              variant="default"
-              size="sm"
-              className="h-6 px-2"
-              disabled={!userName}
-              title={!userName ? "Loading user..." : "Start voice sketching"}
-            >
-              <Mic className="h-3 w-3 mr-1" />
-              <span className="text-[10px]">Start</span>
-            </Button>
-          ) : (
-            <>
-              <Button
-                onClick={interruptAgent}
-                variant="outline"
-                size="sm"
-                className="h-6 w-6 p-0"
-                disabled={!isSpeaking}
-                title="Stop speaking"
-              >
-                <Square className="h-3 w-3" />
-              </Button>
-              <VoiceWaveform
-                isConnected={isConnected}
-                isListening={isListening}
-                isSpeaking={isSpeaking}
-                className="flex-1 h-6 max-w-[120px]"
-                compact
-              />
-              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-6 w-6 p-0" title="End session">
-                <MicOff className="h-3 w-3" />
-              </Button>
-            </>
-          )}
-        </div>
-
-        {/* Right side: Undo/Redo, photos, save */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Undo button */}
+          {/* Undo */}
           <Button
             onClick={() => undo(1)}
             variant="ghost"
@@ -661,8 +572,8 @@ export function VoiceSketchController({
           >
             <Undo2 className="h-3 w-3" />
           </Button>
-          {/* Reset button */}
-          <Button onClick={handleReset} variant="ghost" size="sm" className="h-6 w-6 p-0" title="Reset session">
+          {/* Reset */}
+          <Button onClick={handleReset} variant="ghost" size="sm" className="h-6 w-6 p-0" title="Reset">
             <RotateCcw className="h-3 w-3" />
           </Button>
           {photos.length > 0 && (

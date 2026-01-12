@@ -122,6 +122,7 @@ import { PhotoAlbum } from "@/features/voice-sketch/components/PhotoAlbum";
 import type { SketchPhoto } from "@/features/voice-sketch/types/geometry";
 
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
+import { SketchToolbar } from "@/features/voice-sketch/components/SketchToolbar";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
 import { saveClaimRooms, getClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
 import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
@@ -235,6 +236,14 @@ export default function ClaimDetail() {
 
   // Bulk upload queue integration
   const { addToQueue } = useUploadQueue();
+
+  // Geometry engine state for SketchToolbar
+  const { rooms: geometryRooms } = useGeometryEngine();
+
+  // Handler for SketchToolbar room updates
+  const handleGeometryRoomsChange = useCallback((updatedRooms: RoomGeometry[]) => {
+    useGeometryEngine.setState({ rooms: updatedRooms });
+  }, []);
 
   // React Query client for cache management
   const queryClient = useQueryClient();
@@ -2456,6 +2465,13 @@ export default function ClaimDetail() {
 
             {/* TAB: SKETCH - Uses the same Voice Sketch controller as the hamburger menu */}
             <TabsContent value="sketch" className="h-full m-0 flex flex-col">
+              {/* Sketch Editing Toolbar */}
+              <div className="border-b bg-background px-4 py-2">
+                <SketchToolbar
+                  rooms={geometryRooms}
+                  onRoomsChange={handleGeometryRoomsChange}
+                />
+              </div>
               <VoiceSketchController
                 userName={authUser?.username}
                 onRoomConfirmed={(roomData) => {
