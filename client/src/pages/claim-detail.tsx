@@ -597,9 +597,8 @@ export default function ClaimDetail() {
     try {
       const status = await getEstimateLockStatus(params.id);
       setEstimateLockStatus(status);
-    } catch (err) {
+    } catch {
       // Estimate may not exist yet - that's ok
-      console.log('Could not load lock status:', err);
     }
   }, [params?.id]);
 
