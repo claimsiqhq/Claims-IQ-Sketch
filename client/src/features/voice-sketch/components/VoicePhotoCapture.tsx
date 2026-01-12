@@ -211,8 +211,9 @@ export function VoicePhotoCapture({
             size="icon"
             onClick={handleCancel}
             className="text-white hover:bg-white/20"
+            aria-label="Cancel photo capture"
           >
-            <X className="h-6 w-6" />
+            <X className="h-6 w-6" aria-hidden="true" />
           </Button>
         </div>
 

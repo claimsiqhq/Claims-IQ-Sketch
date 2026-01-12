@@ -76,8 +76,16 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
 
   return (
     <div className="min-h-screen bg-muted/30 flex flex-row">
+      {/* Skip to main content link for keyboard users */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Sidebar Navigation (Desktop) */}
-      <aside className="fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-border h-screen sticky top-0">
+      <aside
+        className="fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-border h-screen sticky top-0"
+        aria-label="Main navigation"
+      >
         <div className="h-full flex flex-col">
           <div className="h-16 flex items-center px-6 border-b border-border">
             <img src={logoWordmark} alt="Claims IQ" className="h-9 w-auto" />
@@ -87,7 +95,11 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
             {/* Organization Switcher - always render container for stable layout */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild disabled={loadingOrgs || organizations.length === 0}>
-                <button className="flex items-center gap-3 p-3 mb-4 bg-primary/5 border border-primary/20 rounded-lg w-full hover:bg-primary/10 transition-colors cursor-pointer min-h-[64px]">
+                <button
+                  className="flex items-center gap-3 p-3 mb-4 bg-primary/5 border border-primary/20 rounded-lg w-full hover:bg-primary/10 transition-colors cursor-pointer min-h-[64px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-label={loadingOrgs ? 'Loading organizations' : `Switch organization, current: ${currentOrg?.name || 'No Organization'}`}
+                  aria-haspopup="menu"
+                >
                   <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
                     {loadingOrgs ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -134,7 +146,11 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
             {/* User Profile */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 p-3 mb-6 bg-muted/50 rounded-lg w-full hover:bg-muted transition-colors cursor-pointer">
+                <button
+                  className="flex items-center gap-3 p-3 mb-6 bg-muted/50 rounded-lg w-full hover:bg-muted transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-label={`User menu for ${displayName}`}
+                  aria-haspopup="menu"
+                >
                   <img
                     src={displayAvatar}
                     alt={displayName}
@@ -169,7 +185,7 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <nav className="space-y-1">
+            <nav className="space-y-1" aria-label="Primary navigation">
               {navItems.map((item) => {
                 const isActive = location === item.href;
                 return (
@@ -203,7 +219,7 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto h-screen w-full">
+      <main id="main-content" className="flex-1 overflow-auto h-screen w-full" role="main" aria-label="Main content">
         {children}
       </main>
     </div>

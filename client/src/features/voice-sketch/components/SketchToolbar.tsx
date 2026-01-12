@@ -284,8 +284,10 @@ export function SketchToolbar({
                     size="sm"
                     className="h-9 w-9 p-0"
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                    aria-expanded={mobileMenuOpen}
+                    aria-label={mobileMenuOpen ? 'Close tool menu' : 'Open more tools'}
                   >
-                    {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+                    {mobileMenuOpen ? <X className="h-4 w-4" aria-hidden="true" /> : <Menu className="h-4 w-4" aria-hidden="true" />}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
@@ -918,6 +920,8 @@ function ToolButton({
           )}
           disabled={disabled}
           onClick={onClick}
+          aria-label={label}
+          aria-pressed={active}
         >
           {icon}
         </Button>
@@ -965,6 +969,8 @@ function MobileToolButton({
       )}
       disabled={disabled}
       onClick={onClick}
+      aria-label={!showLabel ? label : undefined}
+      aria-pressed={active}
     >
       {icon}
       {showLabel && <span className="text-sm">{label}</span>}
@@ -1005,19 +1011,26 @@ function MobileToolGroup({
   children,
 }: MobileToolGroupProps) {
   return (
-    <div className="border rounded-md overflow-hidden">
+    <div className="border rounded-md overflow-hidden" role="group" aria-label={title}>
       <button
-        className="w-full flex items-center justify-between p-2 bg-muted/50 hover:bg-muted transition-colors"
+        className="w-full flex items-center justify-between p-2 bg-muted/50 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={`${title.toLowerCase().replace(/\s+/g, '-')}-content`}
       >
         <div className="flex items-center gap-2">
           {icon}
           <span className="text-sm font-medium">{title}</span>
         </div>
-        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        {expanded ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
       </button>
       {expanded && (
-        <div className="p-2 flex flex-wrap gap-1 bg-background">
+        <div
+          id={`${title.toLowerCase().replace(/\s+/g, '-')}-content`}
+          className="p-2 flex flex-wrap gap-1 bg-background"
+          role="toolbar"
+          aria-label={`${title} tools`}
+        >
           {children}
         </div>
       )}

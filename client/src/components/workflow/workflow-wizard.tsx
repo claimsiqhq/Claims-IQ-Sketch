@@ -302,8 +302,8 @@ export function WorkflowWizard({
             <ClipboardCheck className="h-5 w-5 text-primary" />
             <span className="font-semibold">Workflow Wizard</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={onCancel}>
-            <X className="h-5 w-5" />
+          <Button variant="ghost" size="icon" onClick={onCancel} aria-label="Close wizard">
+            <X className="h-5 w-5" aria-hidden="true" />
           </Button>
         </div>
 
@@ -336,8 +336,10 @@ export function WorkflowWizard({
               <button
                 key={step.id}
                 onClick={() => setCurrentStep(idx)}
+                aria-label={`Go to step ${idx + 1}: ${step.title}`}
+                aria-current={isActive ? 'step' : undefined}
                 className={cn(
-                  "flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors",
+                  "flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isActive && "bg-primary text-primary-foreground",
                   isComplete && "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
                   !isActive && !isComplete && "bg-muted text-muted-foreground"
