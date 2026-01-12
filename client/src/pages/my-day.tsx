@@ -1509,7 +1509,7 @@ export default function MyDay() {
     async function fetchLocationAndWeather() {
       try {
         // Use IP-based geolocation - works automatically without permission
-        console.log('[MyDay] Getting location from IP...');
+        // Getting location from IP
         const geoResponse = await fetch('https://ipapi.co/json/');
         
         if (geoResponse.ok) {
@@ -1520,7 +1520,7 @@ export default function MyDay() {
           const region = geoData.region;
           const country = geoData.country_name;
           
-          console.log('[MyDay] IP location:', city, region, country, lat, lng);
+          // IP location retrieved
           
           // Set location name
           if (city && region) {

@@ -437,7 +437,7 @@ const getBriefingPrioritiesTool = tool({
 
       return parts.length > 0 ? parts.join('\n\n') : 'No briefing priorities available.';
     } catch (error) {
-      console.error('Get briefing priorities error:', error);
+      // Get briefing priorities error - returning error message to user
       return 'Failed to retrieve briefing priorities.';
     }
   },
@@ -470,7 +470,7 @@ const getPhotoRequirementsTool = tool({
 
       return context.briefing.photoRequirements.map((p: any) => `**${p.category}:**\n${p.items?.map((i: string) => `- ${i}`).join('\n') || 'No items listed'}`).join('\n\n');
     } catch (error) {
-      console.error('Get photo requirements error:', error);
+      // Get photo requirements error - returning error message to user
       return 'Failed to retrieve photo requirements.';
     }
   },
