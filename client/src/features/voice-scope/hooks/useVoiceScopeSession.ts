@@ -81,7 +81,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
 
         if (response.ok) {
           const { suggestions } = await response.json();
-          console.log('AI suggestions:', suggestions);
+          logger.debug('AI suggestions', { count: suggestions?.length });
           // Add suggestions as pending items
           if (suggestions && suggestions.length > 0) {
             useScopeEngine.getState().suggestItems({ items: suggestions });
@@ -112,9 +112,9 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         // Stop the stream immediately - we just needed to trigger the permission prompt
         stream.getTracks().forEach(track => track.stop());
-        console.log('Microphone permission granted');
+        logger.debug('Microphone permission granted');
       } catch (micError) {
-        console.error('Microphone permission denied:', micError);
+        logger.error('Microphone permission denied', micError);
         const micErrorMessage = micError instanceof Error ? micError.message : 'Unknown error';
         if (micErrorMessage.includes('not allowed') || micErrorMessage.includes('denied') || micErrorMessage.includes('Permission denied')) {
           throw new Error('Microphone access denied. Please allow microphone access in your browser settings and try again.');
@@ -167,11 +167,11 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
 
       // Tool call events
       session.on('agent_tool_start', (_context, _agent, tool, details) => {
-        console.log('Scope tool call started:', tool.name, details);
+        logger.debug('Scope tool call started', { toolName: tool.name });
       });
 
       session.on('agent_tool_end', (_context, _agent, tool, result, details) => {
-        console.log('Scope tool call completed:', tool.name, result);
+        logger.debug('Scope tool call completed', { toolName: tool.name });
         const toolCall = details?.toolCall;
         const args = toolCall && 'arguments' in toolCall ? toolCall.arguments : undefined;
         handleToolAction(tool.name, args, result);
@@ -210,7 +210,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
 
       // Error handling
       session.on('error', (err) => {
-        console.error('Scope session error:', err);
+        logger.error('Scope session error', err);
         let errorMessage = 'Unknown session error';
         if (err?.error instanceof Error) {
           errorMessage = err.error.message;
@@ -240,7 +240,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
       setSessionState('connected');
 
     } catch (err) {
-      console.error('Failed to start scope session:', err);
+      logger.error('Failed to start scope session', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
       setSessionState('error');
@@ -253,7 +253,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
       try {
         sessionRef.current.close();
       } catch (err) {
-        console.error('Error closing scope session:', err);
+        logger.error('Error closing scope session', err);
       }
       sessionRef.current = null;
     }
@@ -276,7 +276,7 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
         try {
           sessionRef.current.close();
         } catch (err) {
-          console.error('Error closing scope session on unmount:', err);
+          logger.error('Error closing scope session on unmount', err);
         }
       }
     };

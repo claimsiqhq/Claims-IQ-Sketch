@@ -34,7 +34,7 @@ async function fetchClaimContext(claimId: string): Promise<any | null> {
     });
 
     if (!response.ok) {
-      console.warn(`[ScopeAgent] Failed to fetch claim context (HTTP ${response.status})`);
+      // Failed to fetch claim context - will use default context
       return null;
     }
 
@@ -42,7 +42,7 @@ async function fetchClaimContext(claimId: string): Promise<any | null> {
     claimContextCache.set(claimId, { context, timestamp: now });
     return context;
   } catch (error) {
-    console.error('[ScopeAgent] Error fetching claim context:', error);
+    // Error fetching claim context - will use default context
     return null;
   }
 }
@@ -87,7 +87,7 @@ async function fetchInstructionsFromAPI(claimId?: string): Promise<string> {
 
   cachedInstructions = data.config.systemPrompt;
   cacheTimestamp = now;
-  console.log('[ScopeAgent] Loaded instructions from database');
+  // Instructions loaded from database
 
   // Inject claim context if available
   if (claimId) {
@@ -264,7 +264,7 @@ const searchLineItemsTool = tool({
 
       return JSON.stringify(topResults);
     } catch (error) {
-      console.error('Search line items error:', error);
+      // Search line items error - returning error message to user
       return 'Search failed: Network error or service unavailable.';
     }
   },
@@ -389,7 +389,7 @@ const getWorkflowStepsTool = tool({
 
       return steps.map((s: any) => `[${s.phase}] ${s.title}: ${s.instructions}${s.required ? ' (REQUIRED)' : ''}`).join('\n');
     } catch (error) {
-      console.error('Get workflow steps error:', error);
+      // Get workflow steps error - returning error message to user
       return 'Failed to retrieve workflow steps.';
     }
   },
