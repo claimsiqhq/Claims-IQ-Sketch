@@ -272,13 +272,14 @@ function PhotoCard({ photo, onClick, onDelete }: PhotoCardProps) {
           <Button
             variant="destructive"
             size="icon"
-            className="absolute top-2 left-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-2 left-2 h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
             }}
+            aria-label={`Delete photo: ${photo.label}`}
           >
-            <Trash2 className="h-3 w-3" />
+            <Trash2 className="h-3 w-3" aria-hidden="true" />
           </Button>
         )}
       </div>
@@ -392,8 +393,9 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
                     className="h-6 w-6 ml-2"
                     onClick={() => setIsEditing(true)}
                     data-testid="button-edit-photo"
+                    aria-label="Edit photo details"
                   >
-                    <Pencil className="h-3 w-3" />
+                    <Pencil className="h-3 w-3" aria-hidden="true" />
                   </Button>
                 )}
               </>

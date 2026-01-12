@@ -146,8 +146,9 @@ function CameraModal({ open, onClose, onCapture }: CameraModalProps) {
             onClick={toggleCamera}
             disabled={isLoading || !!error}
             data-testid="button-switch-camera"
+            aria-label="Switch camera"
           >
-            <SwitchCamera className="h-5 w-5" />
+            <SwitchCamera className="h-5 w-5" aria-hidden="true" />
           </Button>
           
           <Button
@@ -156,8 +157,9 @@ function CameraModal({ open, onClose, onCapture }: CameraModalProps) {
             onClick={handleCapture}
             disabled={isLoading || !!error}
             data-testid="button-capture-shutter"
+            aria-label="Capture photo"
           >
-            <Camera className="h-6 w-6" />
+            <Camera className="h-6 w-6" aria-hidden="true" />
           </Button>
           
           <Button
@@ -165,8 +167,9 @@ function CameraModal({ open, onClose, onCapture }: CameraModalProps) {
             size="icon"
             onClick={onClose}
             data-testid="button-close-camera"
+            aria-label="Close camera"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5" aria-hidden="true" />
           </Button>
         </div>
       </DialogContent>
@@ -616,8 +619,9 @@ export default function PhotosPage() {
               onClick={handleRefresh}
               disabled={isRefreshing}
               data-testid="button-refresh-photos"
+              aria-label={isRefreshing ? 'Refreshing photos...' : 'Refresh photos'}
             >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
             </Button>
 
             {/* Hidden file input for file uploads */}

@@ -102,9 +102,9 @@ export default function OpeningModal({ isOpen, onClose, onSave, existingOpening 
         <div className="grid gap-4 py-4 flex-1">
           {/* Opening Type */}
           <div className="space-y-2">
-            <Label>Type</Label>
+            <Label htmlFor="opening-type">Type</Label>
             <Select value={type} onValueChange={(v) => setType(v as OpeningType)}>
-              <SelectTrigger className="min-tap-target">
+              <SelectTrigger id="opening-type" className="min-tap-target">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -122,9 +122,9 @@ export default function OpeningModal({ isOpen, onClose, onSave, existingOpening 
 
           {/* Wall Selection */}
           <div className="space-y-2">
-            <Label>Wall</Label>
+            <Label htmlFor="wall-direction">Wall</Label>
             <Select value={wall} onValueChange={(v) => setWall(v as WallDirection)}>
-              <SelectTrigger className="min-tap-target">
+              <SelectTrigger id="wall-direction" className="min-tap-target">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -138,9 +138,9 @@ export default function OpeningModal({ isOpen, onClose, onSave, existingOpening 
           </div>
 
           {/* Position */}
-          <div className="space-y-2">
-            <Label>Position on Wall</Label>
-            <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-2" role="group" aria-labelledby="position-label">
+            <Label id="position-label">Position on Wall</Label>
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Position on wall">
               {positionOptions.map((opt) => (
                 <Button
                   key={opt.value}
@@ -148,6 +148,8 @@ export default function OpeningModal({ isOpen, onClose, onSave, existingOpening 
                   variant={position === opt.value ? "default" : "outline"}
                   className="min-tap-target"
                   onClick={() => setPosition(opt.value)}
+                  aria-pressed={position === opt.value}
+                  aria-label={`${opt.label} position`}
                 >
                   {opt.label}
                 </Button>
@@ -158,8 +160,9 @@ export default function OpeningModal({ isOpen, onClose, onSave, existingOpening 
           {/* Dimensions */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Width (ft)</Label>
+              <Label htmlFor="opening-width">Width (ft)</Label>
               <Input
+                id="opening-width"
                 type="number"
                 inputMode="decimal"
                 value={width}
@@ -171,8 +174,9 @@ export default function OpeningModal({ isOpen, onClose, onSave, existingOpening 
               />
             </div>
             <div className="space-y-2">
-              <Label>Height (ft)</Label>
+              <Label htmlFor="opening-height">Height (ft)</Label>
               <Input
+                id="opening-height"
                 type="number"
                 inputMode="decimal"
                 value={height}

@@ -156,6 +156,20 @@
     user-select: none;
   }
 
+  /* Ensure visible focus states for keyboard navigation */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Skip link for accessibility */
+  .skip-link {
+    @apply absolute left-4 top-4 z-[100] -translate-y-16 bg-primary text-primary-foreground px-4 py-2 rounded-md transition-transform duration-200;
+  }
+
+  .skip-link:focus {
+    @apply translate-y-0;
+  }
+
   /* Ensure inputs don't zoom on focus (iOS) - 16px minimum */
   input, select, textarea {
     font-size: 16px;

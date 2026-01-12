@@ -81,8 +81,9 @@ export function VoiceControlToolbar({
                 className="h-6 w-6 p-0"
                 disabled={!isSpeaking}
                 title="Stop speaking"
+                aria-label="Stop assistant speaking"
               >
-                <Square className="h-3 w-3" />
+                <Square className="h-3 w-3" aria-hidden="true" />
               </Button>
             )}
             {showWaveform && (
@@ -100,8 +101,9 @@ export function VoiceControlToolbar({
               size="sm"
               className="h-6 w-6 p-0"
               title="End session"
+              aria-label="End voice session"
             >
-              <MicOff className="h-3 w-3" />
+              <MicOff className="h-3 w-3" aria-hidden="true" />
             </Button>
           </>
         )}
@@ -112,8 +114,9 @@ export function VoiceControlToolbar({
             size="sm"
             className="h-6 w-6 p-0"
             title="Reset"
+            aria-label="Reset voice session"
           >
-            <RotateCcw className="h-3 w-3" />
+            <RotateCcw className="h-3 w-3" aria-hidden="true" />
           </Button>
         )}
       </div>
@@ -146,8 +149,9 @@ export function VoiceControlToolbar({
                 size="sm"
                 className="h-8 px-2"
                 disabled={!isSpeaking}
+                aria-label="Stop assistant speaking"
               >
-                <Square className="h-3 w-3" />
+                <Square className="h-3 w-3" aria-hidden="true" />
               </Button>
             )}
             <Button
@@ -155,8 +159,9 @@ export function VoiceControlToolbar({
               variant="destructive"
               size="sm"
               className="h-8 px-2"
+              aria-label="End voice session"
             >
-              <MicOff className="h-3 w-3" />
+              <MicOff className="h-3 w-3" aria-hidden="true" />
             </Button>
           </>
         )}
@@ -168,8 +173,9 @@ export function VoiceControlToolbar({
             size="sm"
             className="h-8 px-2"
             title="Reset"
+            aria-label="Reset voice session"
           >
-            <RotateCcw className="h-3 w-3" />
+            <RotateCcw className="h-3 w-3" aria-hidden="true" />
           </Button>
         )}
 
@@ -179,8 +185,9 @@ export function VoiceControlToolbar({
             variant="ghost"
             size="sm"
             className="h-8 px-2"
+            aria-label="Close voice controls"
           >
-            <X className="h-3 w-3" />
+            <X className="h-3 w-3" aria-hidden="true" />
           </Button>
         )}
       </div>
@@ -212,8 +219,9 @@ export function VoiceControlToolbar({
               size="sm"
               disabled={!isSpeaking}
               title="Interrupt assistant"
+              aria-label="Stop assistant speaking"
             >
-              <Square className="h-4 w-4" />
+              <Square className="h-4 w-4" aria-hidden="true" />
             </Button>
           )}
 
@@ -244,14 +252,15 @@ export function VoiceControlToolbar({
           variant="ghost"
           size="sm"
           title="Reset session"
+          aria-label="Reset voice session"
         >
-          <RotateCcw className="h-4 w-4" />
+          <RotateCcw className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
 
       {showClose && onClose && (
-        <Button onClick={onClose} variant="ghost" size="sm">
-          <X className="h-4 w-4" />
+        <Button onClick={onClose} variant="ghost" size="sm" aria-label="Close voice controls">
+          <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
     </div>

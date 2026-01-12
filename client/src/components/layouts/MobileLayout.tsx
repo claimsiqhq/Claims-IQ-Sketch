@@ -88,18 +88,23 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
 
   return (
     <div className="min-h-dvh bg-muted/30 flex flex-col">
+      {/* Skip to main content link for keyboard users */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Mobile Header - Minimal */}
-      <header className="bg-white border-b border-border h-14 flex items-center justify-between px-4 sticky top-0 z-50 pt-safe">
+      <header className="bg-white border-b border-border h-14 flex items-center justify-between px-4 sticky top-0 z-50 pt-safe" role="banner">
         <div className="flex items-center gap-2">
           <img src={logoWordmark} alt="Claims IQ" className="h-7 w-auto" />
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-9 w-9">
+          <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Notifications">
             <Bell className="h-5 w-5 text-muted-foreground" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full p-0 h-9 w-9">
+              <Button variant="ghost" size="icon" className="rounded-full p-0 h-9 w-9" aria-label={`User menu for ${displayName}`} aria-haspopup="menu">
                 <img
                   src={displayAvatar}
                   alt={displayName}
@@ -160,16 +165,21 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
       </header>
 
       {/* Main Content */}
-      <main className={cn(
-        "flex-1 overflow-auto scroll-smooth-touch",
-        !hideNav && "pb-20" // Add padding for bottom nav
-      )}>
+      <main
+        id="main-content"
+        className={cn(
+          "flex-1 overflow-auto scroll-smooth-touch",
+          !hideNav && "pb-20" // Add padding for bottom nav
+        )}
+        role="main"
+        aria-label="Main content"
+      >
         {children}
       </main>
 
       {/* Bottom Navigation Bar */}
       {!hideNav && (
-        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-border z-50 pb-safe">
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-border z-50 pb-safe" aria-label="Primary navigation">
           <div className="flex items-center justify-around h-16">
             {bottomNavItems.map((item) => {
               // Handle "More" button specially
@@ -177,8 +187,12 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
                 return (
                   <Sheet key="more" open={isMoreOpen} onOpenChange={setIsMoreOpen}>
                     <SheetTrigger asChild>
-                      <button className="flex flex-col items-center justify-center gap-1 min-w-[64px] py-2 text-muted-foreground active:bg-muted rounded-lg transition-colors min-tap-target">
-                        <item.icon className="h-5 w-5" />
+                      <button
+                        className="flex flex-col items-center justify-center gap-1 min-w-[64px] py-2 text-muted-foreground active:bg-muted rounded-lg transition-colors min-tap-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="Open more options menu"
+                        aria-haspopup="dialog"
+                      >
+                        <item.icon className="h-5 w-5" aria-hidden="true" />
                         <span className="text-xs font-medium">{item.label}</span>
                       </button>
                     </SheetTrigger>
@@ -220,10 +234,11 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
                         </Link>
 
                         <button
-                          className="flex items-center gap-3 p-3 hover:bg-destructive/10 rounded-lg transition-colors text-destructive w-full min-tap-target"
+                          className="flex items-center gap-3 p-3 hover:bg-destructive/10 rounded-lg transition-colors text-destructive w-full min-tap-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={handleLogout}
+                          aria-label="Sign out of your account"
                         >
-                          <LogOut className="h-5 w-5" />
+                          <LogOut className="h-5 w-5" aria-hidden="true" />
                           <span className="font-medium">Sign Out</span>
                         </button>
                       </div>
@@ -234,9 +249,9 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
 
               const isActive = isActiveRoute(item.href);
               return (
-                <Link key={item.href} href={item.href}>
+                <Link key={item.href} href={item.href} aria-current={isActive ? 'page' : undefined}>
                   <div className={cn(
-                    "flex flex-col items-center justify-center gap-1 min-w-[64px] py-2 rounded-lg transition-colors min-tap-target",
+                    "flex flex-col items-center justify-center gap-1 min-w-[64px] py-2 rounded-lg transition-colors min-tap-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     isActive
                       ? "text-primary"
                       : "text-muted-foreground active:bg-muted"
@@ -244,7 +259,7 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
                     <item.icon className={cn(
                       "h-5 w-5",
                       isActive && "fill-primary/20"
-                    )} />
+                    )} aria-hidden="true" />
                     <span className={cn(
                       "text-xs font-medium",
                       isActive && "font-semibold"

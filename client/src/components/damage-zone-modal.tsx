@@ -57,9 +57,9 @@ export default function DamageZoneModal({ isOpen, onClose, onSave, roomId }: Dam
         <div className="grid gap-4 py-4 flex-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Damage Type</Label>
+              <Label htmlFor="damage-type">Damage Type</Label>
               <Select value={type} onValueChange={(v) => setType(v as any)}>
-                <SelectTrigger className="min-tap-target">
+                <SelectTrigger id="damage-type" className="min-tap-target">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -71,9 +71,9 @@ export default function DamageZoneModal({ isOpen, onClose, onSave, roomId }: Dam
             </div>
 
             <div className="space-y-2">
-              <Label>Severity</Label>
+              <Label htmlFor="damage-severity">Severity</Label>
               <Select value={severity} onValueChange={(v) => setSeverity(v as any)}>
-                <SelectTrigger className="min-tap-target">
+                <SelectTrigger id="damage-severity" className="min-tap-target">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -86,8 +86,9 @@ export default function DamageZoneModal({ isOpen, onClose, onSave, roomId }: Dam
           </div>
 
           <div className="space-y-2">
-            <Label>Affected Area (SF)</Label>
+            <Label htmlFor="affected-area">Affected Area (SF)</Label>
             <Input
+              id="affected-area"
               type="number"
               inputMode="decimal"
               value={affectedArea}
@@ -116,8 +117,9 @@ export default function DamageZoneModal({ isOpen, onClose, onSave, roomId }: Dam
           </div>
 
           <div className="space-y-2">
-            <Label>Notes</Label>
+            <Label htmlFor="damage-notes">Notes</Label>
             <Textarea
+              id="damage-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Describe the damage..."
