@@ -205,80 +205,95 @@ export function SketchToolbar({
   // Mobile toolbar with collapsible groups
   if (isMobile) {
     return (
-      <div className={cn('flex flex-col', className)}>
-        {/* Compact primary toolbar - always visible */}
-        <div className="flex items-center justify-between gap-1 p-1.5 bg-background border rounded-lg shadow-sm">
-          {/* Essential tools always visible */}
-          <div className="flex items-center gap-1">
-            <MobileToolButton
-              icon={<MousePointer2 className="h-4 w-4" />}
-              label="Select"
-              active={toolMode === 'select'}
-              onClick={() => handleToolModeChange('select')}
-            />
-            <MobileToolButton
-              icon={<Move className="h-4 w-4" />}
-              label="Move"
-              active={toolMode === 'move_room'}
-              onClick={() => handleToolModeChange('move_room')}
-            />
-            <MobileToolButton
-              icon={<Pencil className="h-4 w-4" />}
-              label="Draw"
-              active={toolMode === 'draw_room'}
-              onClick={() => handleToolModeChange('draw_room')}
-            />
-          </div>
-          
-          {/* Snapping toggles */}
-          <div className="flex items-center gap-0.5">
-            <MobileToolButton
-              icon={<Grid3X3 className="h-4 w-4" />}
-              label="Grid"
-              active={snappingConfig.gridEnabled}
-              onClick={toggleGridSnap}
-            />
-            <MobileToolButton
-              icon={<Magnet className="h-4 w-4" />}
-              label="Snap"
-              active={snappingConfig.parallelSnapEnabled}
-              onClick={toggleParallelSnap}
-            />
-          </div>
-          
-          {/* Undo/Redo and menu */}
-          <div className="flex items-center gap-1">
-            <MobileToolButton
-              icon={<Undo2 className="h-4 w-4" />}
-              label="Undo"
-              disabled={!canUndo()}
-              onClick={handleUndo}
-            />
-            <MobileToolButton
-              icon={<Redo2 className="h-4 w-4" />}
-              label="Redo"
-              disabled={!canRedo()}
-              onClick={handleRedo}
-            />
+      <TooltipProvider delayDuration={300}>
+        <div className={cn('flex flex-col', className)}>
+          {/* Compact primary toolbar - always visible */}
+          <div className="flex items-center justify-between gap-1 p-1.5 bg-background border rounded-lg shadow-sm">
+            {/* Essential tools always visible */}
+            <div className="flex items-center gap-1">
+              <MobileToolButton
+                icon={<MousePointer2 className="h-4 w-4" />}
+                label="Select"
+                tooltip="Click to select rooms, walls, or openings"
+                active={toolMode === 'select'}
+                onClick={() => handleToolModeChange('select')}
+              />
+              <MobileToolButton
+                icon={<Move className="h-4 w-4" />}
+                label="Move"
+                tooltip="Drag to reposition selected rooms"
+                active={toolMode === 'move_room'}
+                onClick={() => handleToolModeChange('move_room')}
+              />
+              <MobileToolButton
+                icon={<Pencil className="h-4 w-4" />}
+                label="Draw"
+                tooltip="Draw new rooms by placing corner points"
+                active={toolMode === 'draw_room'}
+                onClick={() => handleToolModeChange('draw_room')}
+              />
+            </div>
             
-            {/* Status badge */}
-            <SketchStatusBadge
-              isComplete={isSketchComplete}
-              issueCount={completenessIssues.length}
-              className="mx-1"
-            />
+            {/* Snapping toggles */}
+            <div className="flex items-center gap-0.5">
+              <MobileToolButton
+                icon={<Grid3X3 className="h-4 w-4" />}
+                label="Grid Snap"
+                tooltip="Snap points to a grid for precise alignment"
+                active={snappingConfig.gridEnabled}
+                onClick={toggleGridSnap}
+              />
+              <MobileToolButton
+                icon={<Magnet className="h-4 w-4" />}
+                label="Parallel Snap"
+                tooltip="Snap to nearby walls and corners"
+                active={snappingConfig.parallelSnapEnabled}
+                onClick={toggleParallelSnap}
+              />
+            </div>
             
-            {/* Expand/collapse more tools */}
-            <Button
-              variant={mobileMenuOpen ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-9 w-9 p-0"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-            </Button>
+            {/* Undo/Redo and menu */}
+            <div className="flex items-center gap-1">
+              <MobileToolButton
+                icon={<Undo2 className="h-4 w-4" />}
+                label="Undo"
+                tooltip="Undo the last action"
+                disabled={!canUndo()}
+                onClick={handleUndo}
+              />
+              <MobileToolButton
+                icon={<Redo2 className="h-4 w-4" />}
+                label="Redo"
+                tooltip="Redo the previously undone action"
+                disabled={!canRedo()}
+                onClick={handleRedo}
+              />
+              
+              {/* Status badge */}
+              <SketchStatusBadge
+                isComplete={isSketchComplete}
+                issueCount={completenessIssues.length}
+                className="mx-1"
+              />
+              
+              {/* Expand/collapse more tools */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={mobileMenuOpen ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-9 w-9 p-0"
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  >
+                    {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {mobileMenuOpen ? 'Close tool menu' : 'Open more tools'}
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
-        </div>
         
         {/* Expandable tool groups panel */}
         {mobileMenuOpen && (
@@ -529,7 +544,8 @@ export function SketchToolbar({
             </div>
           </div>
         )}
-      </div>
+        </div>
+      </TooltipProvider>
     );
   }
 
@@ -545,6 +561,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<MousePointer2 className="h-4 w-4" />}
             label="Select"
+            description="Click to select rooms, walls, or openings"
             shortcut="V"
             active={toolMode === 'select'}
             onClick={() => handleToolModeChange('select')}
@@ -552,6 +569,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Move className="h-4 w-4" />}
             label="Move"
+            description="Drag to reposition selected rooms"
             shortcut="M"
             active={toolMode === 'move_room'}
             onClick={() => handleToolModeChange('move_room')}
@@ -559,6 +577,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Hand className="h-4 w-4" />}
             label="Pan"
+            description="Click and drag to navigate around the canvas"
             shortcut="Space"
             active={toolMode === 'pan'}
             onClick={() => handleToolModeChange('pan')}
@@ -572,6 +591,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Pencil className="h-4 w-4" />}
             label="Draw Room/Polygon"
+            description="Draw new rooms by placing corner points"
             shortcut="R"
             active={toolMode === 'draw_room'}
             onClick={() => handleToolModeChange('draw_room')}
@@ -627,6 +647,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<DoorOpen className="h-4 w-4" />}
             label="Add Door"
+            description="Place a door on any wall segment"
             shortcut="D"
             active={toolMode === 'draw_door'}
             onClick={() => handleToolModeChange('draw_door')}
@@ -634,6 +655,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<PanelTop className="h-4 w-4" />}
             label="Add Window"
+            description="Place a window on any wall segment"
             shortcut="W"
             active={toolMode === 'draw_window'}
             onClick={() => handleToolModeChange('draw_window')}
@@ -676,6 +698,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Copy className="h-4 w-4" />}
             label="Copy Room"
+            description="Duplicate the selected room"
             shortcut="Ctrl+D"
             disabled={!hasRoomSelection}
             onClick={handleCopyRoom}
@@ -683,6 +706,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Trash2 className="h-4 w-4" />}
             label="Delete"
+            description="Remove the selected items from the sketch"
             shortcut="Del"
             disabled={!hasSelection}
             onClick={handleDeleteSelected}
@@ -759,18 +783,21 @@ export function SketchToolbar({
           <ToolButton
             icon={<SquareDashed className="h-4 w-4" />}
             label="Toggle Missing"
+            description="Mark wall as missing (open to another room)"
             disabled={!hasWallSelection}
             onClick={handleToggleMissing}
           />
           <ToolButton
             icon={<Home className="h-4 w-4" />}
             label="Toggle Exterior"
+            description="Mark wall as exterior (faces outside)"
             disabled={!hasWallSelection}
             onClick={handleToggleExterior}
           />
           <ToolButton
             icon={<Square className="h-4 w-4" />}
             label="Detect Exterior"
+            description="Auto-detect which walls face outside"
             onClick={handleDetectExterior}
           />
         </ToolGroup>
@@ -779,22 +806,38 @@ export function SketchToolbar({
 
         {/* Snapping */}
         <ToolGroup title="Snapping">
-          <Toggle
-            size="sm"
-            pressed={snappingConfig.gridEnabled}
-            onPressedChange={toggleGridSnap}
-            className="h-8 px-2"
-          >
-            <Grid3X3 className="h-4 w-4" />
-          </Toggle>
-          <Toggle
-            size="sm"
-            pressed={snappingConfig.parallelSnapEnabled}
-            onPressedChange={toggleParallelSnap}
-            className="h-8 px-2"
-          >
-            <Magnet className="h-4 w-4" />
-          </Toggle>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={snappingConfig.gridEnabled}
+                onPressedChange={toggleGridSnap}
+                className="h-8 px-2"
+              >
+                <Grid3X3 className="h-4 w-4" />
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[200px]">
+              <p className="font-medium">Grid Snap</p>
+              <p className="text-xs text-muted-foreground">Snap points to a grid for precise alignment</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={snappingConfig.parallelSnapEnabled}
+                onPressedChange={toggleParallelSnap}
+                className="h-8 px-2"
+              >
+                <Magnet className="h-4 w-4" />
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[200px]">
+              <p className="font-medium">Parallel Snap</p>
+              <p className="text-xs text-muted-foreground">Snap to nearby walls and corners</p>
+            </TooltipContent>
+          </Tooltip>
         </ToolGroup>
 
         <Separator orientation="vertical" className="h-6" />
@@ -804,6 +847,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Undo2 className="h-4 w-4" />}
             label="Undo"
+            description="Undo the last action"
             shortcut="Ctrl+Z"
             disabled={!canUndo()}
             onClick={handleUndo}
@@ -811,6 +855,7 @@ export function SketchToolbar({
           <ToolButton
             icon={<Redo2 className="h-4 w-4" />}
             label="Redo"
+            description="Redo the previously undone action"
             shortcut="Ctrl+Y"
             disabled={!canRedo()}
             onClick={handleRedo}
@@ -843,6 +888,7 @@ function ToolGroup({ title, children }: { title: string; children: React.ReactNo
 interface ToolButtonProps {
   icon: React.ReactNode;
   label: string;
+  description?: string;
   shortcut?: string;
   active?: boolean;
   disabled?: boolean;
@@ -853,6 +899,7 @@ interface ToolButtonProps {
 function ToolButton({
   icon,
   label,
+  description,
   shortcut,
   active,
   disabled,
@@ -875,9 +922,12 @@ function ToolButton({
           {icon}
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">
-        <p className="font-medium">{label}</p>
-        {shortcut && <p className="text-xs text-muted-foreground">{shortcut}</p>}
+      <TooltipContent side="bottom" className="max-w-[220px]">
+        <div className="flex items-center gap-2">
+          <p className="font-medium">{label}</p>
+          {shortcut && <kbd className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{shortcut}</kbd>}
+        </div>
+        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </TooltipContent>
     </Tooltip>
   );
@@ -887,6 +937,7 @@ function ToolButton({
 interface MobileToolButtonProps {
   icon: React.ReactNode;
   label: string;
+  tooltip?: string;
   active?: boolean;
   disabled?: boolean;
   variant?: 'default' | 'destructive';
@@ -897,13 +948,14 @@ interface MobileToolButtonProps {
 function MobileToolButton({
   icon,
   label,
+  tooltip,
   active,
   disabled,
   variant = 'default',
   showLabel = false,
   onClick,
 }: MobileToolButtonProps) {
-  return (
+  const button = (
     <Button
       variant={active ? 'secondary' : 'ghost'}
       size="sm"
@@ -918,6 +970,22 @@ function MobileToolButton({
       {showLabel && <span className="text-sm">{label}</span>}
     </Button>
   );
+
+  if (tooltip || !showLabel) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {button}
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[200px]">
+          <p className="font-medium">{label}</p>
+          {tooltip && <p className="text-xs text-muted-foreground">{tooltip}</p>}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return button;
 }
 
 // Mobile tool group with expand/collapse
