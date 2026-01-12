@@ -537,63 +537,94 @@ function formatEffectivePolicyContext(effectivePolicy: EffectivePolicy | null): 
 
 /**
  * Normalize AI response to handle different schema formats.
- * The prompt may generate steps nested inside phases, or as a top-level array.
- * This function normalizes to the expected AIWorkflowResponse format.
+ * The prompt generates steps nested inside phases, but downstream code expects
+ * a flat top-level steps array. This function extracts steps from phases ONLY
+ * when no top-level steps array exists, preserving AI-provided data.
  */
-function normalizeAIResponse(response: Record<string, unknown>): Record<string, unknown> {
-  const normalized = { ...response };
+function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowResponse | null {
+  if (!response || typeof response !== 'object') {
+    return null;
+  }
 
-  // If steps is missing but phases have nested steps, extract them
-  if (!normalized.steps && Array.isArray(normalized.phases)) {
-    const extractedSteps: unknown[] = [];
-    for (const phase of normalized.phases as any[]) {
-      if (phase.steps && Array.isArray(phase.steps)) {
-        const phaseId = phase.phase_id || phase.phase || 'unknown';
-        for (const step of phase.steps) {
-          extractedSteps.push({
-            phase: phaseId,
-            step_type: step.step_type || 'observation',
-            title: step.title,
-            instructions: step.instructions,
-            required: step.required ?? true,
-            estimated_minutes: step.estimated_minutes || 5,
-            tags: step.tags || [],
-            peril_specific: step.peril_specific || step.endorsement_related || null,
-            assets: step.assets?.map((a: any) => ({
-              asset_type: a.asset_type || 'photo',
-              label: a.description || a.label || 'Capture evidence',
-              required: a.required ?? true,
-              metadata: a.metadata,
-            })),
-          });
+  const normalized: Record<string, unknown> = { ...response };
+
+  // Only extract steps from nested phases if NO top-level steps array exists
+  const hasTopLevelSteps = Array.isArray(normalized.steps) && normalized.steps.length > 0;
+  
+  if (!hasTopLevelSteps && Array.isArray(normalized.phases)) {
+    const phasesWithNestedSteps = (normalized.phases as any[]).some(p => p.steps && Array.isArray(p.steps));
+    
+    if (phasesWithNestedSteps) {
+      const extractedSteps: unknown[] = [];
+      for (const phase of normalized.phases as any[]) {
+        if (phase.steps && Array.isArray(phase.steps)) {
+          const phaseId = phase.phase_id || phase.phase || 'unknown';
+          for (const step of phase.steps) {
+            // Preserve AI-provided fields, use safe defaults for required fields
+            extractedSteps.push({
+              phase: phaseId,
+              step_type: step.step_type ?? 'observation',
+              title: step.title ?? 'Untitled Step',
+              instructions: step.instructions ?? '',
+              required: step.required ?? true,
+              estimated_minutes: step.estimated_minutes ?? 5,
+              tags: step.tags ?? [],
+              peril_specific: step.peril_specific || step.endorsement_related || null,
+              assets: step.assets?.map((a: any) => ({
+                asset_type: a.asset_type ?? 'photo',
+                label: a.description || a.label || 'Capture evidence',
+                required: a.required ?? true,
+                metadata: a.metadata,
+              })),
+            });
+          }
         }
       }
-    }
-    normalized.steps = extractedSteps;
-    console.log(`[InspectionWorkflow] Extracted ${extractedSteps.length} steps from nested phases`);
+      normalized.steps = extractedSteps;
+      console.log(`[InspectionWorkflow] Extracted ${extractedSteps.length} steps from nested phases (no top-level steps found)`);
 
-    // Also normalize phases to the expected format (without nested steps)
-    normalized.phases = (normalized.phases as any[]).map(p => ({
-      phase: p.phase_id || p.phase,
-      title: p.phase_name || p.title || p.phase_id || p.phase,
-      description: p.description || '',
-      estimated_minutes: p.estimated_minutes || 0,
-      step_count: p.steps?.length || 0,
-    }));
+      // Normalize phases to the expected format (without nested steps)
+      normalized.phases = (normalized.phases as any[]).map(p => ({
+        phase: p.phase_id || p.phase,
+        title: p.phase_name || p.title || p.phase_id || p.phase || 'Untitled Phase',
+        description: p.description ?? '',
+        estimated_minutes: p.estimated_minutes ?? 0,
+        step_count: p.steps?.length || 0,
+      }));
+    }
   }
 
   // Normalize tools_required to tools_and_equipment format
+  // Preserve AI-provided fields, use safe defaults for required contract fields
   if (!normalized.tools_and_equipment && normalized.tools_required) {
-    const toolsRequired = normalized.tools_required as string[];
-    normalized.tools_and_equipment = [{
-      category: 'General',
-      items: toolsRequired.map(tool => ({
-        name: typeof tool === 'string' ? tool : (tool as any).name || 'Tool',
-        required: true,
-        purpose: typeof tool === 'string' ? tool : (tool as any).purpose || '',
-      })),
-    }];
-    console.log(`[InspectionWorkflow] Converted tools_required to tools_and_equipment format`);
+    const toolsRequired = normalized.tools_required as (string | Record<string, unknown>)[];
+    
+    // Group by category if objects have category, otherwise use 'General'
+    const categoryMap = new Map<string, { name: string; required: boolean; purpose: string }[]>();
+    
+    for (const tool of toolsRequired) {
+      if (typeof tool === 'string') {
+        const items = categoryMap.get('General') || [];
+        items.push({ name: tool, required: true, purpose: '' });
+        categoryMap.set('General', items);
+      } else if (typeof tool === 'object' && tool !== null) {
+        const category = (tool.category as string) || 'General';
+        const items = categoryMap.get(category) || [];
+        // Preserve AI-provided fields, use defaults for missing required fields
+        items.push({
+          name: (tool.name as string) ?? 'Tool',
+          required: (tool.required as boolean) ?? true,
+          purpose: (tool.purpose as string) ?? '',
+        });
+        categoryMap.set(category, items);
+      }
+    }
+    
+    normalized.tools_and_equipment = Array.from(categoryMap.entries()).map(([category, items]) => ({
+      category,
+      items,
+    }));
+    console.log(`[InspectionWorkflow] Converted tools_required to tools_and_equipment format (${categoryMap.size} categories)`);
   }
 
   // Handle metadata field name variations
@@ -604,70 +635,85 @@ function normalizeAIResponse(response: Record<string, unknown>): Record<string, 
     }
   }
 
-  return normalized;
+  return normalized as unknown as AIWorkflowResponse;
 }
 
 /**
- * Validate the AI response matches the expected schema
+ * Validate and normalize the AI response to match the expected schema.
+ * Returns the normalized AIWorkflowResponse or null if validation fails.
  */
-function validateWorkflowSchema(response: unknown): response is AIWorkflowResponse {
+function validateAndNormalizeWorkflowSchema(response: unknown): AIWorkflowResponse | null {
   const errors: string[] = [];
 
   if (!response || typeof response !== 'object') {
     console.error('[InspectionWorkflow] Validation failed: response is not an object', typeof response);
-    return false;
+    return null;
   }
 
-  // Normalize the response first
-  const obj = normalizeAIResponse(response as Record<string, unknown>);
+  // Normalize the response
+  const normalized = normalizeAIResponse(response as Record<string, unknown>);
+  if (!normalized) {
+    console.error('[InspectionWorkflow] Normalization failed');
+    return null;
+  }
 
   // Check required top-level fields
-  if (!obj.metadata) errors.push('missing metadata');
-  if (!obj.phases) errors.push('missing phases');
-  if (!obj.steps) errors.push('missing steps');
-  if (!obj.tools_and_equipment) errors.push('missing tools_and_equipment');
+  if (!normalized.metadata) errors.push('missing metadata');
+  if (!normalized.phases) errors.push('missing phases');
+  if (!normalized.steps) errors.push('missing steps');
+  if (!normalized.tools_and_equipment) errors.push('missing tools_and_equipment');
 
   if (errors.length > 0) {
     console.error('[InspectionWorkflow] Validation failed - missing top-level fields:', errors.join(', '));
-    console.error('[InspectionWorkflow] Response keys:', Object.keys(obj));
-    return false;
+    console.error('[InspectionWorkflow] Response keys:', Object.keys(normalized));
+    return null;
   }
 
   // Check metadata
-  const metadata = obj.metadata as Record<string, unknown>;
+  const metadata = normalized.metadata;
   if (!metadata.claim_number) errors.push('metadata.claim_number missing');
   if (!metadata.primary_peril) errors.push('metadata.primary_peril missing');
 
   if (errors.length > 0) {
     console.error('[InspectionWorkflow] Validation failed - metadata issues:', errors.join(', '));
-    console.error('[InspectionWorkflow] Metadata keys:', Object.keys(metadata));
-    return false;
+    return null;
   }
 
   // Check phases array
-  if (!Array.isArray(obj.phases)) {
+  if (!Array.isArray(normalized.phases)) {
     console.error('[InspectionWorkflow] Validation failed: phases is not an array');
-    return false;
+    return null;
   }
-  if (obj.phases.length === 0) {
+  if (normalized.phases.length === 0) {
     console.error('[InspectionWorkflow] Validation failed: phases array is empty');
-    return false;
+    return null;
   }
 
   // Check steps array
-  if (!Array.isArray(obj.steps)) {
+  if (!Array.isArray(normalized.steps)) {
     console.error('[InspectionWorkflow] Validation failed: steps is not an array');
-    return false;
+    return null;
   }
-  if (obj.steps.length === 0) {
+  if (normalized.steps.length === 0) {
     console.error('[InspectionWorkflow] Validation failed: steps array is empty');
-    return false;
+    return null;
   }
 
-  // Copy normalized fields back to the original response object for downstream use
-  Object.assign(response as Record<string, unknown>, obj);
+  return normalized;
+}
 
-  return true;
+/**
+ * Legacy validation wrapper for backward compatibility.
+ * @deprecated Use validateAndNormalizeWorkflowSchema instead
+ */
+function validateWorkflowSchema(response: unknown): response is AIWorkflowResponse {
+  const normalized = validateAndNormalizeWorkflowSchema(response);
+  if (normalized) {
+    // Copy normalized fields back to the original response object for backward compatibility
+    Object.assign(response as Record<string, unknown>, normalized);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1082,11 +1128,13 @@ export async function generateInspectionWorkflow(
     // Parse and validate the response
     let aiResponse: AIWorkflowResponse;
     try {
-      aiResponse = JSON.parse(responseContent);
-      if (!validateWorkflowSchema(aiResponse)) {
+      const parsedResponse = JSON.parse(responseContent);
+      const normalizedResponse = validateAndNormalizeWorkflowSchema(parsedResponse);
+      if (!normalizedResponse) {
         console.error('[InspectionWorkflow] Invalid workflow structure from AI');
         return { success: false, error: 'Invalid workflow structure from AI' };
       }
+      aiResponse = normalizedResponse;
     } catch (parseError) {
       console.error('[InspectionWorkflow] Failed to parse AI response:', parseError);
       return { success: false, error: `Failed to parse AI response: ${(parseError as Error).message}` };
