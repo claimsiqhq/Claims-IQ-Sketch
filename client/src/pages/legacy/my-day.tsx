@@ -1,3 +1,20 @@
+/**
+ * DEPRECATED: My Day Page Component
+ *
+ * This page has been deprecated and is no longer routed in the application.
+ * The My Day feature was removed from the application UI to streamline
+ * the core inspection/sketch/scope workflows.
+ *
+ * The code is preserved here in the legacy folder for potential future re-enablement.
+ * To re-enable:
+ * 1. Move this file back to client/src/pages/my-day.tsx
+ * 2. Re-add the route in App.tsx
+ * 3. Re-add navigation items in DesktopLayout.tsx and MobileLayout.tsx
+ * 4. Uncomment the API endpoint in server/routes.ts
+ *
+ * @deprecated Since January 2026 - Feature removed from UI
+ */
+
 import { useState, useMemo, useEffect } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";

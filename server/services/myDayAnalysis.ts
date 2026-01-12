@@ -1,3 +1,16 @@
+/**
+ * DEPRECATED: My Day AI Analysis Service
+ *
+ * This service has been deprecated and is no longer actively used.
+ * The My Day feature was removed from the application UI to streamline
+ * the core inspection/sketch/scope workflows.
+ *
+ * The code is preserved here for potential future re-enablement.
+ * The API endpoint in routes.ts has been commented out.
+ *
+ * @deprecated Since January 2026 - Feature removed from UI
+ */
+
 // My Day AI Analysis Service
 // Analyzes claim data, weather, and provides optimization insights
 

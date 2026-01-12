@@ -11,7 +11,6 @@ import {
   Building2,
   Check,
   Menu,
-  CalendarDays,
   FolderOpen,
   MapPin,
   Camera,
@@ -39,9 +38,9 @@ import { useOrganization } from "@/hooks/useOrganization";
 
 // Navigation items for bottom bar - focused on core mobile actions
 const bottomNavItems = [
-  { label: "My Day", icon: CalendarDays, href: "/" },
-  { label: "Claims", icon: FolderOpen, href: "/claims" },
+  { label: "Claims", icon: FolderOpen, href: "/" },
   { label: "Photos", icon: Camera, href: "/photos" },
+  { label: "Map", icon: MapPin, href: "/map" },
   { label: "More", icon: Menu, href: "#more" }, // Opens sheet
 ];
 
@@ -203,13 +202,6 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
                           <div className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg transition-colors min-tap-target">
                             <Mic className="h-5 w-5 text-muted-foreground" />
                             <span className="font-medium">Voice Sketch</span>
-                          </div>
-                        </Link>
-
-                        <Link href="/map" onClick={() => setIsMoreOpen(false)}>
-                          <div className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg transition-colors min-tap-target">
-                            <MapPin className="h-5 w-5 text-muted-foreground" />
-                            <span className="font-medium">Claims Map</span>
                           </div>
                         </Link>
 
