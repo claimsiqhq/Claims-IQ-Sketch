@@ -1684,7 +1684,7 @@ export default function MyDay() {
           setAiAnalysis(result);
         }
       } catch (err) {
-        console.error('AI analysis failed:', err);
+        // AI analysis failed - user will see error toast
       } finally {
         setIsAnalyzing(false);
       }
