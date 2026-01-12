@@ -32,24 +32,21 @@ const log = createLogger({ module: 'ai-routes' });
 
 /**
  * POST /api/ai/suggest-estimate
- * Generate full estimate suggestions from damage description
+ * Generate full estimate suggestions from damage zones
  */
 router.post('/suggest-estimate', async (req: Request, res: Response) => {
   try {
-    const { description, damageType, rooms, peril } = req.body;
+    const { damageZones, regionId } = req.body;
 
-    if (!description) {
-      return res.status(400).json({ message: 'Description required' });
+    if (!damageZones || !Array.isArray(damageZones) || damageZones.length === 0) {
+      return res.status(400).json({
+        message: 'Missing required field: damageZones (array of damage zone objects)'
+      });
     }
 
-    const suggestions = await generateEstimateSuggestions({
-      description,
-      damageType,
-      rooms,
-      peril,
-    });
+    const result = await generateEstimateSuggestions(damageZones, regionId);
 
-    res.json({ suggestions });
+    res.json(result);
   } catch (error) {
     log.error({ err: error }, 'Generate suggestions error');
     res.status(500).json({ message: 'Failed to generate suggestions' });

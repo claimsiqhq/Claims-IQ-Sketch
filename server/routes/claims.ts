@@ -16,6 +16,7 @@ import {
   getClaimStats,
   purgeAllClaims
 } from '../services/claims';
+import { getClaimRoomsAndZones } from '../services/rooms';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createLogger } from '../lib/logger';
 import { checkSublimitStatus, getAllSublimitAlerts } from '../services/sublimitTracker';
@@ -273,23 +274,15 @@ router.post('/:id/rooms', requireAuth, requireOrganization, async (req: Request,
 
 /**
  * GET /api/claims/:id/rooms
- * Get all rooms for a claim
+ * Get all rooms and damage zones for a claim
  */
 router.get('/:id/rooms', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id: claimId } = req.params;
-    const organizationId = (req as any).organizationId;
 
-    const { data: rooms, error } = await supabaseAdmin
-      .from('claim_rooms')
-      .select('*')
-      .eq('claim_id', claimId)
-      .eq('organization_id', organizationId)
-      .order('sort_order', { ascending: true });
+    const { rooms, damageZones } = await getClaimRoomsAndZones(claimId);
 
-    if (error) throw error;
-
-    res.json({ rooms });
+    res.json({ rooms, damageZones });
   } catch (error) {
     log.error({ err: error }, 'Get rooms error');
     res.status(500).json({ message: 'Failed to get rooms' });
