@@ -399,6 +399,12 @@ export default function VoiceSketchPage() {
     []
   );
 
+  // Handler for SketchToolbar room updates
+  const handleRoomsChange = useCallback((updatedRooms: RoomGeometry[]) => {
+    // Update the geometry engine store with the new rooms
+    useGeometryEngine.setState({ rooms: updatedRooms });
+  }, []);
+
   const saveRoomsToClaim = useCallback(async (targetClaimId: string) => {
     const confirmedRooms = useGeometryEngine.getState().rooms;
     const currentRoomState = useGeometryEngine.getState().currentRoom;
@@ -832,6 +838,14 @@ export default function VoiceSketchPage() {
             )}
             </div>
           </div>
+        </div>
+
+        {/* Sketch Editing Toolbar */}
+        <div className="border-b bg-background px-4 py-2">
+          <SketchToolbar
+            rooms={rooms}
+            onRoomsChange={handleRoomsChange}
+          />
         </div>
 
         <div className="flex-1 overflow-hidden">
