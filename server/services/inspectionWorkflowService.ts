@@ -1202,6 +1202,62 @@ export async function generateInspectionWorkflow(
     }
 
     // Step 9: Build the workflow JSON with steps as SOURCE OF TRUTH
+    // Debug logging to identify what's failing
+    console.log('[InspectionWorkflow] Building workflowJson...');
+    console.log('[InspectionWorkflow] aiResponse.phases:', Array.isArray(aiResponse.phases) ? `array(${aiResponse.phases.length})` : typeof aiResponse.phases);
+    console.log('[InspectionWorkflow] aiResponse.room_template:', aiResponse.room_template ? 'present' : 'undefined');
+    if (aiResponse.room_template) {
+      console.log('[InspectionWorkflow] room_template.standard_steps:', 
+        Array.isArray(aiResponse.room_template.standard_steps) 
+          ? `array(${aiResponse.room_template.standard_steps.length})` 
+          : typeof aiResponse.room_template.standard_steps);
+    }
+
+    // Safely build phases array with null checks
+    const normalizedPhases = (aiResponse.phases || [])
+      .filter((p): p is NonNullable<typeof p> => p != null)
+      .map(p => ({
+        phase: (p.phase || 'unknown') as InspectionPhase,
+        title: p.title || 'Untitled Phase',
+        description: p.description || '',
+        estimated_minutes: p.estimated_minutes || 0,
+        step_count: p.step_count || 0,
+      }));
+
+    // Safely build room_template
+    let normalizedRoomTemplate: InspectionWorkflowJson['room_template'] = undefined;
+    if (aiResponse.room_template && Array.isArray(aiResponse.room_template.standard_steps) && aiResponse.room_template.standard_steps.length > 0) {
+      normalizedRoomTemplate = {
+        standard_steps: aiResponse.room_template.standard_steps
+          .filter((s): s is NonNullable<typeof s> => s != null)
+          .map(s => ({
+            step_type: (s.step_type || 'observation') as InspectionStepType,
+            title: s.title || 'Untitled Step',
+            instructions: s.instructions || '',
+            required: s.required ?? true,
+            estimated_minutes: s.estimated_minutes || 5,
+          })),
+        peril_specific_steps: aiResponse.room_template.peril_specific_steps
+          ? Object.fromEntries(
+              Object.entries(aiResponse.room_template.peril_specific_steps)
+                .filter(([, steps]) => Array.isArray(steps))
+                .map(([peril, steps]) => [
+                  peril,
+                  steps
+                    .filter((s): s is NonNullable<typeof s> => s != null)
+                    .map(s => ({
+                      step_type: (s.step_type || 'observation') as InspectionStepType,
+                      title: s.title || 'Untitled Step',
+                      instructions: s.instructions || '',
+                      required: s.required ?? true,
+                      estimated_minutes: s.estimated_minutes || 5,
+                    })),
+                ])
+            )
+          : undefined,
+      };
+    }
+
     const workflowJson: InspectionWorkflowJson = {
       metadata: {
         claim_number: context.claimNumber,
@@ -1213,43 +1269,14 @@ export async function generateInspectionWorkflow(
         data_completeness: context.meta.dataCompleteness.completenessScore,
         endorsement_driven_steps: endorsementSteps.length,
       },
-      phases: aiResponse.phases?.map(p => ({
-        phase: p.phase as InspectionPhase,
-        title: p.title,
-        description: p.description,
-        estimated_minutes: p.estimated_minutes,
-        step_count: p.step_count,
-      })) || [],
-      // SOURCE OF TRUTH: All steps in order
+      phases: normalizedPhases,
       steps: workflowSteps,
-      room_template: aiResponse.room_template && aiResponse.room_template.standard_steps
-        ? {
-            standard_steps: aiResponse.room_template.standard_steps.map(s => ({
-              step_type: s.step_type as InspectionStepType,
-              title: s.title,
-              instructions: s.instructions,
-              required: s.required,
-              estimated_minutes: s.estimated_minutes,
-            })),
-            peril_specific_steps: aiResponse.room_template.peril_specific_steps
-              ? Object.fromEntries(
-                  Object.entries(aiResponse.room_template.peril_specific_steps).map(([peril, steps]) => [
-                    peril,
-                    steps.map(s => ({
-                      step_type: s.step_type as InspectionStepType,
-                      title: s.title,
-                      instructions: s.instructions,
-                      required: s.required,
-                      estimated_minutes: s.estimated_minutes,
-                    })),
-                  ])
-                )
-              : undefined,
-          }
-        : undefined,
+      room_template: normalizedRoomTemplate,
       tools_and_equipment: aiResponse.tools_and_equipment,
       open_questions: aiResponse.open_questions,
     };
+
+    console.log('[InspectionWorkflow] workflowJson built successfully, phases:', normalizedPhases.length, 'steps:', workflowSteps.length);
 
     // CRITICAL INVARIANT: Validate workflow_json.steps BEFORE saving
     // This throws if steps is missing or empty - generation will abort
