@@ -1571,7 +1571,7 @@ export default function MyDay() {
             }
           }
         } catch (fallbackErr) {
-          console.error('[MyDay] Fallback weather also failed:', fallbackErr);
+          // Fallback weather also failed - user will see error state
         }
       }
     }
