@@ -536,6 +536,78 @@ function formatEffectivePolicyContext(effectivePolicy: EffectivePolicy | null): 
 }
 
 /**
+ * Normalize AI response to handle different schema formats.
+ * The prompt may generate steps nested inside phases, or as a top-level array.
+ * This function normalizes to the expected AIWorkflowResponse format.
+ */
+function normalizeAIResponse(response: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...response };
+
+  // If steps is missing but phases have nested steps, extract them
+  if (!normalized.steps && Array.isArray(normalized.phases)) {
+    const extractedSteps: unknown[] = [];
+    for (const phase of normalized.phases as any[]) {
+      if (phase.steps && Array.isArray(phase.steps)) {
+        const phaseId = phase.phase_id || phase.phase || 'unknown';
+        for (const step of phase.steps) {
+          extractedSteps.push({
+            phase: phaseId,
+            step_type: step.step_type || 'observation',
+            title: step.title,
+            instructions: step.instructions,
+            required: step.required ?? true,
+            estimated_minutes: step.estimated_minutes || 5,
+            tags: step.tags || [],
+            peril_specific: step.peril_specific || step.endorsement_related || null,
+            assets: step.assets?.map((a: any) => ({
+              asset_type: a.asset_type || 'photo',
+              label: a.description || a.label || 'Capture evidence',
+              required: a.required ?? true,
+              metadata: a.metadata,
+            })),
+          });
+        }
+      }
+    }
+    normalized.steps = extractedSteps;
+    console.log(`[InspectionWorkflow] Extracted ${extractedSteps.length} steps from nested phases`);
+
+    // Also normalize phases to the expected format (without nested steps)
+    normalized.phases = (normalized.phases as any[]).map(p => ({
+      phase: p.phase_id || p.phase,
+      title: p.phase_name || p.title || p.phase_id || p.phase,
+      description: p.description || '',
+      estimated_minutes: p.estimated_minutes || 0,
+      step_count: p.steps?.length || 0,
+    }));
+  }
+
+  // Normalize tools_required to tools_and_equipment format
+  if (!normalized.tools_and_equipment && normalized.tools_required) {
+    const toolsRequired = normalized.tools_required as string[];
+    normalized.tools_and_equipment = [{
+      category: 'General',
+      items: toolsRequired.map(tool => ({
+        name: typeof tool === 'string' ? tool : (tool as any).name || 'Tool',
+        required: true,
+        purpose: typeof tool === 'string' ? tool : (tool as any).purpose || '',
+      })),
+    }];
+    console.log(`[InspectionWorkflow] Converted tools_required to tools_and_equipment format`);
+  }
+
+  // Handle metadata field name variations
+  if (normalized.metadata) {
+    const meta = normalized.metadata as Record<string, unknown>;
+    if (meta.estimated_total_minutes && !meta.estimated_total_time_minutes) {
+      meta.estimated_total_time_minutes = meta.estimated_total_minutes;
+    }
+  }
+
+  return normalized;
+}
+
+/**
  * Validate the AI response matches the expected schema
  */
 function validateWorkflowSchema(response: unknown): response is AIWorkflowResponse {
@@ -546,7 +618,8 @@ function validateWorkflowSchema(response: unknown): response is AIWorkflowRespon
     return false;
   }
 
-  const obj = response as Record<string, unknown>;
+  // Normalize the response first
+  const obj = normalizeAIResponse(response as Record<string, unknown>);
 
   // Check required top-level fields
   if (!obj.metadata) errors.push('missing metadata');
@@ -590,6 +663,9 @@ function validateWorkflowSchema(response: unknown): response is AIWorkflowRespon
     console.error('[InspectionWorkflow] Validation failed: steps array is empty');
     return false;
   }
+
+  // Copy normalized fields back to the original response object for downstream use
+  Object.assign(response as Record<string, unknown>, obj);
 
   return true;
 }
