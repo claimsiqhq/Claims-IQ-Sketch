@@ -3,7 +3,7 @@
 // Hierarchy: Structure > Room > Sub-room > Object
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera, Layers, Triangle, Undo2, Redo2 } from 'lucide-react';
+import { AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera, Layers, Triangle, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useVoiceSession } from '../hooks/useVoiceSession';
 import { useGeometryEngine, type PhotoCaptureConfig } from '../services/geometry-engine';
-import { VoiceWaveform } from './VoiceWaveform';
+import { VoiceControlToolbar } from '@/components/voice/VoiceControlToolbar';
 import { RoomPreview } from './RoomPreview';
 import { CommandHistory } from './CommandHistory';
 import { FieldCameraButton } from './FieldCameraButton';
@@ -514,44 +514,22 @@ export function VoiceSketchController({
           )}
         </div>
 
-        {/* Center: Voice controls */}
+        {/* Center: Voice controls - using shared VoiceControlToolbar */}
         <div className="flex items-center gap-1 flex-1 justify-center">
-          {!isConnected ? (
-            <Button
-              onClick={handleStartSession}
-              variant="default"
-              size="sm"
-              className="h-6 px-2"
-              disabled={!userName}
-              title={!userName ? "Loading user..." : "Start voice sketching"}
-            >
-              <Mic className="h-3 w-3 mr-1" />
-              <span className="text-[10px]">Start</span>
-            </Button>
-          ) : (
-            <>
-              <Button
-                onClick={interruptAgent}
-                variant="outline"
-                size="sm"
-                className="h-6 w-6 p-0"
-                disabled={!isSpeaking}
-                title="Stop speaking"
-              >
-                <Square className="h-3 w-3" />
-              </Button>
-              <VoiceWaveform
-                isConnected={isConnected}
-                isListening={isListening}
-                isSpeaking={isSpeaking}
-                className="flex-1 h-6 max-w-[100px]"
-                compact
-              />
-              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-6 w-6 p-0" title="End session">
-                <MicOff className="h-3 w-3" />
-              </Button>
-            </>
-          )}
+          <VoiceControlToolbar
+            isConnected={isConnected}
+            isListening={isListening}
+            isSpeaking={isSpeaking}
+            isDisabled={!userName}
+            disabledReason={!userName ? "Loading user..." : undefined}
+            onStart={handleStartSession}
+            onStop={handleStopSession}
+            onInterrupt={interruptAgent}
+            variant="compact"
+            showWaveform={true}
+            showReset={false}
+            startLabel="Start"
+          />
         </div>
 
         {/* Right: Add buttons + actions */}

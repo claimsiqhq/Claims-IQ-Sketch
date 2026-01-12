@@ -497,6 +497,10 @@ export default function ClaimDetail() {
     priority: string;
   }> | null>(null);
 
+  // Sketch-to-Scope transition state
+  const [showScopeSuggestionPrompt, setShowScopeSuggestionPrompt] = useState(false);
+  const [savedDamageZoneCount, setSavedDamageZoneCount] = useState(0);
+
   // Xactimate hierarchy state
   const [isAddZoneDialogOpen, setIsAddZoneDialogOpen] = useState(false);
   const [isAddMissingWallDialogOpen, setIsAddMissingWallDialogOpen] = useState(false);
@@ -987,6 +991,12 @@ export default function ClaimDetail() {
           // Force refresh by toggling active claim
           setActiveClaim(null);
           setActiveClaim(params.id);
+
+          // Show scope suggestion prompt if damage zones were saved
+          if (claimDamageZones.length > 0) {
+            setSavedDamageZoneCount(claimDamageZones.length);
+            setShowScopeSuggestionPrompt(true);
+          }
         }
       }
     } catch (error) {
@@ -1035,10 +1045,23 @@ export default function ClaimDetail() {
       }
 
       const result = await response.json();
-      setAiSuggestions(result.suggestions || []);
+      const suggestions = result.suggestions || [];
+      setAiSuggestions(suggestions);
+
+      // Auto-switch to Scope tab if suggestions were generated
+      if (suggestions.length > 0) {
+        setActiveTab("scope");
+        toast.success(`Generated ${suggestions.length} scope suggestions`, {
+          description: "Review and add items to your estimate.",
+        });
+      } else {
+        toast.info("No suggestions generated", {
+          description: "Try adding more detailed damage zones.",
+        });
+      }
     } catch (error) {
       console.error("AI suggestion error:", error);
-      alert(error instanceof Error ? error.message : "Failed to generate AI suggestions");
+      toast.error(error instanceof Error ? error.message : "Failed to generate AI suggestions");
     } finally {
       setIsGeneratingAISuggestions(false);
     }
@@ -2501,10 +2524,32 @@ export default function ClaimDetail() {
             <TabsContent value="sketch" className="h-full m-0 flex flex-col">
               {/* Sketch Editing Toolbar */}
               <div className="border-b bg-background px-4 py-2">
-                <SketchToolbar
-                  rooms={geometryRooms}
-                  onRoomsChange={handleGeometryRoomsChange}
-                />
+                <div className="flex items-center justify-between gap-4">
+                  <SketchToolbar
+                    rooms={geometryRooms}
+                    onRoomsChange={handleGeometryRoomsChange}
+                  />
+                  {/* Prominent AI Suggestions Button - visible when damage zones exist */}
+                  {(claim?.damageZones || []).length > 0 && (
+                    <Button
+                      onClick={handleGenerateAISuggestions}
+                      disabled={isGeneratingAISuggestions}
+                      className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-md"
+                    >
+                      {isGeneratingAISuggestions ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="h-4 w-4 mr-2" />
+                          AI Scope Suggestions
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
               </div>
               <VoiceSketchController
                 userName={authUser?.username}
@@ -4082,6 +4127,58 @@ export default function ClaimDetail() {
                   Schedule
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Scope Suggestion Prompt Dialog - Shown after saving rooms with damage zones */}
+      <Dialog open={showScopeSuggestionPrompt} onOpenChange={setShowScopeSuggestionPrompt}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-600" />
+              Sketch Saved Successfully
+            </DialogTitle>
+            <DialogDescription>
+              {savedDamageZoneCount === 1
+                ? `1 damage zone has been saved.`
+                : `${savedDamageZoneCount} damage zones have been saved.`}
+              {' '}Would you like to generate AI-powered scope suggestions based on your sketch?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <h4 className="font-medium text-purple-900 mb-2 flex items-center gap-2">
+                <Wand2 className="h-4 w-4" />
+                What this does
+              </h4>
+              <ul className="text-sm text-purple-700 space-y-1">
+                <li>• Analyzes your damage zones and room data</li>
+                <li>• Suggests appropriate line items and quantities</li>
+                <li>• Helps build your estimate faster</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowScopeSuggestionPrompt(false);
+                setActiveTab("scope");
+              }}
+            >
+              Skip, Go to Scope
+            </Button>
+            <Button
+              onClick={async () => {
+                setShowScopeSuggestionPrompt(false);
+                await handleGenerateAISuggestions();
+              }}
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              Generate Suggestions
             </Button>
           </DialogFooter>
         </DialogContent>
