@@ -11,7 +11,6 @@ import {
   Building2,
   Check,
   Loader2,
-  CalendarDays,
   FolderOpen,
   MapPin,
   Camera,
@@ -52,8 +51,7 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
   } = useOrganization();
 
   const navItems = [
-    { label: "My Day", icon: CalendarDays, href: "/" },
-    { label: "All Claims", icon: FolderOpen, href: "/claims" },
+    { label: "All Claims", icon: FolderOpen, href: "/" },
     { label: "Photos", icon: Camera, href: "/photos" },
     { label: "Claims Map", icon: MapPin, href: "/map" },
     { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },

@@ -347,6 +347,9 @@ export interface User {
 
 // ==========================================
 // MY DAY (Adjuster Operations View) Types
+// DEPRECATED: These types are no longer actively used.
+// The My Day feature was removed from the application UI.
+// Types are preserved for potential future re-enablement.
 // ==========================================
 
 // Time window for scheduled inspections

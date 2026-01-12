@@ -1292,9 +1292,12 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // MY DAY AI ANALYSIS ROUTES
+  // MY DAY AI ANALYSIS ROUTES (DEPRECATED - Feature removed from UI)
   // ============================================
-  
+  // The My Day feature has been deprecated and removed from the application.
+  // This endpoint is disabled to save OpenAI API resources.
+  // The code is preserved here for reference if the feature is re-enabled in the future.
+  /*
   app.post('/api/my-day/analyze', requireAuth, async (req, res) => {
     try {
       const { analyzeMyDay } = await import('./services/myDayAnalysis');
@@ -1318,13 +1321,13 @@ export async function registerRoutes(
           stopId: stop.claimId,
         }));
 
-      const weatherData = locations.length > 0 
-        ? await getWeatherForLocations(locations) 
+      const weatherData = locations.length > 0
+        ? await getWeatherForLocations(locations)
         : [];
 
       // Run AI analysis with user's name for personalization
       const analysis = await analyzeMyDay(claims, inspectionRoute, weatherData, userName);
-      
+
       res.json({
         ...analysis,
         weatherData,
@@ -1335,6 +1338,7 @@ export async function registerRoutes(
       res.status(500).json({ error: message });
     }
   });
+  */
 
   // Voice Session Routes
   app.post('/api/voice/session', async (req, res) => {
