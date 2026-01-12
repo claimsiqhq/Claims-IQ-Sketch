@@ -146,6 +146,8 @@ async function createStepsFromWorkflowJson(
   // CRITICAL: Validate workflow_json.steps before creating any step records
   validateWorkflowJsonSteps(workflowJson);
 
+  // Build base step data - only include columns that exist in the database
+  // Dynamic workflow columns (origin, blocking, etc.) require database migration
   const stepsToInsert = workflowJson.steps.map((step, index) => ({
     workflow_id: workflowId,
     // step_index is 1-indexed: steps[0] → step_index=1, steps[n-1] → step_index=n
@@ -161,15 +163,10 @@ async function createStepsFromWorkflowJson(
     room_id: step.room_id || null,
     room_name: step.room_name || null,
     peril_specific: step.peril_specific || null,
-    // Dynamic workflow fields
-    origin: step.origin || null,
-    source_rule_id: step.source_rule_id || null,
-    conditions: step.conditions || null,
-    evidence_requirements: step.evidence_requirements || null,
-    blocking: step.blocking || null,
-    blocking_condition: step.blocking_condition || null,
-    geometry_binding: step.geometry_binding || null,
-    endorsement_source: step.endorsement_source || null,
+    // Store extended data in a JSONB field if available, or omit for now
+    // Dynamic workflow columns commented out until migration is applied:
+    // origin, source_rule_id, conditions, evidence_requirements,
+    // blocking, blocking_condition, geometry_binding, endorsement_source
   }));
 
   const { error: stepsError } = await supabaseAdmin
