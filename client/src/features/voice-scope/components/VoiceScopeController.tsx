@@ -1,12 +1,14 @@
 // Voice Scope Controller Component
 // Compact controller for voice-driven estimate building
+// Uses shared voice components for consistency with VoiceSketchController
 
 import React, { useState, useCallback } from 'react';
-import { Mic, MicOff, Square, Volume2, AlertCircle, RotateCcw, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { VoiceControlToolbar } from '@/components/voice/VoiceControlToolbar';
+import { VoiceStatusIndicator, deriveVoiceStatus } from '@/components/voice/VoiceStatusIndicator';
 import { useVoiceScopeSession } from '../hooks/useVoiceScopeSession';
 import { useScopeEngine } from '../services/scope-engine';
 import { cn } from '@/lib/utils';
@@ -64,77 +66,43 @@ export function VoiceScopeController({
     onLineItemAdded: handleLineItemAdded,
   });
 
-  const handleStartSession = async () => {
-    await startSession();
-  };
-
-  const handleStopSession = async () => {
-    await stopSession();
-  };
-
   const handleReset = () => {
     resetSession();
     setLastToolCall(null);
   };
 
+  const status = deriveVoiceStatus(isConnected, isListening, isSpeaking);
+
   return (
     <div className={cn('flex flex-col bg-background border rounded-lg shadow-lg', className)}>
-      {/* Header */}
+      {/* Header with shared voice controls */}
       <div className="flex items-center justify-between p-3 border-b bg-muted/50">
         <div className="flex items-center gap-2">
           <h3 className="font-medium text-sm">Voice Scope Builder</h3>
           {isConnected && (
-            <div className="flex items-center gap-2">
-              {isListening && (
-                <span className="flex items-center gap-1 text-xs text-green-600">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                  </span>
-                  Listening
-                </span>
-              )}
-              {isSpeaking && (
-                <span className="flex items-center gap-1 text-xs text-blue-600">
-                  <Volume2 className="h-3 w-3 animate-pulse" />
-                  Speaking
-                </span>
-              )}
-            </div>
+            <VoiceStatusIndicator
+              status={status}
+              size="sm"
+              showLabel={true}
+            />
           )}
         </div>
 
-        <div className="flex items-center gap-1">
-          {!isConnected ? (
-            <Button onClick={handleStartSession} variant="default" size="sm">
-              <Mic className="h-4 w-4 mr-1" />
-              Start
-            </Button>
-          ) : (
-            <>
-              <Button
-                onClick={interruptAgent}
-                variant="outline"
-                size="sm"
-                disabled={!isSpeaking}
-                className="h-8 px-2"
-              >
-                <Square className="h-3 w-3" />
-              </Button>
-              <Button onClick={handleStopSession} variant="destructive" size="sm" className="h-8 px-2">
-                <MicOff className="h-3 w-3" />
-              </Button>
-            </>
-          )}
-          <Button onClick={handleReset} variant="ghost" size="sm" className="h-8 px-2" title="Reset">
-            <RotateCcw className="h-3 w-3" />
-          </Button>
-          {onClose && (
-            <Button onClick={onClose} variant="ghost" size="sm" className="h-8 px-2">
-              <X className="h-3 w-3" />
-            </Button>
-          )}
-        </div>
+        <VoiceControlToolbar
+          isConnected={isConnected}
+          isListening={isListening}
+          isSpeaking={isSpeaking}
+          onStart={startSession}
+          onStop={stopSession}
+          onInterrupt={interruptAgent}
+          onReset={handleReset}
+          onClose={onClose}
+          variant="inline"
+          showWaveform={false}
+          showReset={true}
+          showClose={!!onClose}
+          startLabel="Start"
+        />
       </div>
 
       {/* Error Alert */}
