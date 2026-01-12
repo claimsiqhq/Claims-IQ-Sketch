@@ -27,7 +27,6 @@ export function FieldCameraButton({
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (file) {
-        console.log('Photo captured:', file.name, file.size, file.type);
         onPhotoCaptured?.(file);
       }
       // Reset input so the same file can be selected again

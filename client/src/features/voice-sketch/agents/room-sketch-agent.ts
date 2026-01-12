@@ -49,7 +49,6 @@ async function fetchInstructionsFromAPI(): Promise<string> {
 
   cachedInstructions = systemPrompt;
   cacheTimestamp = now;
-  console.log('[RoomSketchAgent] Loaded instructions from database');
   return systemPrompt;
 }
 

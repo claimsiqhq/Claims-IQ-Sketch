@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Camera,
@@ -171,7 +171,11 @@ interface PhotoCardProps {
   onDelete?: () => void;
 }
 
-function PhotoCard({ photo, onClick, onDelete }: PhotoCardProps) {
+/**
+ * Memoized PhotoCard component to prevent unnecessary re-renders
+ * Only re-renders when photo data, onClick, or onDelete changes
+ */
+const PhotoCard = memo(function PhotoCard({ photo, onClick, onDelete }: PhotoCardProps) {
   const analysis = photo.aiAnalysis;
   const qualityScore = analysis?.quality?.score ?? 5;
   const photoUrl = photo.storageUrl || photo.localUri;
@@ -285,7 +289,7 @@ function PhotoCard({ photo, onClick, onDelete }: PhotoCardProps) {
       </div>
     </TooltipProvider>
   );
-}
+});
 
 interface PhotoDetailDialogProps {
   photo: ExtendedSketchPhoto | null;
@@ -297,7 +301,10 @@ interface PhotoDetailDialogProps {
   claims?: Claim[];
 }
 
-function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, isReanalyzing, claims = [] }: PhotoDetailDialogProps) {
+/**
+ * Memoized PhotoDetailDialog component to prevent unnecessary re-renders
+ */
+const PhotoDetailDialog = memo(function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, isReanalyzing, claims = [] }: PhotoDetailDialogProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editLabel, setEditLabel] = useState('');
   const [editHierarchy, setEditHierarchy] = useState('');
@@ -722,7 +729,7 @@ function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, i
       </DialogContent>
     </Dialog>
   );
-}
+});
 
 export function PhotoAlbum({ photos, className, onDeletePhoto, onUpdatePhoto, onReanalyzePhoto, isReanalyzing, claims = [] }: PhotoAlbumProps) {
   const queryClient = useQueryClient();

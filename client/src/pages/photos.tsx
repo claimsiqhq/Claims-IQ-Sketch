@@ -255,32 +255,46 @@ export default function PhotosPage() {
   const photosLoading = selectedClaimId === 'all' ? allPhotosLoading : claimPhotosLoading;
   const isRefreshing = selectedClaimId === 'all' ? allPhotosFetching : claimPhotosFetching;
 
-  // Auto-refetch while photos are being analyzed
+  // Auto-refetch while photos are being analyzed with exponential backoff
   useEffect(() => {
     // Check if any photos need polling based on current data
-    const needsPolling = photos.some(p => 
+    const needsPolling = photos.some(p =>
       p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing'
     );
-    
+
     if (!needsPolling) return;
-    
-    const intervalId = setInterval(async () => {
-      console.log('[photos] Polling for analysis updates...');
+
+    let pollCount = 0;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const startTime = Date.now();
+    const MAX_POLL_DURATION_MS = 5 * 60 * 1000; // Stop after 5 minutes
+
+    const poll = async () => {
+      // Stop polling after max duration to prevent infinite polling
+      if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
+        return;
+      }
+
       const refetch = selectedClaimId === 'all' ? refetchAllPhotos : refetchClaimPhotos;
       const { data } = await refetch();
-      
+
       // Check if we should stop polling after refetch
-      const stillNeedsPolling = data?.some(p => 
+      const stillNeedsPolling = data?.some(p =>
         p.analysisStatus === 'pending' || p.analysisStatus === 'analyzing'
       );
-      
-      if (!stillNeedsPolling) {
-        console.log('[photos] All photos analyzed, stopping polling');
-        clearInterval(intervalId);
-      }
-    }, 3000); // Poll every 3 seconds
 
-    return () => clearInterval(intervalId);
+      if (stillNeedsPolling) {
+        pollCount++;
+        // Exponential backoff: start at 3s, max at 15s
+        const delay = Math.min(3000 * Math.pow(1.2, pollCount), 15000);
+        timeoutId = setTimeout(poll, delay);
+      }
+    };
+
+    // Start polling immediately
+    timeoutId = setTimeout(poll, 3000);
+
+    return () => clearTimeout(timeoutId);
   }, [photos, selectedClaimId, refetchAllPhotos, refetchClaimPhotos]);
 
   const deleteMutation = useMutation({
@@ -338,8 +352,8 @@ export default function PhotosPage() {
         });
         latitude = position.coords.latitude;
         longitude = position.coords.longitude;
-      } catch (e) {
-        console.log('GPS not available:', e);
+      } catch {
+        // GPS not available - continue without coordinates
       }
 
       return uploadPhoto({
