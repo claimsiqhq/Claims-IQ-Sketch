@@ -115,7 +115,7 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
           setImageData(legacyData);
         }
       } catch (error) {
-        console.error('Failed to load document previews:', error);
+        // Failed to load document previews - will show error state
       } finally {
         setLoading(false);
       }

@@ -303,7 +303,7 @@ export default function Settings() {
         setApprovalThreshold(prefs.carrier.approvalThreshold || 10000);
       }
     } catch (error) {
-      console.error("Failed to load preferences:", error);
+      // Failed to load preferences - will show error state
     } finally {
       setIsLoadingPreferences(false);
     }
@@ -1369,7 +1369,7 @@ function MS365IntegrationCard() {
         setStatus(data);
       }
     } catch (error) {
-      console.error('Failed to check MS365 status:', error);
+      // Failed to check MS365 status - will show error state
     } finally {
       setIsLoading(false);
     }

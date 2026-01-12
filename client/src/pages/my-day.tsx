@@ -1729,7 +1729,7 @@ export default function MyDay() {
           setRouteOptimization(result);
         }
       } catch (err) {
-        console.error('Route optimization failed:', err);
+        // Route optimization failed - user will see error toast
       } finally {
         setIsOptimizing(false);
       }
