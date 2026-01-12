@@ -59,6 +59,30 @@ import {
   Mic,
 } from "lucide-react";
 
+// Evidence requirement from workflow JSON
+export interface EvidenceRequirement {
+  id?: string;
+  type: 'photo' | 'measurement' | 'note';
+  label: string;
+  required: boolean;
+  description?: string;
+  photo?: {
+    minCount?: number;
+    maxCount?: number;
+    angles?: string[];
+    subjects?: string[];
+  };
+  measurement?: {
+    type: string;
+    unit: string;
+    minReadings?: number;
+  };
+  note?: {
+    promptText?: string;
+    minLength?: number;
+  };
+}
+
 // Step data from parent
 export interface StepData {
   id: string;
@@ -73,6 +97,10 @@ export interface StepData {
     label: string;
     required: boolean;
   }[];
+  // Dynamic workflow fields
+  evidenceRequirements?: EvidenceRequirement[];
+  blocking?: 'blocking' | 'conditional' | 'non_blocking';
+  conditions?: Record<string, unknown>;
 }
 
 // Completion data to return
@@ -96,7 +124,8 @@ interface StepCompletionDialogProps {
   onComplete: (data: StepCompletionData) => void;
   onSkip?: (stepId: string, reason: string) => void;
   isSubmitting?: boolean;
-  validateEvidence?: (step: StepData) => { valid: boolean; message?: string };
+  /** Validates evidence including both stored and pending evidence */
+  validateEvidence?: (step: StepData, pendingPhotos: CapturedPhoto[], pendingNotes: string) => { valid: boolean; message?: string };
 }
 
 export function StepCompletionDialog({
@@ -139,28 +168,98 @@ export function StepCompletionDialog({
 
   if (!step) return null;
 
-  // Determine required photos based on step assets
-  const requiredPhotos = step.assets?.filter(a => a.required && a.assetType === "photo").length || 1;
+  // Determine required photos based on evidence requirements or step assets
+  const getRequiredPhotoCount = (): number => {
+    // First check evidenceRequirements (dynamic workflow)
+    if (step.evidenceRequirements) {
+      const photoReq = step.evidenceRequirements.find(r => r.type === 'photo' && r.required);
+      if (photoReq?.photo?.minCount) {
+        return photoReq.photo.minCount;
+      }
+    }
+    // Fall back to legacy assets count
+    return step.assets?.filter(a => a.required && a.assetType === "photo").length || 1;
+  };
+
+  const requiredPhotos = getRequiredPhotoCount();
   const hasEnoughPhotos = photos.length >= requiredPhotos;
 
-  // Validate evidence using provided validator or fallback to basic check
-  const evidenceValidation = validateEvidence ? validateEvidence(step) : { valid: true };
-  const hasBasicRequirements = !step.required || (hasEnoughPhotos && findings.trim().length > 0);
-  
+  // Check note requirements from evidence requirements
+  const getNoteRequirement = (): { required: boolean; minLength: number } => {
+    if (step.evidenceRequirements) {
+      const noteReq = step.evidenceRequirements.find(r => r.type === 'note' && r.required);
+      if (noteReq) {
+        return { required: true, minLength: noteReq.note?.minLength || 1 };
+      }
+    }
+    // Default: required steps need at least some finding notes
+    return { required: step.required, minLength: 1 };
+  };
+
+  const noteRequirement = getNoteRequirement();
+  const hasRequiredNotes = !noteRequirement.required || findings.trim().length >= noteRequirement.minLength;
+
+  // Check measurement requirements
+  const getMeasurementRequirement = (): boolean => {
+    if (step.evidenceRequirements) {
+      return step.evidenceRequirements.some(r => r.type === 'measurement' && r.required);
+    }
+    return step.stepType === 'measurement';
+  };
+
+  const requiresMeasurement = getMeasurementRequirement();
+  const hasMeasurement = !requiresMeasurement || (measurementValue.trim().length > 0);
+
+  // Validate evidence using provided validator (includes pending photos and notes)
+  const evidenceValidation = validateEvidence
+    ? validateEvidence(step, photos, findings)
+    : { valid: true };
+
+  // Check if step is blocking (required or blocking='blocking')
+  const isBlockingStep = step.required || step.blocking === 'blocking';
+
+  // Basic local requirements check
+  const hasBasicRequirements = !isBlockingStep || (hasEnoughPhotos && hasRequiredNotes && hasMeasurement);
+
   // Check if can complete - must pass both basic requirements and evidence validation
   const canComplete = hasBasicRequirements && evidenceValidation.valid;
-  const validationMessage = evidenceValidation.message;
+
+  // Build validation message for UI
+  const buildValidationMessage = (): string | undefined => {
+    if (evidenceValidation.message) {
+      return evidenceValidation.message;
+    }
+    if (isBlockingStep) {
+      if (!hasEnoughPhotos) {
+        return `This step requires at least ${requiredPhotos} photo(s). You have ${photos.length}.`;
+      }
+      if (!hasRequiredNotes) {
+        return `This step requires findings/notes${noteRequirement.minLength > 1 ? ` (minimum ${noteRequirement.minLength} characters)` : ''}.`;
+      }
+      if (!hasMeasurement) {
+        return 'This step requires a measurement value.';
+      }
+    }
+    return undefined;
+  };
+
+  const validationMessage = buildValidationMessage();
 
   const handleComplete = () => {
-    // Double-check validation before submitting
+    // Double-check validation before submitting (include pending photos and notes)
     if (validateEvidence) {
-      const finalValidation = validateEvidence(step);
+      const finalValidation = validateEvidence(step, photos, findings);
       if (!finalValidation.valid) {
-        // Show error toast
+        // Validation failed - don't proceed
         return;
       }
     }
-    
+
+    // Also verify local requirements are met for blocking steps
+    if (isBlockingStep && !hasBasicRequirements) {
+      return;
+    }
+
     onComplete({
       stepId: step.id,
       status: "completed",
@@ -417,10 +516,13 @@ export function StepCompletionDialog({
     </div>
   );
 
+  // Check if step can be skipped (not required AND not blocking)
+  const canSkip = !step.required && step.blocking !== 'blocking';
+
   // Footer actions
   const footer = (
     <div className="flex gap-2 w-full">
-      {!showSkipConfirm && !step.required && onSkip && (
+      {!showSkipConfirm && canSkip && onSkip && (
         <Button
           variant="ghost"
           onClick={() => setShowSkipConfirm(true)}
