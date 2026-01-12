@@ -598,10 +598,10 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
   // Preserve AI-provided fields, use safe defaults for required contract fields
   if (!normalized.tools_and_equipment && normalized.tools_required) {
     const toolsRequired = normalized.tools_required as (string | Record<string, unknown>)[];
-    
+
     // Group by category if objects have category, otherwise use 'General'
     const categoryMap = new Map<string, { name: string; required: boolean; purpose: string }[]>();
-    
+
     for (const tool of toolsRequired) {
       if (typeof tool === 'string') {
         const items = categoryMap.get('General') || [];
@@ -619,7 +619,7 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
         categoryMap.set(category, items);
       }
     }
-    
+
     normalized.tools_and_equipment = Array.from(categoryMap.entries()).map(([category, items]) => ({
       category,
       items,
@@ -627,11 +627,33 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
     console.log(`[InspectionWorkflow] Converted tools_required to tools_and_equipment format (${categoryMap.size} categories)`);
   }
 
+  // Ensure tools_and_equipment has a default if AI didn't return any tools
+  if (!normalized.tools_and_equipment) {
+    normalized.tools_and_equipment = [{
+      category: 'General',
+      items: [
+        { name: 'Camera/Smartphone', required: true, purpose: 'Photo documentation' },
+        { name: 'Measuring tape', required: true, purpose: 'Measurements' },
+        { name: 'Flashlight', required: true, purpose: 'Inspection of dark areas' },
+      ],
+    }];
+    console.log('[InspectionWorkflow] Added default tools_and_equipment (AI did not return tools)');
+  }
+
   // Handle metadata field name variations
   if (normalized.metadata) {
     const meta = normalized.metadata as Record<string, unknown>;
     if (meta.estimated_total_minutes && !meta.estimated_total_time_minutes) {
       meta.estimated_total_time_minutes = meta.estimated_total_minutes;
+    }
+  }
+
+  // Handle room_template field name variations (AI returns default_steps, code expects standard_steps)
+  if (normalized.room_template) {
+    const roomTemplate = normalized.room_template as Record<string, unknown>;
+    if (roomTemplate.default_steps && !roomTemplate.standard_steps) {
+      roomTemplate.standard_steps = roomTemplate.default_steps;
+      console.log('[InspectionWorkflow] Converted room_template.default_steps to standard_steps');
     }
   }
 
@@ -1200,7 +1222,7 @@ export async function generateInspectionWorkflow(
       })) || [],
       // SOURCE OF TRUTH: All steps in order
       steps: workflowSteps,
-      room_template: aiResponse.room_template
+      room_template: aiResponse.room_template && aiResponse.room_template.standard_steps
         ? {
             standard_steps: aiResponse.room_template.standard_steps.map(s => ({
               step_type: s.step_type as InspectionStepType,
@@ -1282,7 +1304,14 @@ export async function generateInspectionWorkflow(
 
     if (stepsError) {
       console.error('[InspectionWorkflow] Error creating steps from workflow_json:', stepsError);
-      // Note: workflow was created but steps failed - this should be investigated
+      // Return error - workflow without steps is unusable
+      return { success: false, error: `Failed to create workflow steps: ${stepsError}` };
+    }
+
+    // Check if any steps were actually created
+    if (stepsCreated === 0 && workflowJson.steps.length > 0) {
+      console.error('[InspectionWorkflow] No steps were created despite having steps in workflow_json');
+      return { success: false, error: 'Failed to create any workflow steps - please try again' };
     }
 
     console.log(`[InspectionWorkflow] Generated enhanced workflow v${nextVersion} for claim ${claimId}: ${stepsCreated} steps created from workflow_json.steps (${workflowJson.steps.length} in source, ${endorsementSteps.length} endorsement-driven), data completeness: ${context.meta.dataCompleteness.completenessScore}%`);
