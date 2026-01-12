@@ -33,6 +33,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { VoiceSketchController } from './components/VoiceSketchController';
+import { SketchToolbar } from './components/SketchToolbar';
 import { useGeometryEngine, geometryEngine } from './services/geometry-engine';
 import { getClaim, getClaims, saveClaimHierarchy, getClaimRooms, getClaimPhotos, deleteClaimRooms } from '@/lib/api';
 import { useStore } from '@/lib/store';
