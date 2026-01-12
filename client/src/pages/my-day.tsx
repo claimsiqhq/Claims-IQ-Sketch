@@ -1543,7 +1543,7 @@ export default function MyDay() {
           
           if (weatherResponse.ok) {
             const weatherData = await weatherResponse.json();
-            console.log('[MyDay] Weather response:', weatherData);
+            // Weather response received
             if (weatherData.weather && weatherData.weather.length > 0) {
               setLocalWeather(weatherData.weather[0]);
             }
@@ -1552,7 +1552,7 @@ export default function MyDay() {
           throw new Error('IP geolocation failed');
         }
       } catch (err) {
-        console.error('[MyDay] Location/weather fetch failed:', err);
+        // Location/weather fetch failed - will use fallback
         // Fallback to Austin, TX
         setWeatherLocation("Austin, TX (fallback)");
         try {
