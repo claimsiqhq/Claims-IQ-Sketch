@@ -53,6 +53,8 @@ import {
   Wand2,
   X,
   Lock,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import {
   getClaimWorkflow,
@@ -65,6 +67,7 @@ import {
   addWorkflowStep,
   getClaim,
   uploadPhoto,
+  attachEvidenceToStep,
   type FullWorkflow,
   type InspectionWorkflowStep,
   type InspectionPhase,
@@ -76,8 +79,9 @@ import { formatDistanceToNow } from "date-fns";
 
 // Import new workflow components
 import { WorkflowWizard, type WizardData } from "./workflow/workflow-wizard";
-import { StepCompletionDialog, type StepData, type StepCompletionData } from "./workflow/step-completion-dialog";
+import { StepCompletionDialog, type StepData, type StepCompletionData, type EvidenceRequirement } from "./workflow/step-completion-dialog";
 import { CompactSyncIndicator } from "./workflow/sync-status";
+import type { CapturedPhoto } from "./workflow/photo-capture";
 
 interface WorkflowPanelProps {
   claimId: string;
@@ -177,13 +181,22 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   const canSkipStep = useCallback((step: InspectionWorkflowStep): boolean => {
     if (!workflow) return false;
 
-    // Required/blocking steps cannot be skipped
+    // Required steps cannot be skipped
     if (step.required) return false;
+
+    // Check the blocking field from workflow JSON - steps with blocking='blocking' cannot be skipped
+    const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
+    if (blocking === 'blocking') return false;
 
     // Check if any previous blocking steps are incomplete
     const stepIndex = workflow.steps.findIndex(s => s.id === step.id);
     const previousBlockingIncomplete = workflow.steps
-      .filter((s, idx) => idx < stepIndex && s.required)
+      .filter((s, idx) => {
+        if (idx >= stepIndex) return false;
+        // Check both required and blocking field
+        const sBlocking = (s as InspectionWorkflowStep & { blocking?: string }).blocking;
+        return s.required || sBlocking === 'blocking';
+      })
       .some(s => s.status !== 'completed' && s.status !== 'skipped');
 
     return !previousBlockingIncomplete;
@@ -191,33 +204,56 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
   /**
    * Validate evidence requirements for a step.
+   * Includes both stored evidence (step.assets) and pending evidence from the dialog.
    * Returns validation result with whether it's valid and any error message.
    */
-  const validateStepEvidence = useCallback((step: InspectionWorkflowStep): { valid: boolean; message?: string } => {
-    // If step doesn't have evidence requirements, it's valid
+  const validateStepEvidence = useCallback((
+    step: InspectionWorkflowStep,
+    pendingPhotos: CapturedPhoto[] = [],
+    pendingNotes: string = ''
+  ): { valid: boolean; message?: string } => {
+    // Check if step is blocking (required OR blocking='blocking')
+    const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
+    const isBlockingStep = step.required || blocking === 'blocking';
+
+    // If step doesn't have evidence requirements and isn't blocking, it's valid
     const evidenceReqs = step.evidenceRequirements as Array<{
       type: string;
       required: boolean;
       label?: string;
       photo?: { minCount?: number; count?: number };
+      note?: { minLength?: number };
     }> | undefined;
 
     if (!evidenceReqs || evidenceReqs.length === 0) {
+      // Even without explicit requirements, blocking steps need basic evidence
+      if (isBlockingStep) {
+        const totalPhotos = (step.assets?.filter(a => a.assetType === 'photo').length || 0) + pendingPhotos.length;
+        const combinedNotes = (step.notes || '') + pendingNotes;
+        if (totalPhotos === 0 && !combinedNotes.trim()) {
+          return {
+            valid: false,
+            message: 'This required step needs at least a photo or notes.'
+          };
+        }
+      }
       return { valid: true };
     }
 
-    const photos = step.assets?.filter(a => a.assetType === 'photo') || [];
+    // Combine stored and pending evidence
+    const storedPhotos = step.assets?.filter(a => a.assetType === 'photo') || [];
+    const totalPhotoCount = storedPhotos.length + pendingPhotos.length;
     const measurements = step.assets?.filter(a => a.assetType === 'measurement') || [];
-    const notes = step.notes || '';
+    const combinedNotes = (step.notes || '') + pendingNotes;
 
-    // Check photo requirements
+    // Check each evidence requirement
     for (const req of evidenceReqs) {
       if (req.type === 'photo' && req.required) {
         const minPhotos = req.photo?.minCount || req.photo?.count || 1;
-        if (photos.length < minPhotos) {
+        if (totalPhotoCount < minPhotos) {
           return {
             valid: false,
-            message: `This step requires ${minPhotos} photo(s). You have ${photos.length}.`
+            message: `This step requires ${minPhotos} photo(s). You have ${totalPhotoCount}.`
           };
         }
       }
@@ -229,11 +265,16 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         };
       }
 
-      if (req.type === 'note' && req.required && !notes.trim()) {
-        return {
-          valid: false,
-          message: 'This step requires notes.'
-        };
+      if (req.type === 'note' && req.required) {
+        const minLength = req.note?.minLength || 1;
+        if (!combinedNotes.trim() || combinedNotes.trim().length < minLength) {
+          return {
+            valid: false,
+            message: minLength > 1
+              ? `This step requires notes (minimum ${minLength} characters).`
+              : 'This step requires notes.'
+          };
+        }
       }
     }
 
@@ -245,12 +286,16 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
    * Blocking steps require evidence to be captured before proceeding.
    */
   const canProceedPastStep = useCallback((step: InspectionWorkflowStep): boolean => {
-    // Non-required steps can always be proceeded past
-    if (!step.required) return true;
+    // Check if step is blocking (required OR blocking='blocking')
+    const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
+    const isBlockingStep = step.required || blocking === 'blocking';
+
+    // Non-blocking steps can always be proceeded past
+    if (!isBlockingStep) return true;
     // Completed steps can be proceeded past
     if (step.status === 'completed') return true;
 
-    // For blocking steps, check if evidence requirements are met
+    // For blocking steps, check if evidence requirements are met (stored evidence only)
     const validation = validateStepEvidence(step);
     return validation.valid;
   }, [validateStepEvidence]);
@@ -398,12 +443,16 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
     setIsSubmittingStep(true);
 
     try {
-      // Find the step to get room context
+      // Find the step to get room context and evidence requirements
       const step = workflow.steps.find(s => s.id === data.stepId);
 
-      // Validate evidence requirements for blocking steps
-      if (step?.required) {
-        const validation = validateStepEvidence(step);
+      // Check if step is blocking (required OR blocking='blocking')
+      const blocking = step ? (step as InspectionWorkflowStep & { blocking?: string }).blocking : undefined;
+      const isBlockingStep = step?.required || blocking === 'blocking';
+
+      // Validate evidence requirements for blocking steps (include pending photos)
+      if (isBlockingStep && step) {
+        const validation = validateStepEvidence(step, data.photos, data.findings);
         if (!validation.valid) {
           toast.error(validation.message || 'Evidence requirements not met');
           setIsSubmittingStep(false);
@@ -411,6 +460,14 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         }
       }
       const roomName = step?.roomName || step?.title || 'Workflow Step';
+
+      // Get evidence requirements for binding photos
+      const evidenceReqs = step?.evidenceRequirements as Array<{
+        id?: string;
+        type: string;
+        required: boolean;
+      }> | undefined;
+      const photoRequirement = evidenceReqs?.find(r => r.type === 'photo');
 
       // Upload photos if any were captured
       if (data.photos && data.photos.length > 0) {
@@ -421,21 +478,47 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
               .then(r => r.blob())
               .then(blob => new File([blob], `workflow-${Date.now()}.jpg`, { type: 'image/jpeg' }));
 
-            await uploadPhoto({
+            const uploadResult = await uploadPhoto({
               claimId,
               file,
               label: photo.label || `${step?.title || 'Step'} - ${roomName}`,
               hierarchyPath: `Workflow / ${step?.phase || 'unknown'} / ${roomName}`,
             });
+
+            // Attach the photo as evidence to the workflow step (for evidence tracking)
+            if (uploadResult?.photo?.id && step) {
+              await attachEvidenceToStep(workflow.workflow.id, step.id, {
+                requirementId: photoRequirement?.id || 'photo_default',
+                type: 'photo',
+                photoId: uploadResult.photo.id,
+              }).catch(() => {
+                // Don't fail if evidence attachment fails - photo is still uploaded
+              });
+            }
+
+            return uploadResult;
           } catch (photoErr) {
             // Photo upload failed - continue with step completion
             // Don't fail the whole step if photo upload fails
+            return null;
           }
         });
 
         // Wait for all photos to upload (but don't block step completion on failures)
         await Promise.allSettled(photoUploadPromises);
         toast.success(`${data.photos.length} photo(s) uploaded`);
+      }
+
+      // Attach notes as evidence if there's a note requirement
+      const noteRequirement = evidenceReqs?.find(r => r.type === 'note');
+      if (data.findings && data.findings.trim() && noteRequirement?.id && step) {
+        await attachEvidenceToStep(workflow.workflow.id, step.id, {
+          requirementId: noteRequirement.id,
+          type: 'note',
+          noteData: { content: data.findings },
+        }).catch(() => {
+          // Don't fail if evidence attachment fails
+        });
       }
 
       await updateWorkflowStep(workflow.workflow.id, data.stepId, {
@@ -488,23 +571,31 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   // Handle step skip
   const handleStepSkip = async (stepId: string, reason: string) => {
     if (!workflow) return;
-    
+
     // Find the step
     const step = workflow.steps.find(s => s.id === stepId);
     if (!step) return;
 
-    // Enforce blocking step rules - cannot skip required steps
-    if (step.required) {
-      toast.error('Cannot skip required steps. Please complete this step or mark it as blocked.');
+    // Check if step is blocking (required OR blocking='blocking')
+    const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
+    const isBlockingStep = step.required || blocking === 'blocking';
+
+    // Enforce blocking step rules - cannot skip blocking steps
+    if (isBlockingStep) {
+      toast.error('Cannot skip required/blocking steps. Please complete this step or mark it as blocked.');
       return;
     }
 
     // Check if previous blocking steps are incomplete
     const stepIndex = workflow.steps.findIndex(s => s.id === stepId);
     const previousBlockingIncomplete = workflow.steps
-      .filter((s, idx) => idx < stepIndex && s.required)
+      .filter((s, idx) => {
+        if (idx >= stepIndex) return false;
+        const sBlocking = (s as InspectionWorkflowStep & { blocking?: string }).blocking;
+        return s.required || sBlocking === 'blocking';
+      })
       .some(s => s.status !== 'completed' && s.status !== 'skipped');
-    
+
     if (previousBlockingIncomplete) {
       toast.error('Cannot skip this step. Please complete previous required steps first.');
       return;
@@ -648,6 +739,10 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
   // Start step (open completion dialog)
   const startStep = (step: InspectionWorkflowStep) => {
+    // Extract blocking and conditions from the step
+    const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking as 'blocking' | 'conditional' | 'non_blocking' | undefined;
+    const conditions = (step as InspectionWorkflowStep & { conditions?: Record<string, unknown> }).conditions;
+
     setCompletingStep({
       id: step.id,
       title: step.title,
@@ -661,6 +756,10 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         label: a.label,
         required: a.required,
       })),
+      // Dynamic workflow fields
+      evidenceRequirements: step.evidenceRequirements as EvidenceRequirement[] | undefined,
+      blocking,
+      conditions,
     });
   };
 
@@ -935,12 +1034,43 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                               </CardTitle>
                             </div>
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
-                              {step.required && (
-                                <Badge variant="destructive" className="text-xs flex items-center gap-1">
-                                  <Lock className="h-3 w-3" />
-                                  Required
-                                </Badge>
-                              )}
+                              {/* Required/Blocking Badge */}
+                              {(() => {
+                                const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
+                                const conditions = (step as InspectionWorkflowStep & { conditions?: Record<string, unknown> }).conditions;
+
+                                // Show required badge for required steps
+                                if (step.required) {
+                                  return (
+                                    <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                                      <Lock className="h-3 w-3" />
+                                      Required
+                                    </Badge>
+                                  );
+                                }
+
+                                // Show blocking badge for non-required but blocking steps
+                                if (blocking === 'blocking') {
+                                  return (
+                                    <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                                      <Lock className="h-3 w-3" />
+                                      Blocking
+                                    </Badge>
+                                  );
+                                }
+
+                                // Show conditional badge for conditionally blocking steps
+                                if (blocking === 'conditional' || (conditions && Object.keys(conditions).length > 0)) {
+                                  return (
+                                    <Badge variant="secondary" className="text-xs flex items-center gap-1 bg-amber-100 text-amber-700 border-amber-300">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      Conditional
+                                    </Badge>
+                                  );
+                                }
+
+                                return null;
+                              })()}
                               {/* Evidence Progress Indicator */}
                               {(() => {
                                 const progress = getStepEvidenceProgress(step);
@@ -1057,9 +1187,16 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
                                   }
                                 }}
                                 disabled={!canSkipStep(step)}
-                                title={!canSkipStep(step)
-                                  ? "This step is required and cannot be skipped"
-                                  : "Skip this step"}
+                                title={(() => {
+                                  if (canSkipStep(step)) {
+                                    return "Skip this step";
+                                  }
+                                  const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
+                                  if (step.required || blocking === 'blocking') {
+                                    return "This step is required/blocking and cannot be skipped";
+                                  }
+                                  return "Previous required steps must be completed first";
+                                })()}
                               >
                                 <SkipForward className="h-4 w-4 mr-1" />
                                 Skip
@@ -1181,11 +1318,12 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         onComplete={handleStepComplete}
         onSkip={handleStepSkip}
         isSubmitting={isSubmittingStep}
-        validateEvidence={(step) => {
+        validateEvidence={(step, pendingPhotos, pendingNotes) => {
           if (!workflow) return { valid: true };
           const workflowStep = workflow.steps.find(s => s.id === step.id);
           if (!workflowStep) return { valid: true };
-          return validateStepEvidence(workflowStep);
+          // Pass pending photos and notes to validation
+          return validateStepEvidence(workflowStep, pendingPhotos, pendingNotes);
         }}
       />
 

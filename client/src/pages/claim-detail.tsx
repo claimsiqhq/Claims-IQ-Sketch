@@ -124,7 +124,7 @@ import type { SketchPhoto } from "@/features/voice-sketch/types/geometry";
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
 import { SketchToolbar } from "@/features/voice-sketch/components/SketchToolbar";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
-import { saveClaimRooms, getClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
+import { saveClaimRooms, getClaimRooms, triggerDamageZoneAdded, triggerRoomAdded, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
 import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
@@ -937,14 +937,48 @@ export default function ClaimDetail() {
 
     try {
       const result = await saveClaimRooms(claim.id, claimRooms, claimDamageZones);
-      
+
       toast.success('Rooms saved to claim!', {
         description: `Saved ${result.roomsSaved} room(s) and ${result.damageZonesSaved} damage zone(s).`,
       });
 
+      // Trigger workflow mutations for dynamic step generation
+      // First, check if there's an active workflow for this claim
+      try {
+        const workflowData = await getClaimWorkflow(claim.id);
+        if (workflowData?.workflow?.id) {
+          const workflowId = workflowData.workflow.id;
+
+          // Trigger room_added mutations for each new room
+          const roomMutationPromises = claimRooms.map(room =>
+            triggerRoomAdded(workflowId, {
+              roomId: room.id,
+              roomName: room.name,
+              roomType: room.roomType,
+              hasDamage: claimDamageZones.some(dz => dz.roomId === room.id),
+            }).catch(() => null) // Don't fail if mutation fails
+          );
+
+          // Trigger damage_zone_added mutations for each new damage zone
+          const damageZoneMutationPromises = claimDamageZones.map(dz =>
+            triggerDamageZoneAdded(workflowId, {
+              zoneId: dz.id,
+              roomId: dz.roomId,
+              damageType: dz.damageType,
+              severity: dz.severity,
+            }).catch(() => null) // Don't fail if mutation fails
+          );
+
+          // Wait for all mutations to complete (non-blocking on errors)
+          await Promise.allSettled([...roomMutationPromises, ...damageZoneMutationPromises]);
+        }
+      } catch {
+        // Workflow mutation is best-effort - don't fail the whole save
+      }
+
       // Reset the geometry engine
       useGeometryEngine.getState().resetSession();
-      
+
       // Reload the claim data
       if (params?.id) {
         const updatedClaim = await getClaim(params.id);

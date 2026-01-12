@@ -2611,6 +2611,157 @@ export async function expandWorkflowRooms(
 }
 
 // ============================================
+// WORKFLOW EVIDENCE API
+// ============================================
+
+export interface AttachEvidenceRequest {
+  requirementId: string;
+  type: 'photo' | 'measurement' | 'note';
+  photoId?: string;
+  measurementData?: {
+    type: string;
+    value: number;
+    unit: string;
+    location?: string;
+  };
+  noteData?: {
+    content: string;
+  };
+}
+
+export interface AttachEvidenceResponse {
+  success: boolean;
+  evidenceId?: string;
+  fulfilled?: boolean;
+  error?: string;
+}
+
+/**
+ * Attach evidence to a workflow step
+ */
+export async function attachEvidenceToStep(
+  workflowId: string,
+  stepId: string,
+  evidence: AttachEvidenceRequest
+): Promise<AttachEvidenceResponse> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/steps/${stepId}/evidence`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(evidence),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to attach evidence' }));
+    return { success: false, error: error.error || 'Failed to attach evidence' };
+  }
+  return response.json();
+}
+
+/**
+ * Get evidence attached to a workflow step
+ */
+export async function getStepEvidence(
+  workflowId: string,
+  stepId: string
+): Promise<{ evidence: Array<{ id: string; type: string; requirementId: string; photoId?: string }> }> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/steps/${stepId}/evidence`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch step evidence');
+  }
+  return response.json();
+}
+
+// ============================================
+// WORKFLOW MUTATION API
+// ============================================
+
+export interface WorkflowMutationResult {
+  success: boolean;
+  stepsAdded: number;
+  stepsModified: number;
+  stepsRemoved: number;
+  error?: string;
+}
+
+/**
+ * Trigger workflow mutation when a damage zone is added
+ */
+export async function triggerDamageZoneAdded(
+  workflowId: string,
+  zoneData: {
+    zoneId: string;
+    roomId: string;
+    damageType: string;
+    severity?: string;
+  }
+): Promise<WorkflowMutationResult> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/mutation/damage-added`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(zoneData),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to trigger mutation' }));
+    return { success: false, stepsAdded: 0, stepsModified: 0, stepsRemoved: 0, error: error.error };
+  }
+  return response.json();
+}
+
+/**
+ * Trigger workflow mutation when a room is added
+ */
+export async function triggerRoomAdded(
+  workflowId: string,
+  roomData: {
+    roomId: string;
+    roomName: string;
+    roomType?: string;
+    hasDamage?: boolean;
+  }
+): Promise<WorkflowMutationResult> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/mutation/room-added`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(roomData),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to trigger mutation' }));
+    return { success: false, stepsAdded: 0, stepsModified: 0, stepsRemoved: 0, error: error.error };
+  }
+  return response.json();
+}
+
+/**
+ * Trigger workflow mutation when a photo is added
+ */
+export async function triggerPhotoAdded(
+  workflowId: string,
+  photoData: {
+    photoId: string;
+    stepId?: string;
+    roomId?: string;
+    label?: string;
+    category?: string;
+  }
+): Promise<WorkflowMutationResult> {
+  const response = await fetch(`${API_BASE}/workflow/${workflowId}/mutation/photo-added`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(photoData),
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to trigger mutation' }));
+    return { success: false, stepsAdded: 0, stepsModified: 0, stepsRemoved: 0, error: error.error };
+  }
+  return response.json();
+}
+
+// ============================================
 // CLAIM CHECKLIST API
 // ============================================
 
