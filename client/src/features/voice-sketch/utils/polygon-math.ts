@@ -14,9 +14,14 @@ import type {
   RoomGeometry
 } from '../types/geometry';
 
-// Generate unique ID
+// Generate unique ID using crypto.randomUUID for better uniqueness
+// Falls back to timestamp-based ID for environments without crypto support
 export function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
 // Generate rectangle polygon from dimensions

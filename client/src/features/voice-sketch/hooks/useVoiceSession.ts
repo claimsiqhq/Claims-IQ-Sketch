@@ -1,5 +1,6 @@
 // Voice Session Hook
 // Custom hook wrapping OpenAI RealtimeSession for voice-driven room sketching
+// Provides real-time voice command processing with proper cleanup and error recovery
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { RealtimeSession } from '@openai/agents/realtime';
@@ -13,6 +14,8 @@ interface UseVoiceSessionOptions {
   onTranscript?: (text: string, role: 'user' | 'assistant') => void;
   onToolCall?: (toolName: string, args: unknown, result: string) => void;
   onError?: (error: Error) => void;
+  onSessionStart?: () => void;
+  onSessionEnd?: () => void;
 }
 
 interface UseVoiceSessionReturn {
@@ -23,6 +26,7 @@ interface UseVoiceSessionReturn {
   startSession: () => Promise<void>;
   stopSession: () => void;
   interruptAgent: () => void;
+  retryConnection: () => Promise<void>;
 }
 
 export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceSessionReturn {
@@ -32,7 +36,16 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
   const [error, setError] = useState<string | null>(null);
 
   const sessionRef = useRef<RealtimeSession | null>(null);
-  const { setSessionState, addTranscriptEntry } = useGeometryEngine();
+  const isCleaningUpRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
+
+  const {
+    setSessionState,
+    addTranscriptEntry,
+    clearPendingPhotoCapture,
+    clearTranscript
+  } = useGeometryEngine();
 
   // Sync state with geometry engine
   useEffect(() => {
@@ -47,6 +60,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
   const startSession = useCallback(async () => {
     try {
       setError(null);
+      logger.debug('[VoiceSession] Starting new session');
 
       // 0. Explicitly request microphone permission first
       // This ensures the browser prompts for mic access before WebRTC tries to use it
@@ -181,6 +195,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
       sessionRef.current = session;
       setIsConnected(true);
       setIsListening(true);
+      retryCountRef.current = 0; // Reset retry count on successful connection
+
+      // Notify callback
+      options.onSessionStart?.();
+      logger.debug('[VoiceSession] Session connected successfully');
 
     } catch (err) {
       logger.error('Failed to start session:', err);
@@ -191,6 +210,14 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
   }, [addTranscriptEntry, options]);
 
   const stopSession = useCallback(() => {
+    // Prevent multiple cleanup calls
+    if (isCleaningUpRef.current) {
+      return;
+    }
+    isCleaningUpRef.current = true;
+
+    logger.debug('[VoiceSession] Stopping session and cleaning up resources');
+
     if (sessionRef.current) {
       try {
         sessionRef.current.close();
@@ -199,10 +226,27 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
       }
       sessionRef.current = null;
     }
+
+    // Reset all state
     setIsConnected(false);
     setIsListening(false);
     setIsSpeaking(false);
-  }, []);
+    setError(null);
+
+    // Clear pending photo capture to prevent stale state
+    clearPendingPhotoCapture();
+
+    // Reset retry counter
+    retryCountRef.current = 0;
+
+    // Notify callback
+    options.onSessionEnd?.();
+
+    // Allow cleanup to run again
+    isCleaningUpRef.current = false;
+
+    logger.debug('[VoiceSession] Session stopped and resources cleaned up');
+  }, [clearPendingPhotoCapture, options]);
 
   const interruptAgent = useCallback(() => {
     if (sessionRef.current) {
@@ -210,18 +254,43 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
     }
   }, []);
 
-  // Cleanup on unmount
+  /**
+   * Retry connection after an error
+   * Implements exponential backoff for up to maxRetries attempts
+   */
+  const retryConnection = useCallback(async () => {
+    if (retryCountRef.current >= maxRetries) {
+      setError(`Connection failed after ${maxRetries} attempts. Please check your network and try again.`);
+      return;
+    }
+
+    retryCountRef.current += 1;
+    const delay = Math.min(1000 * Math.pow(2, retryCountRef.current - 1), 8000);
+
+    logger.debug(`[VoiceSession] Retrying connection (attempt ${retryCountRef.current}/${maxRetries}) in ${delay}ms`);
+
+    await new Promise(resolve => setTimeout(resolve, delay));
+    await startSession();
+  }, [startSession, maxRetries]);
+
+  // Cleanup on unmount - comprehensive resource cleanup
   useEffect(() => {
     return () => {
+      logger.debug('[VoiceSession] Component unmounting, cleaning up');
+
       if (sessionRef.current) {
         try {
           sessionRef.current.close();
         } catch (err) {
           logger.error('Error closing session on unmount:', err);
         }
+        sessionRef.current = null;
       }
+
+      // Clear any pending photo capture to prevent memory leaks
+      clearPendingPhotoCapture();
     };
-  }, []);
+  }, [clearPendingPhotoCapture]);
 
   return {
     isConnected,
@@ -231,5 +300,6 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
     startSession,
     stopSession,
     interruptAgent,
+    retryConnection,
   };
 }

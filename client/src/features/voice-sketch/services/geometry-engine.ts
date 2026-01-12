@@ -1,8 +1,67 @@
 // Geometry Engine Service
 // Zustand store for voice-driven room sketching state management
+// Provides two-way synchronization between voice commands and UI
 
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 import { logger } from '@/lib/logger';
+
+// Event types for state change notifications
+export type GeometryStateChangeType =
+  | 'room_created'
+  | 'room_updated'
+  | 'room_deleted'
+  | 'room_confirmed'
+  | 'structure_created'
+  | 'structure_updated'
+  | 'structure_deleted'
+  | 'opening_added'
+  | 'opening_deleted'
+  | 'feature_added'
+  | 'feature_deleted'
+  | 'damage_marked'
+  | 'damage_updated'
+  | 'damage_deleted'
+  | 'photo_added'
+  | 'session_reset';
+
+export interface GeometryStateChangeEvent {
+  type: GeometryStateChangeType;
+  timestamp: string;
+  data?: unknown;
+}
+
+// Subscribers for state change events
+type StateChangeListener = (event: GeometryStateChangeEvent) => void;
+const stateChangeListeners = new Set<StateChangeListener>();
+
+/**
+ * Subscribe to geometry state change events
+ * Useful for external systems that need to react to state changes
+ */
+export function subscribeToStateChanges(listener: StateChangeListener): () => void {
+  stateChangeListeners.add(listener);
+  return () => stateChangeListeners.delete(listener);
+}
+
+/**
+ * Emit a state change event to all subscribers
+ */
+function emitStateChange(type: GeometryStateChangeType, data?: unknown): void {
+  const event: GeometryStateChangeEvent = {
+    type,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+  logger.debug(`[GeometryEngine] State change: ${type}`, data);
+  stateChangeListeners.forEach(listener => {
+    try {
+      listener(event);
+    } catch (error) {
+      logger.error('[GeometryEngine] Error in state change listener', error);
+    }
+  });
+}
 import type {
   RoomGeometry,
   Opening,
@@ -227,6 +286,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       commandHistory: [...state.commandHistory, command],
     }));
 
+    // Emit state change event
+    emitStateChange('structure_created', { structure: newStructure });
+
     return command.result;
   },
 
@@ -367,6 +429,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       commandHistory: [...state.commandHistory, command],
     }));
 
+    // Emit state change event for synchronization
+    emitStateChange('room_created', { room: newRoom });
+
     return command.result;
   },
 
@@ -420,6 +485,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       },
       commandHistory: [...state.commandHistory, command],
     }));
+
+    // Emit state change event
+    emitStateChange('opening_added', { opening, wall: params.wall });
 
     return command.result;
   },
@@ -479,6 +547,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       commandHistory: [...state.commandHistory, command],
     }));
 
+    // Emit state change event
+    emitStateChange('feature_added', { feature, wall: params.wall });
+
     return command.result;
   },
 
@@ -527,6 +598,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       },
       commandHistory: [...state.commandHistory, command],
     }));
+
+    // Emit state change event
+    emitStateChange('damage_marked', { damageZone, type: params.type });
 
     return command.result;
   },
@@ -718,6 +792,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       undoStack: [], // Clear undo stack when room is confirmed
       commandHistory: [...state.commandHistory, command],
     }));
+
+    // Emit state change event for room confirmation
+    emitStateChange('room_confirmed', { room: confirmedRoom });
 
     return command.result;
   },
@@ -1836,6 +1913,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
         rooms: updatedRooms,
       };
     });
+
+    // Emit state change event
+    emitStateChange('photo_added', { photo });
   },
 
   updatePhotoAnalysis: (photoId, analysis) => {
@@ -1992,6 +2072,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       transcript: [],
       sessionState: initialSessionState,
     });
+
+    // Emit state change event
+    emitStateChange('session_reset', {});
   },
   
   resetAndLoadForClaim: (claimId: string, rooms: RoomGeometry[]) => {

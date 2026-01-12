@@ -186,9 +186,54 @@ export function VoiceSketchController({
     });
   }, [createStructure]);
 
+  // Map of tool names to user-friendly action names and toast types
+  const getToolFeedback = useCallback((toolName: string, result: string): { message: string; type: 'success' | 'info' | 'warning' } => {
+    const isError = result.toLowerCase().startsWith('error');
+    if (isError) {
+      return { message: result, type: 'warning' };
+    }
+
+    // Tool-specific feedback
+    const feedbackMap: Record<string, { prefix: string; type: 'success' | 'info' }> = {
+      create_room: { prefix: '🏠', type: 'success' },
+      edit_room: { prefix: '✏️', type: 'success' },
+      delete_room: { prefix: '🗑️', type: 'info' },
+      confirm_room: { prefix: '✅', type: 'success' },
+      add_opening: { prefix: '🚪', type: 'success' },
+      delete_opening: { prefix: '🗑️', type: 'info' },
+      add_feature: { prefix: '📦', type: 'success' },
+      delete_feature: { prefix: '🗑️', type: 'info' },
+      mark_damage: { prefix: '⚠️', type: 'success' },
+      edit_damage_zone: { prefix: '✏️', type: 'success' },
+      delete_damage_zone: { prefix: '🗑️', type: 'info' },
+      create_structure: { prefix: '🏗️', type: 'success' },
+      select_structure: { prefix: '🔄', type: 'info' },
+      select_wall: { prefix: '📍', type: 'info' },
+      move_wall: { prefix: '↔️', type: 'success' },
+      update_wall_properties: { prefix: '✏️', type: 'success' },
+      modify_dimension: { prefix: '📏', type: 'success' },
+      add_note: { prefix: '📝', type: 'success' },
+      undo: { prefix: '↩️', type: 'info' },
+      capture_photo: { prefix: '📷', type: 'info' },
+    };
+
+    const feedback = feedbackMap[toolName] || { prefix: '✓', type: 'info' as const };
+    return { message: `${feedback.prefix} ${result}`, type: feedback.type };
+  }, []);
+
   const handleToolCall = useCallback(
     (toolName: string, _args: unknown, result: string) => {
       setLastToolCall({ name: toolName, result });
+
+      // Show toast notification for voice command feedback
+      const feedback = getToolFeedback(toolName, result);
+      if (feedback.type === 'success') {
+        toast.success(feedback.message, { duration: 3000 });
+      } else if (feedback.type === 'warning') {
+        toast.warning(feedback.message, { duration: 4000 });
+      } else {
+        toast.info(feedback.message, { duration: 2500 });
+      }
 
       // If room was confirmed, notify parent
       if (toolName === 'confirm_room' && onRoomConfirmed) {
@@ -199,11 +244,20 @@ export function VoiceSketchController({
         }
       }
     },
-    [onRoomConfirmed]
+    [onRoomConfirmed, getToolFeedback]
   );
 
   const handleError = useCallback((error: Error) => {
-    // Error handled by useVoiceSession hook
+    // Show error toast for voice session errors
+    toast.error(`Voice session error: ${error.message}`, { duration: 5000 });
+  }, []);
+
+  const handleSessionStart = useCallback(() => {
+    toast.success('Voice session started. You can speak now.', { duration: 2000 });
+  }, []);
+
+  const handleSessionEnd = useCallback(() => {
+    toast.info('Voice session ended', { duration: 2000 });
   }, []);
 
   const {
@@ -214,10 +268,13 @@ export function VoiceSketchController({
     startSession,
     stopSession,
     interruptAgent,
+    retryConnection,
   } = useVoiceSession({
     userName,
     onToolCall: handleToolCall,
     onError: handleError,
+    onSessionStart: handleSessionStart,
+    onSessionEnd: handleSessionEnd,
   });
 
   const handleStartSession = async () => {
@@ -609,11 +666,21 @@ export function VoiceSketchController({
         />
       </div>
 
-      {/* Error Alert */}
+      {/* Error Alert with Retry option */}
       {error && (
         <Alert variant="destructive" className="mx-3 my-1">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="flex items-center justify-between">
+            <span>{error}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-2 h-6 px-2 text-xs"
+              onClick={retryConnection}
+            >
+              Retry
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
