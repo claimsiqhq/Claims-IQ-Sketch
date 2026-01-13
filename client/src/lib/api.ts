@@ -3148,3 +3148,148 @@ export async function getCoverageAnalysisSummary(claimId: string): Promise<Cover
   }
   return response.json();
 }
+
+// ============================================
+// CALENDAR SYNC API
+// ============================================
+
+export interface Ms365ConnectionStatus {
+  connected: boolean;
+  configured: boolean;
+  expiresAt: string | null;
+}
+
+export interface CalendarSyncStatus {
+  connected: boolean;
+  lastSyncTime: string | null;
+  lastSyncDirection: 'pull' | 'push' | 'full' | null;
+  pendingSyncs: number;
+  errorCount: number;
+}
+
+export interface CalendarSyncResult {
+  success: boolean;
+  pulled: number;
+  pushed: number;
+  updated: number;
+  conflicts: number;
+  errors: string[];
+}
+
+/**
+ * Get MS365 connection status
+ */
+export async function getMs365ConnectionStatus(): Promise<Ms365ConnectionStatus> {
+  const response = await fetch(`${API_BASE}/calendar/ms365/connection-status`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get connection status');
+  }
+  return response.json();
+}
+
+/**
+ * Connect to MS365 (initiate OAuth flow)
+ */
+export async function connectMs365(): Promise<string> {
+  const response = await fetch(`${API_BASE}/auth/ms365/authorize`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to start authorization' }));
+    throw new Error(error.error || 'Failed to start MS365 authorization');
+  }
+  const data = await response.json();
+  // Redirect to authorization URL
+  window.location.href = data.authorizationUrl;
+  return data.authorizationUrl;
+}
+
+/**
+ * Disconnect from MS365
+ */
+export async function disconnectMs365(): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/ms365/disconnect`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to disconnect' }));
+    throw new Error(error.error || 'Failed to disconnect from MS365');
+  }
+}
+
+/**
+ * Sync calendar from MS365 (pull)
+ */
+export async function syncCalendarFromMs365(
+  startDate?: string,
+  endDate?: string
+): Promise<CalendarSyncResult> {
+  const response = await fetch(`${API_BASE}/calendar/sync/from-ms365`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ startDate, endDate }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Sync failed' }));
+    throw new Error(error.error || 'Failed to sync from MS365');
+  }
+  return response.json();
+}
+
+/**
+ * Sync calendar to MS365 (push)
+ */
+export async function syncCalendarToMs365(
+  appointmentIds?: string[],
+  startDate?: string,
+  endDate?: string
+): Promise<CalendarSyncResult> {
+  const response = await fetch(`${API_BASE}/calendar/sync/to-ms365`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ appointmentIds, startDate, endDate }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Sync failed' }));
+    throw new Error(error.error || 'Failed to sync to MS365');
+  }
+  return response.json();
+}
+
+/**
+ * Full bidirectional calendar sync
+ */
+export async function syncCalendarFull(
+  startDate?: string,
+  endDate?: string
+): Promise<CalendarSyncResult> {
+  const response = await fetch(`${API_BASE}/calendar/sync/full`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ startDate, endDate }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Sync failed' }));
+    throw new Error(error.error || 'Failed to perform full sync');
+  }
+  return response.json();
+}
+
+/**
+ * Get calendar sync status
+ */
+export async function getCalendarSyncStatus(): Promise<CalendarSyncStatus> {
+  const response = await fetch(`${API_BASE}/calendar/sync/status`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get sync status');
+  }
+  return response.json();
+}

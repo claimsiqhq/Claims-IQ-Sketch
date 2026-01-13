@@ -11,9 +11,10 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import 'isomorphic-fetch';
 
 // Environment variables for Azure AD app
-const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || '';
-const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || 'common';
-const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || '';
+// Support both MS365_* and AZURE_* naming (MS365_* takes priority for backward compatibility)
+const AZURE_CLIENT_ID = process.env.MS365_CLIENT_ID || process.env.AZURE_CLIENT_ID || '';
+const AZURE_TENANT_ID = process.env.MS365_TENANT_ID || process.env.AZURE_TENANT_ID || 'common';
+const AZURE_CLIENT_SECRET = process.env.MS365_CLIENT_SECRET || process.env.AZURE_CLIENT_SECRET || '';
 
 // Get the base URL for redirects
 function getBaseUrl(): string {
@@ -61,7 +62,7 @@ let msalClient: msal.ConfidentialClientApplication | null = null;
 function getMsalClient(): msal.ConfidentialClientApplication {
   if (!msalClient) {
     if (!AZURE_CLIENT_ID || !AZURE_CLIENT_SECRET) {
-      throw new Error('Microsoft 365 integration not configured. Please set AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_CLIENT_SECRET.');
+      throw new Error('Microsoft 365 integration not configured. Please set MS365_CLIENT_ID (or AZURE_CLIENT_ID), MS365_TENANT_ID (or AZURE_TENANT_ID), and MS365_CLIENT_SECRET (or AZURE_CLIENT_SECRET).');
     }
     msalClient = new msal.ConfidentialClientApplication(msalConfig);
   }

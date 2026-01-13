@@ -438,13 +438,37 @@ export async function registerRoutes(
     }
   });
 
-  // Get appointments for a specific date
+  // Get appointments for a specific date or date range
   app.get('/api/calendar/appointments', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { getAppointmentsForDate } = await import('./services/ms365CalendarService');
-      const date = req.query.date ? new Date(req.query.date as string) : new Date();
-      const appointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, date);
-      res.json({ appointments });
+      
+      // Support date range (startDate/endDate) or single date
+      if (req.query.startDate && req.query.endDate) {
+        const startDate = new Date(req.query.startDate as string);
+        const endDate = new Date(req.query.endDate as string);
+        
+        // Get appointments for each day in the range
+        const allAppointments: any[] = [];
+        const currentDate = new Date(startDate);
+        
+        while (currentDate <= endDate) {
+          const dayAppointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, new Date(currentDate));
+          allAppointments.push(...dayAppointments);
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+        
+        // Deduplicate by ID
+        const uniqueAppointments = Array.from(
+          new Map(allAppointments.map(apt => [apt.id, apt])).values()
+        );
+        
+        res.json({ appointments: uniqueAppointments });
+      } else {
+        const date = req.query.date ? new Date(req.query.date as string) : new Date();
+        const appointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, date);
+        res.json({ appointments });
+      }
     } catch (error) {
       console.error('[Calendar] Failed to get appointments:', error);
       res.status(500).json({ error: 'Failed to get appointments' });
@@ -531,7 +555,7 @@ export async function registerRoutes(
   // Fetch MS365 calendar events (for viewing external events)
   app.get('/api/calendar/ms365/events', requireAuth, async (req, res) => {
     try {
-      const { fetchTodayEvents } = await import('./services/ms365CalendarService');
+      const { fetchCalendarEvents, fetchTodayEvents } = await import('./services/ms365CalendarService');
       const { isUserConnected } = await import('./services/ms365AuthService');
       
       const isConnected = await isUserConnected(req.user!.id);
@@ -539,11 +563,122 @@ export async function registerRoutes(
         return res.json({ events: [], connected: false });
       }
       
-      const events = await fetchTodayEvents(req.user!.id);
-      res.json({ events, connected: true });
+      // Support date range or default to today
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date();
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+      
+      if (req.query.startDate || req.query.endDate) {
+        const events = await fetchCalendarEvents(req.user!.id, startDate, endDate);
+        res.json({ events, connected: true });
+      } else {
+        const events = await fetchTodayEvents(req.user!.id);
+        res.json({ events, connected: true });
+      }
     } catch (error) {
       console.error('[Calendar] Failed to fetch MS365 events:', error);
       res.status(500).json({ error: 'Failed to fetch calendar events' });
+    }
+  });
+
+  // ============================================
+  // CALENDAR SYNC ENDPOINTS
+  // ============================================
+
+  // Get MS365 connection status
+  app.get('/api/calendar/ms365/connection-status', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getConnectionStatus } = await import('./services/ms365AuthService');
+      const status = await getConnectionStatus(req.user!.id);
+      res.json(status);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // Pull sync from MS365
+  app.post('/api/calendar/sync/from-ms365', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { syncFromMs365 } = await import('./services/ms365CalendarSyncService');
+      const { startDate, endDate } = req.body;
+
+      const start = startDate ? new Date(startDate) : new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = endDate ? new Date(endDate) : new Date();
+      end.setDate(end.getDate() + 7);
+      end.setHours(23, 59, 59, 999);
+
+      const result = await syncFromMs365(req.user!.id, req.organizationId!, start, end);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[Calendar Sync] Pull sync failed:', error);
+      res.status(500).json({ success: false, errors: [message] });
+    }
+  });
+
+  // Push sync to MS365
+  app.post('/api/calendar/sync/to-ms365', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { syncToMs365 } = await import('./services/ms365CalendarSyncService');
+      const { appointmentIds, startDate, endDate } = req.body;
+
+      let start: Date | undefined;
+      let end: Date | undefined;
+
+      if (startDate || endDate) {
+        start = startDate ? new Date(startDate) : new Date();
+        start.setHours(0, 0, 0, 0);
+        end = endDate ? new Date(endDate) : new Date();
+        end.setDate(end.getDate() + 7);
+        end.setHours(23, 59, 59, 999);
+      }
+
+      const result = await syncToMs365(
+        req.user!.id,
+        req.organizationId!,
+        appointmentIds,
+        start,
+        end
+      );
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[Calendar Sync] Push sync failed:', error);
+      res.status(500).json({ success: false, errors: [message] });
+    }
+  });
+
+  // Full bidirectional sync
+  app.post('/api/calendar/sync/full', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { fullSync } = await import('./services/ms365CalendarSyncService');
+      const { startDate, endDate } = req.body;
+
+      const start = startDate ? new Date(startDate) : new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = endDate ? new Date(endDate) : new Date();
+      end.setDate(end.getDate() + 7);
+      end.setHours(23, 59, 59, 999);
+
+      const result = await fullSync(req.user!.id, req.organizationId!, start, end);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[Calendar Sync] Full sync failed:', error);
+      res.status(500).json({ success: false, errors: [message] });
+    }
+  });
+
+  // Get sync status
+  app.get('/api/calendar/sync/status', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { getSyncStatus } = await import('./services/ms365CalendarSyncService');
+      const status = await getSyncStatus(req.user!.id, req.organizationId!);
+      res.json(status);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
     }
   });
 

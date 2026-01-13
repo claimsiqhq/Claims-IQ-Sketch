@@ -14,6 +14,7 @@ import {
   FolderOpen,
   MapPin,
   Camera,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 // Navigation items for bottom bar - focused on core mobile actions
 const bottomNavItems = [
   { label: "Claims", icon: FolderOpen, href: "/" },
+  { label: "Calendar", icon: Calendar, href: "/calendar" },
   { label: "Photos", icon: Camera, href: "/photos" },
   { label: "Map", icon: MapPin, href: "/map" },
   { label: "More", icon: Menu, href: "#more" }, // Opens sheet

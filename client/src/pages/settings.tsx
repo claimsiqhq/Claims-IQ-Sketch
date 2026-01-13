@@ -47,7 +47,20 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store";
-import { getUserPreferences, saveUserPreferences, updateUserProfile } from "@/lib/api";
+import { 
+  getUserPreferences, 
+  saveUserPreferences, 
+  updateUserProfile,
+  getMs365ConnectionStatus,
+  connectMs365,
+  disconnectMs365,
+  syncCalendarFromMs365,
+  syncCalendarToMs365,
+  syncCalendarFull,
+  getCalendarSyncStatus,
+  type CalendarSyncStatus,
+  type CalendarSyncResult
+} from "@/lib/api";
 
 interface ScrapeJobResult {
   jobId: string;
@@ -1332,18 +1345,24 @@ function MS365IntegrationCard() {
   const { toast } = useToast();
   const searchString = useSearch();
   const [status, setStatus] = useState<{ connected: boolean; configured: boolean; expiresAt: string | null } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<CalendarSyncStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+  const [syncFrequency, setSyncFrequency] = useState('15');
 
   useEffect(() => {
     checkConnectionStatus();
+    checkSyncStatus();
     
     // Handle OAuth callback messages
     const params = new URLSearchParams(searchString);
     if (params.get('ms365_connected') === 'true') {
       toast({ title: "Connected!", description: "Your Microsoft 365 calendar is now connected." });
       checkConnectionStatus();
+      checkSyncStatus();
     } else if (params.get('ms365_error')) {
       const error = params.get('ms365_error');
       const messages: Record<string, string> = {
@@ -1363,15 +1382,28 @@ function MS365IntegrationCard() {
   const checkConnectionStatus = async () => {
     try {
       setIsLoading(true);
+      // Use the existing endpoint
       const response = await fetch('/api/auth/ms365/status', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setStatus(data);
+      } else {
+        setStatus({ connected: false, configured: false, expiresAt: null });
       }
     } catch (error) {
       // Failed to check MS365 status - will show error state
+      setStatus({ connected: false, configured: false, expiresAt: null });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const checkSyncStatus = async () => {
+    try {
+      const sync = await getCalendarSyncStatus();
+      setSyncStatus(sync);
+    } catch (error) {
+      // Sync status check failed - not critical
     }
   };
 
@@ -1379,14 +1411,13 @@ function MS365IntegrationCard() {
     try {
       setIsConnecting(true);
       const response = await fetch('/api/auth/ms365/connect', { credentials: 'include' });
-      
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to start connection');
       }
-      
       const { authUrl } = await response.json();
       window.location.href = authUrl;
+      // Will redirect, so won't reach here
     } catch (error) {
       toast({
         title: "Connection Failed",
@@ -1400,25 +1431,59 @@ function MS365IntegrationCard() {
   const handleDisconnect = async () => {
     try {
       setIsDisconnecting(true);
-      const response = await fetch('/api/auth/ms365/disconnect', {
-        method: 'POST',
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        toast({ title: "Disconnected", description: "Microsoft 365 calendar has been disconnected." });
-        setStatus({ connected: false, configured: status?.configured || false, expiresAt: null });
-      } else {
-        throw new Error('Disconnect failed');
-      }
+      await disconnectMs365();
+      toast({ title: "Disconnected", description: "Microsoft 365 calendar has been disconnected." });
+      setStatus({ connected: false, configured: status?.configured || false, expiresAt: null });
+      setSyncStatus(null);
     } catch (error) {
       toast({
         title: "Disconnect Failed",
-        description: "Failed to disconnect from Microsoft 365",
+        description: error instanceof Error ? error.message : "Failed to disconnect from Microsoft 365",
         variant: "destructive"
       });
     } finally {
       setIsDisconnecting(false);
+    }
+  };
+
+  const handleSync = async (direction: 'pull' | 'push' | 'full') => {
+    try {
+      setIsSyncing(true);
+      let result: CalendarSyncResult;
+
+      switch (direction) {
+        case 'pull':
+          result = await syncCalendarFromMs365();
+          break;
+        case 'push':
+          result = await syncCalendarToMs365();
+          break;
+        case 'full':
+          result = await syncCalendarFull();
+          break;
+      }
+
+      if (result.success) {
+        toast({
+          title: "Sync Complete",
+          description: `Pulled ${result.pulled}, pushed ${result.pushed}, updated ${result.updated}${result.conflicts > 0 ? `, ${result.conflicts} conflicts` : ''}`,
+        });
+        checkSyncStatus();
+      } else {
+        toast({
+          title: "Sync Failed",
+          description: result.errors.join('; ') || 'Sync completed with errors',
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Sync Failed",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive"
+      });
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -1487,18 +1552,107 @@ function MS365IntegrationCard() {
           <>
             <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
               <CheckCircle className="h-5 w-5 text-emerald-600" />
-              <div>
+              <div className="flex-1">
                 <p className="font-medium text-emerald-800">Connected</p>
                 <p className="text-sm text-emerald-700">
                   Your Microsoft 365 calendar is synced. Scheduled inspections will appear in your calendar.
                 </p>
+                {syncStatus && (
+                  <div className="mt-2 text-xs text-emerald-600">
+                    {syncStatus.lastSyncTime ? (
+                      <>Last sync: {new Date(syncStatus.lastSyncTime).toLocaleString()}</>
+                    ) : (
+                      <>No sync yet</>
+                    )}
+                    {syncStatus.pendingSyncs > 0 && (
+                      <> • {syncStatus.pendingSyncs} pending</>
+                    )}
+                    {syncStatus.errorCount > 0 && (
+                      <> • <span className="text-red-600">{syncStatus.errorCount} errors</span></>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Sync Controls */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="autoSync" className="text-sm font-medium">Automatic Sync</Label>
+                <Switch
+                  id="autoSync"
+                  checked={autoSyncEnabled}
+                  onCheckedChange={setAutoSyncEnabled}
+                />
+              </div>
+
+              {autoSyncEnabled && (
+                <div className="space-y-2">
+                  <Label htmlFor="syncFrequency" className="text-sm">Sync Frequency</Label>
+                  <Select value={syncFrequency} onValueChange={setSyncFrequency}>
+                    <SelectTrigger id="syncFrequency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="15">Every 15 minutes</SelectItem>
+                      <SelectItem value="30">Every 30 minutes</SelectItem>
+                      <SelectItem value="60">Every hour</SelectItem>
+                      <SelectItem value="manual">Manual only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-2 pt-2">
+                <Label className="text-sm font-medium">Manual Sync</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSync('pull')}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>Pull from MS365</>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSync('push')}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>Push to MS365</>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSync('full')}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>Full Sync</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
             <Button
               variant="outline"
               onClick={handleDisconnect}
               disabled={isDisconnecting}
-              className="text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive w-full"
               data-testid="button-disconnect-ms365"
             >
               {isDisconnecting ? (

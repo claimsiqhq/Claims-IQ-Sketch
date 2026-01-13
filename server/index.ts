@@ -124,6 +124,20 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
+  // Initialize calendar sync scheduler
+  try {
+    const { initializeSyncScheduler } = await import('./services/calendarSyncScheduler');
+    initializeSyncScheduler({
+      enabled: process.env.CALENDAR_SYNC_ENABLED !== 'false',
+      intervalMinutes: parseInt(process.env.CALENDAR_SYNC_INTERVAL_MINUTES || '15', 10),
+      dateRangeDays: parseInt(process.env.CALENDAR_SYNC_DATE_RANGE_DAYS || '7', 10),
+    });
+    log('Calendar sync scheduler initialized', 'calendar-sync');
+  } catch (error) {
+    log(`Warning: Could not initialize calendar sync scheduler: ${error}`, 'calendar-sync');
+    // Continue startup - sync will just be disabled
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

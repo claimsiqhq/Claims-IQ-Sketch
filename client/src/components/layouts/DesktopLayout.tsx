@@ -14,6 +14,7 @@ import {
   FolderOpen,
   MapPin,
   Camera,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +53,7 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
 
   const navItems = [
     { label: "All Claims", icon: FolderOpen, href: "/" },
+    { label: "Calendar", icon: Calendar, href: "/calendar" },
     { label: "Photos", icon: Camera, href: "/photos" },
     { label: "Claims Map", icon: MapPin, href: "/map" },
     { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },
