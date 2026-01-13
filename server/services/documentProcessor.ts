@@ -2126,6 +2126,7 @@ export async function createClaimFromDocuments(
     if (endDoc.extracted_data) {
       const extractedData = endDoc.extracted_data as any;
       let extractions: EndorsementExtraction[];
+      let endDocFullText: string | null | undefined = undefined; // Use undefined as sentinel for "not fetched yet"
 
       // Handle multiple formats:
       // 1. New wrapper format: { endorsements: [...], _progress: {...} }
@@ -2144,19 +2145,23 @@ export async function createClaimFromDocuments(
           .eq('id', endDoc.id)
           .single();
         
+        endDocFullText = endDocData?.full_text || null; // null means fetched but no full_text
         extractions = transformToEndorsementExtraction(
           extractedData,
-          endDocData?.full_text || null
+          endDocFullText
         );
       }
 
       if (extractions.length > 0) {
-        // Get document's full_text to use as raw_text fallback for endorsements
-        const { data: endDocData } = await supabaseAdmin
-          .from('documents')
-          .select('full_text')
-          .eq('id', endDoc.id)
-          .single();
+        // Fetch endDocFullText only if not already fetched (undefined means not fetched yet)
+        if (endDocFullText === undefined) {
+          const { data: endDocData } = await supabaseAdmin
+            .from('documents')
+            .select('full_text')
+            .eq('id', endDoc.id)
+            .single();
+          endDocFullText = endDocData?.full_text || null;
+        }
         
         await storeEndorsements(
           extractions, 
@@ -2164,7 +2169,7 @@ export async function createClaimFromDocuments(
           organizationId, 
           endDoc.id,
           undefined, // rawOpenaiResponse not available here
-          endDocData?.full_text || null
+          endDocFullText
         );
         console.log(`[ClaimCreation] Stored ${extractions.length} endorsement extraction(s) for document ${endDoc.id}`);
       }
