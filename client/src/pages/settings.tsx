@@ -1409,8 +1409,10 @@ function MS365IntegrationCard() {
 
   const handleConnect = () => {
     setIsConnecting(true);
-    // Navigate directly to the connect endpoint which will redirect to Microsoft
-    window.location.href = '/api/auth/ms365/connect';
+    // Open in new tab to avoid iframe restrictions from Microsoft
+    window.open('/api/auth/ms365/connect', '_blank');
+    // Reset connecting state after a delay since we can't track the popup
+    setTimeout(() => setIsConnecting(false), 2000);
   };
 
   const handleDisconnect = async () => {
