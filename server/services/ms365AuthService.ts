@@ -143,22 +143,47 @@ async function storeUserTokens(
     accountId: string | null;
   }
 ): Promise<void> {
-  const { error } = await supabaseAdmin
+  // First, try to check if record exists
+  const { data: existing, error: checkError } = await supabaseAdmin
     .from('user_ms365_tokens')
-    .upsert({
-      user_id: userId,
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
-      expires_at: tokens.expiresAt,
-      account_id: tokens.accountId,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'user_id',
-    });
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
 
-  if (error) {
-    console.error('[MS365] Failed to store tokens:', error);
-    throw error;
+  if (existing && !checkError) {
+    // Update existing record
+    const { error } = await supabaseAdmin
+      .from('user_ms365_tokens')
+      .update({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+        expires_at: tokens.expiresAt,
+        account_id: tokens.accountId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('[MS365] Failed to update tokens:', error);
+      throw error;
+    }
+  } else {
+    // Insert new record
+    const { error } = await supabaseAdmin
+      .from('user_ms365_tokens')
+      .insert({
+        user_id: userId,
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+        expires_at: tokens.expiresAt,
+        account_id: tokens.accountId,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error('[MS365] Failed to insert tokens:', error);
+      throw error;
+    }
   }
 }
 
