@@ -593,6 +593,30 @@ export async function generateClaimBriefing(
         })
         .eq('id', briefingId);
 
+      // Increment claim's briefing_version for cache invalidation
+      // This allows voice agents to detect when the briefing has been updated
+      await supabaseAdmin.rpc('increment_claim_version', {
+        p_claim_id: claimId,
+        p_version_type: 'briefing',
+      }).catch(() => {
+        // Fallback: If RPC doesn't exist, do manual increment
+        return supabaseAdmin
+          .from('claims')
+          .select('briefing_version')
+          .eq('id', claimId)
+          .single()
+          .then(({ data }) => {
+            const currentVersion = data?.briefing_version || 0;
+            return supabaseAdmin
+              .from('claims')
+              .update({
+                briefing_version: currentVersion + 1,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', claimId);
+          });
+      });
+
       console.log(`[ClaimBriefing] Generated enhanced briefing for claim ${claimId} with ${context.meta.dataCompleteness.completenessScore}% data completeness`);
 
       return {

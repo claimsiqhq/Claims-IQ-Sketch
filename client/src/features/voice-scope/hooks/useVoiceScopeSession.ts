@@ -125,11 +125,26 @@ export function useVoiceScopeSession(options: UseVoiceScopeSessionOptions = {}):
         }
       }
 
-      // 1. Get ephemeral key from backend
-      const response = await fetch('/api/voice/session', { method: 'POST' });
+      // 1. Get ephemeral key from backend (includes prerequisite checks for scope mode)
+      const response = await fetch('/api/voice/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'scope',
+          claimId: options.claimId,
+        }),
+      });
+
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to create voice session');
+
+        // Handle 428 Precondition Required (prerequisites missing)
+        if (response.status === 428 && data.error === 'PREREQUISITES_MISSING') {
+          const missing = data.details?.missing?.join(' and ') || 'required data';
+          throw new Error(`Voice scope not ready: ${missing} must be generated first. ${data.details?.suggestion || 'Please try again shortly.'}`);
+        }
+
+        throw new Error(data.message || data.error || 'Failed to create voice session');
       }
       const { ephemeral_key } = await response.json();
 

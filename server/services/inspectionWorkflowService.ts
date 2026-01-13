@@ -1386,6 +1386,30 @@ export async function generateInspectionWorkflow(
       return { success: false, error: 'Failed to create any workflow steps - please try again' };
     }
 
+    // Increment claim's workflow_version for cache invalidation
+    // This allows voice agents to detect when the workflow has been updated
+    await supabaseAdmin.rpc('increment_claim_version', {
+      p_claim_id: claimId,
+      p_version_type: 'workflow',
+    }).catch(() => {
+      // Fallback: If RPC doesn't exist, do manual increment
+      return supabaseAdmin
+        .from('claims')
+        .select('workflow_version')
+        .eq('id', claimId)
+        .single()
+        .then(({ data }) => {
+          const currentVersion = data?.workflow_version || 0;
+          return supabaseAdmin
+            .from('claims')
+            .update({
+              workflow_version: currentVersion + 1,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', claimId);
+        });
+    });
+
     console.log(`[InspectionWorkflow] Generated enhanced workflow v${nextVersion} for claim ${claimId}: ${stepsCreated} steps created from workflow_json.steps (${workflowJson.steps.length} in source, ${endorsementSteps.length} endorsement-driven), data completeness: ${context.meta.dataCompleteness.completenessScore}%`);
 
     return {
