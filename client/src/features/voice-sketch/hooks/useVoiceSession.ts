@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger';
 
 interface UseVoiceSessionOptions {
   userName?: string;
+  claimId?: string; // Claim ID for prerequisite checks (briefing + workflow required)
   onTranscript?: (text: string, role: 'user' | 'assistant') => void;
   onToolCall?: (toolName: string, args: unknown, result: string) => void;
   onError?: (error: Error) => void;
@@ -81,11 +82,26 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): UseVoiceS
         }
       }
 
-      // 1. Get ephemeral key from backend
-      const response = await fetch('/api/voice/session', { method: 'POST' });
+      // 1. Get ephemeral key from backend (includes prerequisite checks if claimId provided)
+      const response = await fetch('/api/voice/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'sketch',
+          claimId: options.claimId,
+        }),
+      });
+
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to create voice session');
+
+        // Handle 428 Precondition Required (prerequisites missing)
+        if (response.status === 428 && data.error === 'PREREQUISITES_MISSING') {
+          const missing = data.details?.missing?.join(' and ') || 'required data';
+          throw new Error(`Voice sketch not ready: ${missing} must be generated first. ${data.details?.suggestion || 'Please try again shortly.'}`);
+        }
+
+        throw new Error(data.message || data.error || 'Failed to create voice session');
       }
       const { ephemeral_key } = await response.json();
 

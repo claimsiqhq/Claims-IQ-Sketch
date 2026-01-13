@@ -104,10 +104,52 @@ router.get('/search-line-items', async (req: Request, res: Response) => {
 /**
  * POST /api/voice/session
  * Create a new voice session for Voice Sketch or Voice Scope
+ *
+ * For scope/sketch modes with a claimId, verifies that:
+ * - A claim briefing exists
+ * - An inspection workflow exists
+ *
+ * Returns 428 (Precondition Required) if prerequisites are missing.
  */
-router.post('/voice/session', async (req: Request, res: Response) => {
+router.post('/voice/session', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
-    const { mode, claimId, context } = req.body;
+    const { mode, claimId, context, skipPrerequisiteCheck } = req.body;
+    const organizationId = (req as any).organizationId;
+
+    // For scope or sketch mode with a claimId, verify prerequisites exist
+    if (claimId && (mode === 'scope' || mode === 'sketch') && !skipPrerequisiteCheck) {
+      const { getClaimWorkflow } = await import('../services/inspectionWorkflowService');
+
+      // Check for briefing
+      const briefing = await getClaimBriefing(claimId, organizationId);
+
+      // Check for workflow
+      const workflow = await getClaimWorkflow(claimId, organizationId);
+
+      const hasBriefing = briefing !== null;
+      const hasWorkflow = workflow !== null;
+
+      if (!hasBriefing || !hasWorkflow) {
+        const missing: string[] = [];
+        if (!hasBriefing) missing.push('AI briefing');
+        if (!hasWorkflow) missing.push('inspection workflow');
+
+        log.warn({ claimId, mode, hasBriefing, hasWorkflow }, 'Voice session prerequisites not met');
+
+        return res.status(428).json({
+          message: 'Voice agent prerequisites not met',
+          error: 'PREREQUISITES_MISSING',
+          details: {
+            hasBriefing,
+            hasWorkflow,
+            missing,
+            suggestion: 'Please wait for the AI briefing and inspection workflow to be generated, or try again shortly.',
+          },
+        });
+      }
+
+      log.info({ claimId, mode }, 'Voice session prerequisites verified');
+    }
 
     const session = await createVoiceSession({
       mode: mode || 'sketch',

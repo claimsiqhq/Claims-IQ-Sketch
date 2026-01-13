@@ -6304,6 +6304,12 @@ export async function registerRoutes(
   /**
    * GET /api/claims/:id/scope-context
    * Get claim context (briefing, workflow, peril) for scope agent
+   *
+   * Includes:
+   * - readiness: Whether prerequisites (briefing + workflow) exist
+   * - briefingVersion / workflowVersion: For cache invalidation
+   * - briefing: AI-generated claim briefing summary
+   * - workflow: Inspection workflow steps
    */
   app.get('/api/claims/:id/scope-context', requireAuth, requireOrganization, async (req, res) => {
     try {
@@ -6316,20 +6322,49 @@ export async function registerRoutes(
 
       // Get briefing
       const briefing = await getClaimBriefing(claimId, organizationId);
-      
+
       // Get workflow
       const workflow = await getClaimWorkflow(claimId, organizationId);
-      
-      // Get claim for peril info
+
+      // Get claim for peril info and version numbers
       const claim = await getClaim(claimId, organizationId);
-      
+
+      // Get version numbers from claim (need to fetch directly as getClaim may not include them)
+      const { data: claimVersions } = await supabaseAdmin
+        .from('claims')
+        .select('briefing_version, workflow_version')
+        .eq('id', claimId)
+        .eq('organization_id', organizationId)
+        .single();
+
+      // Determine readiness status
+      const hasBriefing = briefing !== null;
+      const hasWorkflow = workflow !== null;
+      const isReady = hasBriefing && hasWorkflow;
+
       // Build context summary
       const context = {
         claimId,
         claimNumber: claim?.claimNumber || 'Unknown',
         primaryPeril: claim?.primaryPeril || 'Unknown',
         secondaryPerils: claim?.secondaryPerils || [],
+
+        // Readiness status for voice agent prerequisites
+        readiness: {
+          isReady,
+          hasBriefing,
+          hasWorkflow,
+          message: isReady
+            ? 'Ready for voice agent'
+            : `Missing: ${!hasBriefing ? 'briefing' : ''}${!hasBriefing && !hasWorkflow ? ', ' : ''}${!hasWorkflow ? 'workflow' : ''}`.trim(),
+        },
+
+        // Version numbers for cache invalidation
+        briefingVersion: claimVersions?.briefing_version || 0,
+        workflowVersion: claimVersions?.workflow_version || 0,
+
         briefing: briefing ? {
+          id: briefing.id,
           primaryPeril: briefing.briefingJson?.claim_summary?.primary_peril,
           overview: briefing.briefingJson?.claim_summary?.overview || [],
           priorities: briefing.briefingJson?.inspection_strategy?.what_to_prioritize || [],
@@ -6339,6 +6374,7 @@ export async function registerRoutes(
           depreciationConsiderations: briefing.briefingJson?.depreciation_considerations || [],
         } : null,
         workflow: workflow ? {
+          id: workflow.workflow?.id,
           totalSteps: workflow.steps?.length || 0,
           steps: workflow.steps?.slice(0, 10).map(s => ({
             phase: s.phase,

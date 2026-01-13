@@ -271,6 +271,7 @@ export function VoiceSketchController({
     retryConnection,
   } = useVoiceSession({
     userName,
+    claimId, // Pass claimId for prerequisite checks (briefing + workflow required)
     onToolCall: handleToolCall,
     onError: handleError,
     onSessionStart: handleSessionStart,

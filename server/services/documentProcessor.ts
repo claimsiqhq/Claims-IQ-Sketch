@@ -28,26 +28,44 @@ import { getRegionByZip } from './pricing';
 /**
  * Auto-trigger AI generation pipeline after document processing
  * Runs asynchronously to not block the main response
+ *
+ * Pipeline steps:
+ * 1. Autofill coverage fields from FNOL data
+ * 2. Generate AI claim briefing
+ * 3. Generate inspection workflow
  */
 async function triggerAIGenerationPipeline(claimId: string, organizationId: string, documentType: string): Promise<void> {
   try {
     console.log(`[AI Pipeline] Starting auto-generation for claim ${claimId} after ${documentType} processing`);
-    
+
+    // Step 0: Autofill coverage fields from FNOL/policy data
+    // This ensures coverage limits are populated before briefing generation
+    if (documentType === 'fnol' || documentType === 'policy') {
+      console.log(`[AI Pipeline] Autofilling coverage fields for claim ${claimId}...`);
+      const { autofillClaimCoverage } = await import('./claimAutofillService');
+      const autofillResult = await autofillClaimCoverage(claimId, organizationId);
+      if (autofillResult.success && autofillResult.fieldsUpdated.length > 0) {
+        console.log(`[AI Pipeline] Autofilled fields: ${autofillResult.fieldsUpdated.join(', ')} for claim ${claimId}`);
+      } else if (!autofillResult.success) {
+        console.warn(`[AI Pipeline] Autofill warning for claim ${claimId}: ${autofillResult.error}`);
+      }
+    }
+
     // Dynamically import to avoid circular dependencies
     const { generateClaimBriefing } = await import('./claimBriefingService');
     const { generateInspectionWorkflow } = await import('./inspectionWorkflowService');
-    
+
     // Step 1: Generate briefing (if FNOL, policy, or endorsement was just processed)
     console.log(`[AI Pipeline] Generating briefing for claim ${claimId}...`);
     const briefingResult = await generateClaimBriefing(claimId, organizationId, false);
-    
+
     if (briefingResult.success) {
       console.log(`[AI Pipeline] Briefing generated successfully for claim ${claimId}`);
-      
+
       // Step 2: Generate inspection workflow after briefing
       console.log(`[AI Pipeline] Generating inspection workflow for claim ${claimId}...`);
       const workflowResult = await generateInspectionWorkflow(claimId, organizationId, undefined, false);
-      
+
       if (workflowResult.success) {
         console.log(`[AI Pipeline] Inspection workflow generated successfully for claim ${claimId}`);
       } else {
