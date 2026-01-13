@@ -1487,6 +1487,10 @@ export async function processDocument(
         rawExtraction = await extractFromPDF(tempFilePath, documentType, documentId);
       } else if (doc.mime_type.startsWith('image/')) {
         rawExtraction = await extractFromImage(tempFilePath, documentType);
+        // Images don't have multiple pages or extractable text
+        rawExtraction.pageCount = 1;
+        rawExtraction.pageTexts = [];
+        rawExtraction.fullText = null;
       } else {
         throw new Error(`Unsupported file type: ${doc.mime_type}`);
       }
