@@ -1065,6 +1065,51 @@ export async function generateInspectionWorkflow(
       };
     }
 
+    // Auto-detect rooms and hazards from loss description if not provided in wizard
+    if (context.lossDescription) {
+      const description = context.lossDescription;
+      
+      // Initialize wizardContext if undefined
+      if (!wizardContext) {
+        wizardContext = {};
+      }
+
+      // Detect rooms
+      if (!wizardContext.rooms) {
+        const detectedRooms = detectRoomsFromDescription(description);
+        if (detectedRooms.length > 0) {
+          console.log(`[InspectionWorkflow] Auto-detected rooms from description: ${detectedRooms.join(', ')}`);
+          wizardContext.rooms = detectedRooms.map(name => ({
+            name: name.charAt(0).toUpperCase() + name.slice(1),
+            level: 'Unknown',
+            hasDamage: true,
+            damageType: 'Potential damage based on description'
+          }));
+        }
+      }
+
+      // Detect hazards
+      if (!wizardContext.safetyInfo) {
+        const hazards = detectHazardsFromDescription(description);
+        if (Object.values(hazards).some(v => v)) {
+          console.log('[InspectionWorkflow] Auto-detected hazards from description');
+          wizardContext.safetyInfo = {
+            activeLeaks: hazards.activeLeaks || false,
+            standingWater: false,
+            electricalHazard: hazards.electricalHazard || false,
+            structuralConcern: hazards.structuralConcern || false,
+            moldVisible: hazards.moldVisible || false,
+            gasSmell: hazards.gasSmell || false,
+            animalsConcern: false,
+            accessIssues: false,
+            powerStatus: 'Unknown',
+            waterStatus: 'Unknown',
+            safetyNotes: 'Hazards detected from loss description - Verify on site'
+          };
+        }
+      }
+    }
+
     // Step 2: Generate endorsement-driven steps FIRST (deterministic, policy-based)
     const endorsementSteps = generateEndorsementDrivenSteps(context);
     console.log(`[InspectionWorkflow] Generated ${endorsementSteps.length} endorsement-driven steps for claim ${claimId}`);
@@ -1978,7 +2023,19 @@ export async function shouldRegenerateWorkflow(
 
     const workflow = mapWorkflowFromDb(workflowData[0]);
 
-    // Get the current claim to check for peril changes
+    // Check if workflow was created very recently (grace period)
+    // This prevents "Regenerate" loop during initial claim creation when documents are processed in parallel
+    if (workflow.createdAt) {
+      const createdTime = new Date(workflow.createdAt).getTime();
+      const now = Date.now();
+      const gracePeriodMs = 5 * 60 * 1000; // 5 minutes
+
+      if (now - createdTime < gracePeriodMs) {
+        return { shouldRegenerate: false };
+      }
+    }
+
+    // Check if peril has changed
     const { data: claimData, error: claimError } = await supabaseAdmin
       .from('claims')
       .select('primary_peril')
@@ -2410,3 +2467,41 @@ Respond ONLY with valid JSON. No explanation, no markdown.`;
 
 // NOTE: generateEnhancedInspectionWorkflow has been merged into generateInspectionWorkflow
 // The main function now uses UnifiedClaimContext for rich policy, endorsement, and depreciation data
+
+/**
+ * Detect rooms mentioned in loss description
+ */
+function detectRoomsFromDescription(description: string): string[] {
+  const commonRooms = [
+    'kitchen', 'bathroom', 'bath', 'bedroom', 'living room', 'dining room',
+    'basement', 'garage', 'attic', 'roof', 'den', 'office', 'laundry', 'hallway', 'foyer'
+  ];
+  const detected: string[] = [];
+  const lower = description.toLowerCase();
+  
+  for (const room of commonRooms) {
+    if (lower.includes(room)) {
+      // Normalize 'bath' to 'bathroom'
+      const normalized = room === 'bath' ? 'bathroom' : room;
+      if (!detected.includes(normalized)) {
+        detected.push(normalized);
+      }
+    }
+  }
+  return detected;
+}
+
+/**
+ * Detect hazards mentioned in loss description
+ */
+function detectHazardsFromDescription(description: string): Partial<NonNullable<WizardContext['safetyInfo']>> {
+  const lower = description.toLowerCase();
+  return {
+    electricalHazard: lower.includes('spark') || lower.includes('shock') || lower.includes('electric') || lower.includes('wire'),
+    gasSmell: lower.includes('gas') || lower.includes('fume') || lower.includes('odor'),
+    activeLeaks: lower.includes('leak') || lower.includes('gushing') || lower.includes('dripping') || lower.includes('burst'),
+    moldVisible: lower.includes('mold') || lower.includes('fungi') || lower.includes('black spot'),
+    structuralConcern: lower.includes('collapse') || lower.includes('sagging') || lower.includes('unstable') || lower.includes('cave in'),
+  };
+}
+

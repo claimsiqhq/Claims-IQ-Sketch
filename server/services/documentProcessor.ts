@@ -464,6 +464,15 @@ export interface PolicyFormExtraction {
   // General Conditions
   general_conditions?: Record<string, string>;
 
+  // Property Characteristics (from Declarations if present)
+  property_characteristics?: {
+    year_built?: string;
+    construction_type?: string;
+    roof_year?: string;
+    square_footage?: number;
+    occupancy_type?: string;
+  };
+
   // Legacy fields for backward compatibility
   form_code?: string;
   form_name?: string;
@@ -797,6 +806,7 @@ function transformToPolicyExtraction(raw: any): PolicyFormExtraction {
       loss_settlement: {},
       additional_coverages: [],
     },
+    property_characteristics: raw.property_characteristics,
     raw_text: raw.raw_text || raw.full_text || '',
   };
 
