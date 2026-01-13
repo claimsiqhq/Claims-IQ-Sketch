@@ -25,13 +25,13 @@ This audit compares:
   - **Option A:** Create `claim_scope_items` table (add to schema + migration)
   - **Option B:** Update code to use `scope_items` with claim_id filtering
 
-### 2. `labor_rates` ⚠️ **CRITICAL**
+### 2. `labor_rates` ✅ **FIXED**
 - **Referenced in:** `server/services/pricing.ts` (line 114)
-- **Usage:** Legacy labor rates table
-- **Database Status:** ❌ **DOES NOT EXIST** (only `labor_rates_enhanced` exists)
-- **Schema Status:** ❌ Not defined in `shared/schema.ts`
-- **Impact:** Pricing service will fail when querying `labor_rates`
-- **Action Required:** Update code to use `labor_rates_enhanced` OR create `labor_rates` table
+- **Usage:** ~~Legacy labor rates table~~ **REMOVED - Code updated to use `labor_rates_enhanced`**
+- **Database Status:** ✅ **DOES NOT EXIST** (correct - using `labor_rates_enhanced`)
+- **Schema Status:** ✅ Not defined (correct)
+- **Impact:** ~~Pricing service will fail~~ **FIXED - Code now uses `labor_rates_enhanced`**
+- **Action Required:** ✅ **COMPLETE** - Code updated, table not created
 
 ### 3. `material_regional_prices` ⚠️ **CRITICAL**
 - **Referenced in:** 
