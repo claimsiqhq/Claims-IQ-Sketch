@@ -192,9 +192,16 @@ BEGIN
     SELECT COUNT(*) INTO damage_areas_count FROM public.damage_areas;
     
     -- Check if estimate_line_items has any references to damage_areas
-    SELECT COUNT(*) INTO has_references
-    FROM public.estimate_line_items
-    WHERE damage_area_id IS NOT NULL;
+    -- Use exception handling in case column doesn't exist
+    BEGIN
+      SELECT COUNT(*) INTO has_references
+      FROM public.estimate_line_items
+      WHERE damage_area_id IS NOT NULL;
+    EXCEPTION
+      WHEN undefined_column THEN
+        has_references := 0;
+        RAISE NOTICE 'Column damage_area_id does not exist in estimate_line_items, assuming no references';
+    END;
     
     IF damage_areas_count > 0 THEN
       RAISE WARNING 'Table damage_areas has % rows. Data will be lost if dropped. Consider migrating to estimate_zones/estimate_areas first.', damage_areas_count;
