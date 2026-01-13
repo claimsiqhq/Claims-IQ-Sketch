@@ -283,7 +283,10 @@ export default function Home() {
       if (claimsResult.status === 'fulfilled') {
         setClaims(claimsResult.value.claims);
       } else {
-        setError(claimsResult.reason?.message || 'Failed to fetch claims');
+        const errorMsg = claimsResult.reason instanceof Error 
+          ? claimsResult.reason.message 
+          : String(claimsResult.reason || 'Failed to fetch claims');
+        setError(errorMsg);
         setClaims([]);
       }
 
@@ -292,7 +295,10 @@ export default function Home() {
         setStats(statsResult.value);
       } else {
         // Stats failed but don't show error - just log it
-        console.warn('Failed to fetch claim stats:', statsResult.reason);
+        const errorMsg = statsResult.reason instanceof Error 
+          ? statsResult.reason.message 
+          : String(statsResult.reason || 'Failed to fetch claim stats');
+        console.warn('Failed to fetch claim stats:', errorMsg);
         // Set default stats to prevent UI errors
         setStats({
           total: 0,
