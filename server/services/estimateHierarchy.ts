@@ -393,7 +393,22 @@ export async function createZone(input: CreateZoneInput): Promise<EstimateZone> 
 
   // Refetch to get calculated dimensions
   const updated = await getZone(zone.id);
-  return updated || zone;
+  const finalZone = updated || zone;
+  
+  // Recalculate structure totals after creating zone
+  const { data: areaData } = await supabaseAdmin
+    .from('estimate_areas')
+    .select('structure_id')
+    .eq('id', input.areaId)
+    .single();
+  
+  if (areaData) {
+    await recalculateStructureTotals(areaData.structure_id).catch(err => {
+      console.error('Error recalculating structure totals:', err);
+    });
+  }
+  
+  return finalZone;
 }
 
 export async function getZone(zoneId: string): Promise<EstimateZone | null> {
@@ -537,19 +552,64 @@ export async function updateZone(
       updates.heightFt !== undefined || updates.pitch !== undefined ||
       updates.zoneType !== undefined) {
     await recalculateZoneDimensions(zoneId);
-    return getZone(zoneId);
+    const updatedZone = await getZone(zoneId);
+    
+    // Recalculate structure totals after updating zone
+    const { data: areaData } = await supabaseAdmin
+      .from('estimate_zones')
+      .select('estimate_areas!inner(structure_id)')
+      .eq('id', zoneId)
+      .single();
+    
+    if (areaData) {
+      const structureId = (areaData.estimate_areas as any).structure_id;
+      await recalculateStructureTotals(structureId).catch(err => {
+        console.error('Error recalculating structure totals:', err);
+      });
+    }
+    
+    return updatedZone;
+  }
+
+  // Recalculate structure totals after updating zone (even if dimensions didn't change)
+  const { data: areaData } = await supabaseAdmin
+    .from('estimate_zones')
+    .select('estimate_areas!inner(structure_id)')
+    .eq('id', zoneId)
+    .single();
+  
+  if (areaData) {
+    const structureId = (areaData.estimate_areas as any).structure_id;
+    await recalculateStructureTotals(structureId).catch(err => {
+      console.error('Error recalculating structure totals:', err);
+    });
   }
 
   return mapZoneRow(data);
 }
 
 export async function deleteZone(zoneId: string): Promise<boolean> {
+  // Get structure_id before deleting
+  const { data: zoneData } = await supabaseAdmin
+    .from('estimate_zones')
+    .select('estimate_areas!inner(structure_id)')
+    .eq('id', zoneId)
+    .single();
+
   const { error } = await supabaseAdmin
     .from('estimate_zones')
     .delete()
     .eq('id', zoneId);
 
   if (error) throw error;
+
+  // Recalculate structure totals after deleting zone
+  if (zoneData) {
+    const structureId = (zoneData.estimate_areas as any).structure_id;
+    await recalculateStructureTotals(structureId).catch(err => {
+      console.error('Error recalculating structure totals:', err);
+    });
+  }
 
   return true;
 }
@@ -1265,6 +1325,7 @@ export async function initializeEstimateHierarchy(
           stories: cs.stories || 1,
         });
         structureMap.set(cs.id, structure);
+        // Note: recalculateStructureTotals is already called in createStructure
       }
     }
 
