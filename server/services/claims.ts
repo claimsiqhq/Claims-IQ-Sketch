@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { PREVIEWS_BUCKET } from '../lib/supabase';
 
 /**
  * Claim interface with all canonical fields
@@ -804,10 +805,10 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     }
   }
 
-  // 2. Get all documents and delete from storage
+  // 2. Get all documents and delete from storage (both documents and previews)
   const { data: documents } = await supabaseAdmin
     .from('documents')
-    .select('storage_path')
+    .select('id, storage_path, page_count, preview_status')
     .in('claim_id', claimIds);
 
   if (documents && documents.length > 0) {
@@ -825,6 +826,34 @@ export async function purgeAllClaims(organizationId: string): Promise<{
         }
       } catch (e) {
         console.error('[purge] Error deleting documents from storage:', e);
+      }
+    }
+
+    // 2b. Delete document preview files from document-previews bucket
+    // Preview paths are stored as: ${organizationId}/${documentId}/page-${pageNum}.png
+    const previewPaths: string[] = [];
+    for (const doc of documents) {
+      if (doc.preview_status === 'completed' && doc.page_count && doc.page_count > 0) {
+        const previewBasePath = `${organizationId}/${doc.id}`;
+        for (let pageNum = 1; pageNum <= doc.page_count; pageNum++) {
+          previewPaths.push(`${previewBasePath}/page-${pageNum}.png`);
+        }
+      }
+    }
+
+    if (previewPaths.length > 0) {
+      try {
+        const { error: previewStorageError } = await supabaseAdmin.storage
+          .from('document-previews')
+          .remove(previewPaths);
+        if (previewStorageError) {
+          console.error('[purge] Error deleting document previews from storage:', previewStorageError);
+        } else {
+          storageFilesDeleted += previewPaths.length;
+          console.log(`[purge] Deleted ${previewPaths.length} document preview files from storage`);
+        }
+      } catch (e) {
+        console.error('[purge] Error deleting document previews from storage:', e);
       }
     }
   }
