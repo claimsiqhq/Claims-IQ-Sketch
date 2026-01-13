@@ -1352,10 +1352,13 @@ function MS365IntegrationCard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
   const [syncFrequency, setSyncFrequency] = useState('15');
+  const [syncDateRangeDays, setSyncDateRangeDays] = useState(28);
+  const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
 
   useEffect(() => {
     checkConnectionStatus();
     checkSyncStatus();
+    loadCalendarPreferences();
     
     // Handle OAuth callback messages
     const params = new URLSearchParams(searchString);
@@ -1378,6 +1381,53 @@ function MS365IntegrationCard() {
       });
     }
   }, [searchString]);
+
+  const loadCalendarPreferences = async () => {
+    try {
+      setIsLoadingPreferences(true);
+      const prefs = await getUserPreferences();
+      if (prefs.calendarSync) {
+        if (prefs.calendarSync.dateRangeDays) {
+          setSyncDateRangeDays(prefs.calendarSync.dateRangeDays);
+        }
+        if (prefs.calendarSync.autoSyncEnabled !== undefined) {
+          setAutoSyncEnabled(prefs.calendarSync.autoSyncEnabled);
+        }
+        if (prefs.calendarSync.syncFrequency) {
+          setSyncFrequency(prefs.calendarSync.syncFrequency);
+        }
+      }
+    } catch (error) {
+      // Preferences might not exist yet, that's okay
+    } finally {
+      setIsLoadingPreferences(false);
+    }
+  };
+
+  const saveCalendarPreferences = async () => {
+    try {
+      setIsLoadingPreferences(true);
+      await saveUserPreferences({
+        calendarSync: {
+          dateRangeDays: syncDateRangeDays,
+          autoSyncEnabled,
+          syncFrequency,
+        },
+      });
+      toast({
+        title: "Settings Saved",
+        description: "Calendar sync preferences have been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: error instanceof Error ? error.message : "Failed to save preferences",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPreferences(false);
+    }
+  };
 
   const checkConnectionStatus = async () => {
     try {
@@ -1436,17 +1486,35 @@ function MS365IntegrationCard() {
   const handleSync = async (direction: 'pull' | 'push' | 'full') => {
     try {
       setIsSyncing(true);
+      
+      // Calculate date range based on user preference
+      const startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + syncDateRangeDays);
+      endDate.setHours(23, 59, 59, 999);
+
       let result: CalendarSyncResult;
 
       switch (direction) {
         case 'pull':
-          result = await syncCalendarFromMs365();
+          result = await syncCalendarFromMs365(
+            startDate.toISOString(),
+            endDate.toISOString()
+          );
           break;
         case 'push':
-          result = await syncCalendarToMs365();
+          result = await syncCalendarToMs365(
+            undefined,
+            startDate.toISOString(),
+            endDate.toISOString()
+          );
           break;
         case 'full':
-          result = await syncCalendarFull();
+          result = await syncCalendarFull(
+            startDate.toISOString(),
+            endDate.toISOString()
+          );
           break;
       }
 
@@ -1590,6 +1658,36 @@ function MS365IntegrationCard() {
                 </div>
               )}
 
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="syncDateRange" className="text-sm font-medium">
+                    Sync Date Range
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {syncDateRangeDays} {syncDateRangeDays === 1 ? 'day' : 'days'} ({Math.round(syncDateRangeDays / 7)} {Math.round(syncDateRangeDays / 7) === 1 ? 'week' : 'weeks'})
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  <Slider
+                    id="syncDateRange"
+                    min={7}
+                    max={90}
+                    step={7}
+                    value={[syncDateRangeDays]}
+                    onValueChange={(values) => setSyncDateRangeDays(values[0])}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>1 week</span>
+                    <span>4 weeks (default)</span>
+                    <span>12 weeks</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  How far in the future to sync appointments. Default is 4 weeks (28 days).
+                </p>
+              </div>
+
               <div className="space-y-2 pt-2">
                 <Label className="text-sm font-medium">Manual Sync</Label>
                 <div className="grid grid-cols-3 gap-2">
@@ -1631,6 +1729,24 @@ function MS365IntegrationCard() {
                   </Button>
                 </div>
               </div>
+
+              <Button
+                onClick={saveCalendarPreferences}
+                disabled={isLoadingPreferences}
+                className="w-full mt-4"
+              >
+                {isLoadingPreferences ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Sync Settings
+                  </>
+                )}
+              </Button>
             </div>
 
             <Separator />

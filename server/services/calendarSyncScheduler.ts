@@ -12,14 +12,14 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 interface SyncConfig {
   enabled: boolean;
   intervalMinutes: number; // Default: 15 minutes
-  dateRangeDays: number; // Default: 7 days ahead
+  dateRangeDays: number; // Default: 28 days (4 weeks) ahead
 }
 
 // Default configuration
 const DEFAULT_CONFIG: SyncConfig = {
   enabled: true,
   intervalMinutes: 15,
-  dateRangeDays: 7,
+  dateRangeDays: 28, // 4 weeks
 };
 
 let syncInterval: NodeJS.Timeout | null = null;
@@ -120,15 +120,9 @@ async function runSyncForAllUsers(): Promise<void> {
 
     console.log(`[Calendar Sync Scheduler] Starting sync for ${users.length} user(s)`);
 
-    // Calculate date range
-    const startDate = new Date();
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + config.dateRangeDays);
-    endDate.setHours(23, 59, 59, 999);
-
     // Sync for each user (in parallel, but limit concurrency)
-    const syncPromises = users.map(user => syncForUser(user.user_id, startDate, endDate));
+    // Each user may have their own date range preference
+    const syncPromises = users.map(user => syncForUser(user.user_id, config.dateRangeDays));
     const results = await Promise.allSettled(syncPromises);
 
     // Log results
@@ -161,13 +155,32 @@ async function runSyncForAllUsers(): Promise<void> {
  */
 async function syncForUser(
   userId: string,
-  startDate: Date,
-  endDate: Date
+  defaultDateRangeDays: number
 ): Promise<void> {
   try {
     // Verify user is still connected
     if (!(await isUserConnected(userId))) {
       return; // User disconnected, skip
+    }
+
+    // Get user's preferences to check for custom date range
+    let dateRangeDays = defaultDateRangeDays;
+    try {
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('preferences')
+        .eq('id', userId)
+        .single();
+      
+      if (user?.preferences && typeof user.preferences === 'object') {
+        const prefs = user.preferences as any;
+        if (prefs.calendarSync?.dateRangeDays && typeof prefs.calendarSync.dateRangeDays === 'number') {
+          dateRangeDays = prefs.calendarSync.dateRangeDays;
+        }
+      }
+    } catch (error) {
+      // If we can't get preferences, use default
+      console.log(`[Calendar Sync Scheduler] Could not get preferences for user ${userId}, using default`);
     }
 
     // Get user's organization ID (use first active organization)
@@ -185,6 +198,13 @@ async function syncForUser(
     }
 
     const organizationId = membership.organization_id;
+
+    // Calculate date range based on user preference or default
+    const startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + dateRangeDays);
+    endDate.setHours(23, 59, 59, 999);
 
     // Run full sync
     const result = await fullSync(userId, organizationId, startDate, endDate);

@@ -73,6 +73,11 @@ export interface UserPreferences {
     taxRate: number;
     roundToNearest: string;
   };
+  calendarSync?: {
+    dateRangeDays?: number; // How many days ahead to sync (default: 28 / 4 weeks)
+    autoSyncEnabled?: boolean;
+    syncFrequency?: string;
+  };
   notifications?: {
     emailEnabled: boolean;
     smsEnabled: boolean;

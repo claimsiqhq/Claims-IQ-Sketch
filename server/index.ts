@@ -130,7 +130,7 @@ app.use((req, res, next) => {
     initializeSyncScheduler({
       enabled: process.env.CALENDAR_SYNC_ENABLED !== 'false',
       intervalMinutes: parseInt(process.env.CALENDAR_SYNC_INTERVAL_MINUTES || '15', 10),
-      dateRangeDays: parseInt(process.env.CALENDAR_SYNC_DATE_RANGE_DAYS || '7', 10),
+      dateRangeDays: parseInt(process.env.CALENDAR_SYNC_DATE_RANGE_DAYS || '28', 10), // Default: 4 weeks
     });
     log('Calendar sync scheduler initialized', 'calendar-sync');
   } catch (error) {

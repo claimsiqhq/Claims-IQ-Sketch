@@ -208,9 +208,9 @@ export async function syncToMs365(
         }
       }
     } else {
-      // Sync all appointments in date range (default: today + 7 days)
+      // Sync all appointments in date range (default: today + 28 days / 4 weeks)
       const start = startDate || new Date();
-      const end = endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const end = endDate || new Date(Date.now() + 28 * 24 * 60 * 60 * 1000); // Default: 4 weeks
       appointments = await getAppointmentsForDate(userId, organizationId, start);
       // Filter to only those in the range
       appointments = appointments.filter(apt => {
@@ -578,24 +578,30 @@ async function updateLastSyncTime(
   userId: string,
   direction: 'pull' | 'push' | 'full'
 ): Promise<void> {
-  // Store in user preferences for now
-  const { data: user } = await supabaseAdmin
-    .from('users')
-    .select('preferences')
-    .eq('id', userId)
-    .single();
+  try {
+    // Store in user preferences for now
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('preferences')
+      .eq('id', userId)
+      .single();
 
-  const preferences = (user?.preferences as any) || {};
-  preferences.calendarSync = {
-    lastSyncTime: new Date().toISOString(),
-    lastSyncDirection: direction,
-  };
+    const preferences = (user?.preferences as any) || {};
+    preferences.calendarSync = {
+      lastSyncTime: new Date().toISOString(),
+      lastSyncDirection: direction,
+    };
 
-  await supabaseAdmin
-    .from('users')
-    .update({ preferences })
-    .eq('id', userId)
-    .catch((err) => {
-      console.error('[Calendar Sync] Failed to update sync time:', err);
-    });
+    const { error } = await supabaseAdmin
+      .from('users')
+      .update({ preferences })
+      .eq('id', userId);
+
+    if (error) {
+      console.error('[Calendar Sync] Failed to update sync time:', error);
+    }
+  } catch (err) {
+    // Silently fail - sync time tracking is not critical
+    console.error('[Calendar Sync] Failed to update sync time:', err);
+  }
 }
