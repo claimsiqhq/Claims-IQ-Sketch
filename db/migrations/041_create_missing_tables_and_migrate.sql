@@ -123,47 +123,13 @@ CREATE INDEX IF NOT EXISTS price_scrape_jobs_source_idx ON public.price_scrape_j
 
 COMMENT ON TABLE public.price_scrape_jobs IS 'Tracks price scraping jobs from external sources';
 
--- 6. labor_rates - Legacy labor rates table (for backwards compatibility)
-CREATE TABLE IF NOT EXISTS public.labor_rates (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  trade character varying(50) NOT NULL,
-  region_id character varying(50) NOT NULL DEFAULT 'US-NATIONAL',
-  hourly_rate numeric(10, 2) NOT NULL,
-  effective_date date NOT NULL DEFAULT CURRENT_DATE,
-  expiration_date date,
-  is_active boolean DEFAULT true,
-  created_at timestamp without time zone DEFAULT now(),
-  updated_at timestamp without time zone DEFAULT now(),
-  CONSTRAINT labor_rates_pkey PRIMARY KEY (id),
-  CONSTRAINT labor_rates_unique UNIQUE (trade, region_id, effective_date)
-);
-
-CREATE INDEX IF NOT EXISTS labor_rates_trade_idx ON public.labor_rates(trade);
-CREATE INDEX IF NOT EXISTS labor_rates_region_idx ON public.labor_rates(region_id);
-CREATE INDEX IF NOT EXISTS labor_rates_effective_date_idx ON public.labor_rates(effective_date DESC);
-
-COMMENT ON TABLE public.labor_rates IS 'Legacy labor rates table - consider migrating to labor_rates_enhanced';
+-- NOTE: labor_rates table NOT created - code updated to use labor_rates_enhanced instead
 
 -- ============================================
 -- PART 2: MIGRATE DATA FROM EXISTING TABLES
 -- ============================================
 
--- Migrate data from labor_rates_enhanced to labor_rates (for backwards compatibility)
-INSERT INTO public.labor_rates (trade, region_id, hourly_rate, effective_date, is_active)
-SELECT 
-  trade_code,
-  COALESCE(region_code, 'US-NATIONAL'),
-  base_hourly_rate,
-  effective_date,
-  is_active
-FROM public.labor_rates_enhanced
-WHERE NOT EXISTS (
-  SELECT 1 FROM public.labor_rates lr 
-  WHERE lr.trade = labor_rates_enhanced.trade_code 
-    AND lr.region_id = COALESCE(labor_rates_enhanced.region_code, 'US-NATIONAL')
-    AND lr.effective_date = labor_rates_enhanced.effective_date
-)
-ON CONFLICT DO NOTHING;
+-- NOTE: No labor_rates migration - code updated to use labor_rates_enhanced directly
 
 -- Migrate data from regional_multipliers to regions (if regions table is empty)
 -- Create default regions based on regional_multipliers
@@ -277,7 +243,7 @@ COMMENT ON COLUMN public.materials.sku IS 'Stock Keeping Unit - unique identifie
 COMMENT ON COLUMN public.material_regional_prices.material_id IS 'Foreign key to materials table';
 COMMENT ON COLUMN public.regions.indices IS 'JSONB object with pricing indices (e.g., {"labor_general": 1.2, "material": 1.1})';
 COMMENT ON COLUMN public.price_scrape_jobs.source IS 'Source of price data (e.g., home_depot, lowes)';
-COMMENT ON COLUMN public.labor_rates.trade IS 'Trade type (e.g., general, roofing, plumbing)';
+-- NOTE: labor_rates table not created - using labor_rates_enhanced instead
 
 -- ============================================
 -- PART 5: VERIFICATION QUERIES
@@ -296,27 +262,24 @@ BEGIN
       'materials',
       'material_regional_prices',
       'regions',
-      'price_scrape_jobs',
-      'labor_rates'
+      'price_scrape_jobs'
     );
   
-  IF table_count = 6 THEN
-    RAISE NOTICE 'SUCCESS: All 6 missing tables created';
+  IF table_count = 5 THEN
+    RAISE NOTICE 'SUCCESS: All 5 missing tables created';
   ELSE
-    RAISE WARNING 'Only % of 6 tables were created', table_count;
+    RAISE WARNING 'Only % of 5 tables were created', table_count;
   END IF;
 END $$;
 
 -- Report migration results
 DO $$
 DECLARE
-  labor_rates_migrated integer;
   regions_migrated integer;
 BEGIN
-  SELECT COUNT(*) INTO labor_rates_migrated FROM public.labor_rates;
   SELECT COUNT(*) INTO regions_migrated FROM public.regions;
   
   RAISE NOTICE 'Migration Summary:';
-  RAISE NOTICE '  - labor_rates: % rows', labor_rates_migrated;
-  RAISE NOTICE '  - regions: % rows', regions_migrated;
+  RAISE NOTICE '  - regions: % rows migrated from regional_multipliers', regions_migrated;
+  RAISE NOTICE '  - labor_rates: Code updated to use labor_rates_enhanced (no table created)';
 END $$;

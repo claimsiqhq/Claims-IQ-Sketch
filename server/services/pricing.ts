@@ -111,10 +111,11 @@ export async function calculateLaborCost(
     const trade = comp.trade || 'general';
 
     const { data: rates, error: rateError } = await supabaseAdmin
-      .from('labor_rates')
-      .select('hourly_rate')
-      .eq('region_id', 'US-NATIONAL')
-      .eq('trade', trade)
+      .from('labor_rates_enhanced')
+      .select('base_hourly_rate')
+      .eq('region_code', 'NATIONAL')
+      .eq('trade_code', trade)
+      .eq('is_active', true)
       .order('effective_date', { ascending: false })
       .limit(1);
 
