@@ -629,7 +629,7 @@ async function extractRawTextFromPDF(pdfPath: string): Promise<{ fullText: strin
     // Get page count first
     let pageCount = 1;
     try {
-      const { stdout } = await execAsync(`pdfinfo "${pdfPath}"`);
+      const { stdout } = await execFileAsync('pdfinfo', [pdfPath]);
       const pageMatch = stdout.match(/Pages:\s*(\d+)/);
       if (pageMatch) {
         pageCount = parseInt(pageMatch[1]);
@@ -642,7 +642,7 @@ async function extractRawTextFromPDF(pdfPath: string): Promise<{ fullText: strin
     const pageTexts: string[] = [];
     for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
       try {
-        const { stdout } = await execAsync(`pdftotext -f ${pageNum} -l ${pageNum} "${pdfPath}" -`);
+        const { stdout } = await execFileAsync('pdftotext', ['-f', String(pageNum), '-l', String(pageNum), pdfPath, '-']);
         pageTexts.push(stdout || '');
       } catch (e) {
         console.warn(`[extractRawTextFromPDF] Failed to extract text from page ${pageNum}`);
