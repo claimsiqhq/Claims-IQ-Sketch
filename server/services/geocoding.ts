@@ -69,25 +69,45 @@ export async function reverseGeocode(
   }
 }
 
+// Rate limiting for Nominatim (max 1 request per second)
+let lastNominatimRequest = 0;
+const NOMINATIM_MIN_DELAY_MS = 1100; // 1.1 seconds between requests
+
 async function geocodeWithNominatim(addressString: string): Promise<GeocodeResult | null> {
+  // Rate limiting: ensure at least 1.1 seconds between Nominatim requests
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastNominatimRequest;
+  if (timeSinceLastRequest < NOMINATIM_MIN_DELAY_MS) {
+    const delay = NOMINATIM_MIN_DELAY_MS - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  lastNominatimRequest = Date.now();
+
   const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressString)}&limit=1&countrycodes=us`;
   
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'ClaimsIQ/1.0 (claims-management-system)'
+        'User-Agent': 'ClaimsIQ/1.0 (contact: support@claimsiq.com)',
+        'Accept-Language': 'en-US,en;q=0.9'
       }
     });
     
     if (!response.ok) {
-      console.error(`Nominatim Geocoding failed with status ${response.status}`);
+      if (response.status === 429) {
+        console.warn(`[Geocoding] Nominatim rate limited (429). Waiting before retry...`);
+        // Wait longer if rate limited
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        return null;
+      }
+      console.error(`[Geocoding] Nominatim failed with status ${response.status} for: ${addressString}`);
       return null;
     }
     
     const data = await response.json();
     
     if (!data || data.length === 0) {
-      console.warn(`Nominatim Geocoding returned no results for: ${addressString}`);
+      console.warn(`[Geocoding] Nominatim returned no results for: ${addressString}`);
       return null;
     }
     
@@ -98,9 +118,71 @@ async function geocodeWithNominatim(addressString: string): Promise<GeocodeResul
       displayName: result.display_name
     };
   } catch (error) {
-    console.error('Nominatim geocoding error:', error);
+    console.error(`[Geocoding] Nominatim error for "${addressString}":`, error);
     return null;
   }
+}
+
+/**
+ * Intelligently build address string, avoiding duplication
+ * If address already contains city/state/zip, don't add them again
+ */
+function buildAddressString(address: string, city?: string, state?: string, zip?: string): string {
+  if (!address || address.trim() === '') {
+    return [city, state, zip].filter(Boolean).join(', ');
+  }
+
+  // Normalize the address for comparison
+  const addressTrimmed = address.trim();
+  const addressLower = addressTrimmed.toLowerCase();
+  const cityLower = city?.toLowerCase().trim() || '';
+  const stateLower = state?.toLowerCase().trim() || '';
+  const zipLower = zip?.toLowerCase().trim() || '';
+
+  // Check if address already contains city, state, or zip
+  // City: check if city name appears in address
+  const hasCity = cityLower && addressLower.includes(cityLower);
+  
+  // State: check if state code appears (2-letter codes) or state name
+  const statePattern = stateLower ? new RegExp(`\\b${stateLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
+  const hasState = stateLower && (statePattern?.test(addressLower) || 
+    // Also check for common state abbreviations
+    (stateLower.length === 2 && addressLower.match(/\b(co|ca|tx|fl|ny|il|pa|oh|ga|nc|mi|nj|va|wa|az|ma|tn|in|mo|md|wi|mn|sc|al|la|ky|or|ok|ct|ia|ar|ms|ks|ut|nv|nm|wv|ne|id|hi|nh|me|ri|mt|de|sd|nd|ak|dc|vt|wy)\b/i)?.includes(stateLower)));
+  
+  // Zip: check if zip code appears (with or without dash)
+  const zipDigits = zipLower.replace(/-/g, '');
+  const hasZip = zipDigits && (
+    addressLower.includes(zipDigits) || 
+    addressLower.includes(zipLower)
+  );
+
+  // If address already contains all parts, use it as-is
+  if (hasCity && hasState && hasZip) {
+    console.log(`[Geocoding] Address already contains city/state/zip, using as-is: ${addressTrimmed}`);
+    return addressTrimmed;
+  }
+
+  // Build address parts intelligently
+  const parts: string[] = [addressTrimmed];
+  
+  // Only add city if not already in address
+  if (city && !hasCity) {
+    parts.push(city);
+  }
+  
+  // Only add state if not already in address
+  if (state && !hasState) {
+    parts.push(state);
+  }
+  
+  // Only add zip if not already in address
+  if (zip && !hasZip) {
+    parts.push(zip);
+  }
+
+  const result = parts.filter(Boolean).join(', ');
+  console.log(`[Geocoding] Built address string: ${result} (original: ${addressTrimmed}, city: ${city}, state: ${state}, zip: ${zip})`);
+  return result;
 }
 
 export async function geocodeAddress(
@@ -109,10 +191,12 @@ export async function geocodeAddress(
   state?: string,
   zip?: string
 ): Promise<GeocodeResult | null> {
-  const parts = [address, city, state, zip].filter(Boolean);
-  if (parts.length === 0) return null;
+  const addressString = buildAddressString(address, city, state, zip);
   
-  const addressString = parts.join(', ');
+  if (!addressString || addressString.trim() === '') {
+    console.warn('[Geocoding] No address parts provided');
+    return null;
+  }
   
   // Try Google Geocoding first if API key is available
   if (GOOGLE_GEOCODING_API_KEY) {
@@ -126,20 +210,26 @@ export async function geocodeAddress(
         
         if (data.status === 'OK' && data.results && data.results.length > 0) {
           const result = data.results[0];
+          console.log(`[Geocoding] Google success for: ${addressString}`);
           return {
             latitude: result.geometry.location.lat,
             longitude: result.geometry.location.lng,
             displayName: result.formatted_address
           };
+        } else {
+          console.warn(`[Geocoding] Google returned status "${data.status}" for: ${addressString}`);
         }
+      } else {
+        console.warn(`[Geocoding] Google API returned status ${response.status}, falling back to Nominatim`);
       }
     } catch (error) {
-      console.error('Google geocoding error, falling back to Nominatim:', error);
+      console.error(`[Geocoding] Google API error for "${addressString}", falling back to Nominatim:`, error);
     }
+  } else {
+    console.log(`[Geocoding] Google API key not configured, using Nominatim for: ${addressString}`);
   }
   
   // Fall back to OpenStreetMap Nominatim (free, no API key required)
-  console.log('[Geocoding] Using Nominatim for:', addressString);
   return geocodeWithNominatim(addressString);
 }
 
@@ -152,15 +242,19 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       .single();
 
     if (claimError || !claim) {
-      console.error(`Claim ${claimId} not found for geocoding`);
+      console.error(`[Geocoding] Claim ${claimId} not found:`, claimError?.message);
       return false;
     }
 
+    // Already geocoded successfully
     if (claim.property_latitude && claim.property_longitude && claim.geocode_status === 'success') {
+      console.log(`[Geocoding] Claim ${claimId} already geocoded`);
       return true;
     }
 
-    if (!claim.property_address) {
+    // No address to geocode
+    if (!claim.property_address || claim.property_address.trim() === '') {
+      console.warn(`[Geocoding] Claim ${claimId} has no address, skipping`);
       await supabaseAdmin
         .from('claims')
         .update({
@@ -171,6 +265,16 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       return false;
     }
 
+    // Attempt geocoding
+    const addressParts = [
+      claim.property_address,
+      claim.property_city,
+      claim.property_state,
+      claim.property_zip
+    ].filter(Boolean);
+    
+    console.log(`[Geocoding] Attempting to geocode claim ${claimId}: ${addressParts.join(', ')}`);
+    
     const result = await geocodeAddress(
       claim.property_address,
       claim.property_city,
@@ -193,9 +297,10 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
         console.error(`[Geocoding] Failed to save coordinates for claim ${claimId}:`, updateError);
         return false;
       }
-      console.log(`[Geocoding] Saved to DB - claim ${claimId}: ${result.latitude}, ${result.longitude}`);
+      console.log(`[Geocoding] ✅ Successfully geocoded claim ${claimId}: ${result.latitude}, ${result.longitude}`);
       return true;
     } else {
+      console.warn(`[Geocoding] ❌ Geocoding failed for claim ${claimId}: ${addressParts.join(', ')}`);
       await supabaseAdmin
         .from('claims')
         .update({
@@ -206,7 +311,7 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       return false;
     }
   } catch (error) {
-    console.error(`Error geocoding claim ${claimId}:`, error);
+    console.error(`[Geocoding] Exception geocoding claim ${claimId}:`, error);
     try {
       await supabaseAdmin
         .from('claims')
@@ -215,8 +320,8 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
           geocoded_at: new Date().toISOString()
         })
         .eq('id', claimId);
-    } catch {
-      // Ignore update error
+    } catch (updateError) {
+      console.error(`[Geocoding] Failed to update status for claim ${claimId}:`, updateError);
     }
     return false;
   }
@@ -240,17 +345,31 @@ async function processQueue(): Promise<void> {
   
   isProcessingQueue = true;
   
+  console.log(`[Geocoding] Processing queue with ${geocodeQueue.length} claims`);
+  
   while (geocodeQueue.length > 0) {
     const claimId = geocodeQueue.shift();
     if (claimId) {
       try {
-        await geocodeClaimAddress(claimId);
+        const success = await geocodeClaimAddress(claimId);
+        if (success) {
+          console.log(`[Geocoding] Successfully geocoded claim ${claimId}`);
+        } else {
+          console.warn(`[Geocoding] Failed to geocode claim ${claimId}`);
+        }
       } catch (error) {
-        console.error(`Failed to geocode claim ${claimId}:`, error);
+        console.error(`[Geocoding] Exception geocoding claim ${claimId}:`, error);
+      }
+      
+      // Add delay between requests to respect rate limits (especially for Nominatim)
+      // Only delay if there are more items in queue
+      if (geocodeQueue.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1200)); // 1.2 second delay
       }
     }
   }
   
+  console.log(`[Geocoding] Queue processing complete`);
   isProcessingQueue = false;
 }
 
