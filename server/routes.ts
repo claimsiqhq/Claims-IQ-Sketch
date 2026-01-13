@@ -1842,7 +1842,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all depreciation schedules
-  app.get('/api/depreciation-schedules', async (req, res) => {
+  app.get('/api/depreciation-schedules', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { category_code, item_type } = req.query;
 
@@ -1871,7 +1871,7 @@ export async function registerRoutes(
   });
 
   // Get depreciation schedule by category
-  app.get('/api/depreciation-schedules/category/:categoryCode', async (req, res) => {
+  app.get('/api/depreciation-schedules/category/:categoryCode', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('depreciation_schedules')
