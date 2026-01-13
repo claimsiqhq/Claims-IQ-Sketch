@@ -4826,6 +4826,31 @@ export async function registerRoutes(
     }
   });
 
+  /**
+   * POST /api/workflow/:id/mutation/photo-added
+   * Trigger workflow mutation when a photo is added.
+   */
+  app.post('/api/workflow/:id/mutation/photo-added', requireAuth, requireOrganization, async (req, res) => {
+    try {
+      const { onPhotoAdded } = await import('./services/dynamicWorkflowService');
+      const { photoId, roomId, zoneId, stepId } = req.body;
+
+      if (!photoId) {
+        return res.status(400).json({ error: 'photoId is required' });
+      }
+
+      const result = await onPhotoAdded(req.params.id, photoId, roomId, zoneId, stepId, req.user?.id);
+      res.json({
+        success: true,
+        stepsAdded: result.stepsAdded.length,
+        stepsModified: result.stepsModified.length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // CARRIER OVERLAY ROUTES
   // ============================================

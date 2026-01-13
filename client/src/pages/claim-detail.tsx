@@ -124,7 +124,7 @@ import type { SketchPhoto } from "@/features/voice-sketch/types/geometry";
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
 import { SketchToolbar } from "@/features/voice-sketch/components/SketchToolbar";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
-import { saveClaimRooms, getClaimRooms, triggerDamageZoneAdded, triggerRoomAdded, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
+import { saveClaimRooms, getClaimRooms, triggerDamageZoneAdded, triggerRoomAdded, triggerPhotoAdded, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
 import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
@@ -418,9 +418,15 @@ export default function ClaimDetail() {
       // Wire up workflow event: photo_added
       try {
         const workflow = await getClaimWorkflow(params!.id);
-        if (workflow?.workflow?.id) {
-          // Notify workflow that photo was added (may trigger step completion or requirements)
-          // This is handled implicitly by workflow checking photo requirements
+        if (workflow?.workflow?.id && uploadedPhoto?.id) {
+          // Trigger workflow mutation for photo added
+          await triggerPhotoAdded(workflow.workflow.id, {
+            photoId: uploadedPhoto.id,
+            roomId: uploadedPhoto.roomId || undefined,
+            label: uploadedPhoto.label || undefined,
+            category: uploadedPhoto.category || undefined,
+          });
+          // Refresh workflow to show updated step completion
           queryClient.invalidateQueries({ queryKey: ['workflow', params?.id] });
         }
       } catch (err) {
