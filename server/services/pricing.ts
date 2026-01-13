@@ -120,7 +120,7 @@ export async function calculateLaborCost(
       .limit(1);
 
     const baseRate = (rates && rates.length > 0)
-      ? parseFloat(rates[0].hourly_rate)
+      ? parseFloat(rates[0].base_hourly_rate)
       : 45.0;
 
     const indexKey = `labor_${trade}`;
