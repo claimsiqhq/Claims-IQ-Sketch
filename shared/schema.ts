@@ -4077,6 +4077,7 @@ export const userMs365Tokens = pgTable("user_ms365_tokens", {
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token"),
   expiresAt: timestamp("expires_at").notNull(),
+  accountId: text("account_id"),
   scopes: text("scopes").array(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

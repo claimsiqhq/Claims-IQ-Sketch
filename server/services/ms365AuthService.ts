@@ -118,6 +118,7 @@ export async function exchangeCodeForTokens(
       accessToken: response.accessToken,
       refreshToken: (response as any).refreshToken || null,
       expiresAt: response.expiresOn?.toISOString() || null,
+      accountId: response.account?.homeAccountId || null,
     });
 
     return { success: true };
@@ -139,6 +140,7 @@ async function storeUserTokens(
     accessToken: string;
     refreshToken: string | null;
     expiresAt: string | null;
+    accountId: string | null;
   }
 ): Promise<void> {
   const { error } = await supabaseAdmin
@@ -148,6 +150,7 @@ async function storeUserTokens(
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
       expires_at: tokens.expiresAt,
+      account_id: tokens.accountId,
       updated_at: new Date().toISOString(),
     }, {
       onConflict: 'user_id',
@@ -166,10 +169,11 @@ export async function getUserTokens(userId: string): Promise<{
   accessToken: string;
   refreshToken: string | null;
   expiresAt: string | null;
+  accountId: string | null;
 } | null> {
   const { data, error } = await supabaseAdmin
     .from('user_ms365_tokens')
-    .select('access_token, refresh_token, expires_at')
+    .select('access_token, refresh_token, expires_at, account_id')
     .eq('user_id', userId)
     .single();
 
@@ -181,6 +185,7 @@ export async function getUserTokens(userId: string): Promise<{
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.expires_at,
+    accountId: data.account_id,
   };
 }
 
