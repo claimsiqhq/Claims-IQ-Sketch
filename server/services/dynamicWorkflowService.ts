@@ -885,6 +885,28 @@ export async function onDamageZoneAdded(
   );
 }
 
+/**
+ * Trigger mutation when a photo is added
+ */
+export async function onPhotoAdded(
+  workflowId: string,
+  photoId: string,
+  roomId?: string,
+  zoneId?: string,
+  stepId?: string,
+  triggeredBy?: string
+): Promise<WorkflowMutationResult> {
+  return handleWorkflowMutation(
+    workflowId,
+    {
+      trigger: 'photo_added',
+      timestamp: new Date().toISOString(),
+      data: { photoId, roomId, zoneId, stepId },
+    },
+    triggeredBy
+  );
+}
+
 // ============================================
 // EXPORT VALIDATION
 // ============================================
