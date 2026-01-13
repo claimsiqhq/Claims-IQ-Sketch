@@ -23,6 +23,7 @@ import { getPromptWithFallback, substituteVariables } from './promptService';
 import { recomputeEffectivePolicyIfNeeded } from './effectivePolicyService';
 import { queueGeocoding } from './geocoding';
 import { extractCatastropheNumber, storeCatastropheNumber } from './catastropheIntelligence';
+import { getRegionByZip } from './pricing';
 
 /**
  * Auto-trigger AI generation pipeline after document processing
@@ -609,6 +610,44 @@ async function downloadFromStorage(storagePath: string): Promise<string> {
 // ============================================
 // PDF/IMAGE PROCESSING UTILITIES
 // ============================================
+
+/**
+ * Extract raw text from PDF using pdftotext
+ * Returns array of text per page
+ */
+async function extractRawTextFromPDF(pdfPath: string): Promise<{ fullText: string; pageTexts: string[]; pageCount: number }> {
+  try {
+    // Get page count first
+    let pageCount = 1;
+    try {
+      const { stdout } = await execAsync(`pdfinfo "${pdfPath}"`);
+      const pageMatch = stdout.match(/Pages:\s*(\d+)/);
+      if (pageMatch) {
+        pageCount = parseInt(pageMatch[1]);
+      }
+    } catch (e) {
+      console.warn('[extractRawTextFromPDF] Could not get PDF page count, defaulting to 1');
+    }
+
+    // Extract text per page
+    const pageTexts: string[] = [];
+    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+      try {
+        const { stdout } = await execAsync(`pdftotext -f ${pageNum} -l ${pageNum} "${pdfPath}" -`);
+        pageTexts.push(stdout || '');
+      } catch (e) {
+        console.warn(`[extractRawTextFromPDF] Failed to extract text from page ${pageNum}`);
+        pageTexts.push('');
+      }
+    }
+
+    const fullText = pageTexts.join('\n\n--- Page Break ---\n\n');
+    return { fullText, pageTexts, pageCount };
+  } catch (error) {
+    console.error('[extractRawTextFromPDF] Error:', error);
+    return { fullText: '', pageTexts: [], pageCount: 0 };
+  }
+}
 
 async function convertPdfToImages(pdfPath: string): Promise<string[]> {
   if (!fs.existsSync(TEMP_DIR)) {
@@ -1222,6 +1261,11 @@ async function extractFromPDF(
 ): Promise<any> {
   let imagePaths: string[] = [];
 
+  // Extract raw text from PDF FIRST (before AI processing)
+  console.log(`[extractFromPDF] Extracting raw text from PDF: ${filePath}`);
+  const rawTextData = await extractRawTextFromPDF(filePath);
+  console.log(`[extractFromPDF] Extracted ${rawTextData.pageCount} pages, ${rawTextData.fullText.length} chars total`);
+
   try {
     console.log(`Converting PDF to images: ${filePath}`);
     imagePaths = await convertPdfToImages(filePath);
@@ -1329,8 +1373,10 @@ async function extractFromPDF(
       return acc;
     }, {} as Record<string, any>);
 
-    merged.pageTexts = pageTexts;
-    merged.fullText = pageTexts.join('\n\n--- Page Break ---\n\n');
+    // Use extracted raw text instead of AI response (AI doesn't return raw text)
+    merged.pageTexts = rawTextData.pageTexts.length > 0 ? rawTextData.pageTexts : pageTexts;
+    merged.fullText = rawTextData.fullText || pageTexts.join('\n\n--- Page Break ---\n\n');
+    merged.pageCount = rawTextData.pageCount || imagePaths.length;
 
     return merged;
 
@@ -1476,12 +1522,21 @@ export async function processDocument(
           ? { ...fnolExtraction, _progress: { ...existingProgress, stage: 'completed' }, _raw_openai_response: rawExtraction }
           : { ...fnolExtraction, _raw_openai_response: rawExtraction };
 
+        // Determine category and description from extracted data
+        const category = 'fnol'; // FNOL documents are always 'fnol' category
+        const description = fnolExtraction.claim_information_report?.claim_number 
+          ? `FNOL for claim ${fnolExtraction.claim_information_report.claim_number}`
+          : 'First Notice of Loss document';
+
         await supabaseAdmin
           .from('documents')
           .update({
             extracted_data: finalExtractedData,
             full_text: rawExtraction.fullText || null,
             page_texts: rawExtraction.pageTexts || [],
+            page_count: rawExtraction.pageCount || null,
+            category: category,
+            description: description,
             processing_status: 'completed',
             updated_at: new Date().toISOString()
           })
@@ -1549,13 +1604,22 @@ export async function processDocument(
           ? { ...policyExtraction, _progress: { ...existingProgress, stage: 'completed' } }
           : policyExtraction;
 
+        // Determine category and description from extracted data
+        const category = 'policy'; // Policy documents
+        const description = policyExtraction.form_code 
+          ? `${policyExtraction.form_name || 'Policy Form'} (${policyExtraction.form_code})`
+          : policyExtraction.form_name || 'Policy document';
+
         console.log(`[Policy] Updating documents table with extracted_data...`);
         const { error: docUpdateError } = await supabaseAdmin
           .from('documents')
           .update({
             extracted_data: finalPolicyData,
-            full_text: rawExtraction.full_text || policyExtraction.raw_text || null,
+            full_text: rawExtraction.fullText || rawExtraction.full_text || policyExtraction.raw_text || null,
             page_texts: rawExtraction.pageTexts || [],
+            page_count: rawExtraction.pageCount || null,
+            category: category,
+            description: description,
             processing_status: 'completed',
             updated_at: new Date().toISOString()
           })
@@ -1637,12 +1701,22 @@ export async function processDocument(
           ? { endorsements: endorsementExtractions, _progress: { ...existingProgress, stage: 'completed' } }
           : { endorsements: endorsementExtractions };
 
+        // Determine category and description from extracted data
+        const category = 'endorsement'; // Endorsement documents
+        const firstEndorsement = endorsementExtractions[0];
+        const description = firstEndorsement?.form_code 
+          ? `${firstEndorsement.title || 'Endorsement'} (${firstEndorsement.form_code})`
+          : firstEndorsement?.title || 'Endorsement document';
+
         await supabaseAdmin
           .from('documents')
           .update({
             extracted_data: finalEndorsementData,
             full_text: rawExtraction.fullText || null,
             page_texts: rawExtraction.pageTexts || [],
+            page_count: rawExtraction.pageCount || null,
+            category: category,
+            description: description,
             processing_status: 'completed',
             updated_at: new Date().toISOString()
           })
@@ -1831,6 +1905,42 @@ export async function createClaimFromDocuments(
   const coverageCLimit = coverages.coverage_c_personal_property?.limit;
   const coverageDLimit = coverages.coverage_d_loss_of_use?.limit;
 
+  // Parse coverage A to numeric for dwelling_limit
+  const coverageANumeric = parseCurrencyToNumber(coverageALimit);
+
+  // Format dwelling_limit as currency string (e.g., "$793,200")
+  const dwellingLimit = coverageANumeric 
+    ? `$${coverageANumeric.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+    : null;
+
+  // Determine region_id from zip code
+  let regionId: string | null = null;
+  if (addressParts.zip) {
+    try {
+      const region = await getRegionByZip(addressParts.zip);
+      regionId = region?.id || null;
+    } catch (error) {
+      console.log(`[ClaimCreation] Failed to get region for zip ${addressParts.zip}:`, error);
+    }
+  }
+  // Fallback to US-NATIONAL if no region found
+  if (!regionId) {
+    regionId = 'US-NATIONAL';
+  }
+
+  // Map primary_peril to legacy loss_type for backward compatibility
+  const lossTypeMap: Record<string, string> = {
+    'wind_hail': 'Hail',
+    'fire': 'Fire',
+    'water': 'Water',
+    'flood': 'Flood',
+    'smoke': 'Smoke',
+    'mold': 'Mold',
+    'impact': 'Impact',
+    'other': 'Other'
+  };
+  const lossType = lossTypeMap[perilInference.primaryPeril] || perilInference.primaryPeril;
+
   // Debug: Log policy values being stored
   console.log(`[ClaimCreation] Policy values for claim ${claimNumber}:`, {
     coverageA: coverageALimit || null,
@@ -1839,6 +1949,9 @@ export async function createClaimFromDocuments(
     coverageD: coverageDLimit || null,
     policyNumber: claimInfo.policy_number || null,
     deductibles: policyInfo?.deductibles || null,
+    dwellingLimit,
+    regionId,
+    lossType,
   });
 
   // Build peril-specific deductibles from policy_information.deductibles
@@ -1883,17 +1996,25 @@ export async function createClaimFromDocuments(
       // Loss details
       date_of_loss: parseDateString(claimInfo.date_of_loss) || null,
       primary_peril: perilInference.primaryPeril,
+      loss_type: lossType, // Legacy field for backward compatibility
       loss_description: claimInfo.loss_details?.description || null,
+
+      // Carrier/Region
+      carrier_id: null, // TODO: Determine from policy info or organization default
+      region_id: regionId,
 
       // Deductibles - both base and peril-specific
       deductible: parseCurrencyToNumber(policyInfo?.deductibles?.policy_deductible),
       peril_specific_deductibles: perilDeductibles,
 
       // Coverage amounts (numeric) - parsed from policy_coverage limits
-      coverage_a: parseCurrencyToNumber(coverageALimit),
+      coverage_a: coverageANumeric,
       coverage_b: parseCurrencyToNumber(coverageBScheduled) || parseCurrencyToNumber(coverageBUnscheduled),
       coverage_c: parseCurrencyToNumber(coverageCLimit),
       coverage_d: parseCurrencyToNumber(coverageDLimit),
+
+      // Dwelling limit (formatted currency string)
+      dwelling_limit: dwellingLimit,
 
       // Endorsements from FNOL
       endorsements_listed: endorsements || [],
