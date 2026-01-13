@@ -32,7 +32,7 @@ import {
   getCalendarSyncStatus,
   type CalendarSyncStatus,
 } from '@/lib/api';
-import { format, startOfWeek, endOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO } from 'date-fns';
+import { format, startOfWeek, endOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO, eachDayOfInterval, startOfMonth, endOfMonth, isSameMonth, isToday } from 'date-fns';
 
 interface Appointment {
   id: string;
@@ -156,8 +156,8 @@ export default function Calendar() {
     staleTime: 60000,
   });
 
-  // Combine appointments and MS365 events
-  const allEvents: Appointment[] = useMemo(() => {
+  // Combine appointments and MS365 events, grouped by day
+  const eventsByDay = useMemo(() => {
     const local = appointmentsData?.appointments || [];
     const ms365 = ms365EventsData?.events || [];
     
@@ -181,10 +181,41 @@ export default function Calendar() {
       }
     }
     
-    return Array.from(eventMap.values()).sort((a, b) => 
+    const allEvents = Array.from(eventMap.values()).sort((a, b) => 
       new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime()
     );
+    
+    // Group events by day
+    const grouped: Record<string, Appointment[]> = {};
+    for (const event of allEvents) {
+      const eventDate = parseISO(event.scheduledStart);
+      const dayKey = format(eventDate, 'yyyy-MM-dd');
+      if (!grouped[dayKey]) {
+        grouped[dayKey] = [];
+      }
+      grouped[dayKey].push(event);
+    }
+    
+    return grouped;
   }, [appointmentsData, ms365EventsData]);
+
+  // Get days to display based on view mode
+  const daysToShow = useMemo(() => {
+    if (viewMode === 'day') {
+      return [currentDate];
+    } else if (viewMode === 'week') {
+      const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+      return eachDayOfInterval({ start, end: endOfWeek(currentDate, { weekStartsOn: 0 }) });
+    } else {
+      // Month view
+      const start = startOfMonth(currentDate);
+      const end = endOfMonth(currentDate);
+      // Include days from previous/next month to fill the week
+      const weekStart = startOfWeek(start, { weekStartsOn: 0 });
+      const weekEnd = endOfWeek(end, { weekStartsOn: 0 });
+      return eachDayOfInterval({ start: weekStart, end: weekEnd });
+    }
+  }, [currentDate, viewMode]);
 
   const handleSync = async () => {
     try {
@@ -348,7 +379,11 @@ export default function Calendar() {
                   <ChevronRight className="h-4 w-4" />
                 </Button>
                 <div className="text-sm font-medium min-w-[200px] text-center">
-                  {format(currentDate, viewMode === 'day' ? 'EEEE, MMMM d, yyyy' : viewMode === 'week' ? 'MMM d - MMM d, yyyy' : 'MMMM yyyy')}
+                  {viewMode === 'day' 
+                    ? format(currentDate, 'EEEE, MMMM d, yyyy')
+                    : viewMode === 'week'
+                    ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
+                    : format(currentDate, 'MMMM yyyy')}
                 </div>
               </div>
             </div>
@@ -360,7 +395,11 @@ export default function Calendar() {
           <CardHeader>
             <CardTitle>Appointments</CardTitle>
             <CardDescription>
-              {isLoadingAppointments || isLoadingMs365 ? 'Loading...' : `${allEvents.length} event(s)`}
+              {isLoadingAppointments || isLoadingMs365 
+                ? 'Loading...' 
+                : viewMode === 'day' 
+                  ? format(currentDate, 'EEEE, MMMM d, yyyy')
+                  : `${Object.keys(eventsByDay).length} day(s) with appointments`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -368,22 +407,160 @@ export default function Calendar() {
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
-            ) : allEvents.length === 0 ? (
-              <div className="text-center py-12">
-                <CalendarIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No appointments scheduled</p>
-              </div>
+            ) : viewMode === 'month' ? (
+              <MonthCalendarView 
+                days={daysToShow} 
+                eventsByDay={eventsByDay} 
+                currentDate={currentDate}
+                onDayClick={(date) => {
+                  setCurrentDate(date);
+                  setViewMode('day');
+                }}
+              />
             ) : (
-              <div className="space-y-2">
-                {allEvents.map((event) => (
-                  <EventCard key={event.id} event={event} />
-                ))}
-              </div>
+              <DayListView days={daysToShow} eventsByDay={eventsByDay} />
             )}
           </CardContent>
         </Card>
       </div>
     </Layout>
+  );
+}
+
+function DayListView({ days, eventsByDay }: { days: Date[]; eventsByDay: Record<string, Appointment[]> }) {
+  const totalEvents = Object.values(eventsByDay).flat().length;
+  
+  if (totalEvents === 0) {
+    return (
+      <div className="text-center py-12">
+        <CalendarIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <p className="text-muted-foreground">No appointments scheduled</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {days.map((day) => {
+        const dayKey = format(day, 'yyyy-MM-dd');
+        const dayEvents = eventsByDay[dayKey] || [];
+        const isCurrentDay = isToday(day);
+
+        if (dayEvents.length === 0 && !isCurrentDay) {
+          return null; // Skip empty days that aren't today
+        }
+
+        return (
+          <div key={dayKey} className="space-y-3">
+            <div className="flex items-center gap-3 pb-2 border-b">
+              <div className={`text-lg font-semibold ${isCurrentDay ? 'text-primary' : ''}`}>
+                {format(day, 'EEEE, MMMM d')}
+              </div>
+              {isCurrentDay && (
+                <Badge variant="secondary" className="text-xs">Today</Badge>
+              )}
+              {dayEvents.length > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
+                </Badge>
+              )}
+            </div>
+            {dayEvents.length > 0 ? (
+              <div className="space-y-2 pl-4">
+                {dayEvents.map((event) => (
+                  <EventCard key={event.id} event={event} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground pl-4">No appointments</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MonthCalendarView({ 
+  days, 
+  eventsByDay, 
+  currentDate,
+  onDayClick
+}: { 
+  days: Date[]; 
+  eventsByDay: Record<string, Appointment[]>; 
+  currentDate: Date;
+  onDayClick: (date: Date) => void;
+}) {
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weeks: Date[][] = [];
+  
+  // Group days into weeks
+  for (let i = 0; i < days.length; i += 7) {
+    weeks.push(days.slice(i, i + 7));
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Day headers */}
+      <div className="grid grid-cols-7 gap-2">
+        {weekDays.map((day) => (
+          <div key={day} className="text-center text-sm font-medium text-muted-foreground py-2">
+            {day}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="space-y-2">
+        {weeks.map((week, weekIdx) => (
+          <div key={weekIdx} className="grid grid-cols-7 gap-2">
+            {week.map((day) => {
+              const dayKey = format(day, 'yyyy-MM-dd');
+              const dayEvents = eventsByDay[dayKey] || [];
+              const isCurrentMonth = isSameMonth(day, currentDate);
+              const isCurrentDay = isToday(day);
+
+              return (
+                <div
+                  key={dayKey}
+                  className={`
+                    min-h-[100px] p-2 border rounded-lg
+                    ${isCurrentMonth ? 'bg-background' : 'bg-muted/30'}
+                    ${isCurrentDay ? 'ring-2 ring-primary' : ''}
+                    ${dayEvents.length > 0 ? 'border-primary/20' : ''}
+                  `}
+                >
+                  <div className={`text-sm font-medium mb-1 ${isCurrentDay ? 'text-primary' : isCurrentMonth ? '' : 'text-muted-foreground'}`}>
+                    {format(day, 'd')}
+                  </div>
+                  <div className="space-y-1">
+                    {dayEvents.slice(0, 3).map((event) => {
+                      const startTime = parseISO(event.scheduledStart);
+                      return (
+                        <div
+                          key={event.id}
+                          className="text-xs p-1 rounded bg-primary/10 text-primary truncate cursor-pointer hover:bg-primary/20"
+                          title={event.title}
+                          onClick={() => onDayClick(parseISO(event.scheduledStart))}
+                        >
+                          {format(startTime, 'h:mm a')} {event.title}
+                        </div>
+                      );
+                    })}
+                    {dayEvents.length > 3 && (
+                      <div className="text-xs text-muted-foreground">
+                        +{dayEvents.length - 3} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
