@@ -783,12 +783,22 @@ export default function ClaimDetail() {
     try {
       await deleteClaim(params.id);
       setActiveClaim(null);
+      
+      // Invalidate all claim-related queries before navigation
+      queryClient.invalidateQueries({ queryKey: ['claims'] });
+      queryClient.invalidateQueries({ queryKey: ['claim', params.id] });
+      queryClient.invalidateQueries({ queryKey: ['claimStats'] });
+      
       toast.success("Claim deleted successfully");
+      
+      // Small delay to ensure cache invalidation completes before navigation
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       setLocation("/");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to delete claim";
       toast.error(errorMessage);
-      console.error("Delete claim error:", err);
+      logger.error("Delete claim error:", err);
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);

@@ -1558,14 +1558,14 @@ export async function addLineItemToZone(
   if (countError) throw countError;
 
   // Recalculate structure totals after adding line item
-  const { data: zoneData } = await supabaseAdmin
+  const { data: zoneDataForRecalc } = await supabaseAdmin
     .from('estimate_zones')
     .select('estimate_areas!inner(structure_id)')
     .eq('id', zoneId)
     .single();
 
-  if (zoneData) {
-    const structureId = (zoneData.estimate_areas as any).structure_id;
+  if (zoneDataForRecalc) {
+    const structureId = (zoneDataForRecalc.estimate_areas as any).structure_id;
     await recalculateStructureTotals(structureId).catch(err => {
       console.error('Error recalculating structure totals:', err);
     });

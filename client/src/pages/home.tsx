@@ -269,7 +269,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const [claimsResult, statsResult] = await Promise.all([
+      const [claimsResult, statsResult] = await Promise.allSettled([
         getClaims({
           status: statusFilter !== "all" ? statusFilter : undefined,
           search: searchQuery || undefined,
@@ -279,9 +279,33 @@ export default function Home() {
         getClaimStats(),
       ]);
 
-      setClaims(claimsResult.claims);
-      setStats(statsResult);
+      // Handle claims result
+      if (claimsResult.status === 'fulfilled') {
+        setClaims(claimsResult.value.claims);
+      } else {
+        setError(claimsResult.reason?.message || 'Failed to fetch claims');
+        setClaims([]);
+      }
+
+      // Handle stats result - don't block page if stats fail
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value);
+      } else {
+        // Stats failed but don't show error - just log it
+        console.warn('Failed to fetch claim stats:', statsResult.reason);
+        // Set default stats to prevent UI errors
+        setStats({
+          total: 0,
+          byStatus: {},
+          byLossType: {},
+          totalRcv: 0,
+          totalAcv: 0,
+          totalDocuments: 0,
+          pendingDocuments: 0,
+        });
+      }
     } catch (err) {
+      // Fallback error handling
       setError((err as Error).message);
     } finally {
       setLoading(false);

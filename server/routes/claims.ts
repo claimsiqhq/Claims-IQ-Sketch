@@ -82,10 +82,10 @@ router.get('/stats', requireAuth, requireOrganization, async (req: Request, res:
   try {
     const organizationId = (req as any).organizationId;
     const stats = await getClaimStats(organizationId);
-    res.json({ stats });
+    res.json(stats); // Return stats directly, not wrapped
   } catch (error) {
     log.error({ err: error }, 'Get claim stats error');
-    res.status(500).json({ message: 'Failed to get claim statistics' });
+    res.status(500).json({ error: 'Failed to get claim statistics' });
   }
 });
 
