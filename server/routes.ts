@@ -4179,7 +4179,13 @@ export async function registerRoutes(
           metadata: claim.metadata as Record<string, any> | null,
         });
 
-        const result = await generateChecklistForClaim(claimId, organizationId, peril, severity);
+        const result = await generateChecklistForClaim(
+          claimId,
+          organizationId,
+          peril,
+          severity,
+          { userId: (req.user as any)?.id }
+        );
 
         if (!result.success) {
           return res.status(500).json({ error: result.error });
@@ -4232,7 +4238,13 @@ export async function registerRoutes(
         metadata: claim.metadata as Record<string, any> | null,
       });
 
-      const result = await generateChecklistForClaim(claimId, organizationId, peril, severity);
+      const result = await generateChecklistForClaim(
+        claimId,
+        organizationId,
+        peril,
+        severity,
+        { userId: (req.user as any)?.id }
+      );
 
       if (!result.success) {
         return res.status(500).json({ error: result.error });

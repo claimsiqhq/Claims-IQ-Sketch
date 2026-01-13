@@ -3036,6 +3036,7 @@ export const claimChecklists = pgTable("claim_checklists", {
   peril: varchar("peril", { length: 50 }).notNull(),
   severity: varchar("severity", { length: 30 }).notNull().default("moderate"),
   templateVersion: varchar("template_version", { length: 20 }).default("1.0"),
+  templateId: uuid("template_id"), // Optional: link to checklist template if using templates
 
   // Progress tracking
   totalItems: integer("total_items").notNull().default(0),
@@ -3044,6 +3045,9 @@ export const claimChecklists = pgTable("claim_checklists", {
 
   // Metadata
   metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+
+  // Audit fields
+  createdBy: uuid("created_by").references(() => users.id), // User who created the checklist
 
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),

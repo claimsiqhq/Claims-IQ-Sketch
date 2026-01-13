@@ -20,10 +20,12 @@ function mapChecklistFromDb(row: any): ClaimChecklist {
     peril: row.peril,
     severity: row.severity,
     templateVersion: row.template_version,
+    templateId: row.template_id || null,
     totalItems: row.total_items,
     completedItems: row.completed_items,
     status: row.status,
     metadata: row.metadata || null,
+    createdBy: row.created_by || null,
     completedAt: row.completed_at ? new Date(row.completed_at) : null,
     createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
@@ -482,7 +484,11 @@ export async function generateChecklistForClaim(
   claimId: string,
   organizationId: string,
   peril: Peril,
-  severity: ClaimSeverity
+  severity: ClaimSeverity,
+  options?: {
+    userId?: string;
+    templateId?: string;
+  }
 ): Promise<{ success: boolean; checklist?: ClaimChecklist; error?: string }> {
   try {
     const { data: existingChecklists } = await supabaseAdmin
@@ -500,20 +506,30 @@ export async function generateChecklistForClaim(
     const perilLabel = peril.charAt(0).toUpperCase() + peril.slice(1).replace('_', ' ');
     const severityLabel = severity.charAt(0).toUpperCase() + severity.slice(1);
 
+    const insertData: Record<string, any> = {
+      claim_id: claimId,
+      organization_id: organizationId,
+      name: `${perilLabel} Claim Checklist`,
+      description: `Processing checklist for ${severityLabel.toLowerCase()} ${perilLabel.toLowerCase()} claim`,
+      peril,
+      severity,
+      template_version: TEMPLATE_VERSION,
+      total_items: applicableItems.length,
+      completed_items: 0,
+      status: 'active',
+    };
+
+    // Add optional fields if provided
+    if (options?.userId) {
+      insertData.created_by = options.userId;
+    }
+    if (options?.templateId) {
+      insertData.template_id = options.templateId;
+    }
+
     const { data: insertedChecklist, error: insertError } = await supabaseAdmin
       .from('claim_checklists')
-      .insert({
-        claim_id: claimId,
-        organization_id: organizationId,
-        name: `${perilLabel} Claim Checklist`,
-        description: `Processing checklist for ${severityLabel.toLowerCase()} ${perilLabel.toLowerCase()} claim`,
-        peril,
-        severity,
-        template_version: TEMPLATE_VERSION,
-        total_items: applicableItems.length,
-        completed_items: 0,
-        status: 'active',
-      })
+      .insert(insertData)
       .select()
       .single();
 
