@@ -211,12 +211,12 @@ The following tables are properly defined in schema and referenced in code:
 
 ### Missing Tables Requiring Migrations
 The following tables are referenced in code but **DO NOT EXIST** in the database:
-1. `claim_scope_items` - Needs migration
-2. `labor_rates` - Needs migration OR code update to use `labor_rates_enhanced`
-3. `material_regional_prices` - Needs migration
-4. `materials` - Needs migration
-5. `price_scrape_jobs` - Code mentions migration 018, but table doesn't exist
-6. `regions` - Needs migration OR code update to use `regional_multipliers`
+1. `claim_scope_items` - ✅ Created
+2. ~~`labor_rates`~~ - ✅ **FIXED** - Code updated to use `labor_rates_enhanced` (no table needed)
+3. `material_regional_prices` - ✅ Created
+4. `materials` - ✅ Created
+5. `price_scrape_jobs` - ✅ Created
+6. `regions` - ✅ Created
 
 ### Existing Tables Verified ✅
 All 59 tables defined in `shared/schema.ts` exist in the database:
