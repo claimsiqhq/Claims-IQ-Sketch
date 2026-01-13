@@ -154,7 +154,12 @@ export async function createStructure(input: CreateStructureInput): Promise<Esti
 
   if (error) throw error;
 
-  return mapStructureRow(data);
+  const structure = mapStructureRow(data);
+  
+  // Recalculate totals after creation
+  await recalculateStructureTotals(structure.id);
+  
+  return structure;
 }
 
 export async function getStructure(structureId: string): Promise<EstimateStructure | null> {
@@ -259,7 +264,14 @@ export async function createArea(input: CreateAreaInput): Promise<EstimateArea> 
 
   if (error) throw error;
 
-  return mapAreaRow(data);
+  const area = mapAreaRow(data);
+  
+  // Recalculate structure totals after creating area
+  await recalculateStructureTotals(input.structureId).catch(err => {
+    console.error('Error recalculating structure totals:', err);
+  });
+  
+  return area;
 }
 
 export async function getArea(areaId: string): Promise<EstimateArea | null> {
@@ -1318,9 +1330,48 @@ export async function initializeEstimateHierarchy(
     }
   } else {
     // No saved rooms - create default structure
+    // Try to get property info from claim's loss_context
+    let yearBuilt: number | undefined;
+    let constructionType: string | undefined;
+    let description: string | undefined;
+
+    if (estimate?.claim_id) {
+      const { data: claimData } = await supabaseAdmin
+        .from('claims')
+        .select('loss_context')
+        .eq('id', estimate.claim_id)
+        .single();
+
+      if (claimData?.loss_context) {
+        const lossContext = claimData.loss_context as any;
+        const propertyInfo = lossContext?.property_damage_information || lossContext?.fnol?.property_damage_information;
+        
+        if (propertyInfo?.year_built) {
+          // Parse year from formats like "01-01-2007" or "2007"
+          const yearMatch = propertyInfo.year_built.match(/(\d{4})/);
+          if (yearMatch) {
+            yearBuilt = parseInt(yearMatch[1]);
+          }
+        }
+        
+        if (propertyInfo?.construction_type) {
+          constructionType = propertyInfo.construction_type;
+        }
+        
+        if (propertyInfo?.dwelling_incident_damages) {
+          description = propertyInfo.dwelling_incident_damages;
+        } else if (lossContext?.fnol?.loss_description) {
+          description = lossContext.fnol.loss_description;
+        }
+      }
+    }
+
     const structure = await createStructure({
       estimateId,
       name: opts.structureName,
+      yearBuilt,
+      constructionType,
+      description,
     });
 
     // Create default areas
@@ -1445,8 +1496,107 @@ export async function addLineItemToZone(
 
   if (countError) throw countError;
 
+  // Recalculate structure totals after adding line item
+  const { data: zoneData } = await supabaseAdmin
+    .from('estimate_zones')
+    .select('estimate_areas!inner(structure_id)')
+    .eq('id', zoneId)
+    .single();
+
+  if (zoneData) {
+    const structureId = (zoneData.estimate_areas as any).structure_id;
+    await recalculateStructureTotals(structureId).catch(err => {
+      console.error('Error recalculating structure totals:', err);
+    });
+  }
+
   // Note: The line_item_count might be updated by a database trigger
   // This is just for redundancy if the trigger doesn't exist
+}
+
+// ============================================
+// STRUCTURE TOTALS RECALCULATION
+// ============================================
+
+/**
+ * Recalculate structure totals (total_sf, rcv_total, acv_total) from zones and line items
+ */
+export async function recalculateStructureTotals(structureId: string): Promise<void> {
+  // Get all zones for this structure through areas
+  const { data: areasData, error: areasError } = await supabaseAdmin
+    .from('estimate_areas')
+    .select('id')
+    .eq('structure_id', structureId);
+
+  if (areasError) throw areasError;
+
+  const areaIds = (areasData || []).map(a => a.id);
+  if (areaIds.length === 0) {
+    // No areas, set totals to 0
+    await supabaseAdmin
+      .from('estimate_structures')
+      .update({
+        total_sf: '0',
+        rcv_total: '0',
+        acv_total: '0',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', structureId);
+    return;
+  }
+
+  // Get all zones for these areas
+  const { data: zonesData, error: zonesError } = await supabaseAdmin
+    .from('estimate_zones')
+    .select('id, dimensions')
+    .in('area_id', areaIds);
+
+  if (zonesError) throw zonesError;
+
+  // Calculate total square footage from zone dimensions
+  let totalSf = 0;
+  for (const zone of zonesData || []) {
+    const dims = zone.dimensions as any;
+    if (dims?.sfFloor) {
+      totalSf += parseFloat(dims.sfFloor.toString() || '0');
+    } else if (dims?.lengthFt && dims?.widthFt) {
+      // Calculate from length/width if sfFloor not available
+      totalSf += parseFloat(dims.lengthFt.toString() || '0') * parseFloat(dims.widthFt.toString() || '0');
+    }
+  }
+
+  // Get all line items for these zones
+  const zoneIds = (zonesData || []).map(z => z.id);
+  let rcvTotal = 0;
+  let acvTotal = 0;
+
+  if (zoneIds.length > 0) {
+    const { data: lineItemsData, error: lineItemsError } = await supabaseAdmin
+      .from('estimate_line_items')
+      .select('rcv, acv')
+      .in('zone_id', zoneIds)
+      .eq('is_approved', true);
+
+    if (lineItemsError) throw lineItemsError;
+
+    for (const item of lineItemsData || []) {
+      rcvTotal += parseFloat(item.rcv?.toString() || '0');
+      acvTotal += parseFloat(item.acv?.toString() || '0');
+    }
+  }
+
+  // Update structure totals
+  const { error: updateError } = await supabaseAdmin
+    .from('estimate_structures')
+    .update({
+      total_sf: totalSf.toFixed(2),
+      rcv_total: rcvTotal.toFixed(2),
+      acv_total: acvTotal.toFixed(2),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', structureId);
+
+  if (updateError) throw updateError;
 }
 
 // ============================================
