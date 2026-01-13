@@ -714,50 +714,93 @@ export async function getClaimStats(organizationId: string): Promise<{
   totalDocuments: number;
   pendingDocuments: number;
 }> {
-  // Get claims data
-  const { data: claims, count } = await supabaseAdmin
-    .from('claims')
-    .select('status, loss_type, total_rcv, total_acv', { count: 'exact' })
-    .eq('organization_id', organizationId)
-    .neq('status', 'deleted');
+  try {
+    // Get claims data
+    const { data: claims, count, error: claimsError } = await supabaseAdmin
+      .from('claims')
+      .select('status, loss_type, total_rcv, total_acv', { count: 'exact' })
+      .eq('organization_id', organizationId)
+      .neq('status', 'deleted');
 
-  // Get document counts
-  const { count: totalDocs } = await supabaseAdmin
-    .from('documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('organization_id', organizationId);
+    if (claimsError) {
+      console.error('[getClaimStats] Error fetching claims:', claimsError);
+      throw claimsError;
+    }
 
-  const { count: pendingDocs } = await supabaseAdmin
-    .from('documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('organization_id', organizationId)
-    .in('processing_status', ['pending', 'processing']);
+    // Get document counts (with error handling)
+    let totalDocs = 0;
+    let pendingDocs = 0;
 
-  const byStatus: Record<string, number> = {};
-  const byLossType: Record<string, number> = {};
-  let totalRcv = 0;
-  let totalAcv = 0;
+    try {
+      const { count: totalDocsResult, error: totalDocsError } = await supabaseAdmin
+        .from('documents')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', organizationId);
 
-  if (claims) {
-    claims.forEach(claim => {
-      byStatus[claim.status] = (byStatus[claim.status] || 0) + 1;
-      if (claim.loss_type) {
-        byLossType[claim.loss_type] = (byLossType[claim.loss_type] || 0) + 1;
+      if (!totalDocsError) {
+        totalDocs = totalDocsResult || 0;
+      } else {
+        console.warn('[getClaimStats] Error fetching total documents:', totalDocsError);
       }
-      totalRcv += parseFloat(claim.total_rcv || '0');
-      totalAcv += parseFloat(claim.total_acv || '0');
-    });
-  }
+    } catch (e) {
+      console.warn('[getClaimStats] Exception fetching total documents:', e);
+    }
 
-  return {
-    total: count || 0,
-    byStatus,
-    byLossType,
-    totalRcv,
-    totalAcv,
-    totalDocuments: totalDocs || 0,
-    pendingDocuments: pendingDocs || 0
-  };
+    try {
+      const { count: pendingDocsResult, error: pendingDocsError } = await supabaseAdmin
+        .from('documents')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', organizationId)
+        .in('processing_status', ['pending', 'processing']);
+
+      if (!pendingDocsError) {
+        pendingDocs = pendingDocsResult || 0;
+      } else {
+        console.warn('[getClaimStats] Error fetching pending documents:', pendingDocsError);
+      }
+    } catch (e) {
+      console.warn('[getClaimStats] Exception fetching pending documents:', e);
+    }
+
+    const byStatus: Record<string, number> = {};
+    const byLossType: Record<string, number> = {};
+    let totalRcv = 0;
+    let totalAcv = 0;
+
+    if (claims && Array.isArray(claims)) {
+      claims.forEach(claim => {
+        const status = claim.status || 'unknown';
+        byStatus[status] = (byStatus[status] || 0) + 1;
+        if (claim.loss_type) {
+          byLossType[claim.loss_type] = (byLossType[claim.loss_type] || 0) + 1;
+        }
+        totalRcv += parseFloat(String(claim.total_rcv || '0')) || 0;
+        totalAcv += parseFloat(String(claim.total_acv || '0')) || 0;
+      });
+    }
+
+    return {
+      total: count || 0,
+      byStatus,
+      byLossType,
+      totalRcv,
+      totalAcv,
+      totalDocuments: totalDocs,
+      pendingDocuments: pendingDocs
+    };
+  } catch (error) {
+    console.error('[getClaimStats] Fatal error:', error);
+    // Return default stats instead of throwing to prevent page crashes
+    return {
+      total: 0,
+      byStatus: {},
+      byLossType: {},
+      totalRcv: 0,
+      totalAcv: 0,
+      totalDocuments: 0,
+      pendingDocuments: 0
+    };
+  }
 }
 
 export async function purgeAllClaims(organizationId: string): Promise<{
