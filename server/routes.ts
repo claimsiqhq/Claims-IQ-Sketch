@@ -5431,10 +5431,10 @@ export async function registerRoutes(
 
       // For PDFs, download from Supabase and get page count
       if (doc.mimeType === 'application/pdf') {
-        const { exec } = await import('child_process');
+        const { execFile } = await import('child_process');
         const { promisify } = await import('util');
         const os = await import('os');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
 
         // Download file from Supabase to temp directory
         const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
@@ -5453,7 +5453,7 @@ export async function registerRoutes(
 
         // Get page count using pdfinfo
         try {
-          const { stdout } = await execAsync(`pdfinfo "${tempFilePath}" | grep Pages`);
+          const { stdout } = await execFileAsync('pdfinfo', [tempFilePath]);
           const pageMatch = stdout.match(/Pages:\s*(\d+)/);
           const pageCount = pageMatch ? parseInt(pageMatch[1]) : 1;
 
@@ -5516,9 +5516,9 @@ export async function registerRoutes(
 
       // For PDFs, download from Supabase, convert to image and serve
       if (doc.mimeType === 'application/pdf') {
-        const { exec } = await import('child_process');
+        const { execFile } = await import('child_process');
         const { promisify } = await import('util');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
 
         const pdfFilePath = path.join(tempDir, `${req.params.id}.pdf`);
         const outputFile = path.join(tempDir, `${req.params.id}-page${pageNum}.png`);
@@ -5534,7 +5534,7 @@ export async function registerRoutes(
         if (!fs.existsSync(outputFile)) {
           // Convert specific page using pdftoppm
           const outputPrefix = path.join(tempDir, `${req.params.id}-page${pageNum}`);
-          await execAsync(`pdftoppm -png -r 150 -f ${pageNum} -l ${pageNum} "${pdfFilePath}" "${outputPrefix}"`);
+          await execFileAsync('pdftoppm', ['-png', '-r', '150', '-f', String(pageNum), '-l', String(pageNum), pdfFilePath, outputPrefix]);
 
           // pdftoppm adds page number suffix with zero-padding
           // Try various formats: -1.png, -01.png, -001.png

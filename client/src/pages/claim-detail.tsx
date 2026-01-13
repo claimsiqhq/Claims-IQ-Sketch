@@ -3453,8 +3453,14 @@ export default function ClaimDetail() {
             try {
               const workflow = await getClaimWorkflow(params!.id);
               if (workflow?.workflow?.id) {
-                // Notify workflow that damage zone was added
-                // This may trigger additional inspection steps
+                // Trigger workflow mutation for damage zone added
+                await triggerDamageZoneAdded(workflow.workflow.id, {
+                  zoneId: newZone.id,
+                  roomId: selectedRoomId,
+                  damageType: zone.damageType || 'unknown',
+                  severity: zone.severity,
+                });
+                // Refresh workflow to show any new steps
                 queryClient.invalidateQueries({ queryKey: ['workflow', params?.id] });
               }
             } catch (err) {

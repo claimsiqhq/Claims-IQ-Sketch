@@ -212,13 +212,13 @@ export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export const claims = pgTable("claims", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: uuid("organization_id").notNull(),
-  assignedUserId: uuid("assigned_user_id"),
+  assignedUserId: uuid("assigned_user_id").references(() => users.id, { onDelete: 'set null' }),
 
   // Claim identifier (format: XX-XXX-XXXXXX)
   claimNumber: varchar("claim_number", { length: 50 }).notNull(),
 
   // Carrier/Region
-  carrierId: uuid("carrier_id"),
+  carrierId: uuid("carrier_id").references(() => carrierProfiles.id, { onDelete: 'set null' }),
   regionId: varchar("region_id", { length: 50 }),
 
   // Policyholder info (from FNOL)
@@ -1076,7 +1076,7 @@ export const estimateLineItems = pgTable("estimate_line_items", {
   source: varchar("source", { length: 30 }).default("manual"),
 
   // Damage zone reference
-  damageZoneId: uuid("damage_zone_id"),
+  damageZoneId: uuid("damage_zone_id").references(() => damageZones.id, { onDelete: 'set null' }),
   roomName: varchar("room_name", { length: 100 }),
 
   // Notes and metadata

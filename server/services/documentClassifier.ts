@@ -17,11 +17,11 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getSupabaseAdmin } from '../lib/supabase';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -134,7 +134,7 @@ async function extractPreviewImages(filePath: string, mimeType: string): Promise
 
     try {
       // Extract up to 3 pages (-f 1 -l 3)
-      await execAsync(`pdftoppm -png -f 1 -l ${MAX_CLASSIFICATION_PAGES} -r 150 "${filePath}" "${outputPrefix}"`);
+      await execFileAsync('pdftoppm', ['-png', '-f', '1', '-l', String(MAX_CLASSIFICATION_PAGES), '-r', '150', filePath, outputPrefix]);
 
       // Find all generated files (pdftoppm adds page number suffix like -1.png, -2.png, -3.png)
       const files = fs.readdirSync(TEMP_DIR);

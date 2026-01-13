@@ -351,6 +351,7 @@ export type MutationTrigger =
   | 'room_removed'
   | 'damage_zone_added'
   | 'damage_zone_updated'
+  | 'photo_added'
   | 'scope_inferred'
   | 'discovery_logged'
   | 'policy_updated'
