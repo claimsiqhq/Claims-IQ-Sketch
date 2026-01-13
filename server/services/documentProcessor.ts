@@ -1776,7 +1776,13 @@ export async function processDocument(
         }
 
         if (claimIdToUse) {
-          // Reuse docData already fetched above (line 1706)
+          // Get document's full_text to use as raw_text fallback for endorsements
+          const { data: docData } = await supabaseAdmin
+            .from('documents')
+            .select('full_text')
+            .eq('id', documentId)
+            .single();
+          
           await storeEndorsements(
             endorsementExtractions, 
             claimIdToUse, 
@@ -2120,7 +2126,6 @@ export async function createClaimFromDocuments(
     if (endDoc.extracted_data) {
       const extractedData = endDoc.extracted_data as any;
       let extractions: EndorsementExtraction[];
-      let endDocFullText: string | null = null; // Declare outside if/else to reuse
 
       // Handle multiple formats:
       // 1. New wrapper format: { endorsements: [...], _progress: {...} }
@@ -2139,23 +2144,19 @@ export async function createClaimFromDocuments(
           .eq('id', endDoc.id)
           .single();
         
-        endDocFullText = endDocData?.full_text || null;
         extractions = transformToEndorsementExtraction(
           extractedData,
-          endDocFullText
+          endDocData?.full_text || null
         );
       }
 
       if (extractions.length > 0) {
-        // Fetch endDocFullText if not already fetched (i.e., if we took the array path)
-        if (endDocFullText === null) {
-          const { data: endDocData } = await supabaseAdmin
-            .from('documents')
-            .select('full_text')
-            .eq('id', endDoc.id)
-            .single();
-          endDocFullText = endDocData?.full_text || null;
-        }
+        // Get document's full_text to use as raw_text fallback for endorsements
+        const { data: endDocData } = await supabaseAdmin
+          .from('documents')
+          .select('full_text')
+          .eq('id', endDoc.id)
+          .single();
         
         await storeEndorsements(
           extractions, 
@@ -2163,7 +2164,7 @@ export async function createClaimFromDocuments(
           organizationId, 
           endDoc.id,
           undefined, // rawOpenaiResponse not available here
-          endDocFullText
+          endDocData?.full_text || null
         );
         console.log(`[ClaimCreation] Stored ${extractions.length} endorsement extraction(s) for document ${endDoc.id}`);
       }
