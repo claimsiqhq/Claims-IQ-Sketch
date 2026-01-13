@@ -1,10 +1,12 @@
 -- Migration: Create missing tables and migrate data
 -- Date: 2026-01-12
 -- Purpose: Create tables referenced in code but missing from database, migrate data, and remove unused tables
+-- NOTE: labor_rates table NOT created - code updated to use labor_rates_enhanced instead
 
 -- ============================================
 -- PART 1: CREATE MISSING TABLES
 -- ============================================
+-- NOTE: Only creating 5 tables (not 6) - labor_rates removed, code uses labor_rates_enhanced
 
 -- 1. claim_scope_items - Claim-scoped scope items (similar to scope_items but claim-level)
 CREATE TABLE IF NOT EXISTS public.claim_scope_items (
