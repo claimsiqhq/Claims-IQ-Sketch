@@ -798,7 +798,7 @@ export default function ClaimDetail() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to delete claim";
       toast.error(errorMessage);
-      logger.error("Delete claim error:", err);
+      console.error("Delete claim error:", err);
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
