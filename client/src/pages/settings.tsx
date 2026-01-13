@@ -1407,25 +1407,10 @@ function MS365IntegrationCard() {
     }
   };
 
-  const handleConnect = async () => {
-    try {
-      setIsConnecting(true);
-      const response = await fetch('/api/auth/ms365/connect', { credentials: 'include' });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to start connection');
-      }
-      const { authUrl } = await response.json();
-      window.location.href = authUrl;
-      // Will redirect, so won't reach here
-    } catch (error) {
-      toast({
-        title: "Connection Failed",
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: "destructive"
-      });
-      setIsConnecting(false);
-    }
+  const handleConnect = () => {
+    setIsConnecting(true);
+    // Navigate directly to the connect endpoint which will redirect to Microsoft
+    window.location.href = '/api/auth/ms365/connect';
   };
 
   const handleDisconnect = async () => {

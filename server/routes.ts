@@ -357,23 +357,21 @@ export async function registerRoutes(
     }
   });
 
-  // Initiate MS365 OAuth flow
+  // Initiate MS365 OAuth flow - redirects directly to Microsoft
   app.get('/api/auth/ms365/connect', requireAuth, async (req, res) => {
     try {
       const { getAuthorizationUrl, isMs365Configured } = await import('./services/ms365AuthService');
       
       if (!isMs365Configured()) {
-        return res.status(400).json({ 
-          error: 'Microsoft 365 integration not configured',
-          message: 'Please configure AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_CLIENT_SECRET'
-        });
+        return res.redirect('/settings?ms365_error=not_configured');
       }
 
       const authUrl = await getAuthorizationUrl(req.user!.id);
-      res.json({ authUrl });
+      console.log('[MS365] Redirecting to auth URL:', authUrl);
+      res.redirect(authUrl);
     } catch (error) {
       console.error('[MS365] Auth URL generation failed:', error);
-      res.status(500).json({ error: 'Failed to start MS365 authorization' });
+      res.redirect('/settings?ms365_error=auth_failed');
     }
   });
 
