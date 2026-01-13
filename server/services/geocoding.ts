@@ -73,7 +73,7 @@ export async function reverseGeocode(
 let lastNominatimRequest = 0;
 const NOMINATIM_MIN_DELAY_MS = 1100; // 1.1 seconds between requests
 
-async function geocodeWithNominatim(addressString: string): Promise<GeocodeResult | null> {
+async function geocodeWithNominatim(addressString: string, retryCount = 0): Promise<GeocodeResult | null> {
   // Rate limiting: ensure at least 1.1 seconds between Nominatim requests
   const now = Date.now();
   const timeSinceLastRequest = now - lastNominatimRequest;
@@ -83,44 +83,73 @@ async function geocodeWithNominatim(addressString: string): Promise<GeocodeResul
   }
   lastNominatimRequest = Date.now();
 
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressString)}&limit=1&countrycodes=us`;
-  
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'ClaimsIQ/1.0 (contact: support@claimsiq.com)',
-        'Accept-Language': 'en-US,en;q=0.9'
+  // Try different address formats if first attempt fails
+  const addressVariations = [
+    addressString, // Original
+    addressString.replace(/,\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)/, ', $1 $2'), // Ensure space between state and zip
+    addressString.replace(/,\s*([^,]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)/, ', $1, $2'), // Normalize commas
+    addressString.split(',').slice(0, -1).join(',').trim(), // Remove zip code
+    addressString.split(',').slice(0, 2).join(',').trim(), // Just street and city
+  ].filter((addr, index, arr) => addr && arr.indexOf(addr) === index); // Remove duplicates
+
+  for (const addressToTry of addressVariations) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressToTry)}&limit=1&countrycodes=us&addressdetails=1`;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'ClaimsIQ/1.0 (contact: support@claimsiq.com)',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      });
+      
+      if (!response.ok) {
+        if (response.status === 429) {
+          console.warn(`[Geocoding] Nominatim rate limited (429). Waiting before retry...`);
+          // Wait longer if rate limited
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          // Retry once if rate limited
+          if (retryCount === 0) {
+            return geocodeWithNominatim(addressString, 1);
+          }
+          return null;
+        }
+        if (addressToTry === addressVariations[0]) {
+          console.error(`[Geocoding] Nominatim failed with status ${response.status} for: ${addressToTry}`);
+        }
+        continue; // Try next variation
       }
-    });
-    
-    if (!response.ok) {
-      if (response.status === 429) {
-        console.warn(`[Geocoding] Nominatim rate limited (429). Waiting before retry...`);
-        // Wait longer if rate limited
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        return null;
+      
+      const data = await response.json();
+      
+      if (data && data.length > 0) {
+        const result = data[0];
+        console.log(`[Geocoding] ✅ Nominatim success for: ${addressToTry}`);
+        return {
+          latitude: parseFloat(result.lat),
+          longitude: parseFloat(result.lon),
+          displayName: result.display_name
+        };
       }
-      console.error(`[Geocoding] Nominatim failed with status ${response.status} for: ${addressString}`);
-      return null;
+      
+      // If no results and this wasn't the last variation, try next one
+      if (addressToTry !== addressVariations[addressVariations.length - 1]) {
+        console.log(`[Geocoding] No results for "${addressToTry}", trying next variation...`);
+        // Small delay between variations
+        await new Promise(resolve => setTimeout(resolve, 200));
+        continue;
+      }
+    } catch (error) {
+      if (addressToTry === addressVariations[0]) {
+        console.error(`[Geocoding] Nominatim error for "${addressToTry}":`, error);
+      }
+      // Continue to next variation
+      continue;
     }
-    
-    const data = await response.json();
-    
-    if (!data || data.length === 0) {
-      console.warn(`[Geocoding] Nominatim returned no results for: ${addressString}`);
-      return null;
-    }
-    
-    const result = data[0];
-    return {
-      latitude: parseFloat(result.lat),
-      longitude: parseFloat(result.lon),
-      displayName: result.display_name
-    };
-  } catch (error) {
-    console.error(`[Geocoding] Nominatim error for "${addressString}":`, error);
-    return null;
   }
+  
+  console.warn(`[Geocoding] ❌ Nominatim returned no results for all variations of: ${addressString}`);
+  return null;
 }
 
 /**
@@ -265,15 +294,15 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       return false;
     }
 
-    // Attempt geocoding
-    const addressParts = [
+    // Build the address string that will actually be used
+    const addressString = buildAddressString(
       claim.property_address,
       claim.property_city,
       claim.property_state,
       claim.property_zip
-    ].filter(Boolean);
+    );
     
-    console.log(`[Geocoding] Attempting to geocode claim ${claimId}: ${addressParts.join(', ')}`);
+    console.log(`[Geocoding] Attempting to geocode claim ${claimId}: ${addressString}`);
     
     const result = await geocodeAddress(
       claim.property_address,
@@ -300,7 +329,7 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
       console.log(`[Geocoding] ✅ Successfully geocoded claim ${claimId}: ${result.latitude}, ${result.longitude}`);
       return true;
     } else {
-      console.warn(`[Geocoding] ❌ Geocoding failed for claim ${claimId}: ${addressParts.join(', ')}`);
+      console.warn(`[Geocoding] ❌ Geocoding failed for claim ${claimId}: ${addressString}`);
       await supabaseAdmin
         .from('claims')
         .update({
