@@ -173,31 +173,45 @@ ON CONFLICT (id) DO NOTHING;
 -- Note: estimate_line_items.damage_area_id references this table
 DO $$
 DECLARE
+  table_exists boolean;
   damage_areas_count integer;
   has_references integer;
 BEGIN
-  SELECT COUNT(*) INTO damage_areas_count FROM public.damage_areas;
+  -- Check if table exists first
+  SELECT EXISTS (
+    SELECT FROM information_schema.tables 
+    WHERE table_schema = 'public' 
+    AND table_name = 'damage_areas'
+  ) INTO table_exists;
   
-  -- Check if estimate_line_items has any references to damage_areas
-  SELECT COUNT(*) INTO has_references
-  FROM public.estimate_line_items
-  WHERE damage_area_id IS NOT NULL;
-  
-  IF damage_areas_count > 0 THEN
-    RAISE WARNING 'Table damage_areas has % rows. Data will be lost if dropped. Consider migrating to estimate_zones/estimate_areas first.', damage_areas_count;
-    -- Don't drop if it has data - user should review first
-  ELSIF has_references > 0 THEN
-    RAISE WARNING 'Table damage_areas is referenced by % rows in estimate_line_items. Dropping foreign key column first, then table.', has_references;
-    -- Drop the foreign key column from estimate_line_items first
+  IF NOT table_exists THEN
+    RAISE NOTICE 'Table damage_areas does not exist, skipping drop';
+    -- Still drop the column if it exists
     ALTER TABLE public.estimate_line_items DROP COLUMN IF EXISTS damage_area_id;
-    -- Then drop the table
-    DROP TABLE IF EXISTS public.damage_areas CASCADE;
-    RAISE NOTICE 'Table damage_areas dropped (damage_area_id column removed from estimate_line_items)';
   ELSE
-    -- No references, safe to drop
-    ALTER TABLE public.estimate_line_items DROP COLUMN IF EXISTS damage_area_id;
-    DROP TABLE IF EXISTS public.damage_areas;
-    RAISE NOTICE 'Table damage_areas dropped (was empty, no references)';
+    SELECT COUNT(*) INTO damage_areas_count FROM public.damage_areas;
+    
+    -- Check if estimate_line_items has any references to damage_areas
+    SELECT COUNT(*) INTO has_references
+    FROM public.estimate_line_items
+    WHERE damage_area_id IS NOT NULL;
+    
+    IF damage_areas_count > 0 THEN
+      RAISE WARNING 'Table damage_areas has % rows. Data will be lost if dropped. Consider migrating to estimate_zones/estimate_areas first.', damage_areas_count;
+      -- Don't drop if it has data - user should review first
+    ELSIF has_references > 0 THEN
+      RAISE WARNING 'Table damage_areas is referenced by % rows in estimate_line_items. Dropping foreign key column first, then table.', has_references;
+      -- Drop the foreign key column from estimate_line_items first
+      ALTER TABLE public.estimate_line_items DROP COLUMN IF EXISTS damage_area_id;
+      -- Then drop the table
+      DROP TABLE IF EXISTS public.damage_areas CASCADE;
+      RAISE NOTICE 'Table damage_areas dropped (damage_area_id column removed from estimate_line_items)';
+    ELSE
+      -- No references, safe to drop
+      ALTER TABLE public.estimate_line_items DROP COLUMN IF EXISTS damage_area_id;
+      DROP TABLE IF EXISTS public.damage_areas;
+      RAISE NOTICE 'Table damage_areas dropped (was empty, no references)';
+    END IF;
   END IF;
 END $$;
 
@@ -205,34 +219,46 @@ END $$;
 -- Note: This table may be for future dynamic workflow rules feature
 DO $$
 DECLARE
+  table_exists boolean;
   workflow_rules_count integer;
   has_foreign_keys boolean;
 BEGIN
-  SELECT COUNT(*) INTO workflow_rules_count FROM public.workflow_rules;
-  
-  -- Check if any tables reference workflow_rules
+  -- Check if table exists first
   SELECT EXISTS (
-    SELECT 1 
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu 
-      ON tc.constraint_name = kcu.constraint_name
-      AND tc.table_schema = kcu.table_schema
-    JOIN information_schema.constraint_column_usage ccu
-      ON ccu.constraint_name = tc.constraint_name
-      AND ccu.table_schema = tc.table_schema
-    WHERE tc.table_schema = 'public'
-      AND tc.constraint_type = 'FOREIGN KEY'
-      AND ccu.table_name = 'workflow_rules'
-  ) INTO has_foreign_keys;
+    SELECT FROM information_schema.tables 
+    WHERE table_schema = 'public' 
+    AND table_name = 'workflow_rules'
+  ) INTO table_exists;
   
-  IF workflow_rules_count > 0 THEN
-    RAISE WARNING 'Table workflow_rules has % rows. Keeping table as it contains data.', workflow_rules_count;
-  ELSIF has_foreign_keys THEN
-    RAISE NOTICE 'Table workflow_rules has foreign key references. Keeping table.';
+  IF NOT table_exists THEN
+    RAISE NOTICE 'Table workflow_rules does not exist, skipping drop';
   ELSE
-    -- Table is empty and has no references - safe to drop per user request
-    DROP TABLE IF EXISTS public.workflow_rules CASCADE;
-    RAISE NOTICE 'Table workflow_rules dropped (was empty, no references)';
+    SELECT COUNT(*) INTO workflow_rules_count FROM public.workflow_rules;
+    
+    -- Check if any tables reference workflow_rules
+    SELECT EXISTS (
+      SELECT 1 
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu 
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+        AND ccu.table_schema = tc.table_schema
+      WHERE tc.table_schema = 'public'
+        AND tc.constraint_type = 'FOREIGN KEY'
+        AND ccu.table_name = 'workflow_rules'
+    ) INTO has_foreign_keys;
+    
+    IF workflow_rules_count > 0 THEN
+      RAISE WARNING 'Table workflow_rules has % rows. Keeping table as it contains data.', workflow_rules_count;
+    ELSIF has_foreign_keys THEN
+      RAISE NOTICE 'Table workflow_rules has foreign key references. Keeping table.';
+    ELSE
+      -- Table is empty and has no references - safe to drop per user request
+      DROP TABLE IF EXISTS public.workflow_rules CASCADE;
+      RAISE NOTICE 'Table workflow_rules dropped (was empty, no references)';
+    END IF;
   END IF;
 END $$;
 
