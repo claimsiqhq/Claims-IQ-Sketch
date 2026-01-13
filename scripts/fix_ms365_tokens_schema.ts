@@ -1,10 +1,13 @@
 /**
- * Fix MS365 Tokens Schema
+ * Fix MS365 Schema Issues
  * 
- * This script fixes the user_ms365_tokens table to ensure:
- * 1. Unique constraint on user_id exists
- * 2. account_id column exists
- * 3. expires_at is nullable
+ * This script fixes:
+ * 1. user_ms365_tokens table:
+ *    - Unique constraint on user_id exists
+ *    - account_id column exists
+ *    - expires_at is nullable
+ * 2. inspection_appointments table:
+ *    - Rename adjuster_id to user_id if needed
  * 
  * Run with: npx tsx scripts/fix_ms365_tokens_schema.ts
  */
@@ -28,20 +31,31 @@ async function runMigration() {
   const client = await pool.connect();
   
   try {
-    console.log('Running MS365 tokens schema fix...');
+    console.log('Running MS365 schema fixes...\n');
     
-    // Read the migration file
-    const migrationPath = join(__dirname, '../db/migrations/030_fix_ms365_tokens_unique_constraint.sql');
-    const migrationSQL = readFileSync(migrationPath, 'utf-8');
+    // Fix user_ms365_tokens table
+    console.log('1. Fixing user_ms365_tokens table...');
+    const tokensMigrationPath = join(__dirname, '../db/migrations/030_fix_ms365_tokens_unique_constraint.sql');
+    const tokensMigrationSQL = readFileSync(tokensMigrationPath, 'utf-8');
+    await client.query(tokensMigrationSQL);
+    console.log('   ✅ user_ms365_tokens table fixed\n');
     
-    // Execute the migration
-    await client.query(migrationSQL);
+    // Fix inspection_appointments table
+    console.log('2. Fixing inspection_appointments table...');
+    const appointmentsMigrationPath = join(__dirname, '../db/migrations/031_fix_inspection_appointments_user_id.sql');
+    const appointmentsMigrationSQL = readFileSync(appointmentsMigrationPath, 'utf-8');
+    await client.query(appointmentsMigrationSQL);
+    console.log('   ✅ inspection_appointments table fixed\n');
     
-    console.log('✅ Migration completed successfully!');
-    console.log('The user_ms365_tokens table now has:');
-    console.log('  - Unique constraint on user_id');
-    console.log('  - account_id column');
-    console.log('  - Nullable expires_at column');
+    console.log('✅ All migrations completed successfully!');
+    console.log('\nSummary:');
+    console.log('  user_ms365_tokens:');
+    console.log('    - Unique constraint on user_id');
+    console.log('    - account_id column');
+    console.log('    - Nullable expires_at column');
+    console.log('  inspection_appointments:');
+    console.log('    - Column renamed from adjuster_id to user_id');
+    console.log('    - Indexes renamed accordingly');
     
   } catch (error) {
     console.error('❌ Migration failed:', error);

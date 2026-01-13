@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS inspection_appointments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   claim_id UUID NOT NULL,
   organization_id UUID NOT NULL,
-  adjuster_id UUID NOT NULL,
+  user_id UUID NOT NULL,
   
   -- MS365 sync
   ms365_event_id TEXT,
@@ -63,11 +63,11 @@ CREATE TABLE IF NOT EXISTS inspection_appointments (
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS inspection_appointments_claim_idx ON inspection_appointments(claim_id);
 CREATE INDEX IF NOT EXISTS inspection_appointments_org_idx ON inspection_appointments(organization_id);
-CREATE INDEX IF NOT EXISTS inspection_appointments_adjuster_idx ON inspection_appointments(adjuster_id);
+CREATE INDEX IF NOT EXISTS inspection_appointments_user_idx ON inspection_appointments(user_id);
 CREATE INDEX IF NOT EXISTS inspection_appointments_status_idx ON inspection_appointments(status);
 CREATE INDEX IF NOT EXISTS inspection_appointments_scheduled_idx ON inspection_appointments(scheduled_start);
 CREATE INDEX IF NOT EXISTS inspection_appointments_ms365_idx ON inspection_appointments(ms365_event_id);
 
 -- Composite index for "today's route" query
-CREATE INDEX IF NOT EXISTS inspection_appointments_adjuster_date_idx 
-  ON inspection_appointments(adjuster_id, scheduled_start);
+CREATE INDEX IF NOT EXISTS inspection_appointments_user_date_idx 
+  ON inspection_appointments(user_id, scheduled_start);
