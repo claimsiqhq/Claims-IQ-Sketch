@@ -1001,8 +1001,9 @@ function extractAdditionalFields(e: any): Partial<EndorsementExtraction> {
  * 1. Object with endorsement names as keys: { "wisconsin_amendatory": { "form_number": "HO 81 53", ... } }
  * 2. Array format: { "endorsements": [{ "form_code": "HO 81 53", ... }] }
  */
-function transformToEndorsementExtraction(raw: any): EndorsementExtraction[] {
-  const fullTextFallback = raw.full_text || raw.fullText || '';
+function transformToEndorsementExtraction(raw: any, documentFullText?: string | null): EndorsementExtraction[] {
+  // Use document's full text as fallback if available, otherwise try raw extraction
+  const fullTextFallback = documentFullText || raw.full_text || raw.fullText || '';
 
   // Handle AI output format: object with endorsement names as keys
   // The AI prompt returns: { "wisconsin_amendatory_endorsement": {...}, "roof_surface_payment_schedule": {...} }
@@ -1114,7 +1115,8 @@ async function storeEndorsements(
   claimId: string,
   organizationId: string,
   documentId?: string,
-  rawOpenaiResponse?: any
+  rawOpenaiResponse?: any,
+  documentFullText?: string | null
 ): Promise<void> {
   console.log(`[storeEndorsements] Processing ${extractions.length} endorsement(s) for claim ${claimId}`);
 
@@ -1153,14 +1155,22 @@ async function storeEndorsements(
       .eq('form_code', formCode)
       .limit(1);
 
+    // Use document's full text as fallback for raw_text if endorsement doesn't have it
+    const rawText = endorsement.raw_text || documentFullText || null;
+    
+    // Extract jurisdiction and edition_date from extraction_data if not already set
+    const extractionData = endorsement as any;
+    const jurisdiction = endorsement.jurisdiction || extractionData.jurisdiction || null;
+    const editionDate = endorsement.edition_date || extractionData.edition_date || null;
+
     const extractionRow = {
       organization_id: organizationId,
       claim_id: claimId,
       document_id: documentId || null,
       form_code: formCode,
       title: endorsement.title || null,
-      edition_date: endorsement.edition_date || null,
-      jurisdiction: endorsement.jurisdiction || null,
+      edition_date: editionDate,
+      jurisdiction: jurisdiction,
       applies_to_policy_forms: endorsement.applies_to_forms || [],
       applies_to_coverages: endorsement.applies_to_coverages || [],
       // Store the complete extraction as JSONB
@@ -1172,7 +1182,7 @@ async function storeEndorsements(
       // Also store in legacy columns (database columns exist, but we read from extraction_data only)
       modifications: endorsement.modifications || {},
       tables: endorsement.tables || [],
-      raw_text: endorsement.raw_text || null,
+      raw_text: rawText,
       // Raw OpenAI response - stored BEFORE any transformation for debugging/auditing
       raw_openai_response: rawOpenaiResponse || null,
       extraction_model: 'gpt-4o',
@@ -1692,7 +1702,17 @@ export async function processDocument(
         console.log(`[Endorsement] Endorsements array length: ${rawExtraction?.endorsements?.length || 'N/A (using raw as single)'}`);
         console.log(`[Endorsement] fullText length: ${rawExtraction?.fullText?.length || 0} chars`);
 
-        const endorsementExtractions = transformToEndorsementExtraction(rawExtraction);
+        // Get document's full_text to use as raw_text fallback for endorsements
+        const { data: docData } = await supabaseAdmin
+          .from('documents')
+          .select('full_text')
+          .eq('id', documentId)
+          .single();
+        
+        const endorsementExtractions = transformToEndorsementExtraction(
+          rawExtraction,
+          docData?.full_text || rawExtraction.fullText || null
+        );
 
         console.log(`[Endorsement] Transformed ${endorsementExtractions.length} endorsement(s)`);
         for (const e of endorsementExtractions) {
@@ -1756,7 +1776,21 @@ export async function processDocument(
         }
 
         if (claimIdToUse) {
-          await storeEndorsements(endorsementExtractions, claimIdToUse, organizationId, documentId, rawExtraction);
+          // Get document's full_text to use as raw_text fallback for endorsements
+          const { data: docData } = await supabaseAdmin
+            .from('documents')
+            .select('full_text')
+            .eq('id', documentId)
+            .single();
+          
+          await storeEndorsements(
+            endorsementExtractions, 
+            claimIdToUse, 
+            organizationId, 
+            documentId, 
+            rawExtraction,
+            docData?.full_text || rawExtraction.fullText || null
+          );
 
           // Trigger effective policy recomputation
           try {
@@ -2103,11 +2137,35 @@ export async function createClaimFromDocuments(
         extractions = extractedData;
       } else {
         // Raw AI format - transform it
-        extractions = transformToEndorsementExtraction(extractedData);
+        // Get document's full_text to use as raw_text fallback
+        const { data: endDocData } = await supabaseAdmin
+          .from('documents')
+          .select('full_text')
+          .eq('id', endDoc.id)
+          .single();
+        
+        extractions = transformToEndorsementExtraction(
+          extractedData,
+          endDocData?.full_text || null
+        );
       }
 
       if (extractions.length > 0) {
-        await storeEndorsements(extractions, claimId, organizationId, endDoc.id);
+        // Get document's full_text to use as raw_text fallback for endorsements
+        const { data: endDocData } = await supabaseAdmin
+          .from('documents')
+          .select('full_text')
+          .eq('id', endDoc.id)
+          .single();
+        
+        await storeEndorsements(
+          extractions, 
+          claimId, 
+          organizationId, 
+          endDoc.id,
+          undefined, // rawOpenaiResponse not available here
+          endDocData?.full_text || null
+        );
         console.log(`[ClaimCreation] Stored ${extractions.length} endorsement extraction(s) for document ${endDoc.id}`);
       }
     }
