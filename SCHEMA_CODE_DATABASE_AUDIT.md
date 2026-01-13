@@ -231,11 +231,11 @@ All 59 tables defined in `shared/schema.ts` exist in the database:
 ### Immediate Actions Required
 
 1. **Fix Critical Missing Tables** (Code will fail without these):
-   - **Priority 1:** `claim_scope_items` - Routes are broken
-   - **Priority 2:** `materials` + `material_regional_prices` - Pricing broken
-   - **Priority 3:** `regions` - Regional pricing broken
-   - **Priority 4:** `labor_rates` - Update to use `labor_rates_enhanced`
-   - **Priority 5:** `price_scrape_jobs` - Scraper has fallback but should be fixed
+   - **Priority 1:** `claim_scope_items` - ✅ Created
+   - **Priority 2:** `materials` + `material_regional_prices` - ✅ Created
+   - **Priority 3:** `regions` - ✅ Created
+   - **Priority 4:** ~~`labor_rates`~~ - ✅ **FIXED** - Code updated to use `labor_rates_enhanced`
+   - **Priority 5:** `price_scrape_jobs` - ✅ Created
 
 2. **Create Schema Definitions:**
    - Add missing tables to `shared/schema.ts`
