@@ -73,6 +73,17 @@ export default function VoiceSketchPage() {
     staleTime: 30000,
   });
   
+  // Track if we've initiated loading for the current claim to prevent multiple calls
+  const isLoadingRef = useRef(false);
+  const lastLoadedClaimRef = useRef<string | null>(null);
+  
+  // Reset loading refs when claimId changes
+  useEffect(() => {
+    if (claimId !== lastLoadedClaimRef.current) {
+      isLoadingRef.current = false;
+    }
+  }, [claimId]);
+  
   // Load existing rooms into geometry engine when data is available
   // Uses store-level loadedForClaimId tracking to persist across component remounts
   useEffect(() => {
@@ -84,8 +95,16 @@ export default function VoiceSketchPage() {
     // Check if we've already loaded rooms for this specific claim (tracked in store)
     if (loadedForClaimId === claimId) {
       // Already loaded for this claim - skip
+      lastLoadedClaimRef.current = claimId;
       return;
     }
+    
+    // Prevent concurrent calls
+    if (isLoadingRef.current && lastLoadedClaimRef.current === claimId) {
+      return;
+    }
+    isLoadingRef.current = true;
+    lastLoadedClaimRef.current = claimId;
     
     // Convert ClaimRoom to RoomGeometry (API response uses camelCase from database)
     const convertedRooms: RoomGeometry[] = existingRoomsData.rooms.map((roomData) => {
