@@ -939,7 +939,7 @@ export async function registerRoutes(
   // LINE ITEMS ROUTES
   // ============================================
 
-  app.get('/api/line-items', async (req, res) => {
+  app.get('/api/line-items', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { q, category, damage_type, limit, offset } = req.query;
       const result = await searchLineItems({
@@ -956,7 +956,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get('/api/line-items/categories', async (req, res) => {
+  app.get('/api/line-items/categories', requireAuth, requireOrganization, async (req, res) => {
     try {
       const categories = await getCategories();
       res.json(categories);
@@ -966,7 +966,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post('/api/pricing/calculate', async (req, res) => {
+  app.post('/api/pricing/calculate', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { line_item_code, quantity, region_id, carrier_id } = req.body;
       
@@ -993,7 +993,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get('/api/pricing/region/:zipCode', async (req, res) => {
+  app.get('/api/pricing/region/:zipCode', requireAuth, requireOrganization, async (req, res) => {
     try {
       const region = await getRegionByZip(req.params.zipCode);
       if (!region) {
@@ -1006,7 +1006,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post('/api/scrape/home-depot', async (req, res) => {
+  app.post('/api/scrape/home-depot', requireAuth, requireOrganization, async (req, res) => {
     try {
       const result = await runScrapeJob();
       res.json(result);
@@ -1016,7 +1016,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get('/api/scrape/test', async (req, res) => {
+  app.get('/api/scrape/test', requireAuth, requireOrganization, async (req, res) => {
     try {
       const results = await testScrape();
       const data = Array.from(results.entries()).map(([sku, product]) => ({
@@ -1033,7 +1033,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get('/api/scrape/config', (req, res) => {
+  app.get('/api/scrape/config', requireAuth, requireOrganization, (req, res) => {
     res.json({
       productMappings: PRODUCT_MAPPINGS,
       storeRegions: STORE_REGIONS
@@ -1041,7 +1041,7 @@ export async function registerRoutes(
   });
 
   // Get scraped prices from database for visualization
-  app.get('/api/scrape/prices', async (req, res) => {
+  app.get('/api/scrape/prices', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('material_regional_prices')
@@ -1081,7 +1081,7 @@ export async function registerRoutes(
   });
 
   // Get scrape job history
-  app.get('/api/scrape/jobs', async (req, res) => {
+  app.get('/api/scrape/jobs', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('price_scrape_jobs')
@@ -1341,7 +1341,7 @@ export async function registerRoutes(
   */
 
   // Voice Session Routes
-  app.post('/api/voice/session', async (req, res) => {
+  app.post('/api/voice/session', requireAuth, requireOrganization, async (req, res) => {
     try {
       const result = await createVoiceSession();
       res.json(result);
@@ -1356,7 +1356,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get('/api/voice/config', (req, res) => {
+  app.get('/api/voice/config', requireAuth, requireOrganization, (req, res) => {
     res.json({
       availableVoices: VOICE_CONFIG.availableVoices,
       defaultVoice: VOICE_CONFIG.defaultVoice,
@@ -1369,7 +1369,7 @@ export async function registerRoutes(
   // ============================================
 
   // Generate AI suggestions from damage zones
-  app.post('/api/ai/suggest-estimate', async (req, res) => {
+  app.post('/api/ai/suggest-estimate', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { damageZones, regionId } = req.body;
 
@@ -1393,7 +1393,7 @@ export async function registerRoutes(
   });
 
   // Quick suggest line items (for voice interface)
-  app.post('/api/ai/quick-suggest', async (req, res) => {
+  app.post('/api/ai/quick-suggest', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { description, roomName, damageType, quantity } = req.body;
 
@@ -1417,7 +1417,7 @@ export async function registerRoutes(
   });
 
   // Search line items by natural language
-  app.get('/api/ai/search-line-items', async (req, res) => {
+  app.get('/api/ai/search-line-items', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { q, limit } = req.query;
 
@@ -1441,7 +1441,7 @@ export async function registerRoutes(
   // ============================================
 
   // Calculate estimate without saving (preview)
-  app.post('/api/estimates/calculate', async (req, res) => {
+  app.post('/api/estimates/calculate', requireAuth, requireOrganization, async (req, res) => {
     try {
       const result = await calculateEstimate(req.body);
       res.json(result);
@@ -1666,7 +1666,7 @@ export async function registerRoutes(
   });
 
   // Get estimate templates
-  app.get('/api/estimate-templates', async (req, res) => {
+  app.get('/api/estimate-templates', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { damage_type } = req.query;
       const templates = await getEstimateTemplates(damage_type as string);
@@ -1703,7 +1703,7 @@ export async function registerRoutes(
   });
 
   // Get carrier profiles
-  app.get('/api/carrier-profiles', async (req, res) => {
+  app.get('/api/carrier-profiles', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('carrier_profiles')
@@ -1721,7 +1721,7 @@ export async function registerRoutes(
   });
 
   // Get regions
-  app.get('/api/regions', async (req, res) => {
+  app.get('/api/regions', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('regions')
@@ -1742,7 +1742,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all coverage types
-  app.get('/api/coverage-types', async (req, res) => {
+  app.get('/api/coverage-types', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('coverage_types')
@@ -1761,7 +1761,7 @@ export async function registerRoutes(
   });
 
   // Get coverage type by code
-  app.get('/api/coverage-types/:code', async (req, res) => {
+  app.get('/api/coverage-types/:code', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('coverage_types')
@@ -1789,7 +1789,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all tax rates
-  app.get('/api/tax-rates', async (req, res) => {
+  app.get('/api/tax-rates', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { region_code, tax_type } = req.query;
 
@@ -1819,7 +1819,7 @@ export async function registerRoutes(
   });
 
   // Get tax rate for a specific region
-  app.get('/api/tax-rates/region/:regionCode', async (req, res) => {
+  app.get('/api/tax-rates/region/:regionCode', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('tax_rates')
@@ -1893,7 +1893,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all regional multipliers
-  app.get('/api/regional-multipliers', async (req, res) => {
+  app.get('/api/regional-multipliers', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('regional_multipliers')
@@ -1911,7 +1911,7 @@ export async function registerRoutes(
   });
 
   // Get regional multiplier by region code
-  app.get('/api/regional-multipliers/:regionCode', async (req, res) => {
+  app.get('/api/regional-multipliers/:regionCode', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('regional_multipliers')
@@ -1939,7 +1939,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all labor rates
-  app.get('/api/labor-rates', async (req, res) => {
+  app.get('/api/labor-rates', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { trade_code, region_code } = req.query;
 
@@ -1969,7 +1969,7 @@ export async function registerRoutes(
   });
 
   // Get labor rate for specific trade
-  app.get('/api/labor-rates/trade/:tradeCode', async (req, res) => {
+  app.get('/api/labor-rates/trade/:tradeCode', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('labor_rates_enhanced')
@@ -1992,7 +1992,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all price lists
-  app.get('/api/price-lists', async (req, res) => {
+  app.get('/api/price-lists', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('price_lists')
@@ -2011,7 +2011,7 @@ export async function registerRoutes(
   });
 
   // Get price list by code
-  app.get('/api/price-lists/:code', async (req, res) => {
+  app.get('/api/price-lists/:code', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('price_lists')
@@ -2085,7 +2085,7 @@ export async function registerRoutes(
   });
 
   // Get HTML report preview
-  app.get('/api/estimates/:id/report/html', async (req, res) => {
+  app.get('/api/estimates/:id/report/html', requireAuth, requireOrganization, async (req, res) => {
     try {
       const options = {
         includeLineItemDetails: req.query.includeLineItems !== 'false',
@@ -2128,7 +2128,7 @@ export async function registerRoutes(
   });
 
   // Generate ESX XML export
-  app.get('/api/estimates/:id/export/esx-xml', async (req, res) => {
+  app.get('/api/estimates/:id/export/esx-xml', requireAuth, requireOrganization, async (req, res) => {
     try {
       const metadata = {
         dateOfLoss: req.query.dateOfLoss as string,
@@ -2151,7 +2151,7 @@ export async function registerRoutes(
   });
 
   // Generate CSV export
-  app.get('/api/estimates/:id/export/csv', async (req, res) => {
+  app.get('/api/estimates/:id/export/csv', requireAuth, requireOrganization, async (req, res) => {
     try {
       const csv = await generateCsvExport(req.params.id);
       res.setHeader('Content-Type', 'text/csv');
@@ -2169,7 +2169,7 @@ export async function registerRoutes(
 
   // Generate ESX ZIP archive (Tier A - standards-compliant, with sketch PDF)
   // This is the primary export format for Xactimate import
-  app.get('/api/estimates/:id/export/esx-zip', async (req, res) => {
+  app.get('/api/estimates/:id/export/esx-zip', requireAuth, requireOrganization, async (req, res) => {
     try {
       const includeSketch = req.query.includeSketch !== 'false';
       const includePhotos = req.query.includePhotos === 'true';
@@ -5794,7 +5794,7 @@ export async function registerRoutes(
    * GET /api/xact/categories
    * List all Xactimate categories
    */
-  app.get('/api/xact/categories', async (req, res) => {
+  app.get('/api/xact/categories', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('xact_categories')
@@ -5812,7 +5812,7 @@ export async function registerRoutes(
    * GET /api/xact/categories/:code
    * Get a specific category by code
    */
-  app.get('/api/xact/categories/:code', async (req, res) => {
+  app.get('/api/xact/categories/:code', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('xact_categories')
@@ -5843,7 +5843,7 @@ export async function registerRoutes(
    *   - limit: max results (default 50, max 500)
    *   - offset: pagination offset
    */
-  app.get('/api/xact/line-items', async (req, res) => {
+  app.get('/api/xact/line-items', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { q, category, limit = '50', offset = '0' } = req.query;
       const limitNum = Math.min(parseInt(limit as string) || 50, 500);
@@ -5884,7 +5884,7 @@ export async function registerRoutes(
    * GET /api/xact/line-items/:code
    * Get a specific line item by full code
    */
-  app.get('/api/xact/line-items/:code', async (req, res) => {
+  app.get('/api/xact/line-items/:code', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('xact_line_items')
@@ -5906,7 +5906,7 @@ export async function registerRoutes(
    * GET /api/xact/stats
    * Get statistics about the Xactimate catalog
    */
-  app.get('/api/xact/stats', async (req, res) => {
+  app.get('/api/xact/stats', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { count: catCount } = await supabaseAdmin.from('xact_categories').select('*', { count: 'exact', head: true });
       const { count: itemCount } = await supabaseAdmin.from('xact_line_items').select('*', { count: 'exact', head: true });
@@ -5936,7 +5936,7 @@ export async function registerRoutes(
    *   - limit: max results (default 50, max 500)
    *   - offset: pagination offset
    */
-  app.get('/api/xact/components', async (req, res) => {
+  app.get('/api/xact/components', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { q, type, limit = '50', offset = '0' } = req.query;
       const limitNum = Math.min(parseInt(limit as string) || 50, 500);
@@ -5977,7 +5977,7 @@ export async function registerRoutes(
    * GET /api/xact/components/:code
    * Get a specific component by code with its price
    */
-  app.get('/api/xact/components/:code', async (req, res) => {
+  app.get('/api/xact/components/:code', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('xact_components')
@@ -6029,7 +6029,7 @@ export async function registerRoutes(
    * GET /api/xact/price/:code
    * Get full price breakdown for a Xactimate line item
    */
-  app.get('/api/xact/price/:code', async (req, res) => {
+  app.get('/api/xact/price/:code', requireAuth, requireOrganization, async (req, res) => {
     try {
       const result = await calculateXactPrice(req.params.code);
       if (!result) {

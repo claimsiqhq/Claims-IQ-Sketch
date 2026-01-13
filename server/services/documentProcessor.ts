@@ -13,7 +13,7 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { inferPeril, type PerilInferenceInput } from './perilNormalizer';
 import { PromptKey } from '../../shared/schema';
@@ -61,7 +61,7 @@ async function triggerAIGenerationPipeline(claimId: string, organizationId: stri
   }
 }
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -668,7 +668,7 @@ async function convertPdfToImages(pdfPath: string): Promise<string[]> {
   const outputPrefix = path.join(TEMP_DIR, `${baseName}-${timestamp}`);
 
   try {
-    await execAsync(`pdftoppm -png -r 200 "${pdfPath}" "${outputPrefix}"`);
+    await execFileAsync('pdftoppm', ['-png', '-r', '200', pdfPath, outputPrefix]);
   } catch (error) {
     console.error('pdftoppm error:', error);
     throw new Error(`PDF conversion failed: ${(error as Error).message}`);

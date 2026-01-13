@@ -1,13 +1,13 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getSupabaseAdmin, DOCUMENTS_BUCKET, PREVIEWS_BUCKET } from '../lib/supabase';
 import { InsertDocument } from '../../shared/schema';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface DocumentInfo {
   id: string;
@@ -444,7 +444,7 @@ export async function generateDocumentPreviews(
 
     let pageCount = 1;
     try {
-      const { stdout } = await execAsync(`pdfinfo "${pdfPath}"`);
+      const { stdout } = await execFileAsync('pdfinfo', [pdfPath]);
       const pageMatch = stdout.match(/Pages:\s*(\d+)/);
       if (pageMatch) {
         pageCount = parseInt(pageMatch[1]);
@@ -454,7 +454,7 @@ export async function generateDocumentPreviews(
     }
 
     const outputPrefix = path.join(tempDir, 'page');
-    await execAsync(`pdftoppm -png -r 150 "${pdfPath}" "${outputPrefix}"`);
+    await execFileAsync('pdftoppm', ['-png', '-r', '150', pdfPath, outputPrefix]);
 
     const previewBasePath = `${organizationId}/${documentId}`;
 

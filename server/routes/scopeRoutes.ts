@@ -17,8 +17,13 @@ import {
   updateScopeSummary,
 } from '../services/scopeAssemblyService';
 import { validateScopeForLaborMinimums, getLaborMinimumThresholds } from '../services/laborMinimumValidator';
+import { requireAuth, requireOrganization } from '../middleware/auth';
 
 const router = Router();
+
+// Apply auth middleware to all scope routes
+router.use(requireAuth);
+router.use(requireOrganization);
 
 // ============================================
 // TRADES
