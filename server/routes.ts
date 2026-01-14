@@ -3316,34 +3316,29 @@ export async function registerRoutes(
    * GET /api/claims/:id/inspection-intelligence
    * Get inspection intelligence for a claim based on its peril.
    */
-  app.get('/api/claims/:id/inspection-intelligence', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      // Get the claim's peril
-      const { data, error } = await supabaseAdmin
-        .from('claims')
-        .select('primary_peril, secondary_perils')
-        .eq('id', req.params.id)
-        .eq('organization_id', req.organizationId!)
-        .single();
+  app.get('/api/claims/:id/inspection-intelligence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    // Get the claim's peril
+    const { data, error } = await supabaseAdmin
+      .from('claims')
+      .select('primary_peril, secondary_perils')
+      .eq('id', req.params.id)
+      .eq('organization_id', req.organizationId!)
+      .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Claim not found' });
-        }
-        throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Claim'));
       }
-
-      const peril = data.primary_peril || 'other';
-      const secondaryPerils = Array.isArray(data.secondary_perils) ? data.secondary_perils : [];
-
-      // Build inspection intelligence
-      const intelligence = buildInspectionIntelligence(peril, secondaryPerils);
-      res.json(intelligence);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      throw error;
     }
-  });
+
+    const peril = data.primary_peril || 'other';
+    const secondaryPerils = Array.isArray(data.secondary_perils) ? data.secondary_perils : [];
+
+    // Build inspection intelligence
+    const intelligence = buildInspectionIntelligence(peril, secondaryPerils);
+    res.json(intelligence);
+  }));
 
   // ============================================
   // EFFECTIVE POLICY ROUTES
@@ -3360,33 +3355,28 @@ export async function registerRoutes(
    *
    * The effective policy is NEVER cached - always computed fresh.
    */
-  app.get('/api/claims/:id/effective-policy', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getEffectivePolicyForClaim, generateEffectivePolicySummary } = await import('./services/effectivePolicyService');
+  app.get('/api/claims/:id/effective-policy', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getEffectivePolicyForClaim, generateEffectivePolicySummary } = await import('./services/effectivePolicyService');
 
-      const effectivePolicy = await getEffectivePolicyForClaim(req.params.id, req.organizationId!);
+    const effectivePolicy = await getEffectivePolicyForClaim(req.params.id, req.organizationId!);
 
-      if (!effectivePolicy) {
-        // Return empty policy if no extractions exist yet
-        return res.json({
-          effectivePolicy: null,
-          summary: null,
-          message: 'No policy or endorsement extractions found for this claim',
-        });
-      }
-
-      // Generate AI-friendly summary
-      const summary = generateEffectivePolicySummary(effectivePolicy);
-
-      res.json({
-        effectivePolicy,
-        summary,
+    if (!effectivePolicy) {
+      // Return empty policy if no extractions exist yet
+      return res.json({
+        effectivePolicy: null,
+        summary: null,
+        message: 'No policy or endorsement extractions found for this claim',
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
     }
-  });
+
+    // Generate AI-friendly summary
+    const summary = generateEffectivePolicySummary(effectivePolicy);
+
+    res.json({
+      effectivePolicy,
+      summary,
+    });
+  }));
 
   // ============================================
   // CLAIM BRIEFING ROUTES
@@ -3396,18 +3386,13 @@ export async function registerRoutes(
    * GET /api/claims/:id/briefing
    * Get the latest AI-generated briefing for a claim.
    */
-  app.get('/api/claims/:id/briefing', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
-      if (!briefing) {
-        return res.status(404).json({ error: 'No briefing found for this claim' });
-      }
-      res.json(briefing);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/claims/:id/briefing', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
+    if (!briefing) {
+      return next(errors.notFound('Briefing'));
     }
-  });
+    res.json(briefing);
+  }));
 
   /**
    * POST /api/claims/:id/briefing/generate
@@ -3415,67 +3400,52 @@ export async function registerRoutes(
    * Query params:
    * - force: boolean - Force regeneration even if cached
    */
-  app.post('/api/claims/:id/briefing/generate', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const forceRegenerate = req.query.force === 'true';
-      const result = await generateClaimBriefing(
-        req.params.id,
-        req.organizationId!,
-        forceRegenerate
-      );
+  app.post('/api/claims/:id/briefing/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const forceRegenerate = req.query.force === 'true';
+    const result = await generateClaimBriefing(
+      req.params.id,
+      req.organizationId!,
+      forceRegenerate
+    );
 
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({
-        briefing: result.briefing,
-        briefingId: result.briefingId,
-        sourceHash: result.sourceHash,
-        cached: result.cached,
-        model: result.model,
-        tokenUsage: result.tokenUsage,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to generate briefing'));
     }
-  });
+
+    res.json({
+      briefing: result.briefing,
+      briefingId: result.briefingId,
+      sourceHash: result.sourceHash,
+      cached: result.cached,
+      model: result.model,
+      tokenUsage: result.tokenUsage,
+    });
+  }));
 
   /**
    * GET /api/claims/:id/briefing/status
    * Check if the briefing is stale (claim data has changed).
    */
-  app.get('/api/claims/:id/briefing/status', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
-      const isStale = await isBriefingStale(req.params.id, req.organizationId!);
+  app.get('/api/claims/:id/briefing/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
+    const isStale = await isBriefingStale(req.params.id, req.organizationId!);
 
-      res.json({
-        hasBriefing: !!briefing,
-        isStale,
-        lastUpdated: briefing?.updatedAt || null,
-        model: briefing?.model || null,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json({
+      hasBriefing: !!briefing,
+      isStale,
+      lastUpdated: briefing?.updatedAt || null,
+      model: briefing?.model || null,
+    });
+  }));
 
   /**
    * DELETE /api/claims/:id/briefing
    * Delete all briefings for a claim.
    */
-  app.delete('/api/claims/:id/briefing', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const deletedCount = await deleteClaimBriefings(req.params.id, req.organizationId!);
-      res.json({ deleted: deletedCount });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.delete('/api/claims/:id/briefing', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const deletedCount = await deleteClaimBriefings(req.params.id, req.organizationId!);
+    res.json({ deleted: deletedCount });
+  }));
 
   // ============================================
   // UNIFIED CLAIM CONTEXT & COVERAGE ANALYSIS
@@ -3486,121 +3456,91 @@ export async function registerRoutes(
    * Get the unified claim context with all FNOL, Policy, and Endorsement data merged.
    * This is the single source of truth for claim data.
    */
-  app.get('/api/claims/:id/context', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { buildUnifiedClaimContext } = await import('./services/unifiedClaimContextService');
-      const context = await buildUnifiedClaimContext(req.params.id, req.organizationId!);
+  app.get('/api/claims/:id/context', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { buildUnifiedClaimContext } = await import('./services/unifiedClaimContextService');
+    const context = await buildUnifiedClaimContext(req.params.id, req.organizationId!);
 
-      if (!context) {
-        return res.status(404).json({ error: 'Claim not found or context could not be built' });
-      }
-
-      res.json(context);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[UnifiedClaimContext] Error:', message);
-      res.status(500).json({ error: message });
+    if (!context) {
+      return next(errors.notFound('Claim or context'));
     }
-  });
+
+    res.json(context);
+  }));
 
   /**
    * GET /api/claims/:id/coverage-analysis
    * Get comprehensive coverage analysis including alerts, depreciation, and recommendations.
    */
-  app.get('/api/claims/:id/coverage-analysis', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { analyzeCoverage } = await import('./services/coverageAnalysisService');
-      const analysis = await analyzeCoverage(req.params.id, req.organizationId!);
+  app.get('/api/claims/:id/coverage-analysis', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { analyzeCoverage } = await import('./services/coverageAnalysisService');
+    const analysis = await analyzeCoverage(req.params.id, req.organizationId!);
 
-      if (!analysis) {
-        return res.status(404).json({ error: 'Claim not found or analysis could not be performed' });
-      }
-
-      res.json(analysis);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[CoverageAnalysis] Error:', message);
-      res.status(500).json({ error: message });
+    if (!analysis) {
+      return next(errors.notFound('Claim or analysis'));
     }
-  });
+
+    res.json(analysis);
+  }));
 
   /**
    * GET /api/claims/:id/coverage-analysis/summary
    * Get a quick summary of coverage analysis for UI display.
    */
-  app.get('/api/claims/:id/coverage-analysis/summary', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getCoverageAnalysisSummary } = await import('./services/coverageAnalysisService');
-      const summary = await getCoverageAnalysisSummary(req.params.id, req.organizationId!);
+  app.get('/api/claims/:id/coverage-analysis/summary', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getCoverageAnalysisSummary } = await import('./services/coverageAnalysisService');
+    const summary = await getCoverageAnalysisSummary(req.params.id, req.organizationId!);
 
-      if (!summary) {
-        return res.status(404).json({ error: 'Claim not found or summary could not be generated' });
-      }
-
-      res.json(summary);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[CoverageAnalysisSummary] Error:', message);
-      res.status(500).json({ error: message });
+    if (!summary) {
+      return next(errors.notFound('Claim or summary'));
     }
-  });
+
+    res.json(summary);
+  }));
 
   /**
    * POST /api/claims/:id/briefing/generate-enhanced
    * Generate an enhanced AI briefing using UnifiedClaimContext.
    * NOTE: The main generateClaimBriefing now uses enhanced context by default.
    */
-  app.post('/api/claims/:id/briefing/generate-enhanced', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { generateClaimBriefing } = await import('./services/claimBriefingService');
-      const forceRegenerate = req.query.force === 'true';
+  app.post('/api/claims/:id/briefing/generate-enhanced', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { generateClaimBriefing } = await import('./services/claimBriefingService');
+    const forceRegenerate = req.query.force === 'true';
 
-      const result = await generateClaimBriefing(
-        req.params.id,
-        req.organizationId!,
-        forceRegenerate
-      );
+    const result = await generateClaimBriefing(
+      req.params.id,
+      req.organizationId!,
+      forceRegenerate
+    );
 
-      if (!result.success) {
-        return res.status(500).json({ error: result.error });
-      }
-
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[ClaimBriefing] Error:', message);
-      res.status(500).json({ error: message });
+    if (!result.success) {
+      return next(errors.internal(result.error || 'Failed to generate briefing'));
     }
-  });
+
+    res.json(result);
+  }));
 
   /**
    * POST /api/claims/:id/workflow/generate-enhanced
    * Generate an enhanced inspection workflow using UnifiedClaimContext.
    * NOTE: The main generateInspectionWorkflow now uses enhanced context by default.
    */
-  app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { generateInspectionWorkflow } = await import('./services/inspectionWorkflowService');
-      const forceRegenerate = req.query.force === 'true';
+  app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { generateInspectionWorkflow } = await import('./services/inspectionWorkflowService');
+    const forceRegenerate = req.query.force === 'true';
 
-      const result = await generateInspectionWorkflow(
-        req.params.id,
-        req.organizationId!,
-        undefined, // userId
-        forceRegenerate
-      );
+    const result = await generateInspectionWorkflow(
+      req.params.id,
+      req.organizationId!,
+      undefined, // userId
+      forceRegenerate
+    );
 
-      if (!result.success) {
-        return res.status(500).json({ error: result.error });
-      }
-
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[InspectionWorkflow] Error:', message);
-      res.status(500).json({ error: message });
+    if (!result.success) {
+      return next(errors.internal(result.error || 'Failed to generate workflow'));
     }
-  });
+
+    res.json(result);
+  }));
 
   // ============================================
   // CLAIM CHECKLIST ROUTES
@@ -3610,94 +3550,34 @@ export async function registerRoutes(
    * GET /api/claims/:id/checklist
    * Get the dynamic checklist for a claim, auto-generating if needed
    */
-  app.get('/api/claims/:id/checklist', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const claimId = req.params.id;
-      const organizationId = req.organizationId!;
+  app.get('/api/claims/:id/checklist', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const claimId = req.params.id;
+    const organizationId = req.organizationId!;
 
-      console.log(`[Checklist] GET claimId=${claimId}, orgId=${organizationId}`);
+    console.log(`[Checklist] GET claimId=${claimId}, orgId=${organizationId}`);
 
-      let { checklist, items } = await getChecklistForClaim(claimId);
+    let { checklist, items } = await getChecklistForClaim(claimId);
 
-      if (!checklist) {
-        const { data: claim, error: claimError } = await supabaseAdmin
-          .from('claims')
-          .select('id, primary_peril, total_rcv, metadata')
-          .eq('id', claimId)
-          .eq('organization_id', organizationId)
-          .single();
-
-        if (claimError) {
-          console.log(`[Checklist] Claim lookup error:`, claimError);
-        }
-
-        if (!claim) {
-          console.log(`[Checklist] Claim not found for id=${claimId}, org=${organizationId}`);
-          return res.status(404).json({ error: 'Claim not found' });
-        }
-
-        const peril = normalizePeril(claim.primary_peril);
-        const severity = inferSeverityFromClaim({
-          reserveAmount: claim.total_rcv ? parseFloat(claim.total_rcv) : null,
-          metadata: claim.metadata as Record<string, any> | null,
-        });
-
-        const result = await generateChecklistForClaim(
-          claimId,
-          organizationId,
-          peril,
-          severity,
-          { userId: (req.user as any)?.id }
-        );
-
-        if (!result.success) {
-          return res.status(500).json({ error: result.error });
-        }
-
-        const generated = await getChecklistForClaim(claimId);
-        checklist = generated.checklist;
-        items = generated.items;
-      }
-
-      res.json({ checklist, items });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
-
-  /**
-   * POST /api/claims/:id/checklist/generate
-   * Force generate or regenerate a checklist for a claim
-   */
-  app.post('/api/claims/:id/checklist/generate', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const claimId = req.params.id;
-      const organizationId = req.organizationId!;
-      const { peril: overridePeril, severity: overrideSeverity } = req.body;
-
-      // Use Supabase consistently with the rest of the codebase
+    if (!checklist) {
       const { data: claim, error: claimError } = await supabaseAdmin
         .from('claims')
-        .select('id, primary_peril, metadata')
+        .select('id, primary_peril, total_rcv, metadata')
         .eq('id', claimId)
         .eq('organization_id', organizationId)
         .single();
 
-      if (claimError || !claim) {
-        return res.status(404).json({ error: 'Claim not found' });
+      if (claimError) {
+        console.log(`[Checklist] Claim lookup error:`, claimError);
       }
 
-      // Archive existing active checklists
-      await supabaseAdmin
-        .from('claim_checklists')
-        .update({ status: 'archived', updated_at: new Date().toISOString() })
-        .eq('claim_id', claimId)
-        .eq('status', 'active');
+      if (!claim) {
+        console.log(`[Checklist] Claim not found for id=${claimId}, org=${organizationId}`);
+        return next(errors.notFound('Claim'));
+      }
 
-      const peril = overridePeril ? normalizePeril(overridePeril) : normalizePeril(claim.primary_peril);
-      const severity = (overrideSeverity as ClaimSeverity) || inferSeverityFromClaim({
-        reserveAmount: null,
+      const peril = normalizePeril(claim.primary_peril);
+      const severity = inferSeverityFromClaim({
+        reserveAmount: claim.total_rcv ? parseFloat(claim.total_rcv) : null,
         metadata: claim.metadata as Record<string, any> | null,
       });
 
@@ -3710,48 +3590,97 @@ export async function registerRoutes(
       );
 
       if (!result.success) {
-        return res.status(500).json({ error: result.error });
+        return next(errors.internal(result.error || 'Failed to generate checklist'));
       }
 
-      const { checklist, items } = await getChecklistForClaim(claimId);
-      res.json({ checklist, items, regenerated: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      const generated = await getChecklistForClaim(claimId);
+      checklist = generated.checklist;
+      items = generated.items;
     }
-  });
+
+    res.json({ checklist, items });
+  }));
+
+  /**
+   * POST /api/claims/:id/checklist/generate
+   * Force generate or regenerate a checklist for a claim
+   */
+  app.post('/api/claims/:id/checklist/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const claimId = req.params.id;
+    const organizationId = req.organizationId!;
+    const { peril: overridePeril, severity: overrideSeverity } = req.body;
+
+    // Use Supabase consistently with the rest of the codebase
+    const { data: claim, error: claimError } = await supabaseAdmin
+      .from('claims')
+      .select('id, primary_peril, metadata')
+      .eq('id', claimId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (claimError || !claim) {
+      return next(errors.notFound('Claim'));
+    }
+
+    // Archive existing active checklists
+    await supabaseAdmin
+      .from('claim_checklists')
+      .update({ status: 'archived', updated_at: new Date().toISOString() })
+      .eq('claim_id', claimId)
+      .eq('status', 'active');
+
+    const peril = overridePeril ? normalizePeril(overridePeril) : normalizePeril(claim.primary_peril);
+    const severity = (overrideSeverity as ClaimSeverity) || inferSeverityFromClaim({
+      reserveAmount: null,
+      metadata: claim.metadata as Record<string, any> | null,
+    });
+
+    const result = await generateChecklistForClaim(
+      claimId,
+      organizationId,
+      peril,
+      severity,
+      { userId: (req.user as any)?.id }
+    );
+
+    if (!result.success) {
+      return next(errors.internal(result.error || 'Failed to generate checklist'));
+    }
+
+    const { checklist, items } = await getChecklistForClaim(claimId);
+    res.json({ checklist, items, regenerated: true });
+  }));
 
   /**
    * PUT /api/checklists/items/:itemId
    * Update a checklist item status
    */
-  app.put('/api/checklists/items/:itemId', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { status, notes, skippedReason } = req.body;
+  app.put('/api/checklists/items/:itemId', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { status, notes, skippedReason } = req.body;
 
-      if (!status) {
-        return res.status(400).json({ error: 'Status is required' });
-      }
+    if (!status) {
+      return next(errors.badRequest('Status is required'));
+    }
 
-      const validStatuses = ['pending', 'in_progress', 'completed', 'skipped', 'blocked', 'na'];
-      if (!validStatuses.includes(status)) {
-        return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
-      }
+    const validStatuses = ['pending', 'in_progress', 'completed', 'skipped', 'blocked', 'na'];
+    if (!validStatuses.includes(status)) {
+      return next(errors.badRequest(`Invalid status. Must be one of: ${validStatuses.join(', ')}`));
+    }
 
-      const result = await updateChecklistItemStatus(
-        req.params.itemId,
-        status,
-        req.user?.id,
-        notes,
-        skippedReason
-      );
+    const result = await updateChecklistItemStatus(
+      req.params.itemId,
+      status,
+      req.user?.id,
+      notes,
+      skippedReason
+    );
 
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to update checklist item'));
+    }
 
-      res.json({ success: true });
-    } catch (error) {
+    res.json({ success: true });
+  }));
       const message = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({ error: message });
     }
@@ -3801,66 +3730,51 @@ export async function registerRoutes(
    * Generate a new inspection workflow for a claim.
    * Uses FNOL, policy, endorsements, briefing, peril rules, and optional wizard context.
    */
-  app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { forceRegenerate, wizardContext } = req.body;
-      const result = await generateInspectionWorkflow(
-        req.params.id,
-        req.organizationId!,
-        req.user?.id,
-        forceRegenerate === true,
-        wizardContext
-      );
+  app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { forceRegenerate, wizardContext } = req.body;
+    const result = await generateInspectionWorkflow(
+      req.params.id,
+      req.organizationId!,
+      req.user?.id,
+      forceRegenerate === true,
+      wizardContext
+    );
 
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({
-        workflow: result.workflow,
-        workflowId: result.workflowId,
-        version: result.version,
-        model: result.model,
-        tokenUsage: result.tokenUsage,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to generate workflow'));
     }
-  });
+
+    res.json({
+      workflow: result.workflow,
+      workflowId: result.workflowId,
+      version: result.version,
+      model: result.model,
+      tokenUsage: result.tokenUsage,
+    });
+  }));
 
   /**
    * GET /api/claims/:id/workflow
    * Get the current inspection workflow for a claim with all steps and rooms.
    */
-  app.get('/api/claims/:id/workflow', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const workflow = await getClaimWorkflow(req.params.id, req.organizationId!);
+  app.get('/api/claims/:id/workflow', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const workflow = await getClaimWorkflow(req.params.id, req.organizationId!);
 
-      if (!workflow) {
-        return res.status(404).json({ error: 'No workflow found for this claim' });
-      }
-
-      res.json(workflow);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!workflow) {
+      return next(errors.notFound('Workflow'));
     }
-  });
+
+    res.json(workflow);
+  }));
 
   /**
    * GET /api/claims/:id/workflow/status
    * Check if the workflow should be regenerated due to claim changes.
    */
-  app.get('/api/claims/:id/workflow/status', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const result = await shouldRegenerateWorkflow(req.params.id, req.organizationId!);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/claims/:id/workflow/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const result = await shouldRegenerateWorkflow(req.params.id, req.organizationId!);
+    res.json(result);
+  }));
 
   /**
    * POST /api/claims/:id/workflow/regenerate
