@@ -106,6 +106,24 @@ import {
   subroomUpdateSchema,
   coverageCreateSchema,
   lineItemCoverageUpdateSchema,
+  workflowStepUpdateSchema,
+  workflowStepCreateSchema,
+  workflowRoomCreateSchema,
+  workflowEvidenceSchema,
+  workflowMutationSchema,
+  calendarAppointmentCreateSchema,
+  claimRoomsSaveSchema,
+  scopeItemCreateSchema,
+  scopeItemUpdateSchema,
+  sketchConnectionCreateSchema,
+  sketchConnectionUpdateSchema,
+  estimateFromTemplateSchema,
+  missingWallCreateSchema,
+  missingWallUpdateSchema,
+  lineItemFromDimensionSchema,
+  calendarSyncFromMs365Schema,
+  calendarSyncToMs365Schema,
+  calendarSyncFullSchema,
 } from "./middleware/validationSchemas";
 import {
   authRateLimiter,
@@ -505,7 +523,7 @@ export async function registerRoutes(
   }));
 
   // Create a new appointment
-  app.post('/api/calendar/appointments', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/calendar/appointments', requireAuth, requireOrganization, apiRateLimiter, validateBody(calendarAppointmentCreateSchema), asyncHandler(async (req, res, next) => {
     const { createInspectionAppointment } = await import('./services/ms365CalendarService');
     const { isUserConnected } = await import('./services/ms365AuthService');
     
@@ -562,31 +580,27 @@ export async function registerRoutes(
   }));
 
   // Fetch MS365 calendar events (for viewing external events)
-  app.get('/api/calendar/ms365/events', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/calendar/ms365/events', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { fetchCalendarEvents, fetchTodayEvents } = await import('./services/ms365CalendarService');
     const { isUserConnected } = await import('./services/ms365AuthService');
       
-      const isConnected = await isUserConnected(req.user!.id);
-      if (!isConnected) {
-        return res.json({ events: [], connected: false });
-      }
-      
-      // Support date range or default to today
-      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date();
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      
-      if (req.query.startDate || req.query.endDate) {
-        const events = await fetchCalendarEvents(req.user!.id, startDate, endDate);
-        res.json({ events, connected: true });
-      } else {
-        const events = await fetchTodayEvents(req.user!.id);
-        res.json({ events, connected: true });
-      }
-    } catch (error) {
-      console.error('[Calendar] Failed to fetch MS365 events:', error);
-      res.status(500).json({ error: 'Failed to fetch calendar events' });
+    const isConnected = await isUserConnected(req.user!.id);
+    if (!isConnected) {
+      return res.json({ events: [], connected: false });
     }
-  });
+    
+    // Support date range or default to today
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date();
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+    
+    if (req.query.startDate || req.query.endDate) {
+      const events = await fetchCalendarEvents(req.user!.id, startDate, endDate);
+      res.json({ events, connected: true });
+    } else {
+      const events = await fetchTodayEvents(req.user!.id);
+      res.json({ events, connected: true });
+    }
+  }));
 
   // ============================================
   // CALENDAR SYNC ENDPOINTS
@@ -600,77 +614,63 @@ export async function registerRoutes(
   }));
 
   // Pull sync from MS365
-  app.post('/api/calendar/sync/from-ms365', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
-      const { syncFromMs365 } = await import('./services/ms365CalendarSyncService');
-      const { startDate, endDate } = req.body;
+  app.post('/api/calendar/sync/from-ms365', requireAuth, requireOrganization, apiRateLimiter, validateBody(calendarSyncFromMs365Schema), asyncHandler(async (req, res, next) => {
+    const { syncFromMs365 } = await import('./services/ms365CalendarSyncService');
+    const { startDate, endDate } = req.body;
 
-      const start = startDate ? new Date(startDate) : new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = endDate ? new Date(endDate) : new Date();
-      end.setDate(end.getDate() + 7);
-      end.setHours(23, 59, 59, 999);
+    const start = startDate ? new Date(startDate) : new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = endDate ? new Date(endDate) : new Date();
+    end.setDate(end.getDate() + 7);
+    end.setHours(23, 59, 59, 999);
 
-      const result = await syncFromMs365(req.user!.id, req.organizationId!, start, end);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[Calendar Sync] Pull sync failed:', error);
-      next(errors.internal(`Pull sync failed: ${message}`));
-    }
+    const result = await syncFromMs365(req.user!.id, req.organizationId!, start, end);
+    res.json(result);
   }));
 
   // Push sync to MS365
-  app.post('/api/calendar/sync/to-ms365', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
-      const { syncToMs365 } = await import('./services/ms365CalendarSyncService');
-      const { appointmentIds, startDate, endDate } = req.body;
+  app.post('/api/calendar/sync/to-ms365', requireAuth, requireOrganization, apiRateLimiter, validateBody(calendarSyncToMs365Schema), asyncHandler(async (req, res, next) => {
+    const { syncToMs365 } = await import('./services/ms365CalendarSyncService');
+    const { appointmentIds, startDate, endDate } = req.body;
 
-      let start: Date | undefined;
-      let end: Date | undefined;
+    let start: Date | undefined;
+    let end: Date | undefined;
 
-      if (startDate || endDate) {
-        start = startDate ? new Date(startDate) : new Date();
-        start.setHours(0, 0, 0, 0);
-        end = endDate ? new Date(endDate) : new Date();
-        end.setDate(end.getDate() + 7);
-        end.setHours(23, 59, 59, 999);
-      }
+    if (startDate || endDate) {
+      start = startDate ? new Date(startDate) : new Date();
+      start.setHours(0, 0, 0, 0);
+      end = endDate ? new Date(endDate) : new Date();
+      end.setDate(end.getDate() + 7);
+      end.setHours(23, 59, 59, 999);
+    }
 
-      const result = await syncToMs365(
-        req.user!.id,
-        req.organizationId!,
-        appointmentIds,
-        start,
-        end
-      );
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
+    const result = await syncToMs365(
+      req.user!.id,
+      req.organizationId!,
+      appointmentIds,
+      start,
+      end
+    );
+    res.json(result);
+  }));
       console.error('[Calendar Sync] Push sync failed:', error);
       next(errors.internal(`Push sync failed: ${message}`));
     }
   }));
 
   // Full bidirectional sync
-  app.post('/api/calendar/sync/full', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
-      const { fullSync } = await import('./services/ms365CalendarSyncService');
-      const { startDate, endDate } = req.body;
+  app.post('/api/calendar/sync/full', requireAuth, requireOrganization, apiRateLimiter, validateBody(calendarSyncFullSchema), asyncHandler(async (req, res, next) => {
+    const { fullSync } = await import('./services/ms365CalendarSyncService');
+    const { startDate, endDate } = req.body;
 
-      const start = startDate ? new Date(startDate) : new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = endDate ? new Date(endDate) : new Date();
-      end.setDate(end.getDate() + 7);
-      end.setHours(23, 59, 59, 999);
+    const start = startDate ? new Date(startDate) : new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = endDate ? new Date(endDate) : new Date();
+    end.setDate(end.getDate() + 7);
+    end.setHours(23, 59, 59, 999);
 
-      const result = await fullSync(req.user!.id, req.organizationId!, start, end);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[Calendar Sync] Full sync failed:', error);
-      next(errors.internal(`Full sync failed: ${message}`));
-    }
+    const result = await fullSync(req.user!.id, req.organizationId!, start, end);
+    res.json(result);
   }));
 
   // Get sync status
@@ -956,11 +956,7 @@ export async function registerRoutes(
       };
 
       res.json({ user: userWithName, message: 'Profile updated successfully' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // Change user password
   app.put('/api/users/password', requireAuth, apiRateLimiter, validateBody(passwordChangeSchema), asyncHandler(async (req, res, next) => {
@@ -977,31 +973,26 @@ export async function registerRoutes(
   }));
 
   // Get user preferences
-  app.get('/api/users/preferences', requireAuth, asyncHandler(async (req, res, next) => {
-    try {
-      const userId = req.user!.id;
-      const { data, error } = await supabaseAdmin
-        .from('users')
-        .select('preferences')
-        .eq('id', userId)
-        .single();
+  app.get('/api/users/preferences', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const userId = req.user!.id;
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('preferences')
+      .eq('id', userId)
+      .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'User not found' });
-        }
-        throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('User'));
       }
-
-      res.json(data.preferences || {});
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      throw error;
     }
-  });
+
+    res.json(data.preferences || {});
+  }));
 
   // Update user preferences
-  app.put('/api/users/preferences', requireAuth, validateBody(z.record(z.unknown())), async (req, res) => {
+  app.put('/api/users/preferences', requireAuth, apiRateLimiter, validateBody(z.record(z.unknown())), asyncHandler(async (req, res, next) => {
     try {
       const userId = req.user!.id;
       const preferences = req.body;
@@ -1059,16 +1050,18 @@ export async function registerRoutes(
     res.json(categories);
   }));
 
-  app.post('/api/pricing/calculate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-      const { line_item_code, quantity, region_id, carrier_id } = req.body;
-      
-      if (!line_item_code || !quantity || !region_id) {
-        return next(errors.badRequest('Missing required fields: line_item_code, quantity, region_id'));
-      }
-      
+  app.post('/api/pricing/calculate', requireAuth, requireOrganization, apiRateLimiter, validateBody(z.object({
+    line_item_code: z.string().min(1, 'Line item code is required'),
+    quantity: z.coerce.number().positive('Quantity must be positive'),
+    region_id: z.string().min(1, 'Region ID is required'),
+    carrier_id: z.string().uuid().optional(),
+  })), asyncHandler(async (req, res, next) => {
+    const { line_item_code, quantity, region_id, carrier_id } = req.body;
+    
+    try {
       const result = await calculatePrice(
         line_item_code,
-        parseFloat(quantity),
+        parseFloat(quantity.toString()),
         region_id,
         carrier_id
       );
@@ -1076,12 +1069,12 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('not found')) {
-        res.status(404).json({ error: message });
+        return next(errors.notFound('Line item or region'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
   app.get('/api/pricing/region/:zipCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     const region = await getRegionByZip(req.params.zipCode);
@@ -1161,11 +1154,7 @@ export async function registerRoutes(
       if (error) throw error;
 
       res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // System status endpoint (limited information, no auth required for monitoring)
   app.get('/api/system/status', asyncHandler(async (req, res, next) => {
@@ -1547,14 +1536,10 @@ export async function registerRoutes(
   app.get('/api/estimates/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
       const estimate = await getEstimate(req.params.id, req.organizationId!);
       if (!estimate) {
-        return res.status(404).json({ error: 'Estimate not found' });
+        return next(errors.notFound('Estimate'));
       }
       res.json(estimate);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // Update estimate
   app.put('/api/estimates/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(estimateUpdateSchema), asyncHandler(async (req, res, next) => {
@@ -1598,7 +1583,7 @@ export async function registerRoutes(
   // ============================================
 
   // Submit estimate for review (finalize)
-  app.post('/api/estimates/:id/submit', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/submit', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const result = await submitEstimate(req.params.id);
 
     if (!result.success) {
@@ -2021,7 +2006,7 @@ export async function registerRoutes(
   }));
 
   // Generate ESX JSON export
-  app.get('/api/estimates/:id/export/esx', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/export/esx', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     try {
       const metadata = {
         dateOfLoss: req.query.dateOfLoss as string,
@@ -2034,12 +2019,12 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('not found')) {
-        res.status(404).json({ error: message });
+        return next(errors.notFound('Estimate'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
   // Generate ESX XML export
   app.get('/api/estimates/:id/export/esx-xml', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -2094,7 +2079,12 @@ export async function registerRoutes(
   }));
 
   // Initialize estimate hierarchy with defaults
-  app.post('/api/estimates/:id/hierarchy/initialize', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/hierarchy/initialize', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
+    structureName: z.string().optional(),
+    includeInterior: z.boolean().optional(),
+    includeExterior: z.boolean().optional(),
+    includeRoofing: z.boolean().optional(),
+  })), asyncHandler(async (req, res, next) => {
     const { structureName, includeInterior, includeExterior, includeRoofing } = req.body;
     const hierarchy = await initializeEstimateHierarchy(req.params.id, {
       structureName,
@@ -2110,7 +2100,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get sketch geometry for an estimate
-  app.get('/api/estimates/:id/sketch', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/sketch', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     try {
       const sketch = await getEstimateSketch(req.params.id);
       res.json(sketch);
@@ -2125,13 +2115,13 @@ export async function registerRoutes(
   }));
 
   // Update sketch geometry for an estimate
-  app.put('/api/estimates/:id/sketch', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/estimates/:id/sketch', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(sketchUpdateSchema), asyncHandler(async (req, res, next) => {
     const sketch = await updateEstimateSketch(req.params.id, req.body);
     res.json(sketch);
   }));
 
   // Validate sketch geometry for export
-  app.post('/api/estimates/:id/sketch/validate', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/sketch/validate', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const validation = await validateEstimateSketchForExport(req.params.id);
     res.json(validation);
   }));
@@ -2144,7 +2134,7 @@ export async function registerRoutes(
    * POST /api/estimates/:id/sketch/connections
    * Create a new zone connection
    */
-  app.post('/api/estimates/:id/sketch/connections', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/sketch/connections', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(sketchConnectionCreateSchema), asyncHandler(async (req, res, next) => {
     const estimateId = req.params.id;
     const { fromZoneId, toZoneId, connectionType, openingId } = req.body;
 
@@ -2206,7 +2196,7 @@ export async function registerRoutes(
    * PUT /api/estimates/:id/sketch/connections/:connId
    * Update an existing zone connection
    */
-  app.put('/api/estimates/:id/sketch/connections/:connId', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/estimates/:id/sketch/connections/:connId', requireAuth, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), connId: z.string().uuid() })), validateBody(sketchConnectionUpdateSchema), asyncHandler(async (req, res, next) => {
     const estimateId = req.params.id;
     const connId = req.params.connId;
     const { connectionType, openingId } = req.body;
@@ -2338,7 +2328,7 @@ export async function registerRoutes(
   }));
 
   // Recalculate estimate totals
-  app.post('/api/estimates/:id/recalculate', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/recalculate', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     await assertEstimateNotLocked(req.params.id);
 
@@ -2357,7 +2347,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create structure
-  app.post('/api/estimates/:id/structures', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/structures', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(structureCreateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     await assertEstimateNotLocked(req.params.id);
 
@@ -2378,7 +2368,7 @@ export async function registerRoutes(
   }));
 
   // Update structure
-  app.put('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/structures/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(structureUpdateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromStructure(req.params.id);
     if (estimateId) {
@@ -2412,7 +2402,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create area in structure
-  app.post('/api/structures/:id/areas', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/structures/:id/areas', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(areaCreateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromStructure(req.params.id);
     if (estimateId) {
@@ -2436,7 +2426,7 @@ export async function registerRoutes(
   }));
 
   // Update area
-  app.put('/api/areas/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/areas/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(areaUpdateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromArea(req.params.id);
     if (estimateId) {
@@ -2470,7 +2460,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create zone in area
-  app.post('/api/areas/:id/zones', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/areas/:id/zones', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(zoneCreateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromArea(req.params.id);
     if (estimateId) {
@@ -2503,7 +2493,7 @@ export async function registerRoutes(
   }));
 
   // Update zone
-  app.put('/api/zones/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/zones/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(zoneUpdateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromZone(req.params.id);
     if (estimateId) {
@@ -2518,7 +2508,7 @@ export async function registerRoutes(
   }));
 
   // Recalculate zone dimensions
-  app.post('/api/zones/:id/calculate-dimensions', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/zones/:id/calculate-dimensions', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromZone(req.params.id);
     if (estimateId) {
@@ -2549,7 +2539,7 @@ export async function registerRoutes(
   // ============================================
 
   // Add missing wall to zone
-  app.post('/api/zones/:id/missing-walls', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/zones/:id/missing-walls', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(missingWallCreateSchema), asyncHandler(async (req, res, next) => {
     const { widthFt, heightFt } = req.body;
     if (!widthFt || !heightFt) {
       return next(errors.badRequest('widthFt and heightFt required'));
@@ -2571,7 +2561,7 @@ export async function registerRoutes(
   }));
 
   // Update missing wall
-  app.put('/api/missing-walls/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/missing-walls/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(missingWallUpdateSchema), asyncHandler(async (req, res, next) => {
     const wall = await updateMissingWall(req.params.id, req.body);
     if (!wall) {
       return next(errors.notFound('Missing wall'));
@@ -2593,7 +2583,7 @@ export async function registerRoutes(
   // ============================================
 
   // Add subroom to zone
-  app.post('/api/zones/:id/subrooms', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/zones/:id/subrooms', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(subroomCreateSchema), asyncHandler(async (req, res, next) => {
     const { name, lengthFt, widthFt } = req.body;
     if (!name || !lengthFt || !widthFt) {
       return next(errors.badRequest('name, lengthFt, and widthFt required'));
@@ -2736,7 +2726,7 @@ export async function registerRoutes(
   }));
 
   // Add line item from zone dimension (auto-calculate quantity)
-  app.post('/api/zones/:id/line-items/from-dimension', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/zones/:id/line-items/from-dimension', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(lineItemFromDimensionSchema), asyncHandler(async (req, res, next) => {
     const { lineItemCode, dimensionKey, unitPrice, taxRate, depreciationPct, isRecoverable, notes } = req.body;
     if (!lineItemCode || !dimensionKey) {
       return next(errors.badRequest('lineItemCode and dimensionKey required'));
@@ -2769,7 +2759,7 @@ export async function registerRoutes(
   }));
 
   // Update subroom
-  app.put('/api/subrooms/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/subrooms/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(subroomUpdateSchema), asyncHandler(async (req, res, next) => {
     const subroom = await updateSubroom(req.params.id, req.body);
     if (!subroom) {
       return next(errors.notFound('Subroom'));
@@ -2797,7 +2787,7 @@ export async function registerRoutes(
   }));
 
   // Create coverage for an estimate
-  app.post('/api/estimates/:id/coverages', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/coverages', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(coverageCreateSchema), asyncHandler(async (req, res, next) => {
     const { coverageType, coverageName, policyLimit, deductible } = req.body;
     if (!coverageType || !coverageName) {
       return next(errors.badRequest('coverageType and coverageName required'));
@@ -2819,7 +2809,7 @@ export async function registerRoutes(
   }));
 
   // Update line item coverage assignment
-  app.put('/api/line-items/:id/coverage', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/line-items/:id/coverage', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(lineItemCoverageUpdateSchema), asyncHandler(async (req, res, next) => {
     const { coverageId } = req.body;
     await updateLineItemCoverage(req.params.id, coverageId || null);
     res.json({ success: true });
@@ -2985,7 +2975,9 @@ export async function registerRoutes(
   }));
 
   // Trigger geocoding for pending claims
-  app.post('/api/claims/geocode-pending', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/geocode-pending', requireAuth, requireOrganization, apiRateLimiter, validateBody(z.object({
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+  })), asyncHandler(async (req, res, next) => {
     const { limit } = req.body;
     const count = await geocodePendingClaims(req.organizationId!, limit || 100);
     res.json({ queued: count, message: `Queued ${count} claims for geocoding` });
@@ -3056,7 +3048,7 @@ export async function registerRoutes(
   }));
 
   // Save rooms to claim with full hierarchy (structures → rooms → damage zones)
-  app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(claimRoomsSaveSchema), asyncHandler(async (req, res, next) => {
     const { rooms, structures } = req.body;
     const { saveClaimHierarchy, saveClaimRoomsAndZones } = await import('./services/rooms');
     
@@ -3164,7 +3156,7 @@ export async function registerRoutes(
   }));
 
   // Add scope item to claim
-  app.post('/api/claims/:id/scope-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/scope-items', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(scopeItemCreateSchema), asyncHandler(async (req, res, next) => {
     const { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes } = req.body;
     
     if (!lineItemCode || !description || !quantity || !unit || unitPrice === undefined) {
@@ -3180,7 +3172,7 @@ export async function registerRoutes(
   }));
 
   // Update scope item
-  app.patch('/api/scope-items/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.patch('/api/scope-items/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(scopeItemUpdateSchema), asyncHandler(async (req, res, next) => {
     const { quantity, notes } = req.body;
     const item = await updateScopeItem(req.params.id, { quantity, notes });
     if (!item) {
@@ -3663,10 +3655,6 @@ export async function registerRoutes(
 
     res.json({ success: true });
   }));
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
 
   /**
    * POST /api/checklists/:checklistId/items
@@ -3808,7 +3796,7 @@ export async function registerRoutes(
    * Update a workflow step (status, notes, actual minutes, etc.)
    * Enforces evidence requirements for blocking steps when completing.
    */
-  app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), stepId: z.string().uuid() })), validateBody(workflowStepUpdateSchema), asyncHandler(async (req, res, next) => {
     const { status, notes, actualMinutes, skipValidation } = req.body;
 
     // If completing a step, validate evidence requirements for blocking steps
@@ -3887,7 +3875,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/steps
    * Add a new custom step to a workflow.
    */
-  app.post('/api/workflow/:id/steps', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/steps', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowStepCreateSchema), asyncHandler(async (req, res, next) => {
     const { phase, stepType, title, instructions, required, estimatedMinutes, roomId, roomName } = req.body;
 
     if (!phase || !stepType || !title) {
@@ -3916,7 +3904,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/rooms
    * Add a new room to a workflow.
    */
-  app.post('/api/workflow/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/rooms', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowRoomCreateSchema), asyncHandler(async (req, res, next) => {
     const { name, level, roomType, notes } = req.body;
 
     if (!name) {
@@ -3971,7 +3959,9 @@ export async function registerRoutes(
    * POST /api/workflow/:id/validate
    * Validate a workflow JSON structure.
    */
-  app.post('/api/workflow/:id/validate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/validate', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
+    workflowJson: z.any().refine((val) => val !== undefined && val !== null, 'workflowJson is required'),
+  })), asyncHandler(async (req, res, next) => {
     const { workflowJson } = req.body;
 
     if (!workflowJson) {
@@ -4032,7 +4022,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/steps/:stepId/evidence
    * Attach evidence to a workflow step.
    */
-  app.post('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), stepId: z.string().uuid() })), validateBody(workflowEvidenceSchema), asyncHandler(async (req, res, next) => {
     const { attachEvidenceToStep } = await import('./services/dynamicWorkflowService');
     const { requirementId, type, photoId, measurementData, noteData } = req.body;
 
@@ -4072,7 +4062,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/validate-export
    * Validate workflow for export readiness with evidence completeness check.
    */
-  app.post('/api/workflow/:id/validate-export', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/validate-export', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { validateWorkflowForExport } = await import('./services/dynamicWorkflowService');
     const result = await validateWorkflowForExport(req.params.id, req.organizationId!);
     res.json(result);
@@ -4082,7 +4072,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/mutation/room-added
    * Trigger workflow mutation when a room is added.
    */
-  app.post('/api/workflow/:id/mutation/room-added', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/mutation/room-added', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowMutationSchema), asyncHandler(async (req, res, next) => {
     const { onRoomAdded } = await import('./services/dynamicWorkflowService');
     const { roomId, roomName } = req.body;
 
@@ -4102,7 +4092,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/mutation/damage-added
    * Trigger workflow mutation when a damage zone is added.
    */
-  app.post('/api/workflow/:id/mutation/damage-added', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/mutation/damage-added', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowMutationSchema), asyncHandler(async (req, res, next) => {
     const { onDamageZoneAdded } = await import('./services/dynamicWorkflowService');
     const { zoneId, roomId, damageType } = req.body;
 
@@ -4122,7 +4112,7 @@ export async function registerRoutes(
    * POST /api/workflow/:id/mutation/photo-added
    * Trigger workflow mutation when a photo is added.
    */
-  app.post('/api/workflow/:id/mutation/photo-added', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/mutation/photo-added', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowMutationSchema), asyncHandler(async (req, res, next) => {
     const { onPhotoAdded } = await import('./services/dynamicWorkflowService');
     const { photoId, roomId, zoneId, stepId } = req.body;
 
@@ -4158,7 +4148,9 @@ export async function registerRoutes(
    * PUT /api/carriers/:id/overlays
    * Update carrier-specific inspection overlays.
    */
-  app.put('/api/carriers/:id/overlays', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+  app.put('/api/carriers/:id/overlays', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
+    overlays: z.record(z.unknown(), 'Overlays object is required'),
+  })), asyncHandler(async (req, res, next) => {
     const { overlays } = req.body;
     if (!overlays) {
       return next(errors.badRequest('overlays object required'));
@@ -4202,11 +4194,10 @@ export async function registerRoutes(
   // ============================================
 
   // Upload photo with AI analysis
-  app.post('/api/photos/upload', requireAuth, requireOrganization, upload.single('file'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
+  app.post('/api/photos/upload', requireAuth, requireOrganization, uploadRateLimiter, upload.single('file'), asyncHandler(async (req, res, next) => {
+    if (!req.file) {
+      return next(errors.badRequest('No file uploaded'));
+    }
 
       const { uploadAndAnalyzePhoto } = await import('./services/photos');
       const { linkPhotoToWorkflowStep } = await import('./services/dynamicWorkflowService');
@@ -4281,12 +4272,7 @@ export async function registerRoutes(
       }
 
       res.status(201).json({ ...photo, ...stepLinkResult });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[photos] Upload error:', error);
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // Get signed URL for a photo
   app.get('/api/photos/:storagePath(*)/url', requireAuth, asyncHandler(async (req, res, next) => {
@@ -4377,7 +4363,7 @@ export async function registerRoutes(
   }));
 
   // Re-analyze photo (retry failed analysis or update analysis)
-  app.post('/api/photos/:id/reanalyze', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/photos/:id/reanalyze', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { reanalyzePhoto } = await import('./services/photos');
     const result = await reanalyzePhoto(req.params.id);
 
@@ -4441,16 +4427,15 @@ export async function registerRoutes(
   }));
 
   // Upload multiple documents
-  app.post('/api/documents/bulk', requireAuth, requireOrganization, upload.array('files', 20), async (req, res) => {
-    try {
-      const files = req.files as Express.Multer.File[];
-      if (!files || files.length === 0) {
-        return res.status(400).json({ error: 'No files uploaded' });
-      }
+  app.post('/api/documents/bulk', requireAuth, requireOrganization, uploadRateLimiter, upload.array('files', 20), asyncHandler(async (req, res, next) => {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return next(errors.badRequest('No files uploaded'));
+    }
 
       const { claimId, type, category } = req.body;
       if (!type) {
-        return res.status(400).json({ error: 'Document type required (fnol, policy, endorsement, photo, estimate, correspondence, or auto)' });
+        return next(errors.badRequest('Document type required (fnol, policy, endorsement, photo, estimate, correspondence, or auto)'));
       }
 
       // For 'auto' type, store as 'pending' initially - will be classified by the queue
@@ -4493,11 +4478,7 @@ export async function registerRoutes(
       }
 
       res.status(201).json({ documents: results });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // List documents
   app.get('/api/documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -4792,7 +4773,7 @@ export async function registerRoutes(
   }));
 
   // Update document metadata
-  app.put('/api/documents/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.put('/api/documents/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(documentUpdateSchema), asyncHandler(async (req, res, next) => {
     const doc = await updateDocument(req.params.id, req.organizationId!, req.body);
     if (!doc) {
       return next(errors.notFound('Document'));
@@ -4823,7 +4804,7 @@ export async function registerRoutes(
   }));
 
   // Process document with AI extraction
-  app.post('/api/documents/:id/process', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/documents/:id/process', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(documentProcessSchema), asyncHandler(async (req, res, next) => {
     const extractedData = await processDocumentAI(req.params.id, req.organizationId!);
     res.json({
       extractedData,
@@ -4863,7 +4844,7 @@ export async function registerRoutes(
    * Generate structured floorplan data (rooms and connections) from input.
    * This validates and transforms the input data.
    */
-  app.post('/api/sketch/generate-floorplan-data', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/sketch/generate-floorplan-data', requireAuth, apiRateLimiter, validateBody(sketchFloorplanDataSchema), asyncHandler(async (req, res, next) => {
     const result = await generateFloorplanData(req.body);
     if (!result.success) {
       return next(errors.badRequest(result.error || 'Failed to generate floorplan data'));
@@ -4875,7 +4856,7 @@ export async function registerRoutes(
    * POST /api/sketch/rooms
    * Create or update a room in the estimate sketch.
    */
-  app.post('/api/sketch/rooms', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/sketch/rooms', requireAuth, apiRateLimiter, validateBody(sketchRoomSchema), asyncHandler(async (req, res, next) => {
     const result = await createOrUpdateRoom(req.body);
     if (!result.success) {
       return next(errors.badRequest(result.error || 'Failed to create or update room'));
@@ -4887,7 +4868,7 @@ export async function registerRoutes(
    * POST /api/sketch/rooms/:room_id/openings
    * Add an opening (door/window/cased) to a room wall.
    */
-  app.post('/api/sketch/rooms/:room_id/openings', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/sketch/rooms/:room_id/openings', requireAuth, apiRateLimiter, validateParams(z.object({ room_id: z.string().uuid() })), validateBody(sketchOpeningSchema), asyncHandler(async (req, res, next) => {
     const result = await addRoomOpening({
       room_id: req.params.room_id,
       ...req.body,
@@ -4902,7 +4883,7 @@ export async function registerRoutes(
    * POST /api/sketch/rooms/:room_id/missing-walls
    * Mark a missing wall segment for a room.
    */
-  app.post('/api/sketch/rooms/:room_id/missing-walls', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/sketch/rooms/:room_id/missing-walls', requireAuth, apiRateLimiter, validateParams(z.object({ room_id: z.string().uuid() })), validateBody(sketchMissingWallSchema), asyncHandler(async (req, res, next) => {
     const result = await addMissingWall({
       room_id: req.params.room_id,
       ...req.body,
@@ -5140,7 +5121,13 @@ export async function registerRoutes(
    * POST /api/estimates/:id/xact-items
    * Add a Xactimate line item to an estimate with auto-calculated pricing
    */
-  app.post('/api/estimates/:id/xact-items', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/xact-items', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
+    lineItemCode: z.string().min(1, 'Line item code is required'),
+    quantity: z.number().positive('Quantity must be positive'),
+    damageZoneId: z.string().uuid().optional(),
+    roomName: z.string().optional(),
+    notes: z.string().optional(),
+  })), asyncHandler(async (req, res, next) => {
     const { lineItemCode, quantity, damageZoneId, roomName, notes } = req.body;
     
     if (!lineItemCode || !quantity) {
@@ -5332,7 +5319,7 @@ export async function registerRoutes(
    * POST /api/prompts/refresh-cache
    * Force refresh the prompts cache
    */
-  app.post('/api/prompts/refresh-cache', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/prompts/refresh-cache', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     await refreshCache();
     res.json({ message: 'Cache refreshed successfully' });
   }));

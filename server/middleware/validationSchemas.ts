@@ -402,3 +402,169 @@ export const coverageCreateSchema = z.object({
 export const lineItemCoverageUpdateSchema = z.object({
   coverageId: z.string().uuid('Invalid coverage ID').nullable(),
 });
+
+// ============================================
+// WORKFLOW STEP SCHEMAS
+// ============================================
+
+export const workflowStepUpdateSchema = z.object({
+  status: z.enum(['pending', 'in_progress', 'completed', 'skipped', 'blocked', 'na']).optional(),
+  notes: z.string().optional(),
+  actualMinutes: z.number().int().min(0).optional(),
+  skipValidation: z.boolean().optional(),
+}).passthrough();
+
+export const workflowStepCreateSchema = z.object({
+  phase: z.string().min(1, 'Phase is required'),
+  stepType: z.string().min(1, 'Step type is required'),
+  title: z.string().min(1, 'Title is required'),
+  instructions: z.string().optional(),
+  required: z.boolean().optional(),
+  estimatedMinutes: z.number().int().min(0).optional(),
+  roomId: z.string().uuid().optional(),
+  roomName: z.string().optional(),
+}).passthrough();
+
+export const workflowRoomCreateSchema = z.object({
+  name: z.string().min(1, 'Room name is required'),
+  level: z.string().optional(),
+  roomType: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+
+export const workflowEvidenceSchema = z.object({
+  requirementId: z.string().uuid('Invalid requirement ID'),
+  type: z.string().min(1, 'Evidence type is required'),
+  photoId: z.string().uuid().optional(),
+  measurementData: z.record(z.unknown()).optional(),
+  noteData: z.string().optional(),
+}).passthrough();
+
+export const workflowMutationSchema = z.object({
+  roomId: z.string().uuid().optional(),
+  roomName: z.string().optional(),
+  damageZoneId: z.string().uuid().optional(),
+  photoId: z.string().uuid().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+
+// ============================================
+// CALENDAR SCHEMAS
+// ============================================
+
+export const calendarAppointmentCreateSchema = z.object({
+  claimId: z.string().uuid('Invalid claim ID'),
+  scheduledStart: z.string().datetime('Invalid scheduled start date'),
+  scheduledEnd: z.string().datetime('Invalid scheduled end date').optional(),
+  notes: z.string().optional(),
+  syncToMs365: z.boolean().optional(),
+}).passthrough();
+
+// ============================================
+// ROOM/CLAIM SCHEMAS
+// ============================================
+
+export const claimRoomsSaveSchema = z.object({
+  rooms: z.array(z.any()).optional(),
+  structures: z.array(z.any()).optional(),
+}).passthrough();
+
+export const scopeItemCreateSchema = z.object({
+  lineItemCode: z.string().min(1, 'Line item code is required'),
+  description: z.string().min(1, 'Description is required'),
+  category: z.string().optional(),
+  quantity: z.number().positive('Quantity must be positive'),
+  unit: z.string().min(1, 'Unit is required'),
+  unitPrice: z.number().min(0, 'Unit price must be non-negative'),
+  roomName: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const scopeItemUpdateSchema = z.object({
+  description: z.string().optional(),
+  category: z.string().optional(),
+  quantity: z.number().positive().optional(),
+  unit: z.string().optional(),
+  unitPrice: z.number().min(0).optional(),
+  roomName: z.string().optional(),
+  notes: z.string().optional(),
+  status: z.string().optional(),
+}).passthrough();
+
+// ============================================
+// SKETCH CONNECTION SCHEMAS
+// ============================================
+
+export const sketchConnectionCreateSchema = z.object({
+  fromZoneId: z.string().uuid('Invalid from zone ID'),
+  toZoneId: z.string().uuid('Invalid to zone ID'),
+  connectionType: z.enum(['door', 'opening', 'shared_wall', 'hallway', 'stairway'], {
+    errorMap: () => ({ message: 'connectionType must be one of: door, opening, shared_wall, hallway, stairway' })
+  }),
+  openingId: z.string().uuid().optional(),
+}).passthrough();
+
+export const sketchConnectionUpdateSchema = z.object({
+  connectionType: z.enum(['door', 'opening', 'shared_wall', 'hallway', 'stairway']).optional(),
+  openingId: z.string().uuid().optional(),
+}).passthrough();
+
+// ============================================
+// ESTIMATE TEMPLATE SCHEMAS
+// ============================================
+
+export const estimateFromTemplateSchema = z.object({
+  quantities: z.record(z.number().positive(), 'Quantities must be a record of positive numbers'),
+  claimId: z.string().uuid().optional(),
+  propertyAddress: z.string().optional(),
+  regionId: z.string().optional(),
+}).passthrough();
+
+// ============================================
+// MISSING WALL SCHEMAS
+// ============================================
+
+export const missingWallCreateSchema = z.object({
+  widthFt: z.number().positive('Width is required and must be positive'),
+  heightFt: z.number().positive('Height is required and must be positive'),
+  wallIndex: z.number().int().min(0).max(3).optional(),
+}).passthrough();
+
+export const missingWallUpdateSchema = z.object({
+  widthFt: z.number().positive().optional(),
+  heightFt: z.number().positive().optional(),
+}).passthrough();
+
+// ============================================
+// LINE ITEM FROM DIMENSION SCHEMAS
+// ============================================
+
+export const lineItemFromDimensionSchema = z.object({
+  lineItemCode: z.string().min(1, 'Line item code is required'),
+  dimensionKey: z.string().min(1, 'Dimension key is required'),
+  unitPrice: z.number().min(0).optional(),
+  taxRate: z.number().min(0).max(1).optional(),
+  depreciationPct: z.number().min(0).max(100).optional(),
+  isRecoverable: z.boolean().optional(),
+  notes: z.string().optional(),
+});
+
+// ============================================
+// CALENDAR SYNC SCHEMAS
+// ============================================
+
+export const calendarSyncFromMs365Schema = z.object({
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+}).passthrough();
+
+export const calendarSyncToMs365Schema = z.object({
+  appointmentIds: z.array(z.string().uuid()).optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+}).passthrough();
+
+export const calendarSyncFullSchema = z.object({
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+}).passthrough();
