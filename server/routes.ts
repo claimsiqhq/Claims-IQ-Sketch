@@ -1571,25 +1571,20 @@ export async function registerRoutes(
   // ============================================
 
   // Submit estimate for review (finalize)
-  app.post('/api/estimates/:id/submit', requireAuth, async (req, res) => {
-    try {
-      const result = await submitEstimate(req.params.id);
+  app.post('/api/estimates/:id/submit', requireAuth, asyncHandler(async (req, res, next) => {
+    const result = await submitEstimate(req.params.id);
 
-      if (!result.success) {
-        // Validation errors block submission
-        return res.status(400).json(result);
-      }
-
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
+    if (!result.success) {
+      // Validation errors block submission
+      if (result.validation.errorCount > 0) {
+        return next(errors.badRequest(result.message));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.forbidden(result.message));
       }
     }
-  });
+
+    res.json(result);
+  }));
 
   // Validate estimate before submission (preview)
   app.get('/api/estimates/:id/validate', requireAuth, async (req, res) => {
@@ -1716,113 +1711,92 @@ export async function registerRoutes(
   // ============================================
 
   // Get all coverage types
-  app.get('/api/coverage-types', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('coverage_types')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order')
-        .order('code');
+  app.get('/api/coverage-types', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('coverage_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('code');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // Get coverage type by code
-  app.get('/api/coverage-types/:code', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('coverage_types')
-        .select('*')
-        .eq('code', req.params.code)
-        .eq('is_active', true)
-        .single();
+  app.get('/api/coverage-types/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('coverage_types')
+      .select('*')
+      .eq('code', req.params.code)
+      .eq('is_active', true)
+      .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Coverage type not found' });
-        }
-        throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Coverage type'));
       }
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      throw error;
     }
-  });
+
+    res.json(data);
+  }));
 
   // ============================================
   // TAX RATES ROUTES
   // ============================================
 
   // Get all tax rates
-  app.get('/api/tax-rates', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { region_code, tax_type } = req.query;
+  app.get('/api/tax-rates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { region_code, tax_type } = req.query;
 
-      let query = supabaseAdmin
-        .from('tax_rates')
-        .select('*')
-        .eq('is_active', true);
+    let query = supabaseAdmin
+      .from('tax_rates')
+      .select('*')
+      .eq('is_active', true);
 
-      if (region_code) {
-        query = query.eq('region_code', region_code as string);
-      }
-      if (tax_type) {
-        query = query.eq('tax_type', tax_type as string);
-      }
-
-      const { data, error } = await query
-        .order('region_code')
-        .order('tax_type');
-
-      if (error) throw error;
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (region_code) {
+      query = query.eq('region_code', region_code as string);
     }
-  });
+    if (tax_type) {
+      query = query.eq('tax_type', tax_type as string);
+    }
+
+    const { data, error } = await query
+      .order('region_code')
+      .order('tax_type');
+
+    if (error) throw error;
+
+    res.json(data);
+  }));
 
   // Get tax rate for a specific region
-  app.get('/api/tax-rates/region/:regionCode', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('tax_rates')
-        .select('*')
-        .eq('region_code', req.params.regionCode)
-        .eq('is_active', true)
-        .order('tax_type');
+  app.get('/api/tax-rates/region/:regionCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('tax_rates')
+      .select('*')
+      .eq('region_code', req.params.regionCode)
+      .eq('is_active', true)
+      .order('tax_type');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // ============================================
   // DEPRECIATION SCHEDULES ROUTES
   // ============================================
 
   // Get all depreciation schedules
-  app.get('/api/depreciation-schedules', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { category_code, item_type } = req.query;
+  app.get('/api/depreciation-schedules', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { category_code, item_type } = req.query;
 
-      let query = supabaseAdmin
-        .from('depreciation_schedules')
-        .select('*');
+    let query = supabaseAdmin
+      .from('depreciation_schedules')
+      .select('*');
 
       if (category_code) {
         query = query.eq('category_code', category_code as string);
@@ -1835,32 +1809,23 @@ export async function registerRoutes(
         .order('category_code')
         .order('item_type');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // Get depreciation schedule by category
-  app.get('/api/depreciation-schedules/category/:categoryCode', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('depreciation_schedules')
-        .select('*')
-        .eq('category_code', req.params.categoryCode)
-        .order('item_type');
+  app.get('/api/depreciation-schedules/category/:categoryCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('depreciation_schedules')
+      .select('*')
+      .eq('category_code', req.params.categoryCode)
+      .order('item_type');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // ============================================
   // REGIONAL MULTIPLIERS ROUTES
@@ -1885,28 +1850,23 @@ export async function registerRoutes(
   });
 
   // Get regional multiplier by region code
-  app.get('/api/regional-multipliers/:regionCode', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('regional_multipliers')
-        .select('*')
-        .eq('region_code', req.params.regionCode)
-        .eq('is_active', true)
-        .single();
+  app.get('/api/regional-multipliers/:regionCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('regional_multipliers')
+      .select('*')
+      .eq('region_code', req.params.regionCode)
+      .eq('is_active', true)
+      .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Regional multiplier not found' });
-        }
-        throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Regional multiplier'));
       }
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      throw error;
     }
-  });
+
+    res.json(data);
+  }));
 
   // ============================================
   // LABOR RATES ROUTES
@@ -1943,23 +1903,18 @@ export async function registerRoutes(
   });
 
   // Get labor rate for specific trade
-  app.get('/api/labor-rates/trade/:tradeCode', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('labor_rates_enhanced')
-        .select('*')
-        .eq('trade_code', req.params.tradeCode)
-        .eq('is_active', true)
-        .order('region_code');
+  app.get('/api/labor-rates/trade/:tradeCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('labor_rates_enhanced')
+      .select('*')
+      .eq('trade_code', req.params.tradeCode)
+      .eq('is_active', true)
+      .order('region_code');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // ============================================
   // PRICE LISTS ROUTES
@@ -1985,36 +1940,30 @@ export async function registerRoutes(
   });
 
   // Get price list by code
-  app.get('/api/price-lists/:code', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('price_lists')
-        .select('*')
-        .eq('code', req.params.code)
-        .eq('is_active', true)
-        .single();
+  app.get('/api/price-lists/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('price_lists')
+      .select('*')
+      .eq('code', req.params.code)
+      .eq('is_active', true)
+      .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Price list not found' });
-        }
-        throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Price list'));
       }
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      throw error;
     }
-  });
+
+    res.json(data);
+  }));
 
   // ============================================
   // REPORT & EXPORT ROUTES
   // ============================================
 
   // Generate PDF report (returns real PDF if Puppeteer available, HTML otherwise)
-  app.get('/api/estimates/:id/report/pdf', async (req, res) => {
-    try {
+  app.get('/api/estimates/:id/report/pdf', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
       const options = {
         includeLineItemDetails: req.query.includeLineItems !== 'false',
         includeDepreciation: req.query.includeDepreciation !== 'false',
@@ -2048,18 +1997,10 @@ export async function registerRoutes(
         res.setHeader('X-PDF-Fallback', 'true');
         res.send(html);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+  }));
 
   // Get HTML report preview
-  app.get('/api/estimates/:id/report/html', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/estimates/:id/report/html', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const options = {
         includeLineItemDetails: req.query.includeLineItems !== 'false',
@@ -2067,21 +2008,13 @@ export async function registerRoutes(
         includeCoverageSummary: req.query.includeCoverage !== 'false',
         companyName: req.query.companyName as string,
       };
-      const html = await generatePdfReport(req.params.id, options);
-      res.setHeader('Content-Type', 'text/html');
-      res.send(html);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const html = await generatePdfReport(req.params.id, options);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  }));
 
   // Generate ESX JSON export
-  app.get('/api/estimates/:id/export/esx', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/estimates/:id/export/esx', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const metadata = {
         dateOfLoss: req.query.dateOfLoss as string,
@@ -2110,40 +2043,24 @@ export async function registerRoutes(
         adjusterName: req.query.adjusterName as string,
         priceListDate: req.query.priceListDate as string,
       };
-      const xml = await generateEsxXml(req.params.id, metadata);
-      res.setHeader('Content-Type', 'application/xml');
-      res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
-      res.send(xml);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const xml = await generateEsxXml(req.params.id, metadata);
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
+    res.send(xml);
+  }));
 
   // Generate CSV export
-  app.get('/api/estimates/:id/export/csv', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/estimates/:id/export/csv', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
-      const csv = await generateCsvExport(req.params.id);
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.csv"`);
-      res.send(csv);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const csv = await generateCsvExport(req.params.id);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.csv"`);
+    res.send(csv);
+  }));
 
   // Generate ESX ZIP archive (Tier A - standards-compliant, with sketch PDF)
   // This is the primary export format for Xactimate import
-  app.get('/api/estimates/:id/export/esx-zip', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/estimates/:id/export/esx-zip', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const includeSketch = req.query.includeSketch !== 'false';
       const includePhotos = req.query.includePhotos === 'true';
@@ -2153,19 +2070,11 @@ export async function registerRoutes(
         includePhotos,
       });
 
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
-      res.setHeader('Content-Length', esxZip.length);
-      res.send(esxZip);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
+    res.setHeader('Content-Length', esxZip.length);
+    res.send(esxZip);
+  }));
 
   // ============================================
   // ESTIMATE HIERARCHY ROUTES
