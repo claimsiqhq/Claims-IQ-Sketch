@@ -2499,7 +2499,13 @@ Generate a JSON workflow matching this exact schema:
     ]
   },
   "tools_required": ["array of tools/equipment needed"],
-  "open_questions": ["array of questions needing answers"]
+  "open_questions": [
+    {
+      "question": "string - the question that needs to be answered",
+      "context": "string - why this question matters for the inspection",
+      "priority": "high | medium | low"
+    }
+  ]
 }
 
 Respond ONLY with valid JSON. No explanation, no markdown.`;
