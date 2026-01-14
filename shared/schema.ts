@@ -4687,7 +4687,9 @@ export interface ExportValidationResult {
 export const sessions = pgTable("sessions", {
   sid: varchar("sid", { length: 255 }).primaryKey(),
   sess: jsonb("sess").notNull(),
-  expire: timestamp("expire", { withTimezone: true }).notNull(),
+  // Note: expire is TIMESTAMPTZ in database (handled by migration)
+  // Drizzle timestamp maps to TIMESTAMP, but migration creates TIMESTAMPTZ
+  expire: timestamp("expire").notNull(),
 }, (table) => ({
   expireIdx: index("sessions_expire_idx").on(table.expire),
 }));
