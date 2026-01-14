@@ -459,12 +459,13 @@ export async function saveEstimate(
 // GET ESTIMATE
 // ============================================
 
-export async function getEstimate(estimateId: string): Promise<SavedEstimate | null> {
+export async function getEstimate(estimateId: string, organizationId: string): Promise<SavedEstimate | null> {
   // Get estimate
   const { data: estimate, error: estimateError } = await supabaseAdmin
     .from('estimates')
     .select('*')
     .eq('id', estimateId)
+    .eq('organization_id', organizationId)
     .single();
 
   if (estimateError || !estimate) {
@@ -962,6 +963,7 @@ export async function createEstimateFromTemplate(
 // ============================================
 
 export async function listEstimates(options: {
+  organizationId: string;
   status?: string;
   claimId?: string;
   limit?: number;
@@ -970,7 +972,8 @@ export async function listEstimates(options: {
   // Build count query
   let countQuery = supabaseAdmin
     .from('estimates')
-    .select('*', { count: 'exact', head: true });
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', options.organizationId);
 
   if (options.status) {
     countQuery = countQuery.eq('status', options.status);
@@ -989,7 +992,8 @@ export async function listEstimates(options: {
   // Build estimates query
   let estimatesQuery = supabaseAdmin
     .from('estimates')
-    .select('*');
+    .select('*')
+    .eq('organization_id', options.organizationId);
 
   if (options.status) {
     estimatesQuery = estimatesQuery.eq('status', options.status);

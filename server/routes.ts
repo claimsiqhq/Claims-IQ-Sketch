@@ -1597,10 +1597,11 @@ export async function registerRoutes(
   });
 
   // List estimates
-  app.get('/api/estimates', requireAuth, async (req, res) => {
+  app.get('/api/estimates', requireAuth, requireOrganization, async (req, res) => {
     try {
       const { status, claim_id, limit, offset } = req.query;
       const result = await listEstimates({
+        organizationId: req.organizationId!,
         status: status as string,
         claimId: claim_id as string,
         limit: limit ? parseInt(limit as string) : undefined,
@@ -1614,9 +1615,9 @@ export async function registerRoutes(
   });
 
   // Get estimate by ID
-  app.get('/api/estimates/:id', requireAuth, async (req, res) => {
+  app.get('/api/estimates/:id', requireAuth, requireOrganization, async (req, res) => {
     try {
-      const estimate = await getEstimate(req.params.id);
+      const estimate = await getEstimate(req.params.id, req.organizationId!);
       if (!estimate) {
         return res.status(404).json({ error: 'Estimate not found' });
       }
@@ -2240,7 +2241,7 @@ export async function registerRoutes(
   });
 
   // Generate ESX JSON export
-  app.get('/api/estimates/:id/export/esx', async (req, res) => {
+  app.get('/api/estimates/:id/export/esx', requireAuth, requireOrganization, async (req, res) => {
     try {
       const metadata = {
         dateOfLoss: req.query.dateOfLoss as string,
