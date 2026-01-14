@@ -284,6 +284,8 @@ import {
   deleteScopeItem,
 } from "./services/estimateHierarchy";
 
+// Create logger for routes
+const log = createLogger({ module: 'routes' });
 // Configure multer for file uploads (memory storage for processing)
 const upload = multer({
   storage: multer.memoryStorage(),
