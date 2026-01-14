@@ -872,7 +872,7 @@ export async function registerRoutes(
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     email: z.string().email().optional(),
-  })), async (req, res) => {
+  })), asyncHandler(async (req, res, next) => {
     try {
       const userId = req.user!.id;
       const { name, displayName, firstName, lastName, email } = req.body;
@@ -896,7 +896,7 @@ export async function registerRoutes(
         email
       });
       if (!updatedUser) {
-        return res.status(404).json({ error: 'User not found' });
+        return next(errors.notFound('User'));
       }
 
       // Update the session with the new user data so subsequent auth checks reflect the changes
@@ -937,18 +937,14 @@ export async function registerRoutes(
       
       const result = await changeUserPassword(userId, currentPassword, newPassword);
       if (!result.success) {
-        return res.status(400).json({ error: result.error });
+        return next(errors.badRequest(result.error));
       }
       
       res.json({ message: 'Password changed successfully' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // Get user preferences
-  app.get('/api/users/preferences', requireAuth, async (req, res) => {
+  app.get('/api/users/preferences', requireAuth, asyncHandler(async (req, res, next) => {
     try {
       const userId = req.user!.id;
       const { data, error } = await supabaseAdmin
@@ -986,7 +982,7 @@ export async function registerRoutes(
 
       if (fetchError) {
         if (fetchError.code === 'PGRST116') {
-          return res.status(404).json({ error: 'User not found' });
+          return next(errors.notFound('User'));
         }
         throw fetchError;
       }
@@ -1006,11 +1002,7 @@ export async function registerRoutes(
       if (updateError) throw updateError;
 
       res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
 
   // ============================================
