@@ -43,6 +43,8 @@ import { getPromptWithFallback } from './promptService';
 import { getClaimBriefing } from './claimBriefingService';
 import { buildUnifiedClaimContext } from './unifiedClaimContextService';
 import { generateStepTypeGuidanceForPrompt } from '../../shared/config/stepTypeConfig';
+import { PerilAwareClaimContext } from './perilAwareContext';
+import { getCarrierOverlays } from './carrierOverlayService';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -113,6 +115,7 @@ interface AIWorkflowResponse {
     required: boolean;
     tags?: string[];
     estimated_minutes: number;
+    evidence_requirements?: Record<string, unknown>[];
     assets?: {
       asset_type: string;
       label: string;
@@ -1081,8 +1084,8 @@ export async function generateInspectionWorkflow(
     }
 
     // Auto-detect rooms and hazards from loss description if not provided in wizard
-    if (context.lossDescription) {
-      const description = context.lossDescription;
+    if (context.lossDetails?.description) {
+      const description = context.lossDetails.description;
       
       // Initialize wizardContext if undefined
       if (!wizardContext) {
@@ -1253,7 +1256,7 @@ export async function generateInspectionWorkflow(
         estimated_minutes: step.estimated_minutes,
         peril_specific: step.peril_specific || null,
         // NO LEGACY ASSETS - evidence_requirements stored in workflow_json
-        evidenceRequirements: step.evidence_requirements || [],
+        evidence_requirements: step.evidence_requirements || [],
       });
     }
 
@@ -2407,6 +2410,124 @@ ${formatWizardContext(wizardContext)}
 `;
   }
 
+  // Build property-driven workflow adaptations section
+  // These adaptations condition the workflow based on specific property characteristics
+  let propertyAdaptations: string[] = [];
+
+  // Multi-story logic - require per-floor inspection steps
+  if (context.property.stories && context.property.stories > 1) {
+    propertyAdaptations.push(`
+**MULTI-STORY PROPERTY (${context.property.stories} stories):**
+- Create interior observation steps for EACH floor level (Floor 1 through Floor ${context.property.stories})
+- Include stairwell/hallway inspection between floors
+- Document damage on each level separately for accurate scoping
+- Total interior steps should reflect ${context.property.stories}x the single-floor baseline`);
+  }
+
+  // Wood roof fire risk documentation
+  if (context.property.roof.isWoodRoof) {
+    propertyAdaptations.push(`
+**WOOD ROOF FIRE RISK PRESENT:**
+- Add explicit fire clearance/vegetation proximity documentation step in roof phase
+- Note condition of wood shakes (dry rot, moss, maintenance status)
+- Document proximity to trees/overhanging vegetation
+- Include defensible space assessment if in fire-prone area`);
+  }
+
+  // Damage scope optimization - focus time on affected areas
+  if (context.property.exteriorDamaged && !context.property.interiorDamaged) {
+    propertyAdaptations.push(`
+**EXTERIOR-ONLY DAMAGE SCOPE (per FNOL):**
+- Interior phase: Abbreviated (quick walkthrough, photo overview only - verify no hidden damage)
+- Allocate 70%+ of estimated inspection time to exterior/roof phases
+- Still document interior briefly to confirm no secondary damage`);
+  } else if (!context.property.exteriorDamaged && context.property.interiorDamaged) {
+    propertyAdaptations.push(`
+**INTERIOR-ONLY DAMAGE SCOPE (per FNOL):**
+- Exterior phase: Abbreviated (cause documentation, overview photos only)
+- Allocate 70%+ of estimated inspection time to interior phases
+- Still document exterior briefly to confirm damage origin`);
+  }
+
+  // Other structures (Coverage B) - add separate inspection phase
+  if (context.property.hasOtherStructures && context.property.otherStructuresCoverage) {
+    propertyAdaptations.push(`
+**OTHER STRUCTURES PRESENT (Coverage B: ${context.coverages.otherStructures?.limitFormatted || `$${context.property.otherStructuresCoverage.toLocaleString()}`}):**
+- Add separate inspection sub-phase for each identified other structure
+- Each structure needs: exterior overview, interior (if accessible), damage documentation
+- Document each structure with its own photo set (separate from main dwelling)`);
+  }
+
+  // Roof age verification when depreciation schedule applies
+  if (context.lossSettlement.roofing.isScheduled) {
+    const roofAgeText = context.property.roof.ageAtLoss !== undefined
+      ? `${context.property.roof.ageAtLoss} years (claimed)`
+      : 'Unknown - MUST VERIFY';
+    const paymentPctText = context.lossSettlement.roofing.calculatedPaymentPct !== undefined
+      ? `${context.lossSettlement.roofing.calculatedPaymentPct}%`
+      : 'TBD based on verified age';
+    propertyAdaptations.push(`
+**ROOF AGE VERIFICATION REQUIRED (Payment Schedule Applies):**
+- Current roof age: ${roofAgeText}
+- Estimated payment percentage: ${paymentPctText} of RCV
+- MUST include verification step: Check permit records, manufacturer stamps on materials, homeowner receipts
+- Document verification method used (permit lookup, physical inspection, homeowner documentation)
+- If age cannot be verified, document all verification attempts in closeout notes`);
+  }
+
+  // Metal functional requirement
+  if (context.lossSettlement.roofing.metalFunctionalRequirement) {
+    propertyAdaptations.push(`
+**METAL FUNCTIONAL REQUIREMENT APPLIES:**
+- Cosmetic damage to metal roofing/siding is EXCLUDED unless water entry is compromised
+- Add step to document functional impairment (holes, openings, water intrusion)
+- Photograph any water intrusion evidence from interior
+- Note: Dents/dings without functional damage are not covered`);
+  }
+
+  // Coverage considerations from briefing (depreciation factors, special limits)
+  if (briefing?.briefingJson?.coverage_considerations) {
+    const cc = briefing.briefingJson.coverage_considerations;
+
+    if (cc.depreciation_factors && Array.isArray(cc.depreciation_factors) && cc.depreciation_factors.length > 0) {
+      const depFactors = cc.depreciation_factors
+        .map((df: { item: string; age: string; documentation_needed: string }) =>
+          `  - ${df.item}: Age ${df.age} → Document: ${df.documentation_needed}`)
+        .join('\n');
+      propertyAdaptations.push(`
+**DEPRECIATION DOCUMENTATION REQUIREMENTS (from Briefing Analysis):**
+${depFactors}
+- Add specific documentation steps for each item above
+- Photograph age indicators (labels, stamps, permits, wear patterns)`);
+    }
+
+    if (cc.special_limits_to_watch && Array.isArray(cc.special_limits_to_watch) && cc.special_limits_to_watch.length > 0) {
+      const limits = cc.special_limits_to_watch.map((l: string) => `  - ${l}`).join('\n');
+      propertyAdaptations.push(`
+**SPECIAL LIMITS TO WATCH:**
+${limits}
+- Document items that may approach or exceed these limits
+- Note quantities/values for items subject to special limits`);
+    }
+
+    if (cc.potential_coverage_issues && Array.isArray(cc.potential_coverage_issues) && cc.potential_coverage_issues.length > 0) {
+      const issues = cc.potential_coverage_issues.map((i: string) => `  - ${i}`).join('\n');
+      propertyAdaptations.push(`
+**POTENTIAL COVERAGE ISSUES TO DOCUMENT:**
+${issues}
+- Gather evidence related to each issue above
+- Document clearly to support coverage determination`);
+    }
+  }
+
+  // Build the final property adaptations section
+  const propertyAdaptationsSection = propertyAdaptations.length > 0 ? `
+## PROPERTY-DRIVEN WORKFLOW ADAPTATIONS (MANDATORY)
+The following adaptations are derived from property characteristics and policy requirements.
+You MUST incorporate these into the generated workflow steps:
+${propertyAdaptations.join('\n')}
+` : '';
+
   return `You are an expert property insurance inspection planner. Generate a STEP-BY-STEP, EXECUTABLE INSPECTION WORKFLOW for a field adjuster.
 
 This workflow is NOT a narrative. It is NOT a summary. It is an ordered execution plan.
@@ -2448,6 +2569,7 @@ IMPORTANT: Use these briefing photo requirements to:
 - Create photo steps for each briefing category that requires documentation
 
 ` : ''}
+${propertyAdaptationsSection}
 ## STEP TYPE REQUIREMENTS
 ${generateStepTypeGuidanceForPrompt()}
 
