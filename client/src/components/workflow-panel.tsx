@@ -233,7 +233,8 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       // Even without explicit requirements, blocking steps need basic evidence
       // But respect step type capabilities
       if (isBlockingStep) {
-        const totalPhotos = (step.assets?.filter(a => a.assetType === 'photo').length || 0) + pendingPhotos.length;
+        // NO LEGACY ASSETS - only check pending photos from dialog
+        const totalPhotos = pendingPhotos.length;
         const combinedNotes = (step.notes || '') + pendingNotes;
         
         const canSkipPhotosForType = canCompleteWithoutPhotos(step.stepType, evidenceReqs);
@@ -249,10 +250,10 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       return { valid: true };
     }
 
-    // Combine stored and pending evidence
-    const storedPhotos = step.assets?.filter(a => a.assetType === 'photo') || [];
-    const totalPhotoCount = storedPhotos.length + pendingPhotos.length;
-    const measurements = step.assets?.filter(a => a.assetType === 'measurement') || [];
+    // NO LEGACY ASSETS - only check pending evidence from dialog
+    // Evidence requirements come from step.evidenceRequirements (stored in workflow_json)
+    const totalPhotoCount = pendingPhotos.length;
+    const measurements: any[] = []; // Measurements handled via evidenceRequirements
     const combinedNotes = (step.notes || '') + pendingNotes;
 
     // Check each evidence requirement
@@ -764,11 +765,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       required: step.required,
       roomName: step.roomName || undefined,
       tags: step.tags || undefined,
-      assets: step.assets?.map(a => ({
-        assetType: a.assetType,
-        label: a.label,
-        required: a.required,
-      })),
+      // NO LEGACY ASSETS - only use evidenceRequirements
       // Dynamic workflow fields
       evidenceRequirements: step.evidenceRequirements as EvidenceRequirement[] | undefined,
       blocking,

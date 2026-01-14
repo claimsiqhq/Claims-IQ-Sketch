@@ -413,11 +413,11 @@ export function getStepTypeConfig(stepType: InspectionStepType | string): StepTy
 /**
  * Determine if photo capture should be shown for a step
  * Evidence requirements override step type defaults
+ * NO LEGACY ASSETS SUPPORT - only uses evidenceRequirements or step type config
  */
 export function shouldShowPhotoCapture(
   stepType: InspectionStepType | string,
-  evidenceRequirements?: Array<{ type: string; required?: boolean; photo?: { minCount?: number } }>,
-  assets?: Array<{ assetType: string; required?: boolean }>
+  evidenceRequirements?: Array<{ type: string; required?: boolean; photo?: { minCount?: number } }>
 ): boolean {
   // First check explicit evidence requirements
   if (evidenceRequirements) {
@@ -427,14 +427,6 @@ export function shouldShowPhotoCapture(
     }
     // If evidence requirements exist but no photo requirement, don't show photos
     return false;
-  }
-
-  // Check legacy assets array
-  if (assets) {
-    const hasRequiredPhotoAsset = assets.some(a => a.assetType === 'photo' && a.required === true);
-    if (hasRequiredPhotoAsset) {
-      return true;
-    }
   }
 
   // Fall back to step type config
@@ -476,11 +468,11 @@ export function shouldShowDamageSeverity(
 /**
  * Get required photo count for a step
  * Evidence requirements override step type defaults
+ * NO LEGACY ASSETS SUPPORT - only uses evidenceRequirements or step type config
  */
 export function getRequiredPhotoCount(
   stepType: InspectionStepType | string,
-  evidenceRequirements?: Array<{ type: string; required?: boolean; photo?: { minCount?: number } }>,
-  assets?: Array<{ assetType: string; required?: boolean }>
+  evidenceRequirements?: Array<{ type: string; required?: boolean; photo?: { minCount?: number } }>
 ): number {
   // First check explicit evidence requirements
   if (evidenceRequirements) {
@@ -494,14 +486,6 @@ export function getRequiredPhotoCount(
     }
     // No photo requirement in evidence requirements
     return 0;
-  }
-
-  // Check legacy assets array
-  if (assets) {
-    const requiredPhotoAssets = assets.filter(a => a.assetType === 'photo' && a.required === true);
-    if (requiredPhotoAssets.length > 0) {
-      return requiredPhotoAssets.length;
-    }
   }
 
   // Fall back to step type config

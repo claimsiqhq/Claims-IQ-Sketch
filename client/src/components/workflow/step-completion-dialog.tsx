@@ -104,11 +104,7 @@ export interface StepData {
   required: boolean;
   roomName?: string;
   tags?: string[]; // Step tags for determining if damage-related
-  assets?: {
-    assetType: string;
-    label: string;
-    required: boolean;
-  }[];
+  // NO LEGACY ASSETS - only use evidenceRequirements
   // Dynamic workflow fields
   evidenceRequirements?: EvidenceRequirement[];
   blocking?: 'blocking' | 'conditional' | 'non_blocking';
@@ -183,11 +179,10 @@ export function StepCompletionDialog({
   // Use step type configuration to determine requirements
   const stepTypeConfig = getStepTypeConfig(step.stepType);
   
-  // Determine required photos using step type config
+  // Determine required photos using step type config (NO legacy assets support)
   const requiredPhotos = getRequiredPhotoCountFromConfig(
     step.stepType,
-    step.evidenceRequirements,
-    step.assets
+    step.evidenceRequirements
   );
   const hasEnoughPhotos = photos.length >= requiredPhotos;
 
@@ -204,7 +199,7 @@ export function StepCompletionDialog({
 
   // Conditional rendering helpers
   const shouldRenderPhotoSection = (): boolean => {
-    return shouldShowPhotoCapture(step.stepType, step.evidenceRequirements, step.assets);
+    return shouldShowPhotoCapture(step.stepType, step.evidenceRequirements);
   };
 
   const shouldRenderDamageSeverity = (): boolean => {

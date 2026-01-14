@@ -67,8 +67,10 @@ export interface WorkflowWithSteps extends InspectionWorkflow {
   rooms: InspectionWorkflowRoom[];
 }
 
+// NO LEGACY ASSETS - StepWithAssets deprecated, use InspectionWorkflowStep with evidenceRequirements
+// Kept for type compatibility during transition
 export interface StepWithAssets extends InspectionWorkflowStep {
-  assets: InspectionWorkflowAsset[];
+  assets: InspectionWorkflowAsset[]; // DEPRECATED - use evidenceRequirements instead
 }
 
 export interface FullWorkflow {
@@ -571,12 +573,8 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
               estimated_minutes: step.estimated_minutes ?? 5,
               tags: step.tags ?? [],
               peril_specific: step.peril_specific || step.endorsement_related || null,
-              assets: step.assets?.map((a: any) => ({
-                asset_type: a.asset_type ?? 'photo',
-                label: a.description || a.label || 'Capture evidence',
-                required: a.required ?? true,
-                metadata: a.metadata,
-              })),
+              // NO LEGACY ASSETS - only use evidence_requirements from AI response
+              evidence_requirements: step.required_evidence || step.evidence_requirements || [],
             });
           }
         }
@@ -871,23 +869,8 @@ async function createStepsFromWorkflowJson(
       const insertedStep = mapStepFromDb(insertedStepData);
       stepsCreated++;
 
-      // Insert assets for this step if defined in workflow_json
-      if (step.assets && step.assets.length > 0) {
-        const assetInserts = step.assets.map(asset => ({
-          step_id: insertedStep.id,
-          asset_type: asset.asset_type,
-          label: asset.label,
-          required: asset.required,
-          metadata: asset.metadata || {},
-          status: 'pending',
-        }));
-
-        try {
-          await supabaseAdmin.from('inspection_workflow_assets').insert(assetInserts);
-        } catch (assetsError) {
-          console.error(`[InspectionWorkflow] Error inserting assets for step ${stepIndex}:`, assetsError);
-        }
-      }
+      // NO LEGACY ASSETS INSERTION - evidence_requirements are stored in workflow_json
+      // Assets table is deprecated - all evidence requirements come from workflow_json.evidence_requirements
     } catch (stepError) {
       console.error(`[InspectionWorkflow] Exception inserting step ${stepIndex}:`, stepError);
       continue;
@@ -1269,12 +1252,8 @@ export async function generateInspectionWorkflow(
         tags: step.tags || [],
         estimated_minutes: step.estimated_minutes,
         peril_specific: step.peril_specific || null,
-        assets: step.assets?.map(asset => ({
-          asset_type: asset.asset_type,
-          label: asset.label,
-          required: asset.required,
-          metadata: asset.metadata,
-        })),
+        // NO LEGACY ASSETS - evidence_requirements stored in workflow_json
+        evidenceRequirements: step.evidence_requirements || [],
       });
     }
 
@@ -1770,33 +1749,12 @@ export async function getWorkflow(
       return null;
     }
 
-    // Get all assets for these steps
-    const stepIds = stepsData.map(s => s.id);
-    let assetsData: any[] = [];
-    if (stepIds.length > 0) {
-      const { data: assetsResult, error: assetsError } = await supabaseAdmin
-        .from('inspection_workflow_assets')
-        .select('*')
-        .in('step_id', stepIds);
-
-      if (!assetsError && assetsResult) {
-        assetsData = assetsResult;
-      }
-    }
-
-    // Map assets to their steps
-    const assetsByStepId = new Map<string, InspectionWorkflowAsset[]>();
-    for (const asset of assetsData) {
-      const mappedAsset = mapAssetFromDb(asset);
-      if (!assetsByStepId.has(mappedAsset.stepId)) {
-        assetsByStepId.set(mappedAsset.stepId, []);
-      }
-      assetsByStepId.get(mappedAsset.stepId)!.push(mappedAsset);
-    }
-
+    // NO LEGACY ASSETS - assets table deprecated
+    // Evidence requirements are stored in workflow_json.evidence_requirements
+    // Return empty assets array for backward compatibility during transition
     const steps: StepWithAssets[] = stepsData.map(r => ({
       ...mapStepFromDb(r),
-      assets: assetsByStepId.get(r.id) || [],
+      assets: [], // DEPRECATED - use evidenceRequirements from workflow_json instead
     }));
 
     // Get rooms
@@ -1812,9 +1770,9 @@ export async function getWorkflow(
     const totalSteps = steps.length;
     const completedSteps = steps.filter(s => s.status === InspectionStepStatus.COMPLETED).length;
     const pendingSteps = steps.filter(s => s.status === InspectionStepStatus.PENDING).length;
-    const allAssets = steps.flatMap(s => s.assets);
-    const requiredAssets = allAssets.filter(a => a.required).length;
-    const capturedAssets = allAssets.filter(a => a.status === 'captured' || a.status === 'approved').length;
+    // NO LEGACY ASSETS - stats calculated from evidenceRequirements in workflow_json
+    const requiredAssets = 0; // DEPRECATED - calculate from evidenceRequirements if needed
+    const capturedAssets = 0; // DEPRECATED - calculate from evidenceRequirements if needed
     const estimatedMinutes = steps.reduce((sum, s) => sum + (s.estimatedMinutes || 0), 0);
     const actualMinutes = steps.reduce((sum, s) => sum + (s.actualMinutes || 0), 0);
 
