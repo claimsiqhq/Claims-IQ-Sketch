@@ -3690,36 +3690,31 @@ export async function registerRoutes(
    * POST /api/checklists/:checklistId/items
    * Add a custom item to a checklist
    */
-  app.post('/api/checklists/:checklistId/items', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { title, category, description, required, priority } = req.body;
+  app.post('/api/checklists/:checklistId/items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { title, category, description, required, priority } = req.body;
 
-      if (!title || !category) {
-        return res.status(400).json({ error: 'Title and category are required' });
-      }
-
-      const validCategories = Object.values(ChecklistCategory);
-      if (!validCategories.includes(category)) {
-        return res.status(400).json({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` });
-      }
-
-      const result = await addCustomChecklistItem(
-        req.params.checklistId,
-        title,
-        category as ChecklistCategory,
-        { description, required, priority }
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({ success: true, item: result.item });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!title || !category) {
+      return next(errors.badRequest('Title and category are required'));
     }
-  });
+
+    const validCategories = Object.values(ChecklistCategory);
+    if (!validCategories.includes(category)) {
+      return next(errors.badRequest(`Invalid category. Must be one of: ${validCategories.join(', ')}`));
+    }
+
+    const result = await addCustomChecklistItem(
+      req.params.checklistId,
+      title,
+      category as ChecklistCategory,
+      { description, required, priority }
+    );
+
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to add checklist item'));
+    }
+
+    res.json({ success: true, item: result.item });
+  }));
 
   // ============================================
   // INSPECTION WORKFLOW ROUTES
@@ -3816,107 +3811,95 @@ export async function registerRoutes(
    * GET /api/workflow/:id
    * Get a specific workflow by ID with all steps and rooms.
    */
-  app.get('/api/workflow/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const workflow = await getWorkflow(req.params.id, req.organizationId!);
+  app.get('/api/workflow/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const workflow = await getWorkflow(req.params.id, req.organizationId!);
 
-      if (!workflow) {
-        return res.status(404).json({ error: 'Workflow not found' });
-      }
-
-      res.json(workflow);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!workflow) {
+      return next(errors.notFound('Workflow'));
     }
-  });
+
+    res.json(workflow);
+  }));
 
   /**
    * PATCH /api/workflow/:id/steps/:stepId
    * Update a workflow step (status, notes, actual minutes, etc.)
    * Enforces evidence requirements for blocking steps when completing.
    */
-  app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { status, notes, actualMinutes, skipValidation } = req.body;
+  app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { status, notes, actualMinutes, skipValidation } = req.body;
 
-      // If completing a step, validate evidence requirements for blocking steps
-      if (status === 'completed' && !skipValidation) {
-        // Get the step with evidence to check requirements
-        const { data: stepData, error: fetchError } = await supabaseAdmin
-          .from('inspection_workflow_steps')
-          .select(`
-            id,
-            required,
-            evidence_requirements,
-            evidence:workflow_step_evidence(id, evidence_type, requirement_id)
-          `)
-          .eq('id', req.params.stepId)
-          .single();
+    // If completing a step, validate evidence requirements for blocking steps
+    if (status === 'completed' && !skipValidation) {
+      // Get the step with evidence to check requirements
+      const { data: stepData, error: fetchError } = await supabaseAdmin
+        .from('inspection_workflow_steps')
+        .select(`
+          id,
+          required,
+          evidence_requirements,
+          evidence:workflow_step_evidence(id, evidence_type, requirement_id)
+        `)
+        .eq('id', req.params.stepId)
+        .single();
 
-        if (fetchError || !stepData) {
-          return res.status(404).json({ error: 'Step not found' });
-        }
+      if (fetchError || !stepData) {
+        return next(errors.notFound('Step'));
+      }
 
-        // Check if this is a blocking step with evidence requirements
-        if (stepData.required && stepData.evidence_requirements) {
-          const evidenceReqs = stepData.evidence_requirements as Array<{
-            type: string;
-            required: boolean;
-            photo?: { minCount?: number; count?: number };
-          }>;
-          const attachedEvidence = (stepData.evidence || []) as Array<{ evidence_type: string }>;
+      // Check if this is a blocking step with evidence requirements
+      if (stepData.required && stepData.evidence_requirements) {
+        const evidenceReqs = stepData.evidence_requirements as Array<{
+          type: string;
+          required: boolean;
+          photo?: { minCount?: number; count?: number };
+        }>;
+        const attachedEvidence = (stepData.evidence || []) as Array<{ evidence_type: string }>;
 
-          for (const req of evidenceReqs) {
-            if (req.required) {
-              if (req.type === 'photo') {
-                const photoCount = attachedEvidence.filter(e => e.evidence_type === 'photo').length;
-                const minPhotos = req.photo?.minCount || req.photo?.count || 1;
-                if (photoCount < minPhotos) {
-                  return res.status(400).json({
-                    error: 'Evidence requirements not met',
-                    details: {
-                      type: 'photos',
-                      required: minPhotos,
-                      current: photoCount
-                    }
-                  });
-                }
+        for (const req of evidenceReqs) {
+          if (req.required) {
+            if (req.type === 'photo') {
+              const photoCount = attachedEvidence.filter(e => e.evidence_type === 'photo').length;
+              const minPhotos = req.photo?.minCount || req.photo?.count || 1;
+              if (photoCount < minPhotos) {
+                return next(errors.badRequest('Evidence requirements not met', {
+                  details: {
+                    type: 'photos',
+                    required: minPhotos,
+                    current: photoCount
+                  }
+                }));
               }
-              if (req.type === 'measurement') {
-                const measurementCount = attachedEvidence.filter(e => e.evidence_type === 'measurement').length;
-                if (measurementCount === 0) {
-                  return res.status(400).json({
-                    error: 'Evidence requirements not met',
-                    details: { type: 'measurements', required: 1, current: 0 }
-                  });
-                }
+            }
+            if (req.type === 'measurement') {
+              const measurementCount = attachedEvidence.filter(e => e.evidence_type === 'measurement').length;
+              if (measurementCount === 0) {
+                return next(errors.badRequest('Evidence requirements not met', {
+                  details: { type: 'measurements', required: 1, current: 0 }
+                }));
               }
             }
           }
         }
       }
-
-      const updates: Parameters<typeof updateWorkflowStep>[1] = {};
-      if (status !== undefined) updates.status = status;
-      if (notes !== undefined) updates.notes = notes;
-      if (actualMinutes !== undefined) updates.actualMinutes = actualMinutes;
-      if (status === 'completed' && req.user?.id) {
-        updates.completedBy = req.user.id;
-      }
-
-      const step = await updateWorkflowStep(req.params.stepId, updates);
-
-      if (!step) {
-        return res.status(404).json({ error: 'Step not found' });
-      }
-
-      res.json({ step });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
     }
-  });
+
+    const updates: Parameters<typeof updateWorkflowStep>[1] = {};
+    if (status !== undefined) updates.status = status;
+    if (notes !== undefined) updates.notes = notes;
+    if (actualMinutes !== undefined) updates.actualMinutes = actualMinutes;
+    if (status === 'completed' && req.user?.id) {
+      updates.completedBy = req.user.id;
+    }
+
+    const step = await updateWorkflowStep(req.params.stepId, updates);
+
+    if (!step) {
+      return next(errors.notFound('Step'));
+    }
+
+    res.json({ step });
+  }));
 
   /**
    * POST /api/workflow/:id/steps
