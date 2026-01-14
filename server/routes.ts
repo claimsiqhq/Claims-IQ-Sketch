@@ -3905,65 +3905,55 @@ export async function registerRoutes(
    * POST /api/workflow/:id/steps
    * Add a new custom step to a workflow.
    */
-  app.post('/api/workflow/:id/steps', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { phase, stepType, title, instructions, required, estimatedMinutes, roomId, roomName } = req.body;
+  app.post('/api/workflow/:id/steps', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { phase, stepType, title, instructions, required, estimatedMinutes, roomId, roomName } = req.body;
 
-      if (!phase || !stepType || !title) {
-        return res.status(400).json({ error: 'phase, stepType, and title are required' });
-      }
-
-      const step = await addWorkflowStep(req.params.id, {
-        phase,
-        stepType,
-        title,
-        instructions,
-        required,
-        estimatedMinutes,
-        roomId,
-        roomName,
-      });
-
-      if (!step) {
-        return res.status(400).json({ error: 'Failed to add step' });
-      }
-
-      res.status(201).json({ step });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!phase || !stepType || !title) {
+      return next(errors.badRequest('phase, stepType, and title are required'));
     }
-  });
+
+    const step = await addWorkflowStep(req.params.id, {
+      phase,
+      stepType,
+      title,
+      instructions,
+      required,
+      estimatedMinutes,
+      roomId,
+      roomName,
+    });
+
+    if (!step) {
+      return next(errors.badRequest('Failed to add step'));
+    }
+
+    res.status(201).json({ step });
+  }));
 
   /**
    * POST /api/workflow/:id/rooms
    * Add a new room to a workflow.
    */
-  app.post('/api/workflow/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { name, level, roomType, notes } = req.body;
+  app.post('/api/workflow/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { name, level, roomType, notes } = req.body;
 
-      if (!name) {
-        return res.status(400).json({ error: 'name is required' });
-      }
-
-      const room = await addWorkflowRoom(req.params.id, {
-        name,
-        level,
-        roomType,
-        notes,
-      });
-
-      if (!room) {
-        return res.status(400).json({ error: 'Failed to add room' });
-      }
-
-      res.status(201).json({ room });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!name) {
+      return next(errors.badRequest('name is required'));
     }
-  });
+
+    const room = await addWorkflowRoom(req.params.id, {
+      name,
+      level,
+      roomType,
+      notes,
+    });
+
+    if (!room) {
+      return next(errors.badRequest('Failed to add room'));
+    }
+
+    res.status(201).json({ room });
+  }));
 
   /**
    * POST /api/workflow/:id/expand-rooms
@@ -3999,21 +3989,16 @@ export async function registerRoutes(
    * POST /api/workflow/:id/validate
    * Validate a workflow JSON structure.
    */
-  app.post('/api/workflow/:id/validate', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { workflowJson } = req.body;
+  app.post('/api/workflow/:id/validate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { workflowJson } = req.body;
 
-      if (!workflowJson) {
-        return res.status(400).json({ error: 'workflowJson is required' });
-      }
-
-      const result = validateWorkflowJson(workflowJson);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!workflowJson) {
+      return next(errors.badRequest('workflowJson is required'));
     }
-  });
+
+    const result = validateWorkflowJson(workflowJson);
+    res.json(result);
+  }));
 
   // ============================================
   // DYNAMIC WORKFLOW ROUTES (Rule-Driven)
@@ -4023,193 +4008,153 @@ export async function registerRoutes(
    * POST /api/claims/:id/workflow/dynamic/generate
    * Generate a rule-driven dynamic workflow for a claim.
    */
-  app.post('/api/claims/:id/workflow/dynamic/generate', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { generateDynamicWorkflow } = await import('./services/dynamicWorkflowService');
-      const { forceRegenerate } = req.body;
+  app.post('/api/claims/:id/workflow/dynamic/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { generateDynamicWorkflow } = await import('./services/dynamicWorkflowService');
+    const { forceRegenerate } = req.body;
 
-      const result = await generateDynamicWorkflow(
-        req.params.id,
-        req.organizationId!,
-        req.user?.id,
-        forceRegenerate
-      );
+    const result = await generateDynamicWorkflow(
+      req.params.id,
+      req.organizationId!,
+      req.user?.id,
+      forceRegenerate
+    );
 
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({
-        success: true,
-        workflowId: result.workflowId,
-        version: result.version,
-        stepsGenerated: result.stepsGenerated,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to generate dynamic workflow'));
     }
-  });
+
+    res.json({
+      success: true,
+      workflowId: result.workflowId,
+      version: result.version,
+      stepsGenerated: result.stepsGenerated,
+    });
+  }));
 
   /**
    * GET /api/workflow/:id/evidence
    * Get workflow with full evidence status.
    */
-  app.get('/api/workflow/:id/evidence', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getWorkflowWithEvidence } = await import('./services/dynamicWorkflowService');
-      const result = await getWorkflowWithEvidence(req.params.id, req.organizationId!);
+  app.get('/api/workflow/:id/evidence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getWorkflowWithEvidence } = await import('./services/dynamicWorkflowService');
+    const result = await getWorkflowWithEvidence(req.params.id, req.organizationId!);
 
-      if (!result) {
-        return res.status(404).json({ error: 'Workflow not found' });
-      }
-
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!result) {
+      return next(errors.notFound('Workflow'));
     }
-  });
+
+    res.json(result);
+  }));
 
   /**
    * POST /api/workflow/:id/steps/:stepId/evidence
    * Attach evidence to a workflow step.
    */
-  app.post('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { attachEvidenceToStep } = await import('./services/dynamicWorkflowService');
-      const { requirementId, type, photoId, measurementData, noteData } = req.body;
+  app.post('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { attachEvidenceToStep } = await import('./services/dynamicWorkflowService');
+    const { requirementId, type, photoId, measurementData, noteData } = req.body;
 
-      if (!requirementId || !type) {
-        return res.status(400).json({ error: 'requirementId and type are required' });
-      }
-
-      const result = await attachEvidenceToStep(
-        req.params.stepId,
-        requirementId,
-        { type, photoId, measurementData, noteData },
-        req.user?.id
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({
-        success: true,
-        evidenceId: result.evidenceId,
-        fulfilled: result.fulfilled,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!requirementId || !type) {
+      return next(errors.badRequest('requirementId and type are required'));
     }
-  });
+
+    const result = await attachEvidenceToStep(
+      req.params.stepId,
+      requirementId,
+      { type, photoId, measurementData, noteData },
+      req.user?.id
+    );
+
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to attach evidence'));
+    }
+
+    res.json({
+      success: true,
+      evidenceId: result.evidenceId,
+      fulfilled: result.fulfilled,
+    });
+  }));
 
   /**
    * GET /api/workflow/:id/steps/:stepId/evidence
    * Get evidence attached to a step.
    */
-  app.get('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getStepEvidence } = await import('./services/dynamicWorkflowService');
-      const evidence = await getStepEvidence(req.params.stepId);
-      res.json({ evidence });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getStepEvidence } = await import('./services/dynamicWorkflowService');
+    const evidence = await getStepEvidence(req.params.stepId);
+    res.json({ evidence });
+  }));
 
   /**
    * POST /api/workflow/:id/validate-export
    * Validate workflow for export readiness with evidence completeness check.
    */
-  app.post('/api/workflow/:id/validate-export', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { validateWorkflowForExport } = await import('./services/dynamicWorkflowService');
-      const result = await validateWorkflowForExport(req.params.id, req.organizationId!);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.post('/api/workflow/:id/validate-export', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { validateWorkflowForExport } = await import('./services/dynamicWorkflowService');
+    const result = await validateWorkflowForExport(req.params.id, req.organizationId!);
+    res.json(result);
+  }));
 
   /**
    * POST /api/workflow/:id/mutation/room-added
    * Trigger workflow mutation when a room is added.
    */
-  app.post('/api/workflow/:id/mutation/room-added', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { onRoomAdded } = await import('./services/dynamicWorkflowService');
-      const { roomId, roomName } = req.body;
+  app.post('/api/workflow/:id/mutation/room-added', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { onRoomAdded } = await import('./services/dynamicWorkflowService');
+    const { roomId, roomName } = req.body;
 
-      if (!roomId || !roomName) {
-        return res.status(400).json({ error: 'roomId and roomName are required' });
-      }
-
-      const result = await onRoomAdded(req.params.id, roomId, roomName, req.user?.id);
-      res.json({
-        success: true,
-        stepsAdded: result.stepsAdded.length,
-        stepsModified: result.stepsModified.length,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!roomId || !roomName) {
+      return next(errors.badRequest('roomId and roomName are required'));
     }
-  });
+
+    const result = await onRoomAdded(req.params.id, roomId, roomName, req.user?.id);
+    res.json({
+      success: true,
+      stepsAdded: result.stepsAdded.length,
+      stepsModified: result.stepsModified.length,
+    });
+  }));
 
   /**
    * POST /api/workflow/:id/mutation/damage-added
    * Trigger workflow mutation when a damage zone is added.
    */
-  app.post('/api/workflow/:id/mutation/damage-added', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { onDamageZoneAdded } = await import('./services/dynamicWorkflowService');
-      const { zoneId, roomId, damageType } = req.body;
+  app.post('/api/workflow/:id/mutation/damage-added', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { onDamageZoneAdded } = await import('./services/dynamicWorkflowService');
+    const { zoneId, roomId, damageType } = req.body;
 
-      if (!zoneId || !roomId || !damageType) {
-        return res.status(400).json({ error: 'zoneId, roomId, and damageType are required' });
-      }
-
-      const result = await onDamageZoneAdded(req.params.id, zoneId, roomId, damageType, req.user?.id);
-      res.json({
-        success: true,
-        stepsAdded: result.stepsAdded.length,
-        stepsModified: result.stepsModified.length,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!zoneId || !roomId || !damageType) {
+      return next(errors.badRequest('zoneId, roomId, and damageType are required'));
     }
-  });
+
+    const result = await onDamageZoneAdded(req.params.id, zoneId, roomId, damageType, req.user?.id);
+    res.json({
+      success: true,
+      stepsAdded: result.stepsAdded.length,
+      stepsModified: result.stepsModified.length,
+    });
+  }));
 
   /**
    * POST /api/workflow/:id/mutation/photo-added
    * Trigger workflow mutation when a photo is added.
    */
-  app.post('/api/workflow/:id/mutation/photo-added', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { onPhotoAdded } = await import('./services/dynamicWorkflowService');
-      const { photoId, roomId, zoneId, stepId } = req.body;
+  app.post('/api/workflow/:id/mutation/photo-added', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { onPhotoAdded } = await import('./services/dynamicWorkflowService');
+    const { photoId, roomId, zoneId, stepId } = req.body;
 
-      if (!photoId) {
-        return res.status(400).json({ error: 'photoId is required' });
-      }
-
-      const result = await onPhotoAdded(req.params.id, photoId, roomId, zoneId, stepId, req.user?.id);
-      res.json({
-        success: true,
-        stepsAdded: result.stepsAdded.length,
-        stepsModified: result.stepsModified.length,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!photoId) {
+      return next(errors.badRequest('photoId is required'));
     }
-  });
+
+    const result = await onPhotoAdded(req.params.id, photoId, roomId, zoneId, stepId, req.user?.id);
+    res.json({
+      success: true,
+      stepsAdded: result.stepsAdded.length,
+      stepsModified: result.stepsModified.length,
+    });
+  }));
 
   // ============================================
   // CARRIER OVERLAY ROUTES
@@ -4219,71 +4164,56 @@ export async function registerRoutes(
    * GET /api/carriers/:id/overlays
    * Get carrier-specific inspection overlays.
    */
-  app.get('/api/carriers/:id/overlays', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { carrier, overlays } = await getCarrierOverlays(req.params.id);
-      if (!carrier) {
-        return res.status(404).json({ error: 'Carrier not found' });
-      }
-      res.json({ carrier, overlays });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/carriers/:id/overlays', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { carrier, overlays } = await getCarrierOverlays(req.params.id);
+    if (!carrier) {
+      return next(errors.notFound('Carrier'));
     }
-  });
+    res.json({ carrier, overlays });
+  }));
 
   /**
    * PUT /api/carriers/:id/overlays
    * Update carrier-specific inspection overlays.
    */
-  app.put('/api/carriers/:id/overlays', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
-    try {
-      const { overlays } = req.body;
-      if (!overlays) {
-        return res.status(400).json({ error: 'overlays object required' });
-      }
-      const success = await updateCarrierOverlays(req.params.id, overlays);
-      if (!success) {
-        return res.status(404).json({ error: 'Carrier not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.put('/api/carriers/:id/overlays', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+    const { overlays } = req.body;
+    if (!overlays) {
+      return next(errors.badRequest('overlays object required'));
     }
-  });
+    const success = await updateCarrierOverlays(req.params.id, overlays);
+    if (!success) {
+      return next(errors.notFound('Carrier'));
+    }
+    res.json({ success: true });
+  }));
 
   /**
    * GET /api/claims/:id/carrier-guidance
    * Get carrier guidance for a claim based on its carrier and peril.
    */
-  app.get('/api/claims/:id/carrier-guidance', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      // Get the claim's peril
-      const { data, error } = await supabaseAdmin
-        .from('claims')
-        .select('primary_peril')
-        .eq('id', req.params.id)
-        .eq('organization_id', req.organizationId!)
-        .single();
+  app.get('/api/claims/:id/carrier-guidance', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    // Get the claim's peril
+    const { data, error } = await supabaseAdmin
+      .from('claims')
+      .select('primary_peril')
+      .eq('id', req.params.id)
+      .eq('organization_id', req.organizationId!)
+      .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Claim not found' });
-        }
-        throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Claim'));
       }
-
-      const peril = data.primary_peril || 'other';
-
-      // Get merged inspection with carrier overlay
-      const mergedInspection = await getMergedInspectionForClaim(req.params.id, peril);
-      res.json(mergedInspection);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      throw error;
     }
-  });
+
+    const peril = data.primary_peril || 'other';
+
+    // Get merged inspection with carrier overlay
+    const mergedInspection = await getMergedInspectionForClaim(req.params.id, peril);
+    res.json(mergedInspection);
+  }));
 
   // ============================================
   // PHOTO ROUTES (Voice Sketch)
@@ -4377,149 +4307,104 @@ export async function registerRoutes(
   });
 
   // Get signed URL for a photo
-  app.get('/api/photos/:storagePath(*)/url', requireAuth, async (req, res) => {
-    try {
-      const { getPhotoSignedUrl } = await import('./services/photos');
-      const url = await getPhotoSignedUrl(req.params.storagePath);
-      if (!url) {
-        return res.status(404).json({ error: 'Photo not found or URL generation failed' });
-      }
-      res.json({ url });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/photos/:storagePath(*)/url', requireAuth, asyncHandler(async (req, res, next) => {
+    const { getPhotoSignedUrl } = await import('./services/photos');
+    const url = await getPhotoSignedUrl(req.params.storagePath);
+    if (!url) {
+      return next(errors.notFound('Photo or URL'));
     }
-  });
+    res.json({ url });
+  }));
 
   // Delete a photo by storage path (legacy)
-  app.delete('/api/photos/by-path/:storagePath(*)', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { deletePhoto } = await import('./services/photos');
-      const success = await deletePhoto(req.params.storagePath);
-      if (!success) {
-        return res.status(500).json({ error: 'Failed to delete photo' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/photos/by-path/:storagePath(*)', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { deletePhoto } = await import('./services/photos');
+    const success = await deletePhoto(req.params.storagePath);
+    if (!success) {
+      return next(errors.internal('Failed to delete photo'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // List photos for a claim (with filters)
-  app.get('/api/claims/:claimId/photos', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { listClaimPhotos } = await import('./services/photos');
-      const { claimId } = req.params;
-      const { structureId, roomId, damageZoneId, damageDetected } = req.query;
+  app.get('/api/claims/:claimId/photos', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { listClaimPhotos } = await import('./services/photos');
+    const { claimId } = req.params;
+    const { structureId, roomId, damageZoneId, damageDetected } = req.query;
 
-      const filters: Record<string, string | boolean> = {};
-      if (structureId) filters.structureId = structureId as string;
-      if (roomId) filters.roomId = roomId as string;
-      if (damageZoneId) filters.damageZoneId = damageZoneId as string;
-      if (damageDetected !== undefined) filters.damageDetected = damageDetected === 'true';
+    const filters: Record<string, string | boolean> = {};
+    if (structureId) filters.structureId = structureId as string;
+    if (roomId) filters.roomId = roomId as string;
+    if (damageZoneId) filters.damageZoneId = damageZoneId as string;
+    if (damageDetected !== undefined) filters.damageDetected = damageDetected === 'true';
 
-      const photos = await listClaimPhotos(claimId, filters);
-      res.json(photos);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[photos] List error:', error);
-      res.status(500).json({ error: message });
-    }
-  });
+    const photos = await listClaimPhotos(claimId, filters);
+    res.json(photos);
+  }));
 
   // Get single photo by ID
-  app.get('/api/photos/:id', requireAuth, async (req, res) => {
-    try {
-      const { getClaimPhoto } = await import('./services/photos');
-      const photo = await getClaimPhoto(req.params.id);
-      if (!photo) {
-        return res.status(404).json({ error: 'Photo not found' });
-      }
-      res.json(photo);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/photos/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const { getClaimPhoto } = await import('./services/photos');
+    const photo = await getClaimPhoto(req.params.id);
+    if (!photo) {
+      return next(errors.notFound('Photo'));
     }
-  });
+    res.json(photo);
+  }));
 
   // Delete photo by ID (deletes from both database and Supabase storage)
-  app.delete('/api/photos/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { deleteClaimPhoto } = await import('./services/photos');
-      const success = await deleteClaimPhoto(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Photo not found or deletion failed' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[photos] Delete error:', error);
-      res.status(500).json({ error: message });
+  app.delete('/api/photos/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { deleteClaimPhoto } = await import('./services/photos');
+    const success = await deleteClaimPhoto(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Photo'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // Update photo (label, hierarchy path, claim assignment, structure associations)
-  app.patch('/api/photos/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { updateClaimPhoto } = await import('./services/photos');
-      const { label, hierarchyPath, claimId, structureId, roomId, damageZoneId } = req.body;
+  app.patch('/api/photos/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { updateClaimPhoto } = await import('./services/photos');
+    const { label, hierarchyPath, claimId, structureId, roomId, damageZoneId } = req.body;
 
-      const updated = await updateClaimPhoto(req.params.id, {
-        label,
-        hierarchyPath,
-        claimId, // Allows reassigning photo to different claim or setting to null to unassign
-        structureId,
-        roomId,
-        damageZoneId,
-      });
+    const updated = await updateClaimPhoto(req.params.id, {
+      label,
+      hierarchyPath,
+      claimId, // Allows reassigning photo to different claim or setting to null to unassign
+      structureId,
+      roomId,
+      damageZoneId,
+    });
 
-      if (!updated) {
-        return res.status(404).json({ error: 'Photo not found' });
-      }
-
-      res.json(updated);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[photos] Update error:', error);
-      res.status(500).json({ error: message });
+    if (!updated) {
+      return next(errors.notFound('Photo'));
     }
-  });
+
+    res.json(updated);
+  }));
 
   // List all photos for organization (across all claims)
-  app.get('/api/photos', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { listAllClaimPhotos } = await import('./services/photos');
-      const organizationId = req.organizationId;
-      if (!organizationId) {
-        return res.status(400).json({ error: 'Organization required' });
-      }
-      const photos = await listAllClaimPhotos(organizationId);
-      res.json(photos);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[photos] List all error:', error);
-      res.status(500).json({ error: message });
+  app.get('/api/photos', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { listAllClaimPhotos } = await import('./services/photos');
+    const organizationId = req.organizationId;
+    if (!organizationId) {
+      return next(errors.badRequest('Organization required'));
     }
-  });
+    const photos = await listAllClaimPhotos(organizationId);
+    res.json(photos);
+  }));
 
   // Re-analyze photo (retry failed analysis or update analysis)
-  app.post('/api/photos/:id/reanalyze', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { reanalyzePhoto } = await import('./services/photos');
-      const result = await reanalyzePhoto(req.params.id);
+  app.post('/api/photos/:id/reanalyze', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { reanalyzePhoto } = await import('./services/photos');
+    const result = await reanalyzePhoto(req.params.id);
 
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({ success: true, message: 'Analysis started in background' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[photos] Re-analyze error:', error);
-      res.status(500).json({ error: message });
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to reanalyze photo'));
     }
-  });
+
+    res.json({ success: true, message: 'Analysis started in background' });
+  }));
 
   // ============================================
   // DOCUMENT ROUTES
@@ -4638,34 +4523,24 @@ export async function registerRoutes(
   });
 
   // List documents
-  app.get('/api/documents', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { claim_id, type, category, status, limit, offset } = req.query;
-      const result = await listDocuments(req.organizationId!, {
-        claimId: claim_id as string,
-        type: type as string,
-        category: category as string,
-        processingStatus: status as string,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined
-      });
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { claim_id, type, category, status, limit, offset } = req.query;
+    const result = await listDocuments(req.organizationId!, {
+      claimId: claim_id as string,
+      type: type as string,
+      category: category as string,
+      processingStatus: status as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined
+    });
+    res.json(result);
+  }));
 
   // Get document statistics
-  app.get('/api/documents/stats', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const stats = await getDocumentStats(req.organizationId!);
-      res.json(stats);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/documents/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const stats = await getDocumentStats(req.organizationId!);
+    res.json(stats);
+  }));
 
   // Get batch processing status for multiple documents
   // Used by the upload queue to poll for completion
@@ -4710,74 +4585,59 @@ export async function registerRoutes(
   });
 
   // Get document processing queue statistics
-  app.get('/api/documents/queue-stats', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const stats = getDocumentQueueStats();
-      res.json(stats);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/documents/queue-stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const stats = getDocumentQueueStats();
+    res.json(stats);
+  }));
 
   // Get document processing status (for polling after upload)
   // NOTE: This must be before /api/documents/:id to avoid route collision
-  app.get('/api/documents/:id/status', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await getDocument(req.params.id, req.organizationId!);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-      
-      // If there's a claimId, lookup the claim number
-      let claimNumber: string | null = null;
-      if (doc.claimId) {
-        const { data: claim } = await supabaseAdmin
-          .from('claims')
-          .select('claim_number')
-          .eq('id', doc.claimId)
-          .single();
-        claimNumber = claim?.claim_number || null;
-      }
-      
-      // Extract progress info from extracted_data
-      const extractedData = doc.extractedData as any;
-      const progress = extractedData?._progress || null;
-      
-      res.json({
-        documentId: doc.id,
-        processingStatus: doc.processingStatus || 'pending',
-        claimId: doc.claimId || null,
-        claimNumber,
-        documentType: doc.type || null,
-        error: extractedData?.error || extractedData?.claimCreationError || null,
-        progress: progress ? {
-          totalPages: progress.totalPages || 0,
-          pagesProcessed: progress.pagesProcessed || 0,
-          percentComplete: progress.percentComplete || 0,
-          stage: progress.stage || 'pending',
-          currentPage: progress.currentPage || 0,
-        } : null,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/documents/:id/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const doc = await getDocument(req.params.id, req.organizationId!);
+    if (!doc) {
+      return next(errors.notFound('Document'));
     }
-  });
+    
+    // If there's a claimId, lookup the claim number
+    let claimNumber: string | null = null;
+    if (doc.claimId) {
+      const { data: claim } = await supabaseAdmin
+        .from('claims')
+        .select('claim_number')
+        .eq('id', doc.claimId)
+        .single();
+      claimNumber = claim?.claim_number || null;
+    }
+    
+    // Extract progress info from extracted_data
+    const extractedData = doc.extractedData as any;
+    const progress = extractedData?._progress || null;
+    
+    res.json({
+      documentId: doc.id,
+      processingStatus: doc.processingStatus || 'pending',
+      claimId: doc.claimId || null,
+      claimNumber,
+      documentType: doc.type || null,
+      error: extractedData?.error || extractedData?.claimCreationError || null,
+      progress: progress ? {
+        totalPages: progress.totalPages || 0,
+        pagesProcessed: progress.pagesProcessed || 0,
+        percentComplete: progress.percentComplete || 0,
+        stage: progress.stage || 'pending',
+        currentPage: progress.currentPage || 0,
+      } : null,
+    });
+  }));
 
   // Get single document metadata
-  app.get('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await getDocument(req.params.id, req.organizationId!);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-      res.json(doc);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/documents/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const doc = await getDocument(req.params.id, req.organizationId!);
+    if (!doc) {
+      return next(errors.notFound('Document'));
     }
-  });
+    res.json(doc);
+  }));
 
   // Download document file (redirects to Supabase Storage signed URL)
   app.get('/api/documents/:id/download', requireAuth, requireOrganization, async (req, res) => {
