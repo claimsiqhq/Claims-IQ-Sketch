@@ -180,6 +180,7 @@ export const useStore = create<StoreState>((set, get) => ({
       });
       return response.authenticated;
     } catch (error) {
+      console.error('Check auth failed:', error);
       set({
         authUser: null,
         isAuthenticated: false,
