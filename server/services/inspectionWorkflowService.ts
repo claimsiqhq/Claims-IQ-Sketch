@@ -657,6 +657,37 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
     }
   }
 
+  // Normalize open_questions: handle both old format (string[]) and new format (object[])
+  if (normalized.open_questions) {
+    const openQuestions = normalized.open_questions as (string | Record<string, unknown>)[];
+    const normalizedQuestions: { question: string; context: string; priority: 'high' | 'medium' | 'low' }[] = [];
+    
+    for (const item of openQuestions) {
+      if (typeof item === 'string') {
+        // Old format: convert string to object
+        normalizedQuestions.push({
+          question: item,
+          context: 'Question needs to be answered during inspection',
+          priority: 'medium'
+        });
+      } else if (typeof item === 'object' && item !== null) {
+        // New format: validate and normalize
+        normalizedQuestions.push({
+          question: (item.question as string) || 'Unspecified question',
+          context: (item.context as string) || 'Question needs to be answered during inspection',
+          priority: (['high', 'medium', 'low'].includes(item.priority as string) 
+            ? item.priority 
+            : 'medium') as 'high' | 'medium' | 'low'
+        });
+      }
+    }
+    normalized.open_questions = normalizedQuestions;
+    console.log(`[InspectionWorkflow] Normalized open_questions (${normalizedQuestions.length} questions)`);
+  } else {
+    // Set default empty array if missing
+    normalized.open_questions = [];
+  }
+
   return normalized as unknown as AIWorkflowResponse;
 }
 

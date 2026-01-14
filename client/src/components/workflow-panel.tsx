@@ -1287,22 +1287,29 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
               </CardHeader>
               <CardContent className="pt-0 pb-3">
                 <ul className="space-y-2">
-                  {workflow.workflow.workflowJson.open_questions.map((q, i) => (
-                    <li key={i} className="text-sm flex items-start gap-2">
-                      <Badge
-                        variant={q.priority === 'high' ? 'destructive' : q.priority === 'medium' ? 'secondary' : 'outline'}
-                        className="text-xs mt-0.5 flex-shrink-0"
-                      >
-                        {q.priority}
-                      </Badge>
-                      <div>
-                        <span className="font-medium">{q.question}</span>
-                        {q.context && (
-                          <p className="text-xs text-muted-foreground mt-0.5">{q.context}</p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
+                  {workflow.workflow.workflowJson.open_questions.map((q: any, i: number) => {
+                    // Handle backward compatibility: old format was string[], new format is object[]
+                    const question = typeof q === 'string' ? q : q.question || 'Unspecified question';
+                    const context = typeof q === 'string' ? undefined : q.context;
+                    const priority = typeof q === 'string' ? 'medium' : (q.priority || 'medium');
+                    
+                    return (
+                      <li key={i} className="text-sm flex items-start gap-2">
+                        <Badge
+                          variant={priority === 'high' ? 'destructive' : priority === 'medium' ? 'secondary' : 'outline'}
+                          className="text-xs mt-0.5 flex-shrink-0"
+                        >
+                          {priority}
+                        </Badge>
+                        <div>
+                          <span className="font-medium">{question}</span>
+                          {context && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{context}</p>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               </CardContent>
             </Card>
