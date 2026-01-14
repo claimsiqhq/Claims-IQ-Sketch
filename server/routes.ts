@@ -66,8 +66,28 @@ import {
   refreshCache,
 } from "./services/promptService";
 import { passport, requireAuth } from "./middleware/auth";
-import { validateBody, validateQuery } from "./middleware/validation";
+import { validateBody, validateQuery, validateParams } from "./middleware/validation";
 import { errors, asyncHandler } from "./middleware/errorHandler";
+import {
+  estimateCalculationInputSchema,
+  estimateUpdateSchema,
+  addLineItemToEstimateSchema,
+  claimCreateSchema,
+  claimUpdateSchema,
+  aiSuggestEstimateSchema,
+  aiQuickSuggestSchema,
+  workflowRegenerateSchema,
+  workflowExpandRoomsSchema,
+  addLineItemToZoneSchema,
+  updateLineItemSchema,
+} from "./middleware/validationSchemas";
+import {
+  authRateLimiter,
+  apiRateLimiter,
+  aiRateLimiter,
+  uploadRateLimiter,
+} from "./middleware/rateLimit";
+import { uuidParamSchema, paginationQuerySchema, statusQuerySchema } from "./middleware/queryValidation";
 import { updateUserProfile, changeUserPassword } from "./services/auth";
 import {
   signUp as supabaseSignUp,
@@ -282,7 +302,7 @@ export async function registerRoutes(
   // ============================================
 
   // Login endpoint
-  app.post('/api/auth/login', (req, res, next) => {
+  app.post('/api/auth/login', authRateLimiter, (req, res, next) => {
     const rememberMe = req.body.rememberMe === true;
     
     passport.authenticate('local', (err: Error | null, user: Express.User | false, info: { message: string }) => {
@@ -726,7 +746,7 @@ export async function registerRoutes(
   // ============================================
 
   // Supabase login endpoint
-  app.post('/api/auth/supabase/login', asyncHandler(async (req, res, next) => {
+  app.post('/api/auth/supabase/login', authRateLimiter, asyncHandler(async (req, res, next) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -1124,7 +1144,7 @@ export async function registerRoutes(
     }
   });
 
-  // System status endpoint
+  // System status endpoint (limited information, no auth required for monitoring)
   app.get('/api/system/status', asyncHandler(async (req, res, next) => {
     try {
       // Test database connection
@@ -1395,7 +1415,7 @@ export async function registerRoutes(
   // ============================================
 
   // Generate AI suggestions from damage zones
-  app.post('/api/ai/suggest-estimate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/ai/suggest-estimate', requireAuth, requireOrganization, aiRateLimiter, validateBody(aiSuggestEstimateSchema), asyncHandler(async (req, res, next) => {
     const { damageZones, regionId } = req.body;
 
     if (!damageZones || !Array.isArray(damageZones) || damageZones.length === 0) {
@@ -1417,7 +1437,7 @@ export async function registerRoutes(
   }));
 
   // Quick suggest line items (for voice interface)
-  app.post('/api/ai/quick-suggest', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/ai/quick-suggest', requireAuth, requireOrganization, aiRateLimiter, validateBody(aiQuickSuggestSchema), asyncHandler(async (req, res, next) => {
     const { description, roomName, damageType, quantity } = req.body;
 
     if (!description || !roomName || !damageType) {
@@ -1463,7 +1483,7 @@ export async function registerRoutes(
   // ============================================
 
   // Calculate estimate without saving (preview)
-  app.post('/api/estimates/calculate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/calculate', requireAuth, requireOrganization, apiRateLimiter, validateBody(estimateCalculationInputSchema), asyncHandler(async (req, res, next) => {
     try {
       const result = await calculateEstimate(req.body);
       res.json(result);
@@ -1474,7 +1494,7 @@ export async function registerRoutes(
   }));
 
   // Create and save new estimate
-  app.post('/api/estimates', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates', requireAuth, apiRateLimiter, validateBody(estimateCalculationInputSchema), asyncHandler(async (req, res, next) => {
     try {
       const calculation = await calculateEstimate(req.body);
       const savedEstimate = await saveEstimate(req.body, calculation);
@@ -1486,7 +1506,9 @@ export async function registerRoutes(
   }));
 
   // List estimates
-  app.get('/api/estimates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates', requireAuth, requireOrganization, apiRateLimiter, validateQuery(paginationQuerySchema.merge(statusQuerySchema).extend({
+    claim_id: z.string().uuid().optional(),
+  })), asyncHandler(async (req, res, next) => {
     const { status, claim_id, limit, offset } = req.query;
     const result = await listEstimates({
       organizationId: req.organizationId!,
@@ -1499,7 +1521,7 @@ export async function registerRoutes(
   }));
 
   // Get estimate by ID
-  app.get('/api/estimates/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
       const estimate = await getEstimate(req.params.id, req.organizationId!);
       if (!estimate) {
         return res.status(404).json({ error: 'Estimate not found' });
@@ -1512,7 +1534,7 @@ export async function registerRoutes(
   });
 
   // Update estimate
-  app.put('/api/estimates/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/estimates/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(estimateUpdateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     await assertEstimateNotLocked(req.params.id);
 
@@ -1521,7 +1543,7 @@ export async function registerRoutes(
   }));
 
   // Add line item to estimate
-  app.post('/api/estimates/:id/line-items', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimates/:id/line-items', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(addLineItemToEstimateSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     await assertEstimateNotLocked(req.params.id);
 
@@ -2626,7 +2648,7 @@ export async function registerRoutes(
   }));
 
   // Update line item
-  app.put('/api/line-items/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/line-items/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(updateLineItemSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromLineItem(req.params.id);
     if (estimateId) {
@@ -2869,7 +2891,7 @@ export async function registerRoutes(
   // ============================================
 
   // Create new claim
-  app.post('/api/claims', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims', requireAuth, requireOrganization, apiRateLimiter, validateBody(claimCreateSchema), asyncHandler(async (req, res, next) => {
       const claim = await createClaim(req.organizationId!, req.body);
 
       // Associate documents with the claim if documentIds are provided in metadata
@@ -2894,7 +2916,7 @@ export async function registerRoutes(
   }));
 
   // List claims for organization
-  app.get('/api/claims', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims', requireAuth, requireOrganization, apiRateLimiter, validateQuery(paginationQuerySchema.merge(statusQuerySchema)), asyncHandler(async (req, res, next) => {
     try {
       const { status, loss_type, adjuster_id, search, limit, offset, include_closed } = req.query;
       const result = await listClaims(req.organizationId!, {
@@ -2910,15 +2932,10 @@ export async function registerRoutes(
   }));
 
   // Get claim statistics
-  app.get('/api/claims/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
-      const stats = await getClaimStats(req.organizationId!);
-      res.json(stats);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/claims/stats', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const stats = await getClaimStats(req.organizationId!);
+    res.json(stats);
+  }));
 
   // Get claims for map display
   app.get('/api/claims/map', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -2952,7 +2969,7 @@ export async function registerRoutes(
   }));
 
   // Get single claim
-  app.get('/api/claims/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const claim = await getClaim(req.params.id, req.organizationId!);
     if (!claim) {
       return next(errors.notFound('Claim'));
@@ -2961,7 +2978,7 @@ export async function registerRoutes(
   }));
 
   // Update claim
-  app.put('/api/claims/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.put('/api/claims/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(claimUpdateSchema), asyncHandler(async (req, res, next) => {
     const claim = await updateClaim(req.params.id, req.organizationId!, req.body);
     if (!claim) {
       return next(errors.notFound('Claim'));
@@ -3328,7 +3345,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/briefing
    * Get the latest AI-generated briefing for a claim.
    */
-  app.get('/api/claims/:id/briefing', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/briefing', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
     if (!briefing) {
       return next(errors.notFound('Briefing'));
@@ -3342,7 +3359,7 @@ export async function registerRoutes(
    * Query params:
    * - force: boolean - Force regeneration even if cached
    */
-  app.post('/api/claims/:id/briefing/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/briefing/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const forceRegenerate = req.query.force === 'true';
     const result = await generateClaimBriefing(
       req.params.id,
@@ -3368,7 +3385,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/briefing/status
    * Check if the briefing is stale (claim data has changed).
    */
-  app.get('/api/claims/:id/briefing/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/briefing/status', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const briefing = await getClaimBriefing(req.params.id, req.organizationId!);
     const isStale = await isBriefingStale(req.params.id, req.organizationId!);
 
@@ -3444,7 +3461,7 @@ export async function registerRoutes(
    * Generate an enhanced AI briefing using UnifiedClaimContext.
    * NOTE: The main generateClaimBriefing now uses enhanced context by default.
    */
-  app.post('/api/claims/:id/briefing/generate-enhanced', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/briefing/generate-enhanced', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { generateClaimBriefing } = await import('./services/claimBriefingService');
     const forceRegenerate = req.query.force === 'true';
 
@@ -3466,7 +3483,7 @@ export async function registerRoutes(
    * Generate an enhanced inspection workflow using UnifiedClaimContext.
    * NOTE: The main generateInspectionWorkflow now uses enhanced context by default.
    */
-  app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { generateInspectionWorkflow } = await import('./services/inspectionWorkflowService');
     const forceRegenerate = req.query.force === 'true';
 
@@ -3667,7 +3684,7 @@ export async function registerRoutes(
    * Generate a new inspection workflow for a claim.
    * Uses FNOL, policy, endorsements, briefing, peril rules, and optional wizard context.
    */
-  app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { forceRegenerate, wizardContext } = req.body;
     const result = await generateInspectionWorkflow(
       req.params.id,
@@ -3694,7 +3711,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/workflow
    * Get the current inspection workflow for a claim with all steps and rooms.
    */
-  app.get('/api/claims/:id/workflow', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/workflow', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const workflow = await getClaimWorkflow(req.params.id, req.organizationId!);
 
     if (!workflow) {
@@ -3708,7 +3725,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/workflow/status
    * Check if the workflow should be regenerated due to claim changes.
    */
-  app.get('/api/claims/:id/workflow/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/workflow/status', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const result = await shouldRegenerateWorkflow(req.params.id, req.organizationId!);
     res.json(result);
   }));
@@ -3718,7 +3735,7 @@ export async function registerRoutes(
    * Regenerate a workflow due to claim changes.
    * Archives the previous workflow and creates a new version.
    */
-  app.post('/api/claims/:id/workflow/regenerate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/workflow/regenerate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowRegenerateSchema), asyncHandler(async (req, res, next) => {
     const { reason } = req.body;
     if (!reason) {
       return next(errors.badRequest('reason is required for regeneration'));
@@ -3753,7 +3770,7 @@ export async function registerRoutes(
    * GET /api/workflow/:id
    * Get a specific workflow by ID with all steps and rooms.
    */
-  app.get('/api/workflow/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/workflow/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const workflow = await getWorkflow(req.params.id, req.organizationId!);
 
     if (!workflow) {
@@ -3902,7 +3919,7 @@ export async function registerRoutes(
    * Expand the workflow by adding room-specific steps for the given rooms.
    * Uses the room template defined in the workflow JSON.
    */
-  app.post('/api/workflow/:id/expand-rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/workflow/:id/expand-rooms', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowExpandRoomsSchema), asyncHandler(async (req, res, next) => {
     const { roomNames } = req.body;
 
     if (!roomNames || !Array.isArray(roomNames) || roomNames.length === 0) {
@@ -3950,7 +3967,7 @@ export async function registerRoutes(
    * POST /api/claims/:id/workflow/dynamic/generate
    * Generate a rule-driven dynamic workflow for a claim.
    */
-  app.post('/api/claims/:id/workflow/dynamic/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/workflow/dynamic/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { generateDynamicWorkflow } = await import('./services/dynamicWorkflowService');
     const { forceRegenerate } = req.body;
 
@@ -4353,57 +4370,52 @@ export async function registerRoutes(
   // ============================================
 
   // Upload document
-  app.post('/api/documents', requireAuth, requireOrganization, upload.single('file'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
-
-      const { claimId, name, type, category, description, tags } = req.body;
-      if (!type) {
-        return res.status(400).json({ error: 'Document type required (fnol, policy, endorsement, photo, estimate, correspondence, or auto)' });
-      }
-
-      // For 'auto' type, store as 'pending' initially - will be classified by the queue
-      const isAutoClassify = type === 'auto';
-      const storageType = isAutoClassify ? 'pending' : type;
-
-      const doc = await createDocument(
-        req.organizationId!,
-        {
-          originalname: req.file.originalname,
-          mimetype: req.file.mimetype,
-          size: req.file.size,
-          buffer: req.file.buffer
-        },
-        {
-          claimId,
-          name,
-          type: storageType,
-          category,
-          description,
-          tags: tags ? JSON.parse(tags) : undefined,
-          uploadedBy: req.user!.id
-        }
-      );
-
-      // Auto-trigger background processing
-      // For 'auto' type: classify first, then extract
-      // For specific types: extract directly (if applicable)
-      if (isAutoClassify) {
-        queueDocumentProcessing(doc.id, req.organizationId!, true); // needsClassification = true
-        console.log(`[DocumentUpload] Queued auto-classification for document ${doc.id}`);
-      } else if (['fnol', 'policy', 'endorsement'].includes(type)) {
-        queueDocumentProcessing(doc.id, req.organizationId!, false);
-        console.log(`[DocumentUpload] Queued background processing for document ${doc.id} (type: ${type})`);
-      }
-
-      res.status(201).json(doc);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/documents', requireAuth, requireOrganization, uploadRateLimiter, upload.single('file'), asyncHandler(async (req, res, next) => {
+    if (!req.file) {
+      return next(errors.badRequest('No file uploaded'));
     }
-  });
+
+    const { claimId, name, type, category, description, tags } = req.body;
+    if (!type) {
+      return next(errors.badRequest('Document type required (fnol, policy, endorsement, photo, estimate, correspondence, or auto)'));
+    }
+
+    // For 'auto' type, store as 'pending' initially - will be classified by the queue
+    const isAutoClassify = type === 'auto';
+    const storageType = isAutoClassify ? 'pending' : type;
+
+    const doc = await createDocument(
+      req.organizationId!,
+      {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        buffer: req.file.buffer
+      },
+      {
+        claimId,
+        name,
+        type: storageType,
+        category,
+        description,
+        tags: tags ? JSON.parse(tags) : undefined,
+        uploadedBy: req.user!.id
+      }
+    );
+
+    // Auto-trigger background processing
+    // For 'auto' type: classify first, then extract
+    // For specific types: extract directly (if applicable)
+    if (isAutoClassify) {
+      queueDocumentProcessing(doc.id, req.organizationId!, true); // needsClassification = true
+      console.log(`[DocumentUpload] Queued auto-classification for document ${doc.id}`);
+    } else if (['fnol', 'policy', 'endorsement'].includes(type)) {
+      queueDocumentProcessing(doc.id, req.organizationId!, false);
+      console.log(`[DocumentUpload] Queued background processing for document ${doc.id} (type: ${type})`);
+    }
+
+    res.status(201).json(doc);
+  }));
 
   // Upload multiple documents
   app.post('/api/documents/bulk', requireAuth, requireOrganization, upload.array('files', 20), async (req, res) => {
@@ -4573,7 +4585,7 @@ export async function registerRoutes(
   }));
 
   // Get single document metadata
-  app.get('/api/documents/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const doc = await getDocument(req.params.id, req.organizationId!);
     if (!doc) {
       return next(errors.notFound('Document'));

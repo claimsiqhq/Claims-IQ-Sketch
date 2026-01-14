@@ -55,6 +55,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
+        // Add default ARIA attributes for accessibility
+        aria-disabled={props.disabled}
         {...props}
       />
     )

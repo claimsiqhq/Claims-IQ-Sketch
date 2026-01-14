@@ -46,10 +46,25 @@ export class ErrorBoundary extends Component<Props, State> {
       errorInfo,
     });
 
-    // TODO: Send to error reporting service (e.g., Sentry)
-    // if (window.Sentry) {
-    //   window.Sentry.captureException(error, { contexts: { react: errorInfo } });
-    // }
+    // Send to error reporting service (Sentry)
+    // Note: Sentry SDK should be initialized in the app entry point
+    // Example: import * as Sentry from "@sentry/react";
+    if (typeof window !== 'undefined' && (window as any).Sentry) {
+      try {
+        (window as any).Sentry.captureException(error, {
+          contexts: {
+            react: {
+              componentStack: errorInfo.componentStack,
+            },
+          },
+          tags: {
+            errorBoundary: true,
+          },
+        });
+      } catch (sentryError) {
+        console.error('Failed to send error to Sentry:', sentryError);
+      }
+    }
   }
 
   handleReset = () => {
@@ -103,12 +118,19 @@ export class ErrorBoundary extends Component<Props, State> {
               )}
 
               <div className="flex gap-2 pt-4">
-                <Button onClick={this.handleReset} variant="outline">
-                  <RefreshCw className="h-4 w-4 mr-2" />
+                <Button 
+                  onClick={this.handleReset} 
+                  variant="outline"
+                  aria-label="Try again to reload the page"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />
                   Try Again
                 </Button>
-                <Button onClick={this.handleGoHome}>
-                  <Home className="h-4 w-4 mr-2" />
+                <Button 
+                  onClick={this.handleGoHome}
+                  aria-label="Navigate to home page"
+                >
+                  <Home className="h-4 w-4 mr-2" aria-hidden="true" />
                   Go Home
                 </Button>
               </div>
