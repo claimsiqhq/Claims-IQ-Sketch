@@ -5156,70 +5156,60 @@ export async function registerRoutes(
    * GET /api/xact/price/:code
    * Get full price breakdown for a Xactimate line item
    */
-  app.get('/api/xact/price/:code', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const result = await calculateXactPrice(req.params.code);
-      if (!result) {
-        return res.status(404).json({ error: 'Line item not found' });
-      }
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/xact/price/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const result = await calculateXactPrice(req.params.code);
+    if (!result) {
+      return next(errors.notFound('Line item'));
     }
-  });
+    res.json(result);
+  }));
 
   /**
    * POST /api/estimates/:id/xact-items
    * Add a Xactimate line item to an estimate with auto-calculated pricing
    */
-  app.post('/api/estimates/:id/xact-items', requireAuth, async (req, res) => {
-    try {
-      const { lineItemCode, quantity, damageZoneId, roomName, notes } = req.body;
-      
-      if (!lineItemCode || !quantity) {
-        return res.status(400).json({ error: 'lineItemCode and quantity are required' });
-      }
-      
-      const xactItem = await getXactItemForEstimate(lineItemCode, quantity);
-      if (!xactItem) {
-        return res.status(404).json({ error: `Xactimate line item ${lineItemCode} not found` });
-      }
-      
-      const { data: insertedItem, error } = await supabaseAdmin
-        .from('estimate_line_items')
-        .insert({
-          estimate_id: req.params.id,
-          line_item_code: xactItem.code,
-          line_item_description: xactItem.description,
-          category_id: xactItem.categoryCode,
-          quantity: xactItem.quantity,
-          unit: xactItem.unit,
-          unit_price: xactItem.unitPrice,
-          material_cost: xactItem.materialCost,
-          labor_cost: xactItem.laborCost,
-          equipment_cost: xactItem.equipmentCost,
-          subtotal: xactItem.subtotal,
-          source: 'xactimate',
-          damage_zone_id: damageZoneId || null,
-          room_name: roomName || null,
-          notes: notes || null
-        })
-        .select()
-        .single();
-
-      if (error) throw new Error(error.message);
-      
-      res.json({
-        success: true,
-        lineItem: insertedItem,
-        pricing: xactItem,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/estimates/:id/xact-items', requireAuth, asyncHandler(async (req, res, next) => {
+    const { lineItemCode, quantity, damageZoneId, roomName, notes } = req.body;
+    
+    if (!lineItemCode || !quantity) {
+      return next(errors.badRequest('lineItemCode and quantity are required'));
     }
-  });
+    
+    const xactItem = await getXactItemForEstimate(lineItemCode, quantity);
+    if (!xactItem) {
+      return next(errors.notFound(`Xactimate line item ${lineItemCode}`));
+    }
+    
+    const { data: insertedItem, error } = await supabaseAdmin
+      .from('estimate_line_items')
+      .insert({
+        estimate_id: req.params.id,
+        line_item_code: xactItem.code,
+        line_item_description: xactItem.description,
+        category_id: xactItem.categoryCode,
+        quantity: xactItem.quantity,
+        unit: xactItem.unit,
+        unit_price: xactItem.unitPrice,
+        material_cost: xactItem.materialCost,
+        labor_cost: xactItem.laborCost,
+        equipment_cost: xactItem.equipmentCost,
+        subtotal: xactItem.subtotal,
+        source: 'xactimate',
+        damage_zone_id: damageZoneId || null,
+        room_name: roomName || null,
+        notes: notes || null
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    
+    res.json({
+      success: true,
+      lineItem: insertedItem,
+      pricing: xactItem,
+    });
+  }));
 
   // ============================================
   // AI PROMPTS MANAGEMENT API
@@ -5229,46 +5219,31 @@ export async function registerRoutes(
    * GET /api/prompts
    * List all AI prompts (for admin UI)
    */
-  app.get('/api/prompts', requireAuth, async (req, res) => {
-    try {
-      const prompts = await getAllPrompts();
-      res.json({ prompts });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/prompts', requireAuth, asyncHandler(async (req, res, next) => {
+    const prompts = await getAllPrompts();
+    res.json({ prompts });
+  }));
 
   /**
    * GET /api/prompts/:key
    * Get a specific prompt by key
    */
-  app.get('/api/prompts/:key', requireAuth, async (req, res) => {
-    try {
-      const prompt = await getPrompt(req.params.key);
-      if (!prompt) {
-        return res.status(404).json({ error: 'Prompt not found' });
-      }
-      res.json({ prompt });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/prompts/:key', requireAuth, asyncHandler(async (req, res, next) => {
+    const prompt = await getPrompt(req.params.key);
+    if (!prompt) {
+      return next(errors.notFound('Prompt'));
     }
-  });
+    res.json({ prompt });
+  }));
 
   /**
    * GET /api/prompts/:key/config
    * Get full prompt configuration for API calls (includes fallback)
    */
-  app.get('/api/prompts/:key/config', requireAuth, async (req, res) => {
-    try {
-      const config = await getPromptWithFallback(req.params.key);
-      res.json({ config });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/prompts/:key/config', requireAuth, asyncHandler(async (req, res, next) => {
+    const config = await getPromptWithFallback(req.params.key);
+    res.json({ config });
+  }));
 
   /**
    * GET /api/claims/:id/scope-context
@@ -5280,86 +5255,81 @@ export async function registerRoutes(
    * - briefing: AI-generated claim briefing summary
    * - workflow: Inspection workflow steps
    */
-  app.get('/api/claims/:id/scope-context', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const claimId = req.params.id;
-      const organizationId = req.organizationId!;
+  app.get('/api/claims/:id/scope-context', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const claimId = req.params.id;
+    const organizationId = req.organizationId!;
 
-      // Import services dynamically
-      const { getClaimBriefing } = await import('./services/claimBriefingService');
-      const { getClaimWorkflow } = await import('./services/inspectionWorkflowService');
+    // Import services dynamically
+    const { getClaimBriefing } = await import('./services/claimBriefingService');
+    const { getClaimWorkflow } = await import('./services/inspectionWorkflowService');
 
-      // Get briefing
-      const briefing = await getClaimBriefing(claimId, organizationId);
+    // Get briefing
+    const briefing = await getClaimBriefing(claimId, organizationId);
 
-      // Get workflow
-      const workflow = await getClaimWorkflow(claimId, organizationId);
+    // Get workflow
+    const workflow = await getClaimWorkflow(claimId, organizationId);
 
-      // Get claim for peril info and version numbers
-      const claim = await getClaim(claimId, organizationId);
+    // Get claim for peril info and version numbers
+    const claim = await getClaim(claimId, organizationId);
 
-      // Get version numbers from claim (need to fetch directly as getClaim may not include them)
-      const { data: claimVersions } = await supabaseAdmin
-        .from('claims')
-        .select('briefing_version, workflow_version')
-        .eq('id', claimId)
-        .eq('organization_id', organizationId)
-        .single();
+    // Get version numbers from claim (need to fetch directly as getClaim may not include them)
+    const { data: claimVersions } = await supabaseAdmin
+      .from('claims')
+      .select('briefing_version, workflow_version')
+      .eq('id', claimId)
+      .eq('organization_id', organizationId)
+      .single();
 
-      // Determine readiness status
-      const hasBriefing = briefing !== null;
-      const hasWorkflow = workflow !== null;
-      const isReady = hasBriefing && hasWorkflow;
+    // Determine readiness status
+    const hasBriefing = briefing !== null;
+    const hasWorkflow = workflow !== null;
+    const isReady = hasBriefing && hasWorkflow;
 
-      // Build context summary
-      const context = {
-        claimId,
-        claimNumber: claim?.claimNumber || 'Unknown',
-        primaryPeril: claim?.primaryPeril || 'Unknown',
-        secondaryPerils: claim?.secondaryPerils || [],
+    // Build context summary
+    const context = {
+      claimId,
+      claimNumber: claim?.claimNumber || 'Unknown',
+      primaryPeril: claim?.primaryPeril || 'Unknown',
+      secondaryPerils: claim?.secondaryPerils || [],
 
-        // Readiness status for voice agent prerequisites
-        readiness: {
-          isReady,
-          hasBriefing,
-          hasWorkflow,
-          message: isReady
-            ? 'Ready for voice agent'
-            : `Missing: ${!hasBriefing ? 'briefing' : ''}${!hasBriefing && !hasWorkflow ? ', ' : ''}${!hasWorkflow ? 'workflow' : ''}`.trim(),
-        },
+      // Readiness status for voice agent prerequisites
+      readiness: {
+        isReady,
+        hasBriefing,
+        hasWorkflow,
+        message: isReady
+          ? 'Ready for voice agent'
+          : `Missing: ${!hasBriefing ? 'briefing' : ''}${!hasBriefing && !hasWorkflow ? ', ' : ''}${!hasWorkflow ? 'workflow' : ''}`.trim(),
+      },
 
-        // Version numbers for cache invalidation
-        briefingVersion: claimVersions?.briefing_version || 0,
-        workflowVersion: claimVersions?.workflow_version || 0,
+      // Version numbers for cache invalidation
+      briefingVersion: claimVersions?.briefing_version || 0,
+      workflowVersion: claimVersions?.workflow_version || 0,
 
-        briefing: briefing ? {
-          id: briefing.id,
-          primaryPeril: briefing.briefingJson?.claim_summary?.primary_peril,
-          overview: briefing.briefingJson?.claim_summary?.overview || [],
-          priorities: briefing.briefingJson?.inspection_strategy?.what_to_prioritize || [],
-          commonMisses: briefing.briefingJson?.inspection_strategy?.common_misses || [],
-          photoRequirements: briefing.briefingJson?.photo_requirements || [],
-          sketchRequirements: briefing.briefingJson?.sketch_requirements || [],
-          depreciationConsiderations: briefing.briefingJson?.depreciation_considerations || [],
-        } : null,
-        workflow: workflow ? {
-          id: workflow.workflow?.id,
-          totalSteps: workflow.steps?.length || 0,
-          steps: workflow.steps?.slice(0, 10).map(s => ({
-            phase: s.phase,
-            title: s.title,
-            instructions: s.instructions,
-            required: s.required,
-          })) || [],
-        } : null,
-      };
+      briefing: briefing ? {
+        id: briefing.id,
+        primaryPeril: briefing.briefingJson?.claim_summary?.primary_peril,
+        overview: briefing.briefingJson?.claim_summary?.overview || [],
+        priorities: briefing.briefingJson?.inspection_strategy?.what_to_prioritize || [],
+        commonMisses: briefing.briefingJson?.inspection_strategy?.common_misses || [],
+        photoRequirements: briefing.briefingJson?.photo_requirements || [],
+        sketchRequirements: briefing.briefingJson?.sketch_requirements || [],
+        depreciationConsiderations: briefing.briefingJson?.depreciation_considerations || [],
+      } : null,
+      workflow: workflow ? {
+        id: workflow.workflow?.id,
+        totalSteps: workflow.steps?.length || 0,
+        steps: workflow.steps?.slice(0, 10).map(s => ({
+          phase: s.phase,
+          title: s.title,
+          instructions: s.instructions,
+          required: s.required,
+        })) || [],
+      } : null,
+    };
 
-      res.json(context);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(context);
+  }));
 
   /**
    * PUT /api/prompts/:key
