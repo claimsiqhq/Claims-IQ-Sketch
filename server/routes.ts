@@ -2639,63 +2639,43 @@ export async function registerRoutes(
   }));
 
   // Add line item to zone
-  app.post('/api/zones/:id/line-items', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromZone(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const { lineItemCode, quantity } = req.body;
-      if (!lineItemCode || !quantity) {
-        return res.status(400).json({ error: 'lineItemCode and quantity required' });
-      }
-      await addLineItemToZone(req.params.id, req.body);
-      const zone = await getZoneWithChildren(req.params.id);
-      res.status(201).json(zone);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.post('/api/zones/:id/line-items', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromZone(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const { lineItemCode, quantity } = req.body;
+    if (!lineItemCode || !quantity) {
+      return next(errors.badRequest('lineItemCode and quantity required'));
+    }
+    await addLineItemToZone(req.params.id, req.body);
+    const zone = await getZoneWithChildren(req.params.id);
+    res.status(201).json(zone);
+  }));
 
   // Delete line item from zone
-  app.delete('/api/line-items/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromLineItem(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const { data, error, count } = await supabaseAdmin
-        .from('estimate_line_items')
-        .delete({ count: 'exact' })
-        .eq('id', req.params.id);
-
-      if (error) throw error;
-
-      if (count === 0) {
-        return res.status(404).json({ error: 'Line item not found' });
-      }
-
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.delete('/api/line-items/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromLineItem(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const { data, error, count } = await supabaseAdmin
+      .from('estimate_line_items')
+      .delete({ count: 'exact' })
+      .eq('id', req.params.id);
+
+    if (error) throw error;
+
+    if (count === 0) {
+      return next(errors.notFound('Line item'));
+    }
+
+    res.json({ success: true });
+  }));
 
   // Update line item
   app.put('/api/line-items/:id', requireAuth, async (req, res) => {
@@ -2728,13 +2708,13 @@ export async function registerRoutes(
           .single();
 
         if (error) {
-          if (error.code === 'PGRST116') {
-            return res.status(404).json({ error: 'Line item not found' });
-          }
-          throw error;
-        }
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Line item'));
+      }
+      throw error;
+    }
 
-        return res.json(data);
+    return res.json(data);
       }
 
       updateData.updated_at = new Date().toISOString();
@@ -2748,7 +2728,7 @@ export async function registerRoutes(
 
       if (error) {
         if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Line item not found' });
+          return next(errors.notFound('Line item'));
         }
         throw error;
       }
@@ -2761,72 +2741,50 @@ export async function registerRoutes(
       }
 
       res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  }));
 
   // Add line item from zone dimension (auto-calculate quantity)
-  app.post('/api/zones/:id/line-items/from-dimension', requireAuth, async (req, res) => {
+  app.post('/api/zones/:id/line-items/from-dimension', requireAuth, asyncHandler(async (req, res, next) => {
     try {
-      const { lineItemCode, dimensionKey, unitPrice, taxRate, depreciationPct, isRecoverable, notes } = req.body;
-      if (!lineItemCode || !dimensionKey) {
-        return res.status(400).json({ error: 'lineItemCode and dimensionKey required' });
-      }
-      const result = await addLineItemFromDimension({
-        zoneId: req.params.id,
-        lineItemCode,
-        dimensionKey,
-        unitPrice,
-        taxRate,
-        depreciationPct,
-        isRecoverable,
-        notes,
-      });
-      const zone = await getZoneWithChildren(req.params.id);
-      res.status(201).json({ ...result, zone });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+    const { lineItemCode, dimensionKey, unitPrice, taxRate, depreciationPct, isRecoverable, notes } = req.body;
+    if (!lineItemCode || !dimensionKey) {
+      return next(errors.badRequest('lineItemCode and dimensionKey required'));
     }
-  });
+    const result = await addLineItemFromDimension({
+      zoneId: req.params.id,
+      lineItemCode,
+      dimensionKey,
+      unitPrice,
+      taxRate,
+      depreciationPct,
+      isRecoverable,
+      notes,
+    });
+    const zone = await getZoneWithChildren(req.params.id);
+    res.status(201).json({ ...result, zone });
+  }));
 
   // ============================================
   // SUBROOM ROUTES
   // ============================================
 
   // Get subroom
-  app.get('/api/subrooms/:id', requireAuth, async (req, res) => {
-    try {
-      const subroom = await getSubroom(req.params.id);
-      if (!subroom) {
-        return res.status(404).json({ error: 'Subroom not found' });
-      }
-      res.json(subroom);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/subrooms/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const subroom = await getSubroom(req.params.id);
+    if (!subroom) {
+      return next(errors.notFound('Subroom'));
     }
-  });
+    res.json(subroom);
+  }));
 
   // Update subroom
-  app.put('/api/subrooms/:id', requireAuth, async (req, res) => {
-    try {
-      const subroom = await updateSubroom(req.params.id, req.body);
-      if (!subroom) {
-        return res.status(404).json({ error: 'Subroom not found' });
-      }
-      res.json(subroom);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.put('/api/subrooms/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const subroom = await updateSubroom(req.params.id, req.body);
+    if (!subroom) {
+      return next(errors.notFound('Subroom'));
     }
-  });
+    res.json(subroom);
+  }));
 
   // Delete subroom
   app.delete('/api/subrooms/:id', requireAuth, async (req, res) => {
@@ -2847,200 +2805,130 @@ export async function registerRoutes(
   // ============================================
 
   // Get coverages for an estimate
-  app.get('/api/estimates/:id/coverages', requireAuth, async (req, res) => {
-    try {
-      const coverages = await getCoverages(req.params.id);
-      res.json(coverages);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/estimates/:id/coverages', requireAuth, asyncHandler(async (req, res, next) => {
+    const coverages = await getCoverages(req.params.id);
+    res.json(coverages);
+  }));
 
   // Create coverage for an estimate
-  app.post('/api/estimates/:id/coverages', requireAuth, async (req, res) => {
-    try {
-      const { coverageType, coverageName, policyLimit, deductible } = req.body;
-      if (!coverageType || !coverageName) {
-        return res.status(400).json({ error: 'coverageType and coverageName required' });
-      }
-      const coverage = await createCoverage({
-        estimateId: req.params.id,
-        coverageType,
-        coverageName,
-        policyLimit,
-        deductible,
-      });
-      res.status(201).json(coverage);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/estimates/:id/coverages', requireAuth, asyncHandler(async (req, res, next) => {
+    const { coverageType, coverageName, policyLimit, deductible } = req.body;
+    if (!coverageType || !coverageName) {
+      return next(errors.badRequest('coverageType and coverageName required'));
     }
-  });
+    const coverage = await createCoverage({
+      estimateId: req.params.id,
+      coverageType,
+      coverageName,
+      policyLimit,
+      deductible,
+    });
+    res.status(201).json(coverage);
+  }));
 
   // Get line items grouped by coverage
-  app.get('/api/estimates/:id/line-items/by-coverage', requireAuth, async (req, res) => {
-    try {
-      const grouped = await getLineItemsByCoverage(req.params.id);
-      res.json(grouped);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/estimates/:id/line-items/by-coverage', requireAuth, asyncHandler(async (req, res, next) => {
+    const grouped = await getLineItemsByCoverage(req.params.id);
+    res.json(grouped);
+  }));
 
   // Update line item coverage assignment
-  app.put('/api/line-items/:id/coverage', requireAuth, async (req, res) => {
-    try {
-      const { coverageId } = req.body;
-      await updateLineItemCoverage(req.params.id, coverageId || null);
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.put('/api/line-items/:id/coverage', requireAuth, asyncHandler(async (req, res, next) => {
+    const { coverageId } = req.body;
+    await updateLineItemCoverage(req.params.id, coverageId || null);
+    res.json({ success: true });
+  }));
 
   // ============================================
   // ORGANIZATION (TENANT) ROUTES
   // ============================================
 
   // Get current user's organizations
-  app.get('/api/organizations/mine', requireAuth, async (req, res) => {
-    try {
-      const orgs = await getUserOrganizations(req.user!.id);
-      res.json({
-        organizations: orgs,
-        currentOrganizationId: req.organizationId
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/organizations/mine', requireAuth, asyncHandler(async (req, res, next) => {
+    const orgs = await getUserOrganizations(req.user!.id);
+    res.json({
+      organizations: orgs,
+      currentOrganizationId: req.organizationId
+    });
+  }));
 
   // Switch current organization
-  app.post('/api/organizations/switch', requireAuth, async (req, res) => {
-    try {
-      const { organizationId } = req.body;
-      if (!organizationId) {
-        return res.status(400).json({ error: 'organizationId required' });
-      }
-      const success = await switchOrganization(req.user!.id, organizationId);
-      if (!success) {
-        return res.status(403).json({ error: 'Not a member of this organization' });
-      }
-      res.json({ success: true, currentOrganizationId: organizationId });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/organizations/switch', requireAuth, asyncHandler(async (req, res, next) => {
+    const { organizationId } = req.body;
+    if (!organizationId) {
+      return next(errors.badRequest('organizationId required'));
     }
-  });
+    const success = await switchOrganization(req.user!.id, organizationId);
+    if (!success) {
+      return next(errors.forbidden('Not a member of this organization'));
+    }
+    res.json({ success: true, currentOrganizationId: organizationId });
+  }));
 
   // Create new organization
-  app.post('/api/organizations', requireAuth, async (req, res) => {
-    try {
-      const org = await createOrganization(req.body, req.user!.id);
-      res.status(201).json(org);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('already exists')) {
-        res.status(409).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+  app.post('/api/organizations', requireAuth, asyncHandler(async (req, res, next) => {
+    const org = await createOrganization(req.body, req.user!.id);
+    res.status(201).json(org);
+  }));
 
   // List all organizations (super admin only)
-  app.get('/api/admin/organizations', requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
-      const { status, type, limit, offset } = req.query;
-      const result = await listOrganizations({
-        status: status as string,
-        type: type as string,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined
-      });
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/admin/organizations', requireAuth, requireSuperAdmin, asyncHandler(async (req, res, next) => {
+    const { status, type, limit, offset } = req.query;
+    const result = await listOrganizations({
+      status: status as string,
+      type: type as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined
+    });
+    res.json(result);
+  }));
 
   // Get current organization details
-  app.get('/api/organizations/current', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const org = await getOrganization(req.organizationId!);
-      if (!org) {
-        return res.status(404).json({ error: 'Organization not found' });
-      }
-      res.json(org);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/organizations/current', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const org = await getOrganization(req.organizationId!);
+    if (!org) {
+      return next(errors.notFound('Organization'));
     }
-  });
+    res.json(org);
+  }));
 
   // Update current organization
-  app.put('/api/organizations/current', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
-    try {
-      const org = await updateOrganization(req.organizationId!, req.body);
-      if (!org) {
-        return res.status(404).json({ error: 'Organization not found' });
-      }
-      res.json(org);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.put('/api/organizations/current', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+    const org = await updateOrganization(req.organizationId!, req.body);
+    if (!org) {
+      return next(errors.notFound('Organization'));
     }
-  });
+    res.json(org);
+  }));
 
   // Get organization members
-  app.get('/api/organizations/current/members', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const members = await getOrganizationMembers(req.organizationId!);
-      res.json(members);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/organizations/current/members', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const members = await getOrganizationMembers(req.organizationId!);
+    res.json(members);
+  }));
 
   // Add member to organization
-  app.post('/api/organizations/current/members', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
-    try {
-      const { userId, role } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: 'userId required' });
-      }
-      await addOrganizationMember(req.organizationId!, userId, role || 'member');
-      res.status(201).json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/organizations/current/members', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+    const { userId, role } = req.body;
+    if (!userId) {
+      return next(errors.badRequest('userId required'));
     }
-  });
+    await addOrganizationMember(req.organizationId!, userId, role || 'member');
+    res.status(201).json({ success: true });
+  }));
 
   // Remove member from organization
-  app.delete('/api/organizations/current/members/:userId', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
-    try {
-      await removeOrganizationMember(req.organizationId!, req.params.userId);
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.delete('/api/organizations/current/members/:userId', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+    await removeOrganizationMember(req.organizationId!, req.params.userId);
+    res.json({ success: true });
+  }));
 
   // ============================================
   // CLAIMS ROUTES
   // ============================================
 
   // Create new claim
-  app.post('/api/claims', requireAuth, requireOrganization, async (req, res) => {
-    try {
+  app.post('/api/claims', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
       const claim = await createClaim(req.organizationId!, req.body);
 
       // Associate documents with the claim if documentIds are provided in metadata
@@ -3061,15 +2949,11 @@ export async function registerRoutes(
       // Queue geocoding for the new claim address
       queueGeocoding(claim.id);
 
-      res.status(201).json(claim);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.status(201).json(claim);
+  }));
 
   // List claims for organization
-  app.get('/api/claims', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/claims', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const { status, loss_type, adjuster_id, search, limit, offset, include_closed } = req.query;
       const result = await listClaims(req.organizationId!, {
@@ -3081,15 +2965,11 @@ export async function registerRoutes(
         offset: offset ? parseInt(offset as string) : undefined,
         includeClosed: include_closed === 'true'
       });
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(result);
+  }));
 
   // Get claim statistics
-  app.get('/api/claims/stats', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/claims/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const stats = await getClaimStats(req.organizationId!);
       res.json(stats);
