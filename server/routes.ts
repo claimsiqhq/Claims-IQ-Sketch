@@ -3295,32 +3295,22 @@ export async function registerRoutes(
    * Get inspection intelligence for a specific peril.
    * Returns deterministic inspection rules, tips, and escalation triggers.
    */
-  app.get('/api/inspection-intelligence/:peril', requireAuth, async (req, res) => {
-    try {
-      const { peril } = req.params;
-      const intelligence = getInspectionIntelligenceForPeril(peril);
-      res.json(intelligence);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/inspection-intelligence/:peril', requireAuth, asyncHandler(async (req, res, next) => {
+    const { peril } = req.params;
+    const intelligence = getInspectionIntelligenceForPeril(peril);
+    res.json(intelligence);
+  }));
 
   /**
    * GET /api/inspection-intelligence/:peril/tips
    * Get quick inspection tips for a specific peril (for UI micro-hints).
    */
-  app.get('/api/inspection-intelligence/:peril/tips', requireAuth, async (req, res) => {
-    try {
-      const { peril } = req.params;
-      const limit = parseInt(req.query.limit as string) || 5;
-      const tips = getQuickInspectionTips(peril, limit);
-      res.json({ tips });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/inspection-intelligence/:peril/tips', requireAuth, asyncHandler(async (req, res, next) => {
+    const { peril } = req.params;
+    const limit = parseInt(req.query.limit as string) || 5;
+    const tips = getQuickInspectionTips(peril, limit);
+    res.json({ tips });
+  }));
 
   /**
    * GET /api/claims/:id/inspection-intelligence
