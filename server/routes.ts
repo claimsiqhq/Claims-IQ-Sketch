@@ -68,6 +68,7 @@ import {
 import { passport, requireAuth } from "./middleware/auth";
 import { validateBody, validateQuery, validateParams } from "./middleware/validation";
 import { errors, asyncHandler } from "./middleware/errorHandler";
+import { createLogger, logError } from "./lib/logger";
 import {
   estimateCalculationInputSchema,
   estimateUpdateSchema,
@@ -373,7 +374,7 @@ export async function registerRoutes(
         // Explicitly save session to ensure it persists
         req.session.save((saveErr) => {
           if (saveErr) {
-            console.error('Session save error:', saveErr);
+            logError(log, saveErr, 'Session save error');
             return res.status(500).json({ error: 'Session save error' });
           }
           // Disable caching for login response to prevent 304 issues
@@ -432,10 +433,10 @@ export async function registerRoutes(
       }
 
       const authUrl = await getAuthorizationUrl(req.user!.id);
-      console.log('[MS365] Redirecting to auth URL:', authUrl);
+      log.debug({ authUrl }, '[MS365] Redirecting to auth URL');
       res.redirect(authUrl);
     } catch (error) {
-      console.error('[MS365] Auth URL generation failed:', error);
+      logError(log, error, '[MS365] Auth URL generation failed');
       res.redirect('/settings?ms365_error=auth_failed');
     }
   }));
@@ -445,7 +446,7 @@ export async function registerRoutes(
     const { code, state, error: authError } = req.query;
 
     if (authError) {
-      console.error('[MS365] OAuth error:', authError);
+      log.error({ authError }, '[MS365] OAuth error');
       return res.redirect('/settings?ms365_error=auth_denied');
     }
 
@@ -460,11 +461,11 @@ export async function registerRoutes(
       if (result.success) {
         res.redirect('/settings?ms365_connected=true');
       } else {
-        console.error('[MS365] Token exchange failed:', result.error);
+        logError(log, new Error(result.error || 'Token exchange failed'), '[MS365] Token exchange failed');
         res.redirect('/settings?ms365_error=token_exchange');
       }
     } catch (error) {
-      console.error('[MS365] Callback error:', error);
+      logError(log, error, '[MS365] Callback error');
       res.redirect('/settings?ms365_error=callback_failed');
     }
   }));
@@ -726,7 +727,7 @@ export async function registerRoutes(
           return;
         }
       } catch (error) {
-        console.error('Error fetching user:', error);
+        logError(log, error, 'Error fetching user');
       }
       res.status(200).send(JSON.stringify({ user: { id: req.user.id, username: req.user.username, currentOrganizationId: req.user.currentOrganizationId }, authenticated: true }));
       return;
@@ -754,7 +755,7 @@ export async function registerRoutes(
           return;
         }
       } catch (error) {
-        console.error('Token verification error:', error);
+        logError(log, error, 'Token verification error');
       }
     }
 
@@ -901,7 +902,7 @@ export async function registerRoutes(
         authenticated: true
       });
     } catch (error) {
-      console.error('Get current user error:', error);
+      logError(log, error, 'Get current user error');
       res.json({ user: null, authenticated: false });
     }
   }));
@@ -953,7 +954,7 @@ export async function registerRoutes(
     // Re-login to persist the updated user in the session
     req.login(updatedUser, (err) => {
       if (err) {
-        console.error('Session update error:', err);
+        logError(log, err, 'Session update error');
       }
     });
 
@@ -1252,7 +1253,7 @@ export async function registerRoutes(
       res.json({ ...result, optimized: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Route optimization error:', message);
+      logError(log, error, 'Route optimization error');
       
       if (message.includes('not configured')) {
         return next(errors.internal('Route optimization service not configured'));
@@ -1287,7 +1288,7 @@ export async function registerRoutes(
       res.json({ driveTimes: result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Drive times calculation error:', message);
+      logError(log, error, 'Drive times calculation error');
       return next(errors.internal(message));
     }
   }));
@@ -1329,7 +1330,7 @@ export async function registerRoutes(
       res.json({ weather });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Weather fetch error:', message);
+      logError(log, error, 'Weather fetch error');
       return next(errors.internal(message));
     }
   }));
@@ -1377,7 +1378,7 @@ export async function registerRoutes(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('My Day analysis error:', message);
+      logError(log, error, 'My Day analysis error');
       res.status(500).json({ error: message });
     }
   });
@@ -1390,7 +1391,7 @@ export async function registerRoutes(
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Voice session creation error:', message);
+      logError(log, error, 'Voice session creation error');
       if (message.includes('not configured')) {
         return next(errors.internal('Voice service not configured'));
       } else {
@@ -1424,7 +1425,7 @@ export async function registerRoutes(
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('AI suggestion error:', message);
+      logError(log, error, 'AI suggestion error');
       if (message.includes('not configured')) {
         return next(errors.internal('AI service not configured'));
       } else {
@@ -3046,10 +3047,15 @@ export async function registerRoutes(
   // Purge ALL claims - permanently delete all claims and related data
   // NOTE: Must be defined BEFORE /api/claims/:id to avoid :id matching "purge-all"
   app.delete('/api/claims/purge-all', (req, res, next) => {
-    console.log('[Purge] Request received - isAuthenticated:', req.isAuthenticated(), 'userId:', req.user?.id, 'orgId:', req.organizationId, 'memberRole:', req.membershipRole);
+    log.debug({ 
+      isAuthenticated: req.isAuthenticated(), 
+      userId: req.user?.id, 
+      orgId: req.organizationId, 
+      memberRole: req.membershipRole 
+    }, '[Purge] Request received');
     next();
   }, requireAuth, requireOrganization, requireOrgRole('owner'), apiRateLimiter, asyncHandler(async (req, res, next) => {
-    console.log('[Purge] Passed all auth checks, deleting claims for org:', req.organizationId);
+    log.info({ orgId: req.organizationId }, '[Purge] Passed all auth checks, deleting claims');
     const result = await purgeAllClaims(req.organizationId!);
     res.json({
       success: true,
@@ -3548,7 +3554,7 @@ export async function registerRoutes(
     const claimId = req.params.id;
     const organizationId = req.organizationId!;
 
-    console.log(`[Checklist] GET claimId=${claimId}, orgId=${organizationId}`);
+    log.debug({ claimId, organizationId }, '[Checklist] GET request');
 
     let { checklist, items } = await getChecklistForClaim(claimId);
 
@@ -3561,11 +3567,11 @@ export async function registerRoutes(
         .single();
 
       if (claimError) {
-        console.log(`[Checklist] Claim lookup error:`, claimError);
+        logError(log, claimError, '[Checklist] Claim lookup error');
       }
 
       if (!claim) {
-        console.log(`[Checklist] Claim not found for id=${claimId}, org=${organizationId}`);
+        log.warn({ claimId, organizationId }, '[Checklist] Claim not found');
         return next(errors.notFound('Claim'));
       }
 
@@ -4258,12 +4264,11 @@ export async function registerRoutes(
         uploadedBy,
       });
 
-      console.log('[photos] Upload successful:', {
-        id: photo.id,
-        claimId: photo.claimId,
-        url: photo.url,
-        storagePath: photo.storagePath,
-      });
+      log.info({ 
+        photoId: photo.id, 
+        claimId: photo.claimId, 
+        storagePath: photo.storagePath 
+      }, '[photos] Upload successful');
 
       // Link photo to workflow step if workflowStepId is provided or try to auto-match
       let stepLinkResult: { stepId?: string; stepProgress?: string; stepComplete?: boolean } = {};
@@ -4283,10 +4288,10 @@ export async function registerRoutes(
               stepProgress: linkResult.stepProgress,
               stepComplete: linkResult.stepComplete
             };
-            console.log('[photos] Photo linked to workflow step:', stepLinkResult);
+            log.debug({ stepLinkResult }, '[photos] Photo linked to workflow step');
           }
         } catch (linkError) {
-          console.warn('[photos] Failed to link photo to workflow step:', linkError);
+          log.warn({ linkError }, '[photos] Failed to link photo to workflow step');
           // Don't fail the upload if linking fails
         }
       }
@@ -4444,10 +4449,10 @@ export async function registerRoutes(
     // For specific types: extract directly (if applicable)
     if (isAutoClassify) {
       queueDocumentProcessing(doc.id, req.organizationId!, true); // needsClassification = true
-      console.log(`[DocumentUpload] Queued auto-classification for document ${doc.id}`);
+      log.debug({ documentId: doc.id }, '[DocumentUpload] Queued auto-classification');
     } else if (['fnol', 'policy', 'endorsement'].includes(type)) {
       queueDocumentProcessing(doc.id, req.organizationId!, false);
-      console.log(`[DocumentUpload] Queued background processing for document ${doc.id} (type: ${type})`);
+      log.debug({ documentId: doc.id, type }, '[DocumentUpload] Queued background processing');
     }
 
     res.status(201).json(doc);
@@ -4501,7 +4506,7 @@ export async function registerRoutes(
       // Auto-trigger background processing for all applicable documents
       if (toProcess.length > 0) {
         queueDocumentsProcessing(toProcess);
-        console.log(`[DocumentUpload] Queued ${isAutoClassify ? 'auto-classification' : 'background processing'} for ${toProcess.length} documents`);
+        log.info({ count: toProcess.length, isAutoClassify }, '[DocumentUpload] Queued document processing');
       }
 
       res.status(201).json({ documents: results });
