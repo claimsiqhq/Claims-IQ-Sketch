@@ -80,6 +80,32 @@ import {
   workflowExpandRoomsSchema,
   addLineItemToZoneSchema,
   updateLineItemSchema,
+  passwordChangeSchema,
+  checklistItemUpdateSchema,
+  checklistItemCreateSchema,
+  checklistGenerateSchema,
+  organizationCreateSchema,
+  organizationUpdateSchema,
+  organizationSwitchSchema,
+  organizationAddMemberSchema,
+  documentProcessSchema,
+  documentClaimAssociationSchema,
+  createClaimFromDocumentsSchema,
+  promptUpdateSchema,
+  sketchFloorplanDataSchema,
+  sketchRoomSchema,
+  sketchOpeningSchema,
+  sketchMissingWallSchema,
+  structureCreateSchema,
+  structureUpdateSchema,
+  areaCreateSchema,
+  areaUpdateSchema,
+  zoneCreateSchema,
+  zoneUpdateSchema,
+  subroomCreateSchema,
+  subroomUpdateSchema,
+  coverageCreateSchema,
+  lineItemCoverageUpdateSchema,
 } from "./middleware/validationSchemas";
 import {
   authRateLimiter,
@@ -937,10 +963,7 @@ export async function registerRoutes(
   });
 
   // Change user password
-  app.put('/api/users/password', requireAuth, validateBody(z.object({
-    currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-  })), asyncHandler(async (req, res, next) => {
+  app.put('/api/users/password', requireAuth, apiRateLimiter, validateBody(passwordChangeSchema), asyncHandler(async (req, res, next) => {
     try {
       const userId = req.user!.id;
       const { currentPassword, newPassword } = req.body;
@@ -2816,7 +2839,7 @@ export async function registerRoutes(
   }));
 
   // Switch current organization
-  app.post('/api/organizations/switch', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/organizations/switch', requireAuth, apiRateLimiter, validateBody(organizationSwitchSchema), asyncHandler(async (req, res, next) => {
     const { organizationId } = req.body;
     if (!organizationId) {
       return next(errors.badRequest('organizationId required'));
@@ -2856,7 +2879,7 @@ export async function registerRoutes(
   }));
 
   // Update current organization
-  app.put('/api/organizations/current', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+  app.put('/api/organizations/current', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateBody(organizationUpdateSchema), asyncHandler(async (req, res, next) => {
     const org = await updateOrganization(req.organizationId!, req.body);
     if (!org) {
       return next(errors.notFound('Organization'));
@@ -2871,7 +2894,7 @@ export async function registerRoutes(
   }));
 
   // Add member to organization
-  app.post('/api/organizations/current/members', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+  app.post('/api/organizations/current/members', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateBody(organizationAddMemberSchema), asyncHandler(async (req, res, next) => {
     const { userId, role } = req.body;
     if (!userId) {
       return next(errors.badRequest('userId required'));
@@ -3564,7 +3587,7 @@ export async function registerRoutes(
    * POST /api/claims/:id/checklist/generate
    * Force generate or regenerate a checklist for a claim
    */
-  app.post('/api/claims/:id/checklist/generate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/:id/checklist/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), validateBody(checklistGenerateSchema), asyncHandler(async (req, res, next) => {
     const claimId = req.params.id;
     const organizationId = req.organizationId!;
     const { peril: overridePeril, severity: overrideSeverity } = req.body;
@@ -3614,7 +3637,7 @@ export async function registerRoutes(
    * PUT /api/checklists/items/:itemId
    * Update a checklist item status
    */
-  app.put('/api/checklists/items/:itemId', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.put('/api/checklists/items/:itemId', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ itemId: z.string().uuid() })), validateBody(checklistItemUpdateSchema), asyncHandler(async (req, res, next) => {
     const { status, notes, skippedReason } = req.body;
 
     if (!status) {
@@ -3649,7 +3672,7 @@ export async function registerRoutes(
    * POST /api/checklists/:checklistId/items
    * Add a custom item to a checklist
    */
-  app.post('/api/checklists/:checklistId/items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/checklists/:checklistId/items', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ checklistId: z.string().uuid() })), validateBody(checklistItemCreateSchema), asyncHandler(async (req, res, next) => {
     const { title, category, description, required, priority } = req.body;
 
     if (!title || !category) {
@@ -4778,7 +4801,7 @@ export async function registerRoutes(
   }));
 
   // Associate document with claim
-  app.post('/api/documents/:id/claim', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/documents/:id/claim', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(documentClaimAssociationSchema), asyncHandler(async (req, res, next) => {
     const { claimId } = req.body;
     if (!claimId) {
       return next(errors.badRequest('claimId required'));
@@ -4809,7 +4832,7 @@ export async function registerRoutes(
   }));
 
   // Create claim from uploaded documents
-  app.post('/api/claims/from-documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/claims/from-documents', requireAuth, requireOrganization, apiRateLimiter, validateBody(createClaimFromDocumentsSchema), asyncHandler(async (req, res, next) => {
     const { documentIds, overrides } = req.body;
 
     if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
@@ -5284,7 +5307,7 @@ export async function registerRoutes(
    * PUT /api/prompts/:key
    * Update an AI prompt (admin only)
    */
-  app.put('/api/prompts/:key', requireAuth, asyncHandler(async (req, res, next) => {
+  app.put('/api/prompts/:key', requireAuth, apiRateLimiter, validateBody(promptUpdateSchema), asyncHandler(async (req, res, next) => {
     const { systemPrompt, userPromptTemplate, model, temperature, maxTokens, responseFormat, description, isActive } = req.body;
 
     const updated = await updatePrompt(req.params.key, {
