@@ -124,6 +124,8 @@ import {
   calendarSyncFromMs365Schema,
   calendarSyncToMs365Schema,
   calendarSyncFullSchema,
+  sketchUpdateSchema,
+  documentUpdateSchema,
 } from "./middleware/validationSchemas";
 import {
   authRateLimiter,
