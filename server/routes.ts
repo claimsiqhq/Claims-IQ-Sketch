@@ -2275,103 +2275,84 @@ export async function registerRoutes(
    * DELETE /api/estimates/:id/sketch/connections/:connId
    * Delete a zone connection
    */
-  app.delete('/api/estimates/:id/sketch/connections/:connId', requireAuth, async (req, res) => {
-    try {
-      const estimateId = req.params.id;
-      const connId = req.params.connId;
+  app.delete('/api/estimates/:id/sketch/connections/:connId', requireAuth, asyncHandler(async (req, res, next) => {
+    const estimateId = req.params.id;
+    const connId = req.params.connId;
 
-      // Verify estimate exists and is not locked
-      const { data: estimate, error: estimateError } = await supabaseAdmin
-        .from('estimates')
-        .select('id, is_locked')
-        .eq('id', estimateId)
-        .maybeSingle();
+    // Verify estimate exists and is not locked
+    const { data: estimate, error: estimateError } = await supabaseAdmin
+      .from('estimates')
+      .select('id, is_locked')
+      .eq('id', estimateId)
+      .maybeSingle();
 
-      if (estimateError || !estimate) {
-        return res.status(404).json({ error: 'Estimate not found' });
-      }
-
-      if (estimate.is_locked) {
-        return res.status(400).json({ error: 'Cannot modify a locked estimate' });
-      }
-
-      // Verify connection exists and belongs to this estimate
-      const { data: existingConn, error: connError } = await supabaseAdmin
-        .from('zone_connections')
-        .select('id')
-        .eq('id', connId)
-        .eq('estimate_id', estimateId)
-        .maybeSingle();
-
-      if (connError || !existingConn) {
-        return res.status(404).json({ error: 'Connection not found' });
-      }
-
-      // Delete connection
-      const { error: deleteError } = await supabaseAdmin
-        .from('zone_connections')
-        .delete()
-        .eq('id', connId);
-
-      if (deleteError) {
-        return res.status(500).json({ error: deleteError.message });
-      }
-
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (estimateError || !estimate) {
+      return next(errors.notFound('Estimate'));
     }
-  });
+
+    if (estimate.is_locked) {
+      return next(errors.badRequest('Cannot modify a locked estimate'));
+    }
+
+    // Verify connection exists and belongs to this estimate
+    const { data: existingConn, error: connError } = await supabaseAdmin
+      .from('zone_connections')
+      .select('id')
+      .eq('id', connId)
+      .eq('estimate_id', estimateId)
+      .maybeSingle();
+
+    if (connError || !existingConn) {
+      return next(errors.notFound('Connection'));
+    }
+
+    // Delete connection
+    const { error: deleteError } = await supabaseAdmin
+      .from('zone_connections')
+      .delete()
+      .eq('id', connId);
+
+    if (deleteError) {
+      return next(errors.internal(deleteError.message));
+    }
+
+    res.json({ success: true });
+  }));
 
   /**
    * GET /api/estimates/:id/sketch/connections
    * Get all zone connections for an estimate
    */
-  app.get('/api/estimates/:id/sketch/connections', requireAuth, async (req, res) => {
-    try {
-      const estimateId = req.params.id;
+  app.get('/api/estimates/:id/sketch/connections', requireAuth, asyncHandler(async (req, res, next) => {
+    const estimateId = req.params.id;
 
-      const { data: connections, error } = await supabaseAdmin
-        .from('zone_connections')
-        .select('*')
-        .eq('estimate_id', estimateId)
-        .order('created_at', { ascending: true });
+    const { data: connections, error } = await supabaseAdmin
+      .from('zone_connections')
+      .select('*')
+      .eq('estimate_id', estimateId)
+      .order('created_at', { ascending: true });
 
-      if (error) {
-        return res.status(500).json({ error: error.message });
-      }
-
-      res.json(connections || []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (error) {
+      return next(errors.internal(error.message));
     }
-  });
+
+    res.json(connections || []);
+  }));
 
   // Recalculate estimate totals
-  app.post('/api/estimates/:id/recalculate', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      await assertEstimateNotLocked(req.params.id);
+  app.post('/api/estimates/:id/recalculate', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    await assertEstimateNotLocked(req.params.id);
 
-      const { error } = await supabaseAdmin.rpc('recalculate_estimate_totals', {
-        estimate_id: req.params.id
-      });
+    const { error } = await supabaseAdmin.rpc('recalculate_estimate_totals', {
+      estimate_id: req.params.id
+    });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const estimate = await getEstimate(req.params.id);
-      res.json(estimate);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const estimate = await getEstimate(req.params.id, req.organizationId!);
+    res.json(estimate);
+  }));
 
   // ============================================
   // STRUCTURE ROUTES
@@ -2399,18 +2380,13 @@ export async function registerRoutes(
   });
 
   // Get structure
-  app.get('/api/structures/:id', requireAuth, async (req, res) => {
-    try {
-      const structure = await getStructure(req.params.id);
-      if (!structure) {
-        return res.status(404).json({ error: 'Structure not found' });
-      }
-      res.json(structure);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const structure = await getStructure(req.params.id);
+    if (!structure) {
+      return next(errors.notFound('Structure'));
     }
-  });
+    res.json(structure);
+  }));
 
   // Update structure
   app.put('/api/structures/:id', requireAuth, async (req, res) => {
