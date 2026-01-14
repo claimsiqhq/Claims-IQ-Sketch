@@ -416,14 +416,14 @@ export async function registerRoutes(
   // ============================================
   
   // Get MS365 connection status
-  app.get('/api/auth/ms365/status', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/auth/ms365/status', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getConnectionStatus } = await import('./services/ms365AuthService');
     const status = await getConnectionStatus(req.user!.id);
     res.json(status);
   }));
 
   // Initiate MS365 OAuth flow - redirects directly to Microsoft
-  app.get('/api/auth/ms365/connect', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/auth/ms365/connect', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     try {
       const { getAuthorizationUrl, isMs365Configured } = await import('./services/ms365AuthService');
       
@@ -470,7 +470,7 @@ export async function registerRoutes(
   }));
 
   // Disconnect from MS365
-  app.post('/api/auth/ms365/disconnect', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/auth/ms365/disconnect', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { disconnectUser } = await import('./services/ms365AuthService');
     const success = await disconnectUser(req.user!.id);
     
@@ -486,14 +486,18 @@ export async function registerRoutes(
   // ============================================
 
   // Get today's appointments
-  app.get('/api/calendar/today', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/calendar/today', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getTodayAppointments } = await import('./services/ms365CalendarService');
     const appointments = await getTodayAppointments(req.user!.id, req.organizationId!);
     res.json({ appointments });
   }));
 
   // Get appointments for a specific date or date range
-  app.get('/api/calendar/appointments', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/calendar/appointments', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    startDate: z.string().datetime().optional(),
+    endDate: z.string().datetime().optional(),
+    date: z.string().datetime().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { getAppointmentsForDate } = await import('./services/ms365CalendarService');
     
     // Support date range (startDate/endDate) or single date
@@ -542,14 +546,19 @@ export async function registerRoutes(
   }));
 
   // Get appointments for a claim
-  app.get('/api/claims/:id/appointments', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/appointments', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { getAppointmentsForClaim } = await import('./services/ms365CalendarService');
     const appointments = await getAppointmentsForClaim(req.params.id, req.organizationId!);
     res.json({ appointments });
   }));
 
   // Update an appointment
-  app.patch('/api/calendar/appointments/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.patch('/api/calendar/appointments/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
+    scheduledStart: z.string().datetime().optional(),
+    scheduledEnd: z.string().datetime().optional(),
+    notes: z.string().optional(),
+    syncToMs365: z.boolean().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { updateAppointment } = await import('./services/ms365CalendarService');
     const appointment = await updateAppointment(
       req.params.id,
@@ -566,7 +575,9 @@ export async function registerRoutes(
   }));
 
   // Delete an appointment
-  app.delete('/api/calendar/appointments/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.delete('/api/calendar/appointments/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateQuery(z.object({
+    deleteFromMs365: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { deleteAppointment } = await import('./services/ms365CalendarService');
     const success = await deleteAppointment(
       req.params.id,
@@ -609,7 +620,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get MS365 connection status
-  app.get('/api/calendar/ms365/connection-status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/calendar/ms365/connection-status', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getConnectionStatus } = await import('./services/ms365AuthService');
     const status = await getConnectionStatus(req.user!.id);
     res.json(status);
@@ -672,7 +683,7 @@ export async function registerRoutes(
   }));
 
   // Get sync status
-  app.get('/api/calendar/sync/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/calendar/sync/status', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getSyncStatus } = await import('./services/ms365CalendarSyncService');
     const status = await getSyncStatus(req.user!.id, req.organizationId!);
     res.json(status);
@@ -1028,7 +1039,13 @@ export async function registerRoutes(
   // LINE ITEMS ROUTES
   // ============================================
 
-  app.get('/api/line-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/line-items', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    q: z.string().optional(),
+    category: z.string().optional(),
+    damage_type: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { q, category, damage_type, limit, offset } = req.query;
     const result = await searchLineItems({
       q: q as string,
@@ -1040,7 +1057,7 @@ export async function registerRoutes(
     res.json(result);
   }));
 
-  app.get('/api/line-items/categories', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/line-items/categories', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const categories = await getCategories();
     res.json(categories);
   }));
@@ -1071,7 +1088,7 @@ export async function registerRoutes(
     }
   }));
 
-  app.get('/api/pricing/region/:zipCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/pricing/region/:zipCode', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ zipCode: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const region = await getRegionByZip(req.params.zipCode);
     if (!region) {
       return next(errors.notFound('Region'));
@@ -1079,12 +1096,12 @@ export async function registerRoutes(
     res.json(region);
   }));
 
-  app.post('/api/scrape/home-depot', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/scrape/home-depot', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const result = await runScrapeJob();
     res.json(result);
   }));
 
-  app.get('/api/scrape/test', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/scrape/test', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const results = await testScrape();
     const data = Array.from(results.entries()).map(([sku, product]) => ({
       sku,
@@ -1096,15 +1113,15 @@ export async function registerRoutes(
     res.json(data);
   }));
 
-  app.get('/api/scrape/config', requireAuth, requireOrganization, (req, res) => {
+  app.get('/api/scrape/config', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     res.json({
       productMappings: PRODUCT_MAPPINGS,
       storeRegions: STORE_REGIONS
     });
-  });
+  }));
 
   // Get scraped prices from database for visualization
-  app.get('/api/scrape/prices', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/scrape/prices', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('material_regional_prices')
       .select(`
@@ -1139,7 +1156,7 @@ export async function registerRoutes(
   }));
 
   // Get scrape job history
-  app.get('/api/scrape/jobs', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/scrape/jobs', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('price_scrape_jobs')
       .select('id, source, status, started_at, completed_at, items_processed, items_updated, errors')
@@ -1151,7 +1168,9 @@ export async function registerRoutes(
       res.json(data);
   }));
 
-  // System status endpoint (limited information, no auth required for monitoring)
+  // System status endpoint (minimal information for health checks)
+  // Note: This endpoint is intentionally unprotected for monitoring tools,
+  // but exposes minimal information to reduce data leakage risk
   app.get('/api/system/status', asyncHandler(async (req, res, next) => {
     try {
       // Test database connection
@@ -1161,28 +1180,8 @@ export async function registerRoutes(
       const dbTime = timeData || new Date().toISOString();
       const dbVersion = 'PostgreSQL (Supabase)';
 
-      // Helper function to safely count table rows
-      const safeCount = async (tableName: string): Promise<number> => {
-        try {
-          const { count, error } = await supabaseAdmin
-            .from(tableName)
-            .select('*', { count: 'exact', head: true });
-
-          if (error) return 0;
-          return count || 0;
-        } catch {
-          return 0; // Table doesn't exist
-        }
-      };
-
-      // Get table counts (handle missing tables gracefully)
-      const [claimsCount, estimatesCount, lineItemsCount, priceListsCount, regionsCount] = await Promise.all([
-        safeCount('claims'),
-        safeCount('estimates'),
-        safeCount('xact_line_items'),
-        safeCount('price_lists'),
-        safeCount('regional_multipliers'),
-      ]);
+      // Only return basic health information - no row counts or sensitive data
+      // For detailed status, use authenticated endpoints
 
       // Try to get regions list from regional_multipliers
       let regions: { id: string; name: string }[] = [];
@@ -1236,7 +1235,17 @@ export async function registerRoutes(
   // ROUTE OPTIMIZATION
   // ============================================
 
-  app.post('/api/route/optimize', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/route/optimize', requireAuth, apiRateLimiter, validateBody(z.object({
+    origin: z.object({
+      lat: z.number(),
+      lng: z.number(),
+    }).optional(),
+    stops: z.array(z.object({
+      id: z.string(),
+      lat: z.number(),
+      lng: z.number(),
+    })).min(1, 'stops array is required'),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { optimizeRoute } = await import('./services/routeOptimization');
     const { origin, stops } = req.body;
 
@@ -1313,7 +1322,14 @@ export async function registerRoutes(
   // WEATHER API ROUTES
   // ============================================
   
-  app.post('/api/weather/locations', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/weather/locations', requireAuth, apiRateLimiter, validateBody(z.object({
+    locations: z.array(z.object({
+      lat: z.number(),
+      lng: z.number(),
+      stopId: z.string().optional(),
+      id: z.string().optional(),
+    })).min(1, 'locations array is required'),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { getWeatherForLocations } = await import('./services/weatherService');
     const { locations } = req.body;
 
@@ -1394,7 +1410,7 @@ export async function registerRoutes(
   */
 
   // Voice Session Routes
-  app.post('/api/voice/session', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/voice/session', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     try {
       const result = await createVoiceSession();
       res.json(result);
@@ -1409,13 +1425,13 @@ export async function registerRoutes(
     }
   }));
 
-  app.get('/api/voice/config', requireAuth, requireOrganization, (req, res) => {
+  app.get('/api/voice/config', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     res.json({
       availableVoices: VOICE_CONFIG.availableVoices,
       defaultVoice: VOICE_CONFIG.defaultVoice,
       model: VOICE_CONFIG.model
     });
-  });
+  }));
 
   // ============================================
   // AI ESTIMATE SUGGESTION ROUTES
@@ -1466,7 +1482,10 @@ export async function registerRoutes(
   }));
 
   // Search line items by natural language
-  app.get('/api/ai/search-line-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/ai/search-line-items', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    q: z.string().min(1, 'Search query (q) is required'),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })), asyncHandler(async (req, res, next) => {
     const { q, limit } = req.query;
 
     if (!q) {
@@ -1562,7 +1581,7 @@ export async function registerRoutes(
   }));
 
   // Remove line item from estimate
-  app.delete('/api/estimates/:id/line-items/:code', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/estimates/:id/line-items/:code', requireAuth, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), code: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     await assertEstimateNotLocked(req.params.id);
 
@@ -1594,7 +1613,7 @@ export async function registerRoutes(
   }));
 
   // Validate estimate before submission (preview)
-  app.get('/api/estimates/:id/validate', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/validate', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     try {
       const result = await validateEstimateForSubmission(req.params.id);
 
@@ -1618,7 +1637,7 @@ export async function registerRoutes(
   }));
 
   // Get estimate lock status (accepts estimate ID or claim ID)
-  app.get('/api/estimates/:id/lock-status', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/lock-status', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const id = req.params.id;
 
     // First try by estimate ID
@@ -1663,14 +1682,14 @@ export async function registerRoutes(
   }));
 
   // Get estimate templates
-  app.get('/api/estimate-templates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimate-templates', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({ damage_type: z.string().optional() }).passthrough()), asyncHandler(async (req, res, next) => {
     const { damage_type } = req.query;
     const templates = await getEstimateTemplates(damage_type as string);
     res.json(templates);
   }));
 
   // Create estimate from template
-  app.post('/api/estimate-templates/:id/create', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/estimate-templates/:id/create', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(estimateFromTemplateSchema), asyncHandler(async (req, res, next) => {
     const { quantities, ...estimateInput } = req.body;
     if (!quantities || typeof quantities !== 'object') {
       return next(errors.badRequest('Missing required field: quantities (object with line item codes as keys)'));
@@ -1684,7 +1703,7 @@ export async function registerRoutes(
   }));
 
   // Get carrier profiles
-  app.get('/api/carrier-profiles', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/carrier-profiles', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('carrier_profiles')
       .select('*')
@@ -1697,7 +1716,7 @@ export async function registerRoutes(
   }));
 
   // Get regions
-  app.get('/api/regions', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/regions', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('regions')
       .select('*')
@@ -1713,7 +1732,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all coverage types
-  app.get('/api/coverage-types', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/coverage-types', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('coverage_types')
       .select('*')
@@ -1727,7 +1746,7 @@ export async function registerRoutes(
   }));
 
   // Get coverage type by code
-  app.get('/api/coverage-types/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/coverage-types/:code', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ code: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('coverage_types')
       .select('*')
@@ -1750,7 +1769,10 @@ export async function registerRoutes(
   // ============================================
 
   // Get all tax rates
-  app.get('/api/tax-rates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/tax-rates', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    region_code: z.string().optional(),
+    tax_type: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { region_code, tax_type } = req.query;
 
     let query = supabaseAdmin
@@ -1775,7 +1797,7 @@ export async function registerRoutes(
   }));
 
   // Get tax rate for a specific region
-  app.get('/api/tax-rates/region/:regionCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/tax-rates/region/:regionCode', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ regionCode: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('tax_rates')
       .select('*')
@@ -1793,7 +1815,10 @@ export async function registerRoutes(
   // ============================================
 
   // Get all depreciation schedules
-  app.get('/api/depreciation-schedules', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/depreciation-schedules', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    category_code: z.string().optional(),
+    item_type: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { category_code, item_type } = req.query;
 
     let query = supabaseAdmin
@@ -1817,7 +1842,7 @@ export async function registerRoutes(
   }));
 
   // Get depreciation schedule by category
-  app.get('/api/depreciation-schedules/category/:categoryCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/depreciation-schedules/category/:categoryCode', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ categoryCode: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('depreciation_schedules')
       .select('*')
@@ -1834,7 +1859,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get all regional multipliers
-  app.get('/api/regional-multipliers', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/regional-multipliers', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('regional_multipliers')
       .select('*')
@@ -1847,7 +1872,7 @@ export async function registerRoutes(
   }));
 
   // Get regional multiplier by region code
-  app.get('/api/regional-multipliers/:regionCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/regional-multipliers/:regionCode', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ regionCode: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('regional_multipliers')
       .select('*')
@@ -1870,7 +1895,10 @@ export async function registerRoutes(
   // ============================================
 
   // Get all labor rates
-  app.get('/api/labor-rates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/labor-rates', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    trade_code: z.string().optional(),
+    region_code: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { trade_code, region_code } = req.query;
 
     let query = supabaseAdmin
@@ -1895,7 +1923,7 @@ export async function registerRoutes(
   }));
 
   // Get labor rate for specific trade
-  app.get('/api/labor-rates/trade/:tradeCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/labor-rates/trade/:tradeCode', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ tradeCode: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('labor_rates_enhanced')
       .select('*')
@@ -1927,7 +1955,7 @@ export async function registerRoutes(
   }));
 
   // Get price list by code
-  app.get('/api/price-lists/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/price-lists/:code', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ code: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('price_lists')
       .select('*')
@@ -1950,7 +1978,13 @@ export async function registerRoutes(
   // ============================================
 
   // Generate PDF report (returns real PDF if Puppeteer available, HTML otherwise)
-  app.get('/api/estimates/:id/report/pdf', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/report/pdf', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateQuery(z.object({
+    includeLineItems: z.string().optional(),
+    includeDepreciation: z.string().optional(),
+    includeCoverage: z.string().optional(),
+    companyName: z.string().optional(),
+    format: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
       const options = {
         includeLineItemDetails: req.query.includeLineItems !== 'false',
         includeDepreciation: req.query.includeDepreciation !== 'false',
@@ -1987,7 +2021,12 @@ export async function registerRoutes(
   }));
 
   // Get HTML report preview
-  app.get('/api/estimates/:id/report/html', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/report/html', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateQuery(z.object({
+    includeLineItems: z.string().optional(),
+    includeDepreciation: z.string().optional(),
+    includeCoverage: z.string().optional(),
+    companyName: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const options = {
       includeLineItemDetails: req.query.includeLineItems !== 'false',
       includeDepreciation: req.query.includeDepreciation !== 'false',
@@ -2021,7 +2060,12 @@ export async function registerRoutes(
   }));
 
   // Generate ESX XML export
-  app.get('/api/estimates/:id/export/esx-xml', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/export/esx-xml', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateQuery(z.object({
+    dateOfLoss: z.string().optional(),
+    insuredName: z.string().optional(),
+    adjusterName: z.string().optional(),
+    priceListDate: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const metadata = {
       dateOfLoss: req.query.dateOfLoss as string,
       insuredName: req.query.insuredName as string,
@@ -2035,7 +2079,7 @@ export async function registerRoutes(
   }));
 
   // Generate CSV export
-  app.get('/api/estimates/:id/export/csv', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/export/csv', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const csv = await generateCsvExport(req.params.id);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.csv"`);
@@ -2044,7 +2088,10 @@ export async function registerRoutes(
 
   // Generate ESX ZIP archive (Tier A - standards-compliant, with sketch PDF)
   // This is the primary export format for Xactimate import
-  app.get('/api/estimates/:id/export/esx-zip', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/export/esx-zip', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateQuery(z.object({
+    includeSketch: z.string().optional(),
+    includePhotos: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const includeSketch = req.query.includeSketch !== 'false';
     const includePhotos = req.query.includePhotos === 'true';
 
@@ -2065,7 +2112,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get full estimate hierarchy
-  app.get('/api/estimates/:id/hierarchy', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/hierarchy', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const hierarchy = await getEstimateHierarchy(req.params.id);
     res.json(hierarchy);
   }));
@@ -2255,7 +2302,7 @@ export async function registerRoutes(
    * DELETE /api/estimates/:id/sketch/connections/:connId
    * Delete a zone connection
    */
-  app.delete('/api/estimates/:id/sketch/connections/:connId', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/estimates/:id/sketch/connections/:connId', requireAuth, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), connId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
     const estimateId = req.params.id;
     const connId = req.params.connId;
 
@@ -2303,7 +2350,7 @@ export async function registerRoutes(
    * GET /api/estimates/:id/sketch/connections
    * Get all zone connections for an estimate
    */
-  app.get('/api/estimates/:id/sketch/connections', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/sketch/connections', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const estimateId = req.params.id;
 
     const { data: connections, error } = await supabaseAdmin
@@ -2351,7 +2398,7 @@ export async function registerRoutes(
   }));
 
   // Get structure
-  app.get('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/structures/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const structure = await getStructure(req.params.id);
     if (!structure) {
       return next(errors.notFound('Structure'));
@@ -2375,7 +2422,7 @@ export async function registerRoutes(
   }));
 
   // Delete structure
-  app.delete('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/structures/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromStructure(req.params.id);
     if (estimateId) {
@@ -2409,7 +2456,7 @@ export async function registerRoutes(
   }));
 
   // Get area
-  app.get('/api/areas/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/areas/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const area = await getArea(req.params.id);
     if (!area) {
       return next(errors.notFound('Area'));
@@ -2433,7 +2480,7 @@ export async function registerRoutes(
   }));
 
   // Delete area
-  app.delete('/api/areas/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/areas/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromArea(req.params.id);
     if (estimateId) {
@@ -2467,7 +2514,7 @@ export async function registerRoutes(
   }));
 
   // Get zone
-  app.get('/api/zones/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/zones/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const zone = await getZone(req.params.id);
     if (!zone) {
       return next(errors.notFound('Zone'));
@@ -2476,7 +2523,7 @@ export async function registerRoutes(
   }));
 
   // Get zone with children (missing walls, subrooms, line items)
-  app.get('/api/zones/:id/full', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/zones/:id/full', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const zone = await getZoneWithChildren(req.params.id);
     if (!zone) {
       return next(errors.notFound('Zone'));
@@ -2512,7 +2559,7 @@ export async function registerRoutes(
   }));
 
   // Delete zone
-  app.delete('/api/zones/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/zones/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromZone(req.params.id);
     if (estimateId) {
@@ -2544,7 +2591,7 @@ export async function registerRoutes(
   }));
 
   // Get missing wall
-  app.get('/api/missing-walls/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/missing-walls/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const wall = await getMissingWall(req.params.id);
     if (!wall) {
       return next(errors.notFound('Missing wall'));
@@ -2562,7 +2609,7 @@ export async function registerRoutes(
   }));
 
   // Delete missing wall
-  app.delete('/api/missing-walls/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/missing-walls/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const success = await deleteMissingWall(req.params.id);
     if (!success) {
       return next(errors.notFound('Missing wall'));
@@ -2601,7 +2648,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get zone line items
-  app.get('/api/zones/:id/line-items', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/zones/:id/line-items', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('estimate_line_items')
       .select('*')
@@ -2614,7 +2661,7 @@ export async function registerRoutes(
   }));
 
   // Add line item to zone
-  app.post('/api/zones/:id/line-items', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/zones/:id/line-items', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), validateBody(addLineItemToZoneSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromZone(req.params.id);
     if (estimateId) {
@@ -2631,7 +2678,7 @@ export async function registerRoutes(
   }));
 
   // Delete line item from zone
-  app.delete('/api/line-items/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.delete('/api/line-items/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Check if estimate is locked
     const estimateId = await getEstimateIdFromLineItem(req.params.id);
     if (estimateId) {
@@ -2742,7 +2789,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get subroom
-  app.get('/api/subrooms/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/subrooms/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const subroom = await getSubroom(req.params.id);
     if (!subroom) {
       return next(errors.notFound('Subroom'));
@@ -2773,7 +2820,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get coverages for an estimate
-  app.get('/api/estimates/:id/coverages', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/coverages', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const coverages = await getCoverages(req.params.id);
     res.json(coverages);
   }));
@@ -2795,7 +2842,7 @@ export async function registerRoutes(
   }));
 
   // Get line items grouped by coverage
-  app.get('/api/estimates/:id/line-items/by-coverage', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/estimates/:id/line-items/by-coverage', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const grouped = await getLineItemsByCoverage(req.params.id);
     res.json(grouped);
   }));
@@ -2812,7 +2859,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get current user's organizations
-  app.get('/api/organizations/mine', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/organizations/mine', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const orgs = await getUserOrganizations(req.user!.id);
     res.json({
       organizations: orgs,
@@ -2834,13 +2881,16 @@ export async function registerRoutes(
   }));
 
   // Create new organization
-  app.post('/api/organizations', requireAuth, asyncHandler(async (req, res, next) => {
+  app.post('/api/organizations', requireAuth, apiRateLimiter, validateBody(organizationCreateSchema), asyncHandler(async (req, res, next) => {
     const org = await createOrganization(req.body, req.user!.id);
     res.status(201).json(org);
   }));
 
   // List all organizations (super admin only)
-  app.get('/api/admin/organizations', requireAuth, requireSuperAdmin, asyncHandler(async (req, res, next) => {
+  app.get('/api/admin/organizations', requireAuth, requireSuperAdmin, apiRateLimiter, validateQuery(paginationQuerySchema.merge(z.object({
+    status: z.string().optional(),
+    type: z.string().optional(),
+  }).passthrough())), asyncHandler(async (req, res, next) => {
     const { status, type, limit, offset } = req.query;
     const result = await listOrganizations({
       status: status as string,
@@ -2852,7 +2902,7 @@ export async function registerRoutes(
   }));
 
   // Get current organization details
-  app.get('/api/organizations/current', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/organizations/current', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const org = await getOrganization(req.organizationId!);
     if (!org) {
       return next(errors.notFound('Organization'));
@@ -2870,7 +2920,7 @@ export async function registerRoutes(
   }));
 
   // Get organization members
-  app.get('/api/organizations/current/members', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/organizations/current/members', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const members = await getOrganizationMembers(req.organizationId!);
     res.json(members);
   }));
@@ -2886,7 +2936,7 @@ export async function registerRoutes(
   }));
 
   // Remove member from organization
-  app.delete('/api/organizations/current/members/:userId', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+  app.delete('/api/organizations/current/members/:userId', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateParams(z.object({ userId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
     await removeOrganizationMember(req.organizationId!, req.params.userId);
     res.json({ success: true });
   }));
@@ -2942,7 +2992,12 @@ export async function registerRoutes(
   }));
 
   // Get claims for map display
-  app.get('/api/claims/map', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/map', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    adjuster_id: z.string().uuid().optional(),
+    status: z.string().optional(),
+    loss_type: z.string().optional(),
+    my_claims: z.string().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { adjuster_id, status, loss_type, my_claims } = req.query;
 
     // If my_claims=true and user is an adjuster, filter to their claims
@@ -2960,7 +3015,7 @@ export async function registerRoutes(
   }));
 
   // Get map geocoding statistics
-  app.get('/api/claims/map/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/map/stats', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const stats = await getMapStats(req.organizationId!);
     res.json(stats);
   }));
@@ -3019,7 +3074,7 @@ export async function registerRoutes(
   app.delete('/api/claims/purge-all', (req, res, next) => {
     console.log('[Purge] Request received - isAuthenticated:', req.isAuthenticated(), 'userId:', req.user?.id, 'orgId:', req.organizationId, 'memberRole:', req.membershipRole);
     next();
-  }, requireAuth, requireOrganization, requireOrgRole('owner'), asyncHandler(async (req, res, next) => {
+  }, requireAuth, requireOrganization, requireOrgRole('owner'), apiRateLimiter, asyncHandler(async (req, res, next) => {
     console.log('[Purge] Passed all auth checks, deleting claims for org:', req.organizationId);
     const result = await purgeAllClaims(req.organizationId!);
     res.json({
@@ -3030,7 +3085,7 @@ export async function registerRoutes(
   }));
 
   // Delete claim
-  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const success = await deleteClaim(req.params.id, req.organizationId!);
     if (!success) {
       return next(errors.notFound('Claim'));
@@ -3091,7 +3146,7 @@ export async function registerRoutes(
   }));
 
   // Get claim rooms with hierarchy (structures → rooms → damage zones)
-  app.get('/api/claims/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/rooms', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { getClaimHierarchy } = await import('./services/rooms');
     
     // Verify claim exists and belongs to organization
@@ -3110,7 +3165,7 @@ export async function registerRoutes(
   }));
 
   // Delete all rooms and structures for a claim (for deleting saved sketches)
-  app.delete('/api/claims/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.delete('/api/claims/:id/rooms', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { deleteRoomsByClaimId, deleteStructuresByClaimId } = await import('./services/rooms');
 
     // Verify claim exists and belongs to organization
@@ -3141,7 +3196,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get scope items for a claim
-  app.get('/api/claims/:id/scope-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/scope-items', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const items = await getScopeItemsForClaim(req.params.id);
     res.json(items);
   }));
@@ -3173,7 +3228,7 @@ export async function registerRoutes(
   }));
 
   // Delete scope item
-  app.delete('/api/scope-items/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.delete('/api/scope-items/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const success = await deleteScopeItem(req.params.id);
     if (!success) {
       return next(errors.notFound('Scope item'));
@@ -3182,13 +3237,13 @@ export async function registerRoutes(
   }));
 
   // Get claim documents
-  app.get('/api/claims/:id/documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/documents', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const documents = await getClaimDocuments(req.params.id, req.organizationId!);
     res.json(documents);
   }));
 
   // Get comprehensive policy form extractions for a claim
-  app.get('/api/claims/:id/policy-extractions', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/policy-extractions', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('policy_form_extractions')
       .select('*')
@@ -3202,7 +3257,7 @@ export async function registerRoutes(
   }));
 
   // Get a specific policy extraction by ID
-  app.get('/api/policy-extractions/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/policy-extractions/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('policy_form_extractions')
       .select('*')
@@ -3220,7 +3275,7 @@ export async function registerRoutes(
   }));
 
   // Get comprehensive endorsement extractions for a claim
-  app.get('/api/claims/:id/endorsement-extractions', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/endorsement-extractions', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('endorsement_extractions')
       .select('*')
@@ -3234,7 +3289,7 @@ export async function registerRoutes(
   }));
 
   // Get a specific endorsement extraction by ID
-  app.get('/api/endorsement-extractions/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/endorsement-extractions/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('endorsement_extractions')
       .select('*')
@@ -3260,7 +3315,7 @@ export async function registerRoutes(
    * Get inspection intelligence for a specific peril.
    * Returns deterministic inspection rules, tips, and escalation triggers.
    */
-  app.get('/api/inspection-intelligence/:peril', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/inspection-intelligence/:peril', requireAuth, apiRateLimiter, validateParams(z.object({ peril: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { peril } = req.params;
     const intelligence = getInspectionIntelligenceForPeril(peril);
     res.json(intelligence);
@@ -3270,7 +3325,7 @@ export async function registerRoutes(
    * GET /api/inspection-intelligence/:peril/tips
    * Get quick inspection tips for a specific peril (for UI micro-hints).
    */
-  app.get('/api/inspection-intelligence/:peril/tips', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/inspection-intelligence/:peril/tips', requireAuth, apiRateLimiter, validateParams(z.object({ peril: z.string().min(1) })), validateQuery(z.object({ limit: z.coerce.number().int().min(1).max(100).optional() })), asyncHandler(async (req, res, next) => {
     const { peril } = req.params;
     const limit = parseInt(req.query.limit as string) || 5;
     const tips = getQuickInspectionTips(peril, limit);
@@ -3281,7 +3336,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/inspection-intelligence
    * Get inspection intelligence for a claim based on its peril.
    */
-  app.get('/api/claims/:id/inspection-intelligence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/inspection-intelligence', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Get the claim's peril
     const { data, error } = await supabaseAdmin
       .from('claims')
@@ -3421,7 +3476,7 @@ export async function registerRoutes(
    * Get the unified claim context with all FNOL, Policy, and Endorsement data merged.
    * This is the single source of truth for claim data.
    */
-  app.get('/api/claims/:id/context', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/context', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { buildUnifiedClaimContext } = await import('./services/unifiedClaimContextService');
     const context = await buildUnifiedClaimContext(req.params.id, req.organizationId!);
 
@@ -3436,7 +3491,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/coverage-analysis
    * Get comprehensive coverage analysis including alerts, depreciation, and recommendations.
    */
-  app.get('/api/claims/:id/coverage-analysis', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/coverage-analysis', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { analyzeCoverage } = await import('./services/coverageAnalysisService');
     const analysis = await analyzeCoverage(req.params.id, req.organizationId!);
 
@@ -3451,7 +3506,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/coverage-analysis/summary
    * Get a quick summary of coverage analysis for UI display.
    */
-  app.get('/api/claims/:id/coverage-analysis/summary', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/coverage-analysis/summary', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { getCoverageAnalysisSummary } = await import('./services/coverageAnalysisService');
     const summary = await getCoverageAnalysisSummary(req.params.id, req.organizationId!);
 
@@ -3515,7 +3570,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/checklist
    * Get the dynamic checklist for a claim, auto-generating if needed
    */
-  app.get('/api/claims/:id/checklist', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/checklist', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const claimId = req.params.id;
     const organizationId = req.organizationId!;
 
@@ -3998,7 +4053,7 @@ export async function registerRoutes(
    * GET /api/workflow/:id/evidence
    * Get workflow with full evidence status.
    */
-  app.get('/api/workflow/:id/evidence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/workflow/:id/evidence', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { getWorkflowWithEvidence } = await import('./services/dynamicWorkflowService');
     const result = await getWorkflowWithEvidence(req.params.id, req.organizationId!);
 
@@ -4043,7 +4098,7 @@ export async function registerRoutes(
    * GET /api/workflow/:id/steps/:stepId/evidence
    * Get evidence attached to a step.
    */
-  app.get('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), stepId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
     const { getStepEvidence } = await import('./services/dynamicWorkflowService');
     const evidence = await getStepEvidence(req.params.stepId);
     res.json({ evidence });
@@ -4127,7 +4182,7 @@ export async function registerRoutes(
    * GET /api/carriers/:id/overlays
    * Get carrier-specific inspection overlays.
    */
-  app.get('/api/carriers/:id/overlays', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/carriers/:id/overlays', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { carrier, overlays } = await getCarrierOverlays(req.params.id);
     if (!carrier) {
       return next(errors.notFound('Carrier'));
@@ -4157,7 +4212,7 @@ export async function registerRoutes(
    * GET /api/claims/:id/carrier-guidance
    * Get carrier guidance for a claim based on its carrier and peril.
    */
-  app.get('/api/claims/:id/carrier-guidance', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/carrier-guidance', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     // Get the claim's peril
     const { data, error } = await supabaseAdmin
       .from('claims')
@@ -4286,7 +4341,7 @@ export async function registerRoutes(
   }));
 
   // List photos for a claim (with filters)
-  app.get('/api/claims/:claimId/photos', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:claimId/photos', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ claimId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
     const { listClaimPhotos } = await import('./services/photos');
     const { claimId } = req.params;
     const { structureId, roomId, damageZoneId, damageDetected } = req.query;
@@ -4302,7 +4357,7 @@ export async function registerRoutes(
   }));
 
   // Get single photo by ID
-  app.get('/api/photos/:id', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/photos/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { getClaimPhoto } = await import('./services/photos');
     const photo = await getClaimPhoto(req.params.id);
     if (!photo) {
@@ -4312,7 +4367,7 @@ export async function registerRoutes(
   }));
 
   // Delete photo by ID (deletes from both database and Supabase storage)
-  app.delete('/api/photos/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.delete('/api/photos/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { deleteClaimPhoto } = await import('./services/photos');
     const success = await deleteClaimPhoto(req.params.id);
     if (!success) {
@@ -4322,7 +4377,14 @@ export async function registerRoutes(
   }));
 
   // Update photo (label, hierarchy path, claim assignment, structure associations)
-  app.patch('/api/photos/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.patch('/api/photos/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
+    label: z.string().optional(),
+    hierarchyPath: z.string().optional(),
+    claimId: z.string().uuid().optional(),
+    structureId: z.string().uuid().optional(),
+    roomId: z.string().uuid().optional(),
+    damageZoneId: z.string().uuid().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { updateClaimPhoto } = await import('./services/photos');
     const { label, hierarchyPath, claimId, structureId, roomId, damageZoneId } = req.body;
 
@@ -4472,7 +4534,14 @@ export async function registerRoutes(
   }));
 
   // List documents
-  app.get('/api/documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    claim_id: z.string().uuid().optional(),
+    type: z.string().optional(),
+    category: z.string().optional(),
+    status: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
     const { claim_id, type, category, status, limit, offset } = req.query;
     const result = await listDocuments(req.organizationId!, {
       claimId: claim_id as string,
@@ -4486,14 +4555,14 @@ export async function registerRoutes(
   }));
 
   // Get document statistics
-  app.get('/api/documents/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/stats', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const stats = await getDocumentStats(req.organizationId!);
     res.json(stats);
   }));
 
   // Get batch processing status for multiple documents
   // Used by the upload queue to poll for completion
-  app.get('/api/documents/batch-status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/batch-status', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({ ids: z.string().min(1, 'Document IDs required (comma-separated)') })), asyncHandler(async (req, res, next) => {
     const idsParam = req.query.ids as string;
     if (!idsParam) {
       return next(errors.badRequest('Document IDs required (comma-separated)'));
@@ -4534,14 +4603,14 @@ export async function registerRoutes(
   }));
 
   // Get document processing queue statistics
-  app.get('/api/documents/queue-stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/queue-stats', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const stats = getDocumentQueueStats();
     res.json(stats);
   }));
 
   // Get document processing status (for polling after upload)
   // NOTE: This must be before /api/documents/:id to avoid route collision
-  app.get('/api/documents/:id/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/:id/status', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const doc = await getDocument(req.params.id, req.organizationId!);
     if (!doc) {
       return next(errors.notFound('Document'));
@@ -4589,7 +4658,7 @@ export async function registerRoutes(
   }));
 
   // Download document file (redirects to Supabase Storage signed URL)
-  app.get('/api/documents/:id/download', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/:id/download', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const doc = await getDocument(req.params.id, req.organizationId!);
     if (!doc) {
       return next(errors.notFound('Document'));
@@ -4603,7 +4672,7 @@ export async function registerRoutes(
   }));
 
   // Get document as images (for viewing PDFs and images)
-  app.get('/api/documents/:id/images', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/:id/images', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const doc = await getDocument(req.params.id, req.organizationId!);
     if (!doc) {
       return next(errors.notFound('Document'));
@@ -4667,7 +4736,7 @@ export async function registerRoutes(
   }));
 
   // Get specific page image from document
-  app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), page: z.coerce.number().int().min(1) })), asyncHandler(async (req, res, next) => {
     const doc = await getDocument(req.params.id, req.organizationId!);
     if (!doc) {
       return next(errors.notFound('Document'));
@@ -4748,13 +4817,13 @@ export async function registerRoutes(
   }));
 
   // Get document preview URLs from Supabase (persistent cloud storage)
-  app.get('/api/documents/:id/previews', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/documents/:id/previews', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const result = await getDocumentPreviewUrls(req.params.id, req.organizationId!);
     res.json(result);
   }));
 
   // Trigger preview generation for a document
-  app.post('/api/documents/:id/generate-previews', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.post('/api/documents/:id/generate-previews', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const result = await generateDocumentPreviews(req.params.id, req.organizationId!);
     if (result.success) {
       res.json({ success: true, pageCount: result.pageCount });
@@ -4786,7 +4855,7 @@ export async function registerRoutes(
   }));
 
   // Delete document
-  app.delete('/api/documents/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.delete('/api/documents/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const success = await deleteDocument(req.params.id, req.organizationId!);
     if (!success) {
       return next(errors.notFound('Document'));
@@ -5058,7 +5127,7 @@ export async function registerRoutes(
    * GET /api/xact/components/:code
    * Get a specific component by code with its price
    */
-  app.get('/api/xact/components/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/xact/components/:code', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ code: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('xact_components')
       .select('*')
@@ -5080,7 +5149,12 @@ export async function registerRoutes(
    *   - limit: max results (default 20)
    *   - offset: pagination offset
    */
-  app.get('/api/xact/search', asyncHandler(async (req, res, next) => {
+  app.get('/api/xact/search', apiRateLimiter, validateQuery(z.object({
+    q: z.string().min(1, 'Search query (q) is required'),
+    category: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+  })), asyncHandler(async (req, res, next) => {
     const { q, category, limit = '20', offset = '0' } = req.query;
     
     if (!q) {
@@ -5100,7 +5174,7 @@ export async function registerRoutes(
    * GET /api/xact/price/:code
    * Get full price breakdown for a Xactimate line item
    */
-  app.get('/api/xact/price/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/xact/price/:code', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ code: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const result = await calculateXactPrice(req.params.code);
     if (!result) {
       return next(errors.notFound('Line item'));
@@ -5169,7 +5243,7 @@ export async function registerRoutes(
    * GET /api/prompts
    * List all AI prompts (for admin UI)
    */
-  app.get('/api/prompts', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/prompts', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const prompts = await getAllPrompts();
     res.json({ prompts });
   }));
@@ -5178,7 +5252,7 @@ export async function registerRoutes(
    * GET /api/prompts/:key
    * Get a specific prompt by key
    */
-  app.get('/api/prompts/:key', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/prompts/:key', requireAuth, apiRateLimiter, validateParams(z.object({ key: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const prompt = await getPrompt(req.params.key);
     if (!prompt) {
       return next(errors.notFound('Prompt'));
@@ -5190,7 +5264,7 @@ export async function registerRoutes(
    * GET /api/prompts/:key/config
    * Get full prompt configuration for API calls (includes fallback)
    */
-  app.get('/api/prompts/:key/config', requireAuth, asyncHandler(async (req, res, next) => {
+  app.get('/api/prompts/:key/config', requireAuth, apiRateLimiter, validateParams(z.object({ key: z.string().min(1) })), asyncHandler(async (req, res, next) => {
     const config = await getPromptWithFallback(req.params.key);
     res.json({ config });
   }));
@@ -5205,7 +5279,7 @@ export async function registerRoutes(
    * - briefing: AI-generated claim briefing summary
    * - workflow: Inspection workflow steps
    */
-  app.get('/api/claims/:id/scope-context', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+  app.get('/api/claims/:id/scope-context', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const claimId = req.params.id;
     const organizationId = req.organizationId!;
 
@@ -5285,7 +5359,7 @@ export async function registerRoutes(
    * PUT /api/prompts/:key
    * Update an AI prompt (admin only)
    */
-  app.put('/api/prompts/:key', requireAuth, apiRateLimiter, validateBody(promptUpdateSchema), asyncHandler(async (req, res, next) => {
+  app.put('/api/prompts/:key', requireAuth, apiRateLimiter, validateParams(z.object({ key: z.string().min(1) })), validateBody(promptUpdateSchema), asyncHandler(async (req, res, next) => {
     const { systemPrompt, userPromptTemplate, model, temperature, maxTokens, responseFormat, description, isActive } = req.body;
 
     const updated = await updatePrompt(req.params.key, {
