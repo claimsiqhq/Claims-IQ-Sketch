@@ -1,6 +1,20 @@
 -- Migration: Add missing foreign key constraints
 -- Adds proper FK relationships for referential integrity
 -- Includes cleanup of orphaned records before adding constraints
+--
+-- WARNING: NON-REVERSIBLE MIGRATION
+-- This migration performs DELETE operations to clean up orphaned records
+-- before adding foreign key constraints. These deletes are NOT reversible.
+-- Data is permanently lost.
+--
+-- Before running this migration in production:
+-- 1. Backup the database
+-- 2. Review the DELETE operations (lines 10-112)
+-- 3. Consider running on a test database first
+--
+-- Rollback: This migration cannot be rolled back. To undo:
+-- 1. Restore from backup
+-- 2. Remove foreign key constraints manually
 
 -- =================================================
 -- CLEANUP: Remove orphaned records before adding FKs
