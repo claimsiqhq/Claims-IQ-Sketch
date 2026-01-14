@@ -2487,187 +2487,125 @@ export async function registerRoutes(
   }));
 
   // Get zone
-  app.get('/api/zones/:id', requireAuth, async (req, res) => {
-    try {
-      const zone = await getZone(req.params.id);
-      if (!zone) {
-        return res.status(404).json({ error: 'Zone not found' });
-      }
-      res.json(zone);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/zones/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const zone = await getZone(req.params.id);
+    if (!zone) {
+      return next(errors.notFound('Zone'));
     }
-  });
+    res.json(zone);
+  }));
 
   // Get zone with children (missing walls, subrooms, line items)
-  app.get('/api/zones/:id/full', requireAuth, async (req, res) => {
-    try {
-      const zone = await getZoneWithChildren(req.params.id);
-      if (!zone) {
-        return res.status(404).json({ error: 'Zone not found' });
-      }
-      res.json(zone);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/zones/:id/full', requireAuth, asyncHandler(async (req, res, next) => {
+    const zone = await getZoneWithChildren(req.params.id);
+    if (!zone) {
+      return next(errors.notFound('Zone'));
     }
-  });
+    res.json(zone);
+  }));
 
   // Update zone
-  app.put('/api/zones/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromZone(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const zone = await updateZone(req.params.id, req.body);
-      if (!zone) {
-        return res.status(404).json({ error: 'Zone not found' });
-      }
-      res.json(zone);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.put('/api/zones/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromZone(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const zone = await updateZone(req.params.id, req.body);
+    if (!zone) {
+      return next(errors.notFound('Zone'));
+    }
+    res.json(zone);
+  }));
 
   // Recalculate zone dimensions
-  app.post('/api/zones/:id/calculate-dimensions', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromZone(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const dimensions = await recalculateZoneDimensions(req.params.id);
-      res.json({ dimensions });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.post('/api/zones/:id/calculate-dimensions', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromZone(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const dimensions = await recalculateZoneDimensions(req.params.id);
+    res.json({ dimensions });
+  }));
 
   // Delete zone
-  app.delete('/api/zones/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromZone(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const success = await deleteZone(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Zone not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.delete('/api/zones/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromZone(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const success = await deleteZone(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Zone'));
+    }
+    res.json({ success: true });
+  }));
 
   // ============================================
   // MISSING WALL ROUTES
   // ============================================
 
   // Add missing wall to zone
-  app.post('/api/zones/:id/missing-walls', requireAuth, async (req, res) => {
-    try {
-      const { widthFt, heightFt } = req.body;
-      if (!widthFt || !heightFt) {
-        return res.status(400).json({ error: 'widthFt and heightFt required' });
-      }
-      const wall = await createMissingWall({
-        zoneId: req.params.id,
-        ...req.body,
-      });
-      res.status(201).json(wall);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/zones/:id/missing-walls', requireAuth, asyncHandler(async (req, res, next) => {
+    const { widthFt, heightFt } = req.body;
+    if (!widthFt || !heightFt) {
+      return next(errors.badRequest('widthFt and heightFt required'));
     }
-  });
+    const wall = await createMissingWall({
+      zoneId: req.params.id,
+      ...req.body,
+    });
+    res.status(201).json(wall);
+  }));
 
   // Get missing wall
-  app.get('/api/missing-walls/:id', requireAuth, async (req, res) => {
-    try {
-      const wall = await getMissingWall(req.params.id);
-      if (!wall) {
-        return res.status(404).json({ error: 'Missing wall not found' });
-      }
-      res.json(wall);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/missing-walls/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const wall = await getMissingWall(req.params.id);
+    if (!wall) {
+      return next(errors.notFound('Missing wall'));
     }
-  });
+    res.json(wall);
+  }));
 
   // Update missing wall
-  app.put('/api/missing-walls/:id', requireAuth, async (req, res) => {
-    try {
-      const wall = await updateMissingWall(req.params.id, req.body);
-      if (!wall) {
-        return res.status(404).json({ error: 'Missing wall not found' });
-      }
-      res.json(wall);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.put('/api/missing-walls/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const wall = await updateMissingWall(req.params.id, req.body);
+    if (!wall) {
+      return next(errors.notFound('Missing wall'));
     }
-  });
+    res.json(wall);
+  }));
 
   // Delete missing wall
-  app.delete('/api/missing-walls/:id', requireAuth, async (req, res) => {
-    try {
-      const success = await deleteMissingWall(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Missing wall not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/missing-walls/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const success = await deleteMissingWall(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Missing wall'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // ============================================
   // SUBROOM ROUTES
   // ============================================
 
   // Add subroom to zone
-  app.post('/api/zones/:id/subrooms', requireAuth, async (req, res) => {
-    try {
-      const { name, lengthFt, widthFt } = req.body;
-      if (!name || !lengthFt || !widthFt) {
-        return res.status(400).json({ error: 'name, lengthFt, and widthFt required' });
-      }
-      const subroom = await createSubroom({
-        zoneId: req.params.id,
-        ...req.body,
-      });
-      res.status(201).json(subroom);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/zones/:id/subrooms', requireAuth, asyncHandler(async (req, res, next) => {
+    const { name, lengthFt, widthFt } = req.body;
+    if (!name || !lengthFt || !widthFt) {
+      return next(errors.badRequest('name, lengthFt, and widthFt required'));
     }
-  });
+    const subroom = await createSubroom({
+      zoneId: req.params.id,
+      ...req.body,
+    });
+    res.status(201).json(subroom);
+  }));
 
   // Delete subroom
   app.delete('/api/subrooms/:id', requireAuth, async (req, res) => {
@@ -2688,22 +2626,17 @@ export async function registerRoutes(
   // ============================================
 
   // Get zone line items
-  app.get('/api/zones/:id/line-items', requireAuth, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('estimate_line_items')
-        .select('*')
-        .eq('zone_id', req.params.id)
-        .order('sort_order');
+  app.get('/api/zones/:id/line-items', requireAuth, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('estimate_line_items')
+      .select('*')
+      .eq('zone_id', req.params.id)
+      .order('sort_order');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // Add line item to zone
   app.post('/api/zones/:id/line-items', requireAuth, async (req, res) => {
