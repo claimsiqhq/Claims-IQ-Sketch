@@ -2359,25 +2359,16 @@ export async function registerRoutes(
   // ============================================
 
   // Create structure
-  app.post('/api/estimates/:id/structures', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      await assertEstimateNotLocked(req.params.id);
+  app.post('/api/estimates/:id/structures', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    await assertEstimateNotLocked(req.params.id);
 
-      const structure = await createStructure({
-        estimateId: req.params.id,
-        ...req.body,
-      });
-      res.status(201).json(structure);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const structure = await createStructure({
+      estimateId: req.params.id,
+      ...req.body,
+    });
+    res.status(201).json(structure);
+  }));
 
   // Get structure
   app.get('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
@@ -2389,170 +2380,111 @@ export async function registerRoutes(
   }));
 
   // Update structure
-  app.put('/api/structures/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromStructure(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const structure = await updateStructure(req.params.id, req.body);
-      if (!structure) {
-        return res.status(404).json({ error: 'Structure not found' });
-      }
-      res.json(structure);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.put('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromStructure(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const structure = await updateStructure(req.params.id, req.body);
+    if (!structure) {
+      return next(errors.notFound('Structure'));
+    }
+    res.json(structure);
+  }));
 
   // Delete structure
-  app.delete('/api/structures/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromStructure(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const success = await deleteStructure(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Structure not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.delete('/api/structures/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromStructure(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const success = await deleteStructure(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Structure'));
+    }
+    res.json({ success: true });
+  }));
 
   // ============================================
   // AREA ROUTES
   // ============================================
 
   // Create area in structure
-  app.post('/api/structures/:id/areas', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromStructure(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const area = await createArea({
-        structureId: req.params.id,
-        ...req.body,
-      });
-      res.status(201).json(area);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.post('/api/structures/:id/areas', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromStructure(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const area = await createArea({
+      structureId: req.params.id,
+      ...req.body,
+    });
+    res.status(201).json(area);
+  }));
 
   // Get area
-  app.get('/api/areas/:id', requireAuth, async (req, res) => {
-    try {
-      const area = await getArea(req.params.id);
-      if (!area) {
-        return res.status(404).json({ error: 'Area not found' });
-      }
-      res.json(area);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/areas/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const area = await getArea(req.params.id);
+    if (!area) {
+      return next(errors.notFound('Area'));
     }
-  });
+    res.json(area);
+  }));
 
   // Update area
-  app.put('/api/areas/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromArea(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const area = await updateArea(req.params.id, req.body);
-      if (!area) {
-        return res.status(404).json({ error: 'Area not found' });
-      }
-      res.json(area);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.put('/api/areas/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromArea(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const area = await updateArea(req.params.id, req.body);
+    if (!area) {
+      return next(errors.notFound('Area'));
+    }
+    res.json(area);
+  }));
 
   // Delete area
-  app.delete('/api/areas/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromArea(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const success = await deleteArea(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Area not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.delete('/api/areas/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromArea(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const success = await deleteArea(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Area'));
+    }
+    res.json({ success: true });
+  }));
 
   // ============================================
   // ZONE ROUTES
   // ============================================
 
   // Create zone in area
-  app.post('/api/areas/:id/zones', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromArea(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const zone = await createZone({
-        areaId: req.params.id,
-        ...req.body,
-      });
-      res.status(201).json(zone);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.post('/api/areas/:id/zones', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromArea(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
-  });
+
+    const zone = await createZone({
+      areaId: req.params.id,
+      ...req.body,
+    });
+    res.status(201).json(zone);
+  }));
 
   // Get zone
   app.get('/api/zones/:id', requireAuth, async (req, res) => {
