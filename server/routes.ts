@@ -4718,211 +4718,163 @@ export async function registerRoutes(
   }));
 
   // Get specific page image from document
-  app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await getDocument(req.params.id, req.organizationId!);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
+  app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const doc = await getDocument(req.params.id, req.organizationId!);
+    if (!doc) {
+      return next(errors.notFound('Document'));
+    }
+
+    const pageNum = parseInt(req.params.page) || 1;
+    const os = await import('os');
+    const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
+
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // For images, download from Supabase and serve
+    if (doc.mimeType.startsWith('image/')) {
+      const tempFilePath = path.join(tempDir, `${req.params.id}-image`);
+
+      // Download if not cached
+      if (!fs.existsSync(tempFilePath)) {
+        const { data } = await downloadDocumentFile(doc.storagePath);
+        const buffer = Buffer.from(await data.arrayBuffer());
+        fs.writeFileSync(tempFilePath, buffer);
       }
 
-      const pageNum = parseInt(req.params.page) || 1;
-      const os = await import('os');
-      const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
+      res.setHeader('Content-Type', doc.mimeType);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.sendFile(path.resolve(tempFilePath));
+    }
 
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
+    // For PDFs, download from Supabase, convert to image and serve
+    if (doc.mimeType === 'application/pdf') {
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+
+      const pdfFilePath = path.join(tempDir, `${req.params.id}.pdf`);
+      const outputFile = path.join(tempDir, `${req.params.id}-page${pageNum}.png`);
+
+      // Download PDF if not cached
+      if (!fs.existsSync(pdfFilePath)) {
+        const { data } = await downloadDocumentFile(doc.storagePath);
+        const buffer = Buffer.from(await data.arrayBuffer());
+        fs.writeFileSync(pdfFilePath, buffer);
       }
 
-      // For images, download from Supabase and serve
-      if (doc.mimeType.startsWith('image/')) {
-        const tempFilePath = path.join(tempDir, `${req.params.id}-image`);
+      // Check if page image is already cached
+      if (!fs.existsSync(outputFile)) {
+        // Convert specific page using pdftoppm
+        const outputPrefix = path.join(tempDir, `${req.params.id}-page${pageNum}`);
+        await execFileAsync('pdftoppm', ['-png', '-r', '150', '-f', String(pageNum), '-l', String(pageNum), pdfFilePath, outputPrefix]);
 
-        // Download if not cached
-        if (!fs.existsSync(tempFilePath)) {
-          const { data } = await downloadDocumentFile(doc.storagePath);
-          const buffer = Buffer.from(await data.arrayBuffer());
-          fs.writeFileSync(tempFilePath, buffer);
-        }
-
-        res.setHeader('Content-Type', doc.mimeType);
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        return res.sendFile(path.resolve(tempFilePath));
-      }
-
-      // For PDFs, download from Supabase, convert to image and serve
-      if (doc.mimeType === 'application/pdf') {
-        const { execFile } = await import('child_process');
-        const { promisify } = await import('util');
-        const execFileAsync = promisify(execFile);
-
-        const pdfFilePath = path.join(tempDir, `${req.params.id}.pdf`);
-        const outputFile = path.join(tempDir, `${req.params.id}-page${pageNum}.png`);
-
-        // Download PDF if not cached
-        if (!fs.existsSync(pdfFilePath)) {
-          const { data } = await downloadDocumentFile(doc.storagePath);
-          const buffer = Buffer.from(await data.arrayBuffer());
-          fs.writeFileSync(pdfFilePath, buffer);
-        }
-
-        // Check if page image is already cached
-        if (!fs.existsSync(outputFile)) {
-          // Convert specific page using pdftoppm
-          const outputPrefix = path.join(tempDir, `${req.params.id}-page${pageNum}`);
-          await execFileAsync('pdftoppm', ['-png', '-r', '150', '-f', String(pageNum), '-l', String(pageNum), pdfFilePath, outputPrefix]);
-
-          // pdftoppm adds page number suffix with zero-padding
-          // Try various formats: -1.png, -01.png, -001.png
-          const possibleFiles = [
-            `${outputPrefix}-${pageNum}.png`,
-            `${outputPrefix}-${String(pageNum).padStart(2, '0')}.png`,
-            `${outputPrefix}-${String(pageNum).padStart(3, '0')}.png`,
-          ];
-          
-          for (const generatedFile of possibleFiles) {
-            if (fs.existsSync(generatedFile)) {
-              fs.renameSync(generatedFile, outputFile);
-              break;
-            }
+        // pdftoppm adds page number suffix with zero-padding
+        // Try various formats: -1.png, -01.png, -001.png
+        const possibleFiles = [
+          `${outputPrefix}-${pageNum}.png`,
+          `${outputPrefix}-${String(pageNum).padStart(2, '0')}.png`,
+          `${outputPrefix}-${String(pageNum).padStart(3, '0')}.png`,
+        ];
+        
+        for (const generatedFile of possibleFiles) {
+          if (fs.existsSync(generatedFile)) {
+            fs.renameSync(generatedFile, outputFile);
+            break;
           }
         }
-
-        if (fs.existsSync(outputFile)) {
-          res.setHeader('Content-Type', 'image/png');
-          res.setHeader('Cache-Control', 'public, max-age=3600');
-          return res.sendFile(path.resolve(outputFile));
-        }
-
-        return res.status(500).json({ error: 'Failed to convert PDF page to image' });
       }
 
-      res.status(400).json({ error: 'Unsupported document type' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      if (fs.existsSync(outputFile)) {
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        return res.sendFile(path.resolve(outputFile));
+      }
+
+      return next(errors.internal('Failed to convert PDF page to image'));
     }
-  });
+
+    return next(errors.badRequest('Unsupported document type'));
+  }));
 
   // Get document preview URLs from Supabase (persistent cloud storage)
-  app.get('/api/documents/:id/previews', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const result = await getDocumentPreviewUrls(req.params.id, req.organizationId!);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+  app.get('/api/documents/:id/previews', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const result = await getDocumentPreviewUrls(req.params.id, req.organizationId!);
+    res.json(result);
+  }));
 
   // Trigger preview generation for a document
-  app.post('/api/documents/:id/generate-previews', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const result = await generateDocumentPreviews(req.params.id, req.organizationId!);
-      if (result.success) {
-        res.json({ success: true, pageCount: result.pageCount });
-      } else {
-        res.status(500).json({ error: result.error || 'Failed to generate previews' });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/documents/:id/generate-previews', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const result = await generateDocumentPreviews(req.params.id, req.organizationId!);
+    if (result.success) {
+      res.json({ success: true, pageCount: result.pageCount });
+    } else {
+      return next(errors.internal(result.error || 'Failed to generate previews'));
     }
-  });
+  }));
 
   // Update document metadata
-  app.put('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await updateDocument(req.params.id, req.organizationId!, req.body);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-      res.json(doc);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.put('/api/documents/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const doc = await updateDocument(req.params.id, req.organizationId!, req.body);
+    if (!doc) {
+      return next(errors.notFound('Document'));
     }
-  });
+    res.json(doc);
+  }));
 
   // Associate document with claim
-  app.post('/api/documents/:id/claim', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { claimId } = req.body;
-      if (!claimId) {
-        return res.status(400).json({ error: 'claimId required' });
-      }
-      const success = await associateDocumentWithClaim(req.params.id, claimId, req.organizationId!);
-      if (!success) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/documents/:id/claim', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { claimId } = req.body;
+    if (!claimId) {
+      return next(errors.badRequest('claimId required'));
     }
-  });
+    const success = await associateDocumentWithClaim(req.params.id, claimId, req.organizationId!);
+    if (!success) {
+      return next(errors.notFound('Document'));
+    }
+    res.json({ success: true });
+  }));
 
   // Delete document
-  app.delete('/api/documents/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const success = await deleteDocument(req.params.id, req.organizationId!);
-      if (!success) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/documents/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const success = await deleteDocument(req.params.id, req.organizationId!);
+    if (!success) {
+      return next(errors.notFound('Document'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // Process document with AI extraction
-  app.post('/api/documents/:id/process', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const extractedData = await processDocumentAI(req.params.id, req.organizationId!);
-      res.json({
-        extractedData,
-        processingStatus: 'completed'
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+  app.post('/api/documents/:id/process', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const extractedData = await processDocumentAI(req.params.id, req.organizationId!);
+    res.json({
+      extractedData,
+      processingStatus: 'completed'
+    });
+  }));
 
   // Create claim from uploaded documents
-  app.post('/api/claims/from-documents', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { documentIds, overrides } = req.body;
+  app.post('/api/claims/from-documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { documentIds, overrides } = req.body;
 
-      if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
-        return res.status(400).json({ error: 'documentIds array required' });
-      }
-
-      const claimId = await createClaimFromDocuments(
-        req.organizationId!,
-        documentIds,
-        overrides
-      );
-
-      // Queue geocoding for the new claim address
-      queueGeocoding(claimId);
-
-      // Get the created claim
-      const claim = await getClaim(claimId, req.organizationId!);
-      res.status(201).json(claim);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
+      return next(errors.badRequest('documentIds array required'));
     }
-  });
+
+    const claimId = await createClaimFromDocuments(
+      req.organizationId!,
+      documentIds,
+      overrides
+    );
+
+    // Queue geocoding for the new claim address
+    queueGeocoding(claimId);
+
+    // Get the created claim
+    const claim = await getClaim(claimId, req.organizationId!);
+    res.status(201).json(claim);
+  }));
 
   // ============================================
   // SKETCH TOOLS API ROUTES
@@ -4934,92 +4886,67 @@ export async function registerRoutes(
    * Generate structured floorplan data (rooms and connections) from input.
    * This validates and transforms the input data.
    */
-  app.post('/api/sketch/generate-floorplan-data', requireAuth, async (req, res) => {
-    try {
-      const result = await generateFloorplanData(req.body);
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      res.json(result.data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/sketch/generate-floorplan-data', requireAuth, asyncHandler(async (req, res, next) => {
+    const result = await generateFloorplanData(req.body);
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to generate floorplan data'));
     }
-  });
+    res.json(result.data);
+  }));
 
   /**
    * POST /api/sketch/rooms
    * Create or update a room in the estimate sketch.
    */
-  app.post('/api/sketch/rooms', requireAuth, async (req, res) => {
-    try {
-      const result = await createOrUpdateRoom(req.body);
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      res.json(result.data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/sketch/rooms', requireAuth, asyncHandler(async (req, res, next) => {
+    const result = await createOrUpdateRoom(req.body);
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to create or update room'));
     }
-  });
+    res.json(result.data);
+  }));
 
   /**
    * POST /api/sketch/rooms/:room_id/openings
    * Add an opening (door/window/cased) to a room wall.
    */
-  app.post('/api/sketch/rooms/:room_id/openings', requireAuth, async (req, res) => {
-    try {
-      const result = await addRoomOpening({
-        room_id: req.params.room_id,
-        ...req.body,
-      });
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      res.json(result.data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/sketch/rooms/:room_id/openings', requireAuth, asyncHandler(async (req, res, next) => {
+    const result = await addRoomOpening({
+      room_id: req.params.room_id,
+      ...req.body,
+    });
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to add room opening'));
     }
-  });
+    res.json(result.data);
+  }));
 
   /**
    * POST /api/sketch/rooms/:room_id/missing-walls
    * Mark a missing wall segment for a room.
    */
-  app.post('/api/sketch/rooms/:room_id/missing-walls', requireAuth, async (req, res) => {
-    try {
-      const result = await addMissingWall({
-        room_id: req.params.room_id,
-        ...req.body,
-      });
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      res.json(result.data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/sketch/rooms/:room_id/missing-walls', requireAuth, asyncHandler(async (req, res, next) => {
+    const result = await addMissingWall({
+      room_id: req.params.room_id,
+      ...req.body,
+    });
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to add missing wall'));
     }
-  });
+    res.json(result.data);
+  }));
 
   /**
    * GET /api/sketch/estimates/:estimate_id/state
    * Retrieve current sketch state for an estimate.
    */
-  app.get('/api/sketch/estimates/:estimate_id/state', requireAuth, async (req, res) => {
-    try {
-      const result = await getSketchState(req.params.estimate_id);
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      res.json(result.data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/sketch/estimates/:estimate_id/state', requireAuth, asyncHandler(async (req, res, next) => {
+    const result = await getSketchState(req.params.estimate_id);
+    if (!result.success) {
+      return next(errors.badRequest(result.error || 'Failed to get sketch state'));
     }
-  });
+    res.json(result.data);
+  }));
 
   // ============================================
   // XACTIMATE LINE ITEM CATALOG ENDPOINTS
@@ -5029,19 +4956,14 @@ export async function registerRoutes(
    * GET /api/xact/categories
    * List all Xactimate categories
    */
-  app.get('/api/xact/categories', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('xact_categories')
-        .select('*')
-        .order('code');
-      if (error) throw new Error(error.message);
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/xact/categories', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('xact_categories')
+      .select('*')
+      .order('code');
+    if (error) throw new Error(error.message);
+    res.json(data);
+  }));
 
   /**
    * GET /api/xact/categories/:code
