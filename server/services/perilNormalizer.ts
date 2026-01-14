@@ -555,3 +555,29 @@ export function getDefaultPerilForZoneType(zoneType: string, areaType?: string):
   // This avoids assuming water just because it's interior
   return Peril.OTHER;
 }
+
+/**
+ * Normalize peril value from database to Peril enum
+ * Handles various formats: "Wind/Hail", "WATER", "wind_hail", etc.
+ */
+export function normalizePeril(value: string | null | undefined): Peril {
+  if (!value) return Peril.OTHER;
+
+  const normalized = value.toLowerCase().trim();
+
+  // Direct matches
+  if (Object.values(Peril).includes(normalized as Peril)) {
+    return normalized as Peril;
+  }
+
+  // Handle common variations
+  if (normalized.includes('wind') || normalized.includes('hail')) return Peril.WIND_HAIL;
+  if (normalized.includes('fire')) return Peril.FIRE;
+  if (normalized.includes('water') && !normalized.includes('flood')) return Peril.WATER;
+  if (normalized.includes('flood')) return Peril.FLOOD;
+  if (normalized.includes('smoke')) return Peril.SMOKE;
+  if (normalized.includes('mold') || normalized.includes('mildew')) return Peril.MOLD;
+  if (normalized.includes('impact') || normalized.includes('tree') || normalized.includes('vehicle')) return Peril.IMPACT;
+
+  return Peril.OTHER;
+}
