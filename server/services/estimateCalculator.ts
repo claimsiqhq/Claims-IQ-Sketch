@@ -346,6 +346,10 @@ export async function saveEstimate(
   input: EstimateCalculationInput,
   calculation: EstimateCalculationResult
 ): Promise<SavedEstimate> {
+  // NOTE: This is a multi-step operation that should ideally use a database transaction
+  // For now, we rely on Supabase RLS and error handling. For true atomicity,
+  // consider creating a PostgreSQL function that performs all inserts in a single transaction.
+  
   // Create estimate record
   const { data: estimate, error: estimateError } = await supabaseAdmin
     .from('estimates')
@@ -640,6 +644,9 @@ export async function updateEstimate(
   estimateId: string,
   input: EstimateCalculationInput
 ): Promise<SavedEstimate> {
+  // NOTE: This is a multi-step operation that should ideally use a database transaction
+  // It deletes existing line items/coverage summaries and inserts new ones.
+  // For true atomicity, consider creating a PostgreSQL function that performs all operations in a single transaction.
   // Get current estimate to check version
   const { data: currentEstimate, error: currentError } = await supabaseAdmin
     .from('estimates')
