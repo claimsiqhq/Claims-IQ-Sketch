@@ -46,7 +46,7 @@ import {
   ThirdPartyInterest,
   DwellingSettlementRules,
 } from '../../shared/schema';
-import { inferPeril } from './perilInference';
+import { inferPeril } from './perilNormalizer';
 import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
 
 // ============================================

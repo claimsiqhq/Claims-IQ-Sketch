@@ -43,6 +43,8 @@ import { getPromptWithFallback } from './promptService';
 import { getClaimBriefing } from './claimBriefingService';
 import { buildUnifiedClaimContext } from './unifiedClaimContextService';
 import { generateStepTypeGuidanceForPrompt } from '../../shared/config/stepTypeConfig';
+import { PerilAwareClaimContext } from './perilAwareContext';
+import { getCarrierOverlays } from './carrierOverlayService';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -113,6 +115,7 @@ interface AIWorkflowResponse {
     required: boolean;
     tags?: string[];
     estimated_minutes: number;
+    evidence_requirements?: Record<string, unknown>[];
     assets?: {
       asset_type: string;
       label: string;
@@ -1081,8 +1084,8 @@ export async function generateInspectionWorkflow(
     }
 
     // Auto-detect rooms and hazards from loss description if not provided in wizard
-    if (context.lossDescription) {
-      const description = context.lossDescription;
+    if (context.lossDetails?.description) {
+      const description = context.lossDetails.description;
       
       // Initialize wizardContext if undefined
       if (!wizardContext) {
@@ -1253,7 +1256,7 @@ export async function generateInspectionWorkflow(
         estimated_minutes: step.estimated_minutes,
         peril_specific: step.peril_specific || null,
         // NO LEGACY ASSETS - evidence_requirements stored in workflow_json
-        evidenceRequirements: step.evidence_requirements || [],
+        evidence_requirements: step.evidence_requirements || [],
       });
     }
 
