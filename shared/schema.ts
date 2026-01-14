@@ -292,6 +292,10 @@ export const claims = pgTable("claims", {
   // Raw OpenAI response - stored before any transformation for debugging/auditing
   rawOpenaiResponse: jsonb("raw_openai_response"),
 
+  // Version tracking for cache invalidation (voice agents use these to detect stale context)
+  briefingVersion: integer("briefing_version").notNull().default(0),
+  workflowVersion: integer("workflow_version").notNull().default(0),
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),
@@ -4675,3 +4679,15 @@ export interface ExportValidationResult {
   };
   warnings: string[];
 }
+
+// ============================================
+// SESSIONS TABLE (for Passport.js session storage)
+// ============================================
+
+export const sessions = pgTable("sessions", {
+  sid: varchar("sid", { length: 255 }).primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire", { withTimezone: true }).notNull(),
+}, (table) => ({
+  expireIdx: index("sessions_expire_idx").on(table.expire),
+}));

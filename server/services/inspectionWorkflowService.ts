@@ -1395,23 +1395,35 @@ export async function generateInspectionWorkflow(
       });
       if (rpcError) {
         // Fallback: If RPC doesn't exist, do manual increment
-        const { data: claimData } = await supabaseAdmin
+        // Check if column exists first (migration 042 may not have run)
+        const { data: claimData, error: selectError } = await supabaseAdmin
           .from('claims')
           .select('workflow_version')
           .eq('id', claimId)
           .single();
-        const currentVersion = claimData?.workflow_version || 0;
-        await supabaseAdmin
-          .from('claims')
-          .update({
-            workflow_version: currentVersion + 1,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', claimId);
+        
+        // If column doesn't exist, skip version increment (migration needs to be run)
+        if (selectError && selectError.message?.includes('does not exist')) {
+          console.warn('[InspectionWorkflow] workflow_version column does not exist. Please run migration 042_add_briefing_workflow_versions.sql');
+        } else if (claimData) {
+          const currentVersion = claimData?.workflow_version || 0;
+          await supabaseAdmin
+            .from('claims')
+            .update({
+              workflow_version: currentVersion + 1,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', claimId);
+        }
       }
     } catch (err) {
-      // Silently fail - version increment is not critical
-      console.error('[InspectionWorkflow] Failed to increment workflow version:', err);
+      // Version increment is non-critical, log but don't fail
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes('does not exist')) {
+        console.warn('[InspectionWorkflow] workflow_version column does not exist. Please run migration 042_add_briefing_workflow_versions.sql');
+      } else {
+        console.error('[InspectionWorkflow] Failed to increment workflow_version:', err);
+      }
     }
 
     console.log(`[InspectionWorkflow] Generated enhanced workflow v${nextVersion} for claim ${claimId}: ${stepsCreated} steps created from workflow_json.steps (${workflowJson.steps.length} in source, ${endorsementSteps.length} endorsement-driven), data completeness: ${context.meta.dataCompleteness.completenessScore}%`);

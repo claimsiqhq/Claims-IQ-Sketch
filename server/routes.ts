@@ -5276,12 +5276,33 @@ export async function registerRoutes(
     const claim = await getClaim(claimId, organizationId);
 
     // Get version numbers from claim (need to fetch directly as getClaim may not include them)
-    const { data: claimVersions } = await supabaseAdmin
-      .from('claims')
-      .select('briefing_version, workflow_version')
-      .eq('id', claimId)
-      .eq('organization_id', organizationId)
-      .single();
+    // Handle case where columns don't exist (migration 042 may not have run)
+    let claimVersions: { briefing_version?: number; workflow_version?: number } | null = null;
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('claims')
+        .select('briefing_version, workflow_version')
+        .eq('id', claimId)
+        .eq('organization_id', organizationId)
+        .single();
+      
+      if (error && error.message?.includes('does not exist')) {
+        // Columns don't exist - migration 042 needs to be run
+        log.warn({ claimId }, 'Version columns do not exist. Please run migration 042_add_briefing_workflow_versions.sql');
+        claimVersions = { briefing_version: 0, workflow_version: 0 };
+      } else {
+        claimVersions = data;
+      }
+    } catch (error) {
+      // If columns don't exist, use defaults
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('does not exist')) {
+        log.warn({ claimId }, 'Version columns do not exist. Please run migration 042_add_briefing_workflow_versions.sql');
+        claimVersions = { briefing_version: 0, workflow_version: 0 };
+      } else {
+        throw error;
+      }
+    }
 
     // Determine readiness status
     const hasBriefing = briefing !== null;
