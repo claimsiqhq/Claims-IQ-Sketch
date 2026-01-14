@@ -67,6 +67,7 @@ import {
 } from "./services/promptService";
 import { passport, requireAuth } from "./middleware/auth";
 import { validateBody, validateQuery } from "./middleware/validation";
+import { errors, asyncHandler } from "./middleware/errorHandler";
 import { updateUserProfile, changeUserPassword } from "./services/auth";
 import {
   signUp as supabaseSignUp,
@@ -349,15 +350,11 @@ export async function registerRoutes(
   // ============================================
   
   // Get MS365 connection status
-  app.get('/api/auth/ms365/status', requireAuth, async (req, res) => {
-    try {
-      const { getConnectionStatus } = await import('./services/ms365AuthService');
-      const status = await getConnectionStatus(req.user!.id);
-      res.json(status);
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to get MS365 status' });
-    }
-  });
+  app.get('/api/auth/ms365/status', requireAuth, asyncHandler(async (req, res, next) => {
+    const { getConnectionStatus } = await import('./services/ms365AuthService');
+    const status = await getConnectionStatus(req.user!.id);
+    res.json(status);
+  }));
 
   // Initiate MS365 OAuth flow - redirects directly to Microsoft
   app.get('/api/auth/ms365/connect', requireAuth, async (req, res) => {
@@ -407,129 +404,100 @@ export async function registerRoutes(
   });
 
   // Disconnect from MS365
-  app.post('/api/auth/ms365/disconnect', requireAuth, async (req, res) => {
-    try {
-      const { disconnectUser } = await import('./services/ms365AuthService');
-      const success = await disconnectUser(req.user!.id);
-      
-      if (success) {
-        res.json({ success: true, message: 'Disconnected from Microsoft 365' });
-      } else {
-        res.status(500).json({ error: 'Failed to disconnect' });
-      }
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to disconnect from MS365' });
+  app.post('/api/auth/ms365/disconnect', requireAuth, asyncHandler(async (req, res, next) => {
+    const { disconnectUser } = await import('./services/ms365AuthService');
+    const success = await disconnectUser(req.user!.id);
+    
+    if (success) {
+      res.json({ success: true, message: 'Disconnected from Microsoft 365' });
+    } else {
+      next(errors.internal('Failed to disconnect'));
     }
-  });
+  }));
 
   // ============================================
   // CALENDAR / APPOINTMENTS ROUTES
   // ============================================
 
   // Get today's appointments
-  app.get('/api/calendar/today', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getTodayAppointments } = await import('./services/ms365CalendarService');
-      const appointments = await getTodayAppointments(req.user!.id, req.organizationId!);
-      res.json({ appointments });
-    } catch (error) {
-      console.error('[Calendar] Failed to get today appointments:', error);
-      res.status(500).json({ error: 'Failed to get appointments' });
-    }
-  });
+  app.get('/api/calendar/today', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getTodayAppointments } = await import('./services/ms365CalendarService');
+    const appointments = await getTodayAppointments(req.user!.id, req.organizationId!);
+    res.json({ appointments });
+  }));
 
   // Get appointments for a specific date or date range
-  app.get('/api/calendar/appointments', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getAppointmentsForDate } = await import('./services/ms365CalendarService');
+  app.get('/api/calendar/appointments', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getAppointmentsForDate } = await import('./services/ms365CalendarService');
+    
+    // Support date range (startDate/endDate) or single date
+    if (req.query.startDate && req.query.endDate) {
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
       
-      // Support date range (startDate/endDate) or single date
-      if (req.query.startDate && req.query.endDate) {
-        const startDate = new Date(req.query.startDate as string);
-        const endDate = new Date(req.query.endDate as string);
-        
-        // Get appointments for each day in the range
-        const allAppointments: any[] = [];
-        const currentDate = new Date(startDate);
-        
-        while (currentDate <= endDate) {
-          const dayAppointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, new Date(currentDate));
-          allAppointments.push(...dayAppointments);
-          currentDate.setDate(currentDate.getDate() + 1);
-        }
-        
-        // Deduplicate by ID
-        const uniqueAppointments = Array.from(
-          new Map(allAppointments.map(apt => [apt.id, apt])).values()
-        );
-        
-        res.json({ appointments: uniqueAppointments });
-      } else {
-        const date = req.query.date ? new Date(req.query.date as string) : new Date();
-        const appointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, date);
-        res.json({ appointments });
+      // Get appointments for each day in the range
+      const allAppointments: any[] = [];
+      const currentDate = new Date(startDate);
+      
+      while (currentDate <= endDate) {
+        const dayAppointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, new Date(currentDate));
+        allAppointments.push(...dayAppointments);
+        currentDate.setDate(currentDate.getDate() + 1);
       }
-    } catch (error) {
-      console.error('[Calendar] Failed to get appointments:', error);
-      res.status(500).json({ error: 'Failed to get appointments' });
-    }
-  });
-
-  // Create a new appointment
-  app.post('/api/calendar/appointments', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { createInspectionAppointment } = await import('./services/ms365CalendarService');
-      const { isUserConnected } = await import('./services/ms365AuthService');
       
-      const isConnected = await isUserConnected(req.user!.id);
-      
-      const appointment = await createInspectionAppointment({
-        ...req.body,
-        organizationId: req.organizationId!,
-        adjusterId: req.user!.id,
-        syncToMs365: isConnected && req.body.syncToMs365 !== false,
-      });
-      
-      res.json({ appointment });
-    } catch (error) {
-      console.error('[Calendar] Failed to create appointment:', error);
-      res.status(500).json({ error: 'Failed to create appointment' });
-    }
-  });
-
-  // Get appointments for a claim
-  app.get('/api/claims/:id/appointments', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getAppointmentsForClaim } = await import('./services/ms365CalendarService');
-      const appointments = await getAppointmentsForClaim(req.params.id, req.organizationId!);
-      res.json({ appointments });
-    } catch (error) {
-      console.error('[Calendar] Failed to get claim appointments:', error);
-      res.status(500).json({ error: 'Failed to get appointments' });
-    }
-  });
-
-  // Update an appointment
-  app.patch('/api/calendar/appointments/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { updateAppointment } = await import('./services/ms365CalendarService');
-      const appointment = await updateAppointment(
-        req.params.id,
-        req.organizationId!,
-        req.body,
-        req.body.syncToMs365 !== false
+      // Deduplicate by ID
+      const uniqueAppointments = Array.from(
+        new Map(allAppointments.map(apt => [apt.id, apt])).values()
       );
       
-      if (!appointment) {
-        return res.status(404).json({ error: 'Appointment not found' });
-      }
-      
-      res.json({ appointment });
-    } catch (error) {
-      console.error('[Calendar] Failed to update appointment:', error);
-      res.status(500).json({ error: 'Failed to update appointment' });
+      res.json({ appointments: uniqueAppointments });
+    } else {
+      const date = req.query.date ? new Date(req.query.date as string) : new Date();
+      const appointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, date);
+      res.json({ appointments });
     }
-  });
+  }));
+
+  // Create a new appointment
+  app.post('/api/calendar/appointments', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { createInspectionAppointment } = await import('./services/ms365CalendarService');
+    const { isUserConnected } = await import('./services/ms365AuthService');
+    
+    const isConnected = await isUserConnected(req.user!.id);
+    
+    const appointment = await createInspectionAppointment({
+      ...req.body,
+      organizationId: req.organizationId!,
+      adjusterId: req.user!.id,
+      syncToMs365: isConnected && req.body.syncToMs365 !== false,
+    });
+    
+    res.json({ appointment });
+  }));
+
+  // Get appointments for a claim
+  app.get('/api/claims/:id/appointments', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getAppointmentsForClaim } = await import('./services/ms365CalendarService');
+    const appointments = await getAppointmentsForClaim(req.params.id, req.organizationId!);
+    res.json({ appointments });
+  }));
+
+  // Update an appointment
+  app.patch('/api/calendar/appointments/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { updateAppointment } = await import('./services/ms365CalendarService');
+    const appointment = await updateAppointment(
+      req.params.id,
+      req.organizationId!,
+      req.body,
+      req.body.syncToMs365 !== false
+    );
+    
+    if (!appointment) {
+      return next(errors.notFound('Appointment'));
+    }
+    
+    res.json({ appointment });
+  }));
 
   // Delete an appointment
   app.delete('/api/calendar/appointments/:id', requireAuth, requireOrganization, async (req, res) => {
@@ -553,10 +521,9 @@ export async function registerRoutes(
   });
 
   // Fetch MS365 calendar events (for viewing external events)
-  app.get('/api/calendar/ms365/events', requireAuth, async (req, res) => {
-    try {
-      const { fetchCalendarEvents, fetchTodayEvents } = await import('./services/ms365CalendarService');
-      const { isUserConnected } = await import('./services/ms365AuthService');
+  app.get('/api/calendar/ms365/events', requireAuth, asyncHandler(async (req, res, next) => {
+    const { fetchCalendarEvents, fetchTodayEvents } = await import('./services/ms365CalendarService');
+    const { isUserConnected } = await import('./services/ms365AuthService');
       
       const isConnected = await isUserConnected(req.user!.id);
       if (!isConnected) {
@@ -597,7 +564,7 @@ export async function registerRoutes(
   });
 
   // Pull sync from MS365
-  app.post('/api/calendar/sync/from-ms365', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/calendar/sync/from-ms365', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const { syncFromMs365 } = await import('./services/ms365CalendarSyncService');
       const { startDate, endDate } = req.body;
@@ -613,12 +580,12 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[Calendar Sync] Pull sync failed:', error);
-      res.status(500).json({ success: false, errors: [message] });
+      next(errors.internal(`Pull sync failed: ${message}`));
     }
-  });
+  }));
 
   // Push sync to MS365
-  app.post('/api/calendar/sync/to-ms365', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/calendar/sync/to-ms365', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const { syncToMs365 } = await import('./services/ms365CalendarSyncService');
       const { appointmentIds, startDate, endDate } = req.body;
@@ -645,12 +612,12 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[Calendar Sync] Push sync failed:', error);
-      res.status(500).json({ success: false, errors: [message] });
+      next(errors.internal(`Push sync failed: ${message}`));
     }
-  });
+  }));
 
   // Full bidirectional sync
-  app.post('/api/calendar/sync/full', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/calendar/sync/full', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const { fullSync } = await import('./services/ms365CalendarSyncService');
       const { startDate, endDate } = req.body;
@@ -666,21 +633,16 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[Calendar Sync] Full sync failed:', error);
-      res.status(500).json({ success: false, errors: [message] });
+      next(errors.internal(`Full sync failed: ${message}`));
     }
-  });
+  }));
 
   // Get sync status
-  app.get('/api/calendar/sync/status', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getSyncStatus } = await import('./services/ms365CalendarSyncService');
-      const status = await getSyncStatus(req.user!.id, req.organizationId!);
-      res.json(status);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/calendar/sync/status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getSyncStatus } = await import('./services/ms365CalendarSyncService');
+    const status = await getSyncStatus(req.user!.id, req.organizationId!);
+    res.json(status);
+  }));
 
   // Get current user endpoint (supports both session and Supabase auth)
   app.get('/api/auth/me', async (req, res) => {
@@ -774,111 +736,91 @@ export async function registerRoutes(
   // ============================================
 
   // Supabase login endpoint
-  app.post('/api/auth/supabase/login', async (req, res) => {
-    try {
-      const { email, password } = req.body;
+  app.post('/api/auth/supabase/login', asyncHandler(async (req, res, next) => {
+    const { email, password } = req.body;
 
-      if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
-      }
-
-      const { user, session, error } = await supabaseSignIn(email, password);
-
-      if (error) {
-        return res.status(401).json({ error });
-      }
-
-      res.json({
-        user: {
-          id: user!.id,
-          username: user!.username,
-          email: user!.email,
-          firstName: user!.firstName,
-          lastName: user!.lastName,
-        },
-        session: {
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          expires_at: session.expires_at,
-        },
-        message: 'Login successful'
-      });
-    } catch (error) {
-      console.error('Supabase login error:', error);
-      res.status(500).json({ error: 'Authentication error' });
+    if (!email || !password) {
+      return next(errors.badRequest('Email and password are required'));
     }
-  });
+
+    const { user, session, error } = await supabaseSignIn(email, password);
+
+    if (error) {
+      return next(errors.unauthorized(error));
+    }
+
+    res.json({
+      user: {
+        id: user!.id,
+        username: user!.username,
+        email: user!.email,
+        firstName: user!.firstName,
+        lastName: user!.lastName,
+      },
+      session: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at,
+      },
+      message: 'Login successful'
+    });
+  }));
 
   // Supabase registration endpoint
-  app.post('/api/auth/supabase/register', async (req, res) => {
-    try {
-      const { email, password, username, firstName, lastName } = req.body;
+  app.post('/api/auth/supabase/register', asyncHandler(async (req, res, next) => {
+    const { email, password, username, firstName, lastName } = req.body;
 
-      if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
-      }
-
-      const { user, error } = await supabaseSignUp(email, password, {
-        username,
-        firstName,
-        lastName,
-      });
-
-      if (error) {
-        return res.status(400).json({ error });
-      }
-
-      res.json({
-        user: {
-          id: user!.id,
-          username: user!.username,
-          email: user!.email,
-        },
-        message: 'Registration successful. Please check your email to verify your account.'
-      });
-    } catch (error) {
-      console.error('Supabase registration error:', error);
-      res.status(500).json({ error: 'Registration error' });
+    if (!email || !password) {
+      return next(errors.badRequest('Email and password are required'));
     }
-  });
+
+    const { user, error } = await supabaseSignUp(email, password, {
+      username,
+      firstName,
+      lastName,
+    });
+
+    if (error) {
+      return next(errors.badRequest(error));
+    }
+
+    res.json({
+      user: {
+        id: user!.id,
+        username: user!.username,
+        email: user!.email,
+      },
+      message: 'Registration successful. Please check your email to verify your account.'
+    });
+  }));
 
   // Supabase logout endpoint
-  app.post('/api/auth/supabase/logout', async (req, res) => {
-    try {
-      const { error } = await supabaseSignOut();
+  app.post('/api/auth/supabase/logout', asyncHandler(async (req, res, next) => {
+    const { error } = await supabaseSignOut();
 
-      if (error) {
-        return res.status(500).json({ error });
-      }
-
-      res.json({ message: 'Logout successful' });
-    } catch (error) {
-      console.error('Supabase logout error:', error);
-      res.status(500).json({ error: 'Logout error' });
+    if (error) {
+      return next(errors.internal(error));
     }
-  });
+
+    res.json({ message: 'Logout successful' });
+  }));
 
   // Supabase password reset request
-  app.post('/api/auth/supabase/forgot-password', async (req, res) => {
-    try {
-      const { email } = req.body;
+  app.post('/api/auth/supabase/forgot-password', asyncHandler(async (req, res, next) => {
+    const { email } = req.body;
 
-      if (!email) {
-        return res.status(400).json({ error: 'Email is required' });
-      }
-
-      const { error } = await requestPasswordReset(email);
-
-      if (error) {
-        return res.status(400).json({ error });
-      }
-
-      res.json({ message: 'Password reset email sent' });
-    } catch (error) {
-      console.error('Password reset error:', error);
-      res.status(500).json({ error: 'Failed to send password reset email' });
+    if (!email) {
+      return next(errors.badRequest('Email is required'));
     }
-  });
+
+    const { error } = await requestPasswordReset(email);
+
+    if (error) {
+      return next(errors.badRequest(error));
+    }
+
+    res.json({ message: 'Password reset email sent' });
+  }));
 
   // Supabase get current user (from token)
   app.get('/api/auth/supabase/me', async (req, res) => {
@@ -924,7 +866,13 @@ export async function registerRoutes(
   // ============================================
 
   // Update user profile
-  app.put('/api/users/profile', requireAuth, async (req, res) => {
+  app.put('/api/users/profile', requireAuth, validateBody(z.object({
+    name: z.string().optional(),
+    displayName: z.string().optional(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    email: z.string().email().optional(),
+  })), async (req, res) => {
     try {
       const userId = req.user!.id;
       const { name, displayName, firstName, lastName, email } = req.body;
@@ -1024,7 +972,7 @@ export async function registerRoutes(
   });
 
   // Update user preferences
-  app.put('/api/users/preferences', requireAuth, async (req, res) => {
+  app.put('/api/users/preferences', requireAuth, validateBody(z.record(z.unknown())), async (req, res) => {
     try {
       const userId = req.user!.id;
       const preferences = req.body;
