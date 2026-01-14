@@ -357,7 +357,7 @@ export async function registerRoutes(
   }));
 
   // Initiate MS365 OAuth flow - redirects directly to Microsoft
-  app.get('/api/auth/ms365/connect', requireAuth, async (req, res) => {
+  app.get('/api/auth/ms365/connect', requireAuth, asyncHandler(async (req, res, next) => {
     try {
       const { getAuthorizationUrl, isMs365Configured } = await import('./services/ms365AuthService');
       
@@ -372,10 +372,10 @@ export async function registerRoutes(
       console.error('[MS365] Auth URL generation failed:', error);
       res.redirect('/settings?ms365_error=auth_failed');
     }
-  });
+  }));
 
   // MS365 OAuth callback
-  app.get('/api/auth/ms365/callback', async (req, res) => {
+  app.get('/api/auth/ms365/callback', asyncHandler(async (req, res, next) => {
     const { code, state, error: authError } = req.query;
 
     if (authError) {
@@ -401,7 +401,7 @@ export async function registerRoutes(
       console.error('[MS365] Callback error:', error);
       res.redirect('/settings?ms365_error=callback_failed');
     }
-  });
+  }));
 
   // Disconnect from MS365
   app.post('/api/auth/ms365/disconnect', requireAuth, asyncHandler(async (req, res, next) => {
@@ -500,25 +500,20 @@ export async function registerRoutes(
   }));
 
   // Delete an appointment
-  app.delete('/api/calendar/appointments/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { deleteAppointment } = await import('./services/ms365CalendarService');
-      const success = await deleteAppointment(
-        req.params.id,
-        req.organizationId!,
-        req.query.deleteFromMs365 !== 'false'
-      );
-      
-      if (!success) {
-        return res.status(404).json({ error: 'Appointment not found' });
-      }
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('[Calendar] Failed to delete appointment:', error);
-      res.status(500).json({ error: 'Failed to delete appointment' });
+  app.delete('/api/calendar/appointments/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { deleteAppointment } = await import('./services/ms365CalendarService');
+    const success = await deleteAppointment(
+      req.params.id,
+      req.organizationId!,
+      req.query.deleteFromMs365 !== 'false'
+    );
+    
+    if (!success) {
+      return next(errors.notFound('Appointment'));
     }
-  });
+    
+    res.json({ success: true });
+  }));
 
   // Fetch MS365 calendar events (for viewing external events)
   app.get('/api/calendar/ms365/events', requireAuth, asyncHandler(async (req, res, next) => {
@@ -552,16 +547,11 @@ export async function registerRoutes(
   // ============================================
 
   // Get MS365 connection status
-  app.get('/api/calendar/ms365/connection-status', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getConnectionStatus } = await import('./services/ms365AuthService');
-      const status = await getConnectionStatus(req.user!.id);
-      res.json(status);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/calendar/ms365/connection-status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getConnectionStatus } = await import('./services/ms365AuthService');
+    const status = await getConnectionStatus(req.user!.id);
+    res.json(status);
+  }));
 
   // Pull sync from MS365
   app.post('/api/calendar/sync/from-ms365', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -645,7 +635,7 @@ export async function registerRoutes(
   }));
 
   // Get current user endpoint (supports both session and Supabase auth)
-  app.get('/api/auth/me', async (req, res) => {
+  app.get('/api/auth/me', asyncHandler(async (req, res, next) => {
     // Disable all caching for auth endpoints
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -823,7 +813,7 @@ export async function registerRoutes(
   }));
 
   // Supabase get current user (from token)
-  app.get('/api/auth/supabase/me', async (req, res) => {
+  app.get('/api/auth/supabase/me', asyncHandler(async (req, res, next) => {
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
       'Pragma': 'no-cache',
@@ -859,7 +849,7 @@ export async function registerRoutes(
       console.error('Get current user error:', error);
       res.json({ user: null, authenticated: false });
     }
-  });
+  }));
 
   // ============================================
   // USER PROFILE ROUTES
@@ -1135,7 +1125,7 @@ export async function registerRoutes(
   });
 
   // System status endpoint
-  app.get('/api/system/status', async (req, res) => {
+  app.get('/api/system/status', asyncHandler(async (req, res, next) => {
     try {
       // Test database connection
       const { data: timeData, error: timeError } = await supabaseAdmin
@@ -1213,41 +1203,41 @@ export async function registerRoutes(
         openaiConfigured: !!process.env.OPENAI_API_KEY
       });
     }
-  });
+  }));
 
   // ============================================
   // ROUTE OPTIMIZATION
   // ============================================
 
-  app.post('/api/route/optimize', requireAuth, async (req, res) => {
+  app.post('/api/route/optimize', requireAuth, asyncHandler(async (req, res, next) => {
+    const { optimizeRoute } = await import('./services/routeOptimization');
+    const { origin, stops } = req.body;
+
+    if (!stops || !Array.isArray(stops)) {
+      return next(errors.badRequest('stops array is required'));
+    }
+
+    // Filter stops with valid coordinates
+    const validStops = stops.filter((s: any) => 
+      s.id && typeof s.lat === 'number' && typeof s.lng === 'number' &&
+      s.lat !== 0 && s.lng !== 0
+    );
+
+    if (validStops.length === 0) {
+      return res.json({
+        orderedStops: stops.map((s: any) => s.id),
+        legs: [],
+        totalDuration: 0,
+        totalDistance: 0,
+        optimized: false,
+        reason: 'No stops with valid coordinates'
+      });
+    }
+
+    // Default origin to first stop if not provided
+    const routeOrigin = origin || { lat: validStops[0].lat, lng: validStops[0].lng };
+
     try {
-      const { optimizeRoute } = await import('./services/routeOptimization');
-      const { origin, stops } = req.body;
-
-      if (!stops || !Array.isArray(stops)) {
-        return res.status(400).json({ error: 'stops array is required' });
-      }
-
-      // Filter stops with valid coordinates
-      const validStops = stops.filter((s: any) => 
-        s.id && typeof s.lat === 'number' && typeof s.lng === 'number' &&
-        s.lat !== 0 && s.lng !== 0
-      );
-
-      if (validStops.length === 0) {
-        return res.json({
-          orderedStops: stops.map((s: any) => s.id),
-          legs: [],
-          totalDuration: 0,
-          totalDistance: 0,
-          optimized: false,
-          reason: 'No stops with valid coordinates'
-        });
-      }
-
-      // Default origin to first stop if not provided
-      const routeOrigin = origin || { lat: validStops[0].lat, lng: validStops[0].lng };
-
       const result = await optimizeRoute(routeOrigin, validStops);
       res.json({ ...result, optimized: true });
     } catch (error) {
@@ -1255,27 +1245,27 @@ export async function registerRoutes(
       console.error('Route optimization error:', message);
       
       if (message.includes('not configured')) {
-        res.status(500).json({ error: 'Route optimization service not configured' });
+        return next(errors.internal('Route optimization service not configured'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
-  app.post('/api/route/drive-times', requireAuth, async (req, res) => {
+  app.post('/api/route/drive-times', requireAuth, asyncHandler(async (req, res, next) => {
+    const { calculateDriveTimes } = await import('./services/routeOptimization');
+    const { stops } = req.body;
+
+    if (!stops || !Array.isArray(stops)) {
+      return next(errors.badRequest('stops array is required'));
+    }
+
+    const validStops = stops.filter((s: any) => 
+      s.id && typeof s.lat === 'number' && typeof s.lng === 'number' &&
+      s.lat !== 0 && s.lng !== 0
+    );
+
     try {
-      const { calculateDriveTimes } = await import('./services/routeOptimization');
-      const { stops } = req.body;
-
-      if (!stops || !Array.isArray(stops)) {
-        return res.status(400).json({ error: 'stops array is required' });
-      }
-
-      const validStops = stops.filter((s: any) => 
-        s.id && typeof s.lat === 'number' && typeof s.lng === 'number' &&
-        s.lat !== 0 && s.lng !== 0
-      );
-
       const driveTimes = await calculateDriveTimes(validStops);
       
       // Convert Map to object for JSON
@@ -1288,44 +1278,44 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Drive times calculation error:', message);
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // ============================================
   // WEATHER API ROUTES
   // ============================================
   
-  app.post('/api/weather/locations', requireAuth, async (req, res) => {
+  app.post('/api/weather/locations', requireAuth, asyncHandler(async (req, res, next) => {
+    const { getWeatherForLocations } = await import('./services/weatherService');
+    const { locations } = req.body;
+
+    if (!locations || !Array.isArray(locations)) {
+      return next(errors.badRequest('locations array is required'));
+    }
+
+    const validLocations = locations.filter((loc: any) =>
+      typeof loc.lat === 'number' && typeof loc.lng === 'number' &&
+      loc.lat !== 0 && loc.lng !== 0
+    ).map((loc: any) => ({
+      lat: loc.lat,
+      lng: loc.lng,
+      stopId: loc.stopId || loc.id,
+    }));
+
+    if (validLocations.length === 0) {
+      return res.json({ weather: [] });
+    }
+
     try {
-      const { getWeatherForLocations } = await import('./services/weatherService');
-      const { locations } = req.body;
-
-      if (!locations || !Array.isArray(locations)) {
-        return res.status(400).json({ error: 'locations array is required' });
-      }
-
-      const validLocations = locations.filter((loc: any) =>
-        typeof loc.lat === 'number' && typeof loc.lng === 'number' &&
-        loc.lat !== 0 && loc.lng !== 0
-      ).map((loc: any) => ({
-        lat: loc.lat,
-        lng: loc.lng,
-        stopId: loc.stopId || loc.id,
-      }));
-
-      if (validLocations.length === 0) {
-        return res.json({ weather: [] });
-      }
-
       const weather = await getWeatherForLocations(validLocations);
       res.json({ weather });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Weather fetch error:', message);
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // ============================================
   // MY DAY AI ANALYSIS ROUTES (DEPRECATED - Feature removed from UI)
@@ -1377,7 +1367,7 @@ export async function registerRoutes(
   */
 
   // Voice Session Routes
-  app.post('/api/voice/session', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/voice/session', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const result = await createVoiceSession();
       res.json(result);
@@ -1385,12 +1375,12 @@ export async function registerRoutes(
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Voice session creation error:', message);
       if (message.includes('not configured')) {
-        res.status(500).json({ error: 'Voice service not configured' });
+        return next(errors.internal('Voice service not configured'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
   app.get('/api/voice/config', requireAuth, requireOrganization, (req, res) => {
     res.json({
@@ -1405,40 +1395,36 @@ export async function registerRoutes(
   // ============================================
 
   // Generate AI suggestions from damage zones
-  app.post('/api/ai/suggest-estimate', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/ai/suggest-estimate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { damageZones, regionId } = req.body;
+
+    if (!damageZones || !Array.isArray(damageZones) || damageZones.length === 0) {
+      return next(errors.badRequest('Missing required field: damageZones (array of damage zone objects)'));
+    }
+
     try {
-      const { damageZones, regionId } = req.body;
-
-      if (!damageZones || !Array.isArray(damageZones) || damageZones.length === 0) {
-        return res.status(400).json({
-          error: 'Missing required field: damageZones (array of damage zone objects)'
-        });
-      }
-
       const result = await generateEstimateSuggestions(damageZones, regionId);
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('AI suggestion error:', message);
       if (message.includes('not configured')) {
-        res.status(500).json({ error: 'AI service not configured' });
+        return next(errors.internal('AI service not configured'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
   // Quick suggest line items (for voice interface)
-  app.post('/api/ai/quick-suggest', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/ai/quick-suggest', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { description, roomName, damageType, quantity } = req.body;
+
+    if (!description || !roomName || !damageType) {
+      return next(errors.badRequest('Missing required fields: description, roomName, damageType'));
+    }
+
     try {
-      const { description, roomName, damageType, quantity } = req.body;
-
-      if (!description || !roomName || !damageType) {
-        return res.status(400).json({
-          error: 'Missing required fields: description, roomName, damageType'
-        });
-      }
-
       const suggestions = await quickSuggestLineItems(
         description,
         roomName,
@@ -1448,19 +1434,19 @@ export async function registerRoutes(
       res.json({ suggestions });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // Search line items by natural language
-  app.get('/api/ai/search-line-items', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/ai/search-line-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { q, limit } = req.query;
+
+    if (!q) {
+      return next(errors.badRequest('Missing query parameter: q'));
+    }
+
     try {
-      const { q, limit } = req.query;
-
-      if (!q) {
-        return res.status(400).json({ error: 'Missing query parameter: q' });
-      }
-
       const results = await searchLineItemsByDescription(
         q as string,
         limit ? parseInt(limit as string) : 10
@@ -1468,36 +1454,36 @@ export async function registerRoutes(
       res.json({ results });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // ============================================
   // ESTIMATE ROUTES
   // ============================================
 
   // Calculate estimate without saving (preview)
-  app.post('/api/estimates/calculate', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/estimates/calculate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
     try {
       const result = await calculateEstimate(req.body);
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // Create and save new estimate
-  app.post('/api/estimates', requireAuth, async (req, res) => {
+  app.post('/api/estimates', requireAuth, asyncHandler(async (req, res, next) => {
     try {
       const calculation = await calculateEstimate(req.body);
       const savedEstimate = await saveEstimate(req.body, calculation);
       res.status(201).json(savedEstimate);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // List estimates
   app.get('/api/estimates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -1583,7 +1569,7 @@ export async function registerRoutes(
   }));
 
   // Validate estimate before submission (preview)
-  app.get('/api/estimates/:id/validate', requireAuth, async (req, res) => {
+  app.get('/api/estimates/:id/validate', requireAuth, asyncHandler(async (req, res, next) => {
     try {
       const result = await validateEstimateForSubmission(req.params.id);
 
@@ -1599,12 +1585,12 @@ export async function registerRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('not found')) {
-        res.status(404).json({ error: message });
+        return next(errors.notFound('Estimate'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
   // Get estimate lock status (accepts estimate ID or claim ID)
   app.get('/api/estimates/:id/lock-status', requireAuth, asyncHandler(async (req, res, next) => {
@@ -1673,22 +1659,17 @@ export async function registerRoutes(
   }));
 
   // Get carrier profiles
-  app.get('/api/carrier-profiles', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('carrier_profiles')
-        .select('*')
-        .eq('is_active', true)
-        .order('name');
+  app.get('/api/carrier-profiles', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('carrier_profiles')
+      .select('*')
+      .eq('is_active', true)
+      .order('name');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // Get regions
   app.get('/api/regions', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -1828,22 +1809,17 @@ export async function registerRoutes(
   // ============================================
 
   // Get all regional multipliers
-  app.get('/api/regional-multipliers', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('regional_multipliers')
-        .select('*')
-        .eq('is_active', true)
-        .order('region_code');
+  app.get('/api/regional-multipliers', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('regional_multipliers')
+      .select('*')
+      .eq('is_active', true)
+      .order('region_code');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // Get regional multiplier by region code
   app.get('/api/regional-multipliers/:regionCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -1869,34 +1845,29 @@ export async function registerRoutes(
   // ============================================
 
   // Get all labor rates
-  app.get('/api/labor-rates', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { trade_code, region_code } = req.query;
+  app.get('/api/labor-rates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { trade_code, region_code } = req.query;
 
-      let query = supabaseAdmin
-        .from('labor_rates_enhanced')
-        .select('*')
-        .eq('is_active', true);
+    let query = supabaseAdmin
+      .from('labor_rates_enhanced')
+      .select('*')
+      .eq('is_active', true);
 
-      if (trade_code) {
-        query = query.eq('trade_code', trade_code as string);
-      }
-      if (region_code) {
-        query = query.eq('region_code', region_code as string);
-      }
-
-      const { data, error } = await query
-        .order('trade_code')
-        .order('region_code');
-
-      if (error) throw error;
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (trade_code) {
+      query = query.eq('trade_code', trade_code as string);
     }
-  });
+    if (region_code) {
+      query = query.eq('region_code', region_code as string);
+    }
+
+    const { data, error } = await query
+      .order('trade_code')
+      .order('region_code');
+
+    if (error) throw error;
+
+    res.json(data);
+  }));
 
   // Get labor rate for specific trade
   app.get('/api/labor-rates/trade/:tradeCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -1917,23 +1888,18 @@ export async function registerRoutes(
   // ============================================
 
   // Get all price lists
-  app.get('/api/price-lists', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('price_lists')
-        .select('*')
-        .eq('is_active', true)
-        .order('effective_date', { ascending: false })
-        .order('region_code');
+  app.get('/api/price-lists', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('price_lists')
+      .select('*')
+      .eq('is_active', true)
+      .order('effective_date', { ascending: false })
+      .order('region_code');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // Get price list by code
   app.get('/api/price-lists/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -2099,19 +2065,19 @@ export async function registerRoutes(
   // ============================================
 
   // Get sketch geometry for an estimate
-  app.get('/api/estimates/:id/sketch', requireAuth, async (req, res) => {
+  app.get('/api/estimates/:id/sketch', requireAuth, asyncHandler(async (req, res, next) => {
     try {
       const sketch = await getEstimateSketch(req.params.id);
       res.json(sketch);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('not found')) {
-        res.status(404).json({ error: message });
+        return next(errors.notFound('Sketch'));
       } else {
-        res.status(500).json({ error: message });
+        return next(errors.internal(message));
       }
     }
-  });
+  }));
 
   // Update sketch geometry for an estimate
   app.put('/api/estimates/:id/sketch', requireAuth, asyncHandler(async (req, res, next) => {
@@ -2124,14 +2090,6 @@ export async function registerRoutes(
     const validation = await validateEstimateSketchForExport(req.params.id);
     res.json(validation);
   }));
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
 
   // ============================================
   // ZONE CONNECTIONS API
@@ -2603,18 +2561,13 @@ export async function registerRoutes(
   }));
 
   // Delete subroom
-  app.delete('/api/subrooms/:id', requireAuth, async (req, res) => {
-    try {
-      const success = await deleteSubroom(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Subroom not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/subrooms/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const success = await deleteSubroom(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Subroom'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // ============================================
   // ZONE LINE ITEM ROUTES
@@ -2673,52 +2626,32 @@ export async function registerRoutes(
   }));
 
   // Update line item
-  app.put('/api/line-items/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      const estimateId = await getEstimateIdFromLineItem(req.params.id);
-      if (estimateId) {
-        await assertEstimateNotLocked(estimateId);
-      }
-
-      const allowedFields = [
-        'quantity', 'notes', 'is_homeowner', 'is_credit', 'is_non_op',
-        'depreciation_pct', 'depreciation_amount', 'age_years', 'life_expectancy_years',
-        'is_recoverable', 'calc_ref'
-      ];
-
-      const updateData: any = {};
-      for (const field of allowedFields) {
-        const camelField = field.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-        if (req.body[camelField] !== undefined) {
-          updateData[field] = req.body[camelField];
-        }
-      }
-
-      if (Object.keys(updateData).length === 0) {
-        const { data, error } = await supabaseAdmin
-          .from('estimate_line_items')
-          .select('*')
-          .eq('id', req.params.id)
-          .single();
-
-        if (error) {
-      if (error.code === 'PGRST116') {
-        return next(errors.notFound('Line item'));
-      }
-      throw error;
+  app.put('/api/line-items/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    const estimateId = await getEstimateIdFromLineItem(req.params.id);
+    if (estimateId) {
+      await assertEstimateNotLocked(estimateId);
     }
 
-    return res.json(data);
+    const allowedFields = [
+      'quantity', 'notes', 'is_homeowner', 'is_credit', 'is_non_op',
+      'depreciation_pct', 'depreciation_amount', 'age_years', 'life_expectancy_years',
+      'is_recoverable', 'calc_ref'
+    ];
+
+    const updateData: any = {};
+    for (const field of allowedFields) {
+      const camelField = field.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      if (req.body[camelField] !== undefined) {
+        updateData[field] = req.body[camelField];
       }
+    }
 
-      updateData.updated_at = new Date().toISOString();
-
+    if (Object.keys(updateData).length === 0) {
       const { data, error } = await supabaseAdmin
         .from('estimate_line_items')
-        .update(updateData)
-        .eq('id', req.params.id)
         .select('*')
+        .eq('id', req.params.id)
         .single();
 
       if (error) {
@@ -2728,14 +2661,33 @@ export async function registerRoutes(
         throw error;
       }
 
-      // Recalculate subtotal if quantity changed
-      if (req.body.quantity !== undefined) {
-        await supabaseAdmin.rpc('recalculate_line_item_totals', {
-          line_item_id: req.params.id
-        });
-      }
+      return res.json(data);
+    }
 
-      res.json(data);
+    updateData.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabaseAdmin
+      .from('estimate_line_items')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return next(errors.notFound('Line item'));
+      }
+      throw error;
+    }
+
+    // Recalculate subtotal if quantity changed
+    if (req.body.quantity !== undefined) {
+      await supabaseAdmin.rpc('recalculate_line_item_totals', {
+        line_item_id: req.params.id
+      });
+    }
+
+    res.json(data);
   }));
 
   // Add line item from zone dimension (auto-calculate quantity)
@@ -2781,18 +2733,13 @@ export async function registerRoutes(
   }));
 
   // Delete subroom
-  app.delete('/api/subrooms/:id', requireAuth, async (req, res) => {
-    try {
-      const success = await deleteSubroom(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Subroom not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/subrooms/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    const success = await deleteSubroom(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Subroom'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // ============================================
   // COVERAGE ROUTES
@@ -3771,13 +3718,13 @@ export async function registerRoutes(
    * Regenerate a workflow due to claim changes.
    * Archives the previous workflow and creates a new version.
    */
-  app.post('/api/claims/:id/workflow/regenerate', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { reason } = req.body;
-      if (!reason) {
-        return res.status(400).json({ error: 'reason is required for regeneration' });
-      }
+  app.post('/api/claims/:id/workflow/regenerate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { reason } = req.body;
+    if (!reason) {
+      return next(errors.badRequest('reason is required for regeneration'));
+    }
 
+    try {
       const result = await regenerateWorkflow(
         req.params.id,
         req.organizationId!,
@@ -3786,7 +3733,7 @@ export async function registerRoutes(
       );
 
       if (!result.success) {
-        return res.status(400).json({ error: result.error });
+        return next(errors.badRequest(result.error || 'Failed to regenerate workflow'));
       }
 
       res.json({
@@ -3798,9 +3745,9 @@ export async function registerRoutes(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   /**
    * GET /api/workflow/:id
@@ -3955,14 +3902,14 @@ export async function registerRoutes(
    * Expand the workflow by adding room-specific steps for the given rooms.
    * Uses the room template defined in the workflow JSON.
    */
-  app.post('/api/workflow/:id/expand-rooms', requireAuth, requireOrganization, async (req, res) => {
+  app.post('/api/workflow/:id/expand-rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { roomNames } = req.body;
+
+    if (!roomNames || !Array.isArray(roomNames) || roomNames.length === 0) {
+      return next(errors.badRequest('roomNames array is required'));
+    }
+
     try {
-      const { roomNames } = req.body;
-
-      if (!roomNames || !Array.isArray(roomNames) || roomNames.length === 0) {
-        return res.status(400).json({ error: 'roomNames array is required' });
-      }
-
       const result = await expandWorkflowForRooms(
         req.params.id,
         roomNames,
@@ -3970,15 +3917,15 @@ export async function registerRoutes(
       );
 
       if (!result.success) {
-        return res.status(400).json({ error: result.error });
+        return next(errors.badRequest(result.error || 'Failed to expand workflow'));
       }
 
       res.json({ success: true, addedSteps: result.addedSteps });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   /**
    * POST /api/workflow/:id/validate
@@ -4539,18 +4486,18 @@ export async function registerRoutes(
 
   // Get batch processing status for multiple documents
   // Used by the upload queue to poll for completion
-  app.get('/api/documents/batch-status', requireAuth, requireOrganization, async (req, res) => {
+  app.get('/api/documents/batch-status', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const idsParam = req.query.ids as string;
+    if (!idsParam) {
+      return next(errors.badRequest('Document IDs required (comma-separated)'));
+    }
+
+    const documentIds = idsParam.split(',').map(id => id.trim()).filter(Boolean);
+    if (documentIds.length === 0) {
+      return next(errors.badRequest('No valid document IDs provided'));
+    }
+
     try {
-      const idsParam = req.query.ids as string;
-      if (!idsParam) {
-        return res.status(400).json({ error: 'Document IDs required (comma-separated)' });
-      }
-
-      const documentIds = idsParam.split(',').map(id => id.trim()).filter(Boolean);
-      if (documentIds.length === 0) {
-        return res.status(400).json({ error: 'No valid document IDs provided' });
-      }
-
       // Get status from the processing queue
       const queueStatus = getBatchProcessingStatus(documentIds);
 
@@ -4575,9 +4522,9 @@ export async function registerRoutes(
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      return next(errors.internal(message));
     }
-  });
+  }));
 
   // Get document processing queue statistics
   app.get('/api/documents/queue-stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
