@@ -643,11 +643,14 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         estimatedMinutes: step.estimatedMinutes || 5,
         required: step.required,
         roomName: step.roomName || undefined,
+        tags: step.tags || undefined,
         assets: step.assets?.map(a => ({
           assetType: a.assetType,
           label: a.label,
           required: a.required,
         })),
+        evidenceRequirements: step.evidenceRequirements as any,
+        blocking: step.blocking as any,
       });
       return;
     }
@@ -751,6 +754,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       estimatedMinutes: step.estimatedMinutes || 5,
       required: step.required,
       roomName: step.roomName || undefined,
+      tags: step.tags || undefined,
       assets: step.assets?.map(a => ({
         assetType: a.assetType,
         label: a.label,

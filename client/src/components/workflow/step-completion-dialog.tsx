@@ -42,6 +42,17 @@ import { CompactPhotoCapture, CapturedPhoto } from "./photo-capture";
 import { VoiceButton } from "./voice-input";
 import { FindingsTemplates, SeverityQuickSelect } from "./findings-templates";
 import {
+  shouldShowPhotoCapture,
+  shouldShowDamageSeverity,
+  getRequiredPhotoCount as getRequiredPhotoCountFromConfig,
+  shouldShowNotesField,
+  getNoteRequirement as getNoteRequirementFromConfig,
+  shouldShowMeasurementInput,
+  canCompleteWithoutPhotos,
+  canCompleteWithoutNotes,
+  getStepTypeConfig,
+} from "../../../shared/config/stepTypeConfig";
+import {
   CheckCircle2,
   Clock,
   Camera,
@@ -92,6 +103,7 @@ export interface StepData {
   estimatedMinutes?: number;
   required: boolean;
   roomName?: string;
+  tags?: string[]; // Step tags for determining if damage-related
   assets?: {
     assetType: string;
     label: string;
@@ -168,47 +180,44 @@ export function StepCompletionDialog({
 
   if (!step) return null;
 
-  // Determine required photos based on evidence requirements or step assets
-  const getRequiredPhotoCount = (): number => {
-    // First check evidenceRequirements (dynamic workflow)
-    if (step.evidenceRequirements) {
-      const photoReq = step.evidenceRequirements.find(r => r.type === 'photo' && r.required);
-      if (photoReq?.photo?.minCount) {
-        return photoReq.photo.minCount;
-      }
-    }
-    // Fall back to legacy assets count
-    return step.assets?.filter(a => a.required && a.assetType === "photo").length || 1;
-  };
-
-  const requiredPhotos = getRequiredPhotoCount();
+  // Use step type configuration to determine requirements
+  const stepTypeConfig = getStepTypeConfig(step.stepType);
+  
+  // Determine required photos using step type config
+  const requiredPhotos = getRequiredPhotoCountFromConfig(
+    step.stepType,
+    step.evidenceRequirements,
+    step.assets
+  );
   const hasEnoughPhotos = photos.length >= requiredPhotos;
 
-  // Check note requirements from evidence requirements
-  const getNoteRequirement = (): { required: boolean; minLength: number } => {
-    if (step.evidenceRequirements) {
-      const noteReq = step.evidenceRequirements.find(r => r.type === 'note' && r.required);
-      if (noteReq) {
-        return { required: true, minLength: noteReq.note?.minLength || 1 };
-      }
-    }
-    // Default: required steps need at least some finding notes
-    return { required: step.required, minLength: 1 };
-  };
-
-  const noteRequirement = getNoteRequirement();
+  // Check note requirements using step type config
+  const noteRequirement = getNoteRequirementFromConfig(
+    step.stepType,
+    step.evidenceRequirements
+  );
   const hasRequiredNotes = !noteRequirement.required || findings.trim().length >= noteRequirement.minLength;
 
   // Check measurement requirements
-  const getMeasurementRequirement = (): boolean => {
-    if (step.evidenceRequirements) {
-      return step.evidenceRequirements.some(r => r.type === 'measurement' && r.required);
-    }
-    return step.stepType === 'measurement';
+  const requiresMeasurement = shouldShowMeasurementInput(step.stepType, step.evidenceRequirements);
+  const hasMeasurement = !requiresMeasurement || (measurementValue.trim().length > 0);
+
+  // Conditional rendering helpers
+  const shouldRenderPhotoSection = (): boolean => {
+    return shouldShowPhotoCapture(step.stepType, step.evidenceRequirements, step.assets);
   };
 
-  const requiresMeasurement = getMeasurementRequirement();
-  const hasMeasurement = !requiresMeasurement || (measurementValue.trim().length > 0);
+  const shouldRenderDamageSeverity = (): boolean => {
+    return shouldShowDamageSeverity(step.stepType, step.tags);
+  };
+
+  const shouldRenderNotesSection = (): boolean => {
+    return shouldShowNotesField(step.stepType, step.evidenceRequirements);
+  };
+
+  const shouldRenderMeasurement = (): boolean => {
+    return shouldShowMeasurementInput(step.stepType, step.evidenceRequirements);
+  };
 
   // Validate evidence using provided validator (includes pending photos and notes)
   const evidenceValidation = validateEvidence
@@ -230,13 +239,13 @@ export function StepCompletionDialog({
       return evidenceValidation.message;
     }
     if (isBlockingStep) {
-      if (!hasEnoughPhotos) {
+      if (!photoRequirementMet && !canSkipPhotos) {
         return `This step requires at least ${requiredPhotos} photo(s). You have ${photos.length}.`;
       }
-      if (!hasRequiredNotes) {
+      if (!noteRequirementMet && !canSkipNotes) {
         return `This step requires findings/notes${noteRequirement.minLength > 1 ? ` (minimum ${noteRequirement.minLength} characters)` : ''}.`;
       }
-      if (!hasMeasurement) {
+      if (!measurementRequirementMet) {
         return 'This step requires a measurement value.';
       }
     }
@@ -336,54 +345,58 @@ export function StepCompletionDialog({
         </div>
       ) : (
         <>
-          {/* Photo Capture */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              <Camera className="h-4 w-4" />
-              Photos
-              {step.required && !hasEnoughPhotos && (
-                <span className="text-xs text-amber-600">
-                  ({requiredPhotos} required)
-                </span>
-              )}
-            </Label>
-            <CompactPhotoCapture
-              photos={photos}
-              onPhotosChange={setPhotos}
-              minCount={step.required ? requiredPhotos : 0}
-              maxCount={10}
-              disabled={isSubmitting}
-            />
-          </div>
-
-          {/* Findings / Observations */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
+          {/* Photo Capture - Conditionally rendered */}
+          {shouldRenderPhotoSection() && (
+            <div className="space-y-2">
               <Label className="text-sm font-medium flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                What did you find?
-                {step.required && (
-                  <span className="text-xs text-muted-foreground">(Required)</span>
+                <Camera className="h-4 w-4" />
+                Photos
+                {requiredPhotos > 0 && !hasEnoughPhotos && (
+                  <span className="text-xs text-amber-600">
+                    ({requiredPhotos} required)
+                  </span>
                 )}
               </Label>
-              <div className="flex items-center gap-1">
-                <FindingsTemplates
-                  onSelect={(text) => setFindings(prev => prev ? `${prev}\n\n${text}` : text)}
-                />
-                <VoiceButton
-                  onTranscript={(text) => setFindings(prev => prev ? `${prev} ${text}` : text)}
-                  disabled={isSubmitting}
-                />
-              </div>
+              <CompactPhotoCapture
+                photos={photos}
+                onPhotosChange={setPhotos}
+                minCount={requiredPhotos}
+                maxCount={10}
+                disabled={isSubmitting}
+              />
             </div>
-            <Textarea
-              placeholder="Describe your observations, findings, or any notable conditions..."
-              value={findings}
-              onChange={(e) => setFindings(e.target.value)}
-              className="min-h-[100px]"
-              disabled={isSubmitting}
-            />
-          </div>
+          )}
+
+          {/* Findings / Observations - Conditionally rendered */}
+          {shouldRenderNotesSection() && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium flex items-center gap-2">
+                  <Eye className="h-4 w-4" />
+                  What did you find?
+                  {noteRequirement.required && (
+                    <span className="text-xs text-muted-foreground">(Required)</span>
+                  )}
+                </Label>
+                <div className="flex items-center gap-1">
+                  <FindingsTemplates
+                    onSelect={(text) => setFindings(prev => prev ? `${prev}\n\n${text}` : text)}
+                  />
+                  <VoiceButton
+                    onTranscript={(text) => setFindings(prev => prev ? `${prev} ${text}` : text)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+              <Textarea
+                placeholder="Describe your observations, findings, or any notable conditions..."
+                value={findings}
+                onChange={(e) => setFindings(e.target.value)}
+                className="min-h-[100px]"
+                disabled={isSubmitting}
+              />
+            </div>
+          )}
 
           {/* Damage Severity - Quick select */}
           <div className="space-y-2">
@@ -415,8 +428,8 @@ export function StepCompletionDialog({
             </div>
           </div>
 
-          {/* Measurement Input (for measurement steps) */}
-          {step.stepType === "measurement" && (
+          {/* Measurement Input - Conditionally rendered */}
+          {shouldRenderMeasurement() && (
             <div className="space-y-2">
               <Label className="text-sm font-medium flex items-center gap-2">
                 <Ruler className="h-4 w-4" />

@@ -42,6 +42,7 @@ import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
 import { getPromptWithFallback } from './promptService';
 import { getClaimBriefing } from './claimBriefingService';
 import { buildUnifiedClaimContext } from './unifiedClaimContextService';
+import { generateStepTypeGuidanceForPrompt } from '../../shared/config/stepTypeConfig';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -2415,15 +2416,12 @@ ${b.open_questions_for_adjuster.map((q: string, i: number) => `${i + 1}. ${q}`).
   }
 
   // Build wizard context section if available
+  // Use formatWizardContext() which correctly handles nested structure
   let wizardSection = '';
   if (wizardContext) {
     wizardSection = `
 ## FIELD ADJUSTER INPUT (HIGH PRIORITY)
-${wizardContext.observedDamage ? `- Observed Damage: ${JSON.stringify(wizardContext.observedDamage)}` : ''}
-${wizardContext.stories ? `- Building Stories: ${wizardContext.stories}` : ''}
-${wizardContext.hasBasement ? `- Has Basement: Yes` : ''}
-${wizardContext.affectedAreas?.length ? `- Affected Areas: ${wizardContext.affectedAreas.join(', ')}` : ''}
-${wizardContext.urgencyFactors?.length ? `- Urgency Factors: ${wizardContext.urgencyFactors.join(', ')}` : ''}
+${formatWizardContext(wizardContext)}
 `;
   }
 
@@ -2484,6 +2482,18 @@ ${briefingSection}${wizardSection}
 4. Endorsement requirements MUST be reflected in specific steps (not just mentioned)
 5. If roofing is on SCHEDULED basis, include steps for age verification and material documentation
 6. If metal functional requirement applies, include steps for water intrusion documentation
+
+## CRITICAL: STEP TYPE EVIDENCE REQUIREMENTS
+${generateStepTypeGuidanceForPrompt()}
+
+IMPORTANT RULES FOR EVIDENCE REQUIREMENTS:
+- Match step_type to the appropriate category above
+- Set required_evidence based on step_type defaults
+- ONLY override defaults when a specific step genuinely needs different requirements
+- DO NOT add photo requirements to interview, documentation, checklist, or equipment steps unless specifically needed (e.g., ID verification for interview)
+- DO NOT add damage_severity to non-damage steps (only photo and observation steps show damage severity, and only if tags include "damage")
+- Measurement steps require measurement values, NOT photos (photos optional for visual reference only)
+- Safety check steps require checklist completion, photos optional only if hazard is visible
 
 Generate a JSON workflow matching this exact schema:
 {
