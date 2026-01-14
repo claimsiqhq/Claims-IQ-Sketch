@@ -4640,92 +4640,82 @@ export async function registerRoutes(
   }));
 
   // Download document file (redirects to Supabase Storage signed URL)
-  app.get('/api/documents/:id/download', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await getDocument(req.params.id, req.organizationId!);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
-      }
-
-      // Get a signed URL from Supabase Storage (valid for 1 hour)
-      const signedUrl = await getDocumentDownloadUrl(doc.storagePath, 3600);
-
-      // Redirect to the signed URL for download
-      res.redirect(signedUrl);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/documents/:id/download', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const doc = await getDocument(req.params.id, req.organizationId!);
+    if (!doc) {
+      return next(errors.notFound('Document'));
     }
-  });
+
+    // Get a signed URL from Supabase Storage (valid for 1 hour)
+    const signedUrl = await getDocumentDownloadUrl(doc.storagePath, 3600);
+
+    // Redirect to the signed URL for download
+    res.redirect(signedUrl);
+  }));
 
   // Get document as images (for viewing PDFs and images)
-  app.get('/api/documents/:id/images', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const doc = await getDocument(req.params.id, req.organizationId!);
-      if (!doc) {
-        return res.status(404).json({ error: 'Document not found' });
+  app.get('/api/documents/:id/images', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const doc = await getDocument(req.params.id, req.organizationId!);
+    if (!doc) {
+      return next(errors.notFound('Document'));
+    }
+
+    // For images, return a single image reference
+    if (doc.mimeType.startsWith('image/')) {
+      return res.json({
+        pages: 1,
+        images: [`/api/documents/${req.params.id}/image/1`]
+      });
+    }
+
+    // For PDFs, download from Supabase and get page count
+    if (doc.mimeType === 'application/pdf') {
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const os = await import('os');
+      const execFileAsync = promisify(execFile);
+
+      // Download file from Supabase to temp directory
+      const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
       }
 
-      // For images, return a single image reference
-      if (doc.mimeType.startsWith('image/')) {
+      const tempFilePath = path.join(tempDir, `${req.params.id}.pdf`);
+
+      // Download if not cached
+      if (!fs.existsSync(tempFilePath)) {
+        const { data } = await downloadDocumentFile(doc.storagePath);
+        const buffer = Buffer.from(await data.arrayBuffer());
+        fs.writeFileSync(tempFilePath, buffer);
+      }
+
+      // Get page count using pdfinfo
+      try {
+        const { stdout } = await execFileAsync('pdfinfo', [tempFilePath]);
+        const pageMatch = stdout.match(/Pages:\s*(\d+)/);
+        const pageCount = pageMatch ? parseInt(pageMatch[1]) : 1;
+
+        const images = [];
+        for (let i = 1; i <= pageCount; i++) {
+          images.push(`/api/documents/${req.params.id}/image/${i}`);
+        }
+
+        return res.json({
+          pages: pageCount,
+          images
+        });
+      } catch (pdfError) {
+        // Fallback: assume 1 page
         return res.json({
           pages: 1,
           images: [`/api/documents/${req.params.id}/image/1`]
         });
       }
-
-      // For PDFs, download from Supabase and get page count
-      if (doc.mimeType === 'application/pdf') {
-        const { execFile } = await import('child_process');
-        const { promisify } = await import('util');
-        const os = await import('os');
-        const execFileAsync = promisify(execFile);
-
-        // Download file from Supabase to temp directory
-        const tempDir = path.join(os.tmpdir(), 'claimsiq-docs');
-        if (!fs.existsSync(tempDir)) {
-          fs.mkdirSync(tempDir, { recursive: true });
-        }
-
-        const tempFilePath = path.join(tempDir, `${req.params.id}.pdf`);
-
-        // Download if not cached
-        if (!fs.existsSync(tempFilePath)) {
-          const { data } = await downloadDocumentFile(doc.storagePath);
-          const buffer = Buffer.from(await data.arrayBuffer());
-          fs.writeFileSync(tempFilePath, buffer);
-        }
-
-        // Get page count using pdfinfo
-        try {
-          const { stdout } = await execFileAsync('pdfinfo', [tempFilePath]);
-          const pageMatch = stdout.match(/Pages:\s*(\d+)/);
-          const pageCount = pageMatch ? parseInt(pageMatch[1]) : 1;
-
-          const images = [];
-          for (let i = 1; i <= pageCount; i++) {
-            images.push(`/api/documents/${req.params.id}/image/${i}`);
-          }
-
-          return res.json({
-            pages: pageCount,
-            images
-          });
-        } catch (pdfError) {
-          // Fallback: assume 1 page
-          return res.json({
-            pages: 1,
-            images: [`/api/documents/${req.params.id}/image/1`]
-          });
-        }
-      }
-
-      res.status(400).json({ error: 'Unsupported document type for image viewing' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
     }
-  });
+
+    return next(errors.badRequest('Unsupported document type for image viewing'));
+  }));
 
   // Get specific page image from document
   app.get('/api/documents/:id/image/:page', requireAuth, requireOrganization, async (req, res) => {
