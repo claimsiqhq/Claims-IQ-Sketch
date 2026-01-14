@@ -313,14 +313,14 @@ function EvidenceRequirementItem({
                             <Plus className="h-6 w-6" />
                           </button>
                         </div>
-                        {capturedPhotos.length >= (requirement.photo?.minCount || 1) && (
+                        {capturedPhotos.length >= (requirement.photo?.minCount ?? 0) && (
                           <Button size="sm" onClick={handlePhotoSubmit}>
                             Save {capturedPhotos.length} Photo(s)
                           </Button>
                         )}
-                        {capturedPhotos.length < (requirement.photo?.minCount || 1) && (
+                        {requirement.photo?.minCount !== undefined && requirement.photo.minCount > 0 && capturedPhotos.length < requirement.photo.minCount && (
                           <p className="text-xs text-amber-600">
-                            Need {(requirement.photo?.minCount || 1) - capturedPhotos.length} more photo(s)
+                            Need {requirement.photo.minCount - capturedPhotos.length} more photo(s)
                           </p>
                         )}
                       </>

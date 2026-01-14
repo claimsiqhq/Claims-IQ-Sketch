@@ -51,7 +51,7 @@ import {
   canCompleteWithoutPhotos,
   canCompleteWithoutNotes,
   getStepTypeConfig,
-} from "../../../shared/config/stepTypeConfig";
+} from "@shared/config/stepTypeConfig";
 import {
   CheckCircle2,
   Clock,
@@ -222,8 +222,15 @@ export function StepCompletionDialog({
   // Check if step is blocking (required or blocking='blocking')
   const isBlockingStep = step.required || step.blocking === 'blocking';
 
-  // Basic local requirements check
-  const hasBasicRequirements = !isBlockingStep || (hasEnoughPhotos && hasRequiredNotes && hasMeasurement);
+  // Basic local requirements check - respect step type capabilities
+  const canSkipPhotos = canCompleteWithoutPhotos(step.stepType, step.evidenceRequirements);
+  const canSkipNotes = canCompleteWithoutNotes(step.stepType, step.evidenceRequirements);
+  
+  const photoRequirementMet = canSkipPhotos || hasEnoughPhotos;
+  const noteRequirementMet = canSkipNotes || hasRequiredNotes;
+  const measurementRequirementMet = !requiresMeasurement || hasMeasurement;
+
+  const hasBasicRequirements = !isBlockingStep || (photoRequirementMet && noteRequirementMet && measurementRequirementMet);
 
   // Check if can complete - must pass both basic requirements and evidence validation
   const canComplete = hasBasicRequirements && evidenceValidation.valid;
@@ -393,35 +400,37 @@ export function StepCompletionDialog({
             </div>
           )}
 
-          {/* Damage Severity - Quick select */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Damage Severity</Label>
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { value: "none", label: "None", icon: ThumbsUp, color: "text-green-600 border-green-600 bg-green-50" },
-                { value: "minor", label: "Minor", icon: Minus, color: "text-amber-600 border-amber-600 bg-amber-50" },
-                { value: "moderate", label: "Moderate", icon: AlertTriangle, color: "text-orange-600 border-orange-600 bg-orange-50" },
-                { value: "severe", label: "Severe", icon: ThumbsDown, color: "text-red-600 border-red-600 bg-red-50" },
-              ].map((option) => {
-                const Icon = option.icon;
-                const isSelected = damageSeverity === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    onClick={() => setDamageSeverity(option.value as any)}
-                    disabled={isSubmitting}
-                    className={cn(
-                      "flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-colors",
-                      isSelected ? option.color : "border-muted hover:border-muted-foreground/30"
-                    )}
-                  >
-                    <Icon className={cn("h-5 w-5", isSelected ? "" : "text-muted-foreground")} />
-                    <span className="text-xs font-medium">{option.label}</span>
-                  </button>
-                );
-              })}
+          {/* Damage Severity - Conditionally rendered */}
+          {shouldRenderDamageSeverity() && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Damage Severity</Label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { value: "none", label: "None", icon: ThumbsUp, color: "text-green-600 border-green-600 bg-green-50" },
+                  { value: "minor", label: "Minor", icon: Minus, color: "text-amber-600 border-amber-600 bg-amber-50" },
+                  { value: "moderate", label: "Moderate", icon: AlertTriangle, color: "text-orange-600 border-orange-600 bg-orange-50" },
+                  { value: "severe", label: "Severe", icon: ThumbsDown, color: "text-red-600 border-red-600 bg-red-50" },
+                ].map((option) => {
+                  const Icon = option.icon;
+                  const isSelected = damageSeverity === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      onClick={() => setDamageSeverity(option.value as any)}
+                      disabled={isSubmitting}
+                      className={cn(
+                        "flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-colors",
+                        isSelected ? option.color : "border-muted hover:border-muted-foreground/30"
+                      )}
+                    >
+                      <Icon className={cn("h-5 w-5", isSelected ? "" : "text-muted-foreground")} />
+                      <span className="text-xs font-medium">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Measurement Input - Conditionally rendered */}
           {shouldRenderMeasurement() && (

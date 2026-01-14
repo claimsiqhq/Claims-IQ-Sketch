@@ -77,7 +77,7 @@ import {
 import {
   canCompleteWithoutPhotos,
   canCompleteWithoutNotes,
-} from "../../shared/config/stepTypeConfig";
+} from "@shared/config/stepTypeConfig";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -654,11 +654,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         required: step.required,
         roomName: step.roomName || undefined,
         tags: step.tags || undefined,
-        assets: step.assets?.map(a => ({
-          assetType: a.assetType,
-          label: a.label,
-          required: a.required,
-        })),
+        // NO LEGACY ASSETS - only use evidenceRequirements
         evidenceRequirements: step.evidenceRequirements as any,
         blocking: step.blocking as any,
       });
