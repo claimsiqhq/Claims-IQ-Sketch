@@ -1009,41 +1009,28 @@ export async function registerRoutes(
   // LINE ITEMS ROUTES
   // ============================================
 
-  app.get('/api/line-items', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { q, category, damage_type, limit, offset } = req.query;
-      const result = await searchLineItems({
-        q: q as string,
-        category: category as string,
-        damageType: damage_type as string,
-        limit: limit ? parseInt(limit as string) : 50,
-        offset: offset ? parseInt(offset as string) : 0
-      });
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/line-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { q, category, damage_type, limit, offset } = req.query;
+    const result = await searchLineItems({
+      q: q as string,
+      category: category as string,
+      damageType: damage_type as string,
+      limit: limit ? parseInt(limit as string) : 50,
+      offset: offset ? parseInt(offset as string) : 0
+    });
+    res.json(result);
+  }));
 
-  app.get('/api/line-items/categories', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const categories = await getCategories();
-      res.json(categories);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/line-items/categories', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const categories = await getCategories();
+    res.json(categories);
+  }));
 
-  app.post('/api/pricing/calculate', requireAuth, requireOrganization, async (req, res) => {
-    try {
+  app.post('/api/pricing/calculate', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
       const { line_item_code, quantity, region_id, carrier_id } = req.body;
       
       if (!line_item_code || !quantity || !region_id) {
-        return res.status(400).json({ 
-          error: 'Missing required fields: line_item_code, quantity, region_id' 
-        });
+        return next(errors.badRequest('Missing required fields: line_item_code, quantity, region_id'));
       }
       
       const result = await calculatePrice(
@@ -1096,53 +1083,47 @@ export async function registerRoutes(
   });
 
   // Get scraped prices from database for visualization
-  app.get('/api/scrape/prices', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('material_regional_prices')
-        .select(`
-          region_id,
-          price,
-          source,
-          effective_date,
-          materials (
-            sku,
-            name,
-            unit
-          )
-        `)
-        .order('effective_date', { ascending: false })
-        .order('materials(sku)', { ascending: true })
-        .order('region_id', { ascending: true });
+  app.get('/api/scrape/prices', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('material_regional_prices')
+      .select(`
+        region_id,
+        price,
+        source,
+        effective_date,
+        materials (
+          sku,
+          name,
+          unit
+        )
+      `)
+      .order('effective_date', { ascending: false })
+      .order('materials(sku)', { ascending: true })
+      .order('region_id', { ascending: true });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      // Transform to match original format
-      const transformed = data.map(item => ({
-        sku: item.materials.sku,
-        material_name: item.materials.name,
-        unit: item.materials.unit,
-        region_id: item.region_id,
-        price: item.price,
-        source: item.source,
-        effective_date: item.effective_date
-      }));
+    // Transform to match original format
+    const transformed = data.map(item => ({
+      sku: item.materials.sku,
+      material_name: item.materials.name,
+      unit: item.materials.unit,
+      region_id: item.region_id,
+      price: item.price,
+      source: item.source,
+      effective_date: item.effective_date
+    }));
 
-      res.json(transformed);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(transformed);
+  }));
 
   // Get scrape job history
-  app.get('/api/scrape/jobs', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('price_scrape_jobs')
-        .select('id, source, status, started_at, completed_at, items_processed, items_updated, errors')
-        .order('started_at', { ascending: false })
-        .limit(10);
+  app.get('/api/scrape/jobs', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('price_scrape_jobs')
+      .select('id, source, status, started_at, completed_at, items_processed, items_updated, errors')
+      .order('started_at', { ascending: false })
+      .limit(10);
 
       if (error) throw error;
 
@@ -1549,76 +1530,41 @@ export async function registerRoutes(
   });
 
   // Update estimate
-  app.put('/api/estimates/:id', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      await assertEstimateNotLocked(req.params.id);
+  app.put('/api/estimates/:id', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    await assertEstimateNotLocked(req.params.id);
 
-      const updatedEstimate = await updateEstimate(req.params.id, req.body);
-      res.json(updatedEstimate);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const updatedEstimate = await updateEstimate(req.params.id, req.body);
+    res.json(updatedEstimate);
+  }));
 
   // Add line item to estimate
-  app.post('/api/estimates/:id/line-items', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      await assertEstimateNotLocked(req.params.id);
+  app.post('/api/estimates/:id/line-items', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    await assertEstimateNotLocked(req.params.id);
 
-      const { lineItemCode, quantity, notes, roomName } = req.body;
-      if (!lineItemCode || !quantity) {
-        return res.status(400).json({
-          error: 'Missing required fields: lineItemCode, quantity'
-        });
-      }
-      const updatedEstimate = await addLineItemToEstimate(
-        req.params.id,
-        { lineItemCode, quantity, notes, roomName }
-      );
-      res.json(updatedEstimate);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+    const { lineItemCode, quantity, notes, roomName } = req.body;
+    if (!lineItemCode || !quantity) {
+      return next(errors.badRequest('Missing required fields: lineItemCode, quantity'));
     }
-  });
+    const updatedEstimate = await addLineItemToEstimate(
+      req.params.id,
+      { lineItemCode, quantity, notes, roomName }
+    );
+    res.json(updatedEstimate);
+  }));
 
   // Remove line item from estimate
-  app.delete('/api/estimates/:id/line-items/:code', requireAuth, async (req, res) => {
-    try {
-      // Check if estimate is locked
-      await assertEstimateNotLocked(req.params.id);
+  app.delete('/api/estimates/:id/line-items/:code', requireAuth, asyncHandler(async (req, res, next) => {
+    // Check if estimate is locked
+    await assertEstimateNotLocked(req.params.id);
 
-      const updatedEstimate = await removeLineItemFromEstimate(
-        req.params.id,
-        req.params.code
-      );
-      res.json(updatedEstimate);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('finalized')) {
-        res.status(403).json({ error: message });
-      } else if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+    const updatedEstimate = await removeLineItemFromEstimate(
+      req.params.id,
+      req.params.code
+    );
+    res.json(updatedEstimate);
+  }));
 
   // ============================================
   // ESTIMATE SUBMISSION/FINALIZATION ROUTES
@@ -1670,91 +1616,70 @@ export async function registerRoutes(
   });
 
   // Get estimate lock status (accepts estimate ID or claim ID)
-  app.get('/api/estimates/:id/lock-status', requireAuth, async (req, res) => {
-    try {
-      const id = req.params.id;
+  app.get('/api/estimates/:id/lock-status', requireAuth, asyncHandler(async (req, res, next) => {
+    const id = req.params.id;
 
-      // First try by estimate ID
-      let { data, error } = await supabaseAdmin
+    // First try by estimate ID
+    let { data, error } = await supabaseAdmin
+      .from('estimates')
+      .select('id, status, finalized_at')
+      .eq('id', id)
+      .single();
+
+    // If not found, try by claim ID
+    if (error && error.code === 'PGRST116') {
+      const claimResult = await supabaseAdmin
         .from('estimates')
         .select('id, status, finalized_at')
-        .eq('id', id)
+        .eq('claim_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .single();
 
-      // If not found, try by claim ID
-      if (error && error.code === 'PGRST116') {
-        const claimResult = await supabaseAdmin
-          .from('estimates')
-          .select('id, status, finalized_at')
-          .eq('claim_id', id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        data = claimResult.data;
-        error = claimResult.error;
-      }
-
-      if (error && error.code === 'PGRST116') {
-        // No estimate exists - return default unlocked status
-        return res.json({
-          isLocked: false,
-          status: 'none',
-          submittedAt: null,
-        });
-      }
-
-      if (error) throw error;
-
-      const isLocked = data.status === 'submitted' || data.status === 'finalized' || data.finalized_at !== null;
-
-      return res.json({
-        isLocked,
-        status: data.status || 'draft',
-        submittedAt: data.finalized_at ? new Date(data.finalized_at) : null,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+      data = claimResult.data;
+      error = claimResult.error;
     }
-  });
+
+    if (error && error.code === 'PGRST116') {
+      // No estimate exists - return default unlocked status
+      return res.json({
+        isLocked: false,
+        status: 'none',
+        submittedAt: null,
+      });
+    }
+
+    if (error) throw error;
+
+    const isLocked = data.status === 'submitted' || data.status === 'finalized' || data.finalized_at !== null;
+
+    return res.json({
+      isLocked,
+      status: data.status || 'draft',
+      submittedAt: data.finalized_at ? new Date(data.finalized_at) : null,
+    });
+  }));
 
   // Get estimate templates
-  app.get('/api/estimate-templates', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { damage_type } = req.query;
-      const templates = await getEstimateTemplates(damage_type as string);
-      res.json(templates);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/estimate-templates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { damage_type } = req.query;
+    const templates = await getEstimateTemplates(damage_type as string);
+    res.json(templates);
+  }));
 
   // Create estimate from template
-  app.post('/api/estimate-templates/:id/create', requireAuth, async (req, res) => {
-    try {
-      const { quantities, ...estimateInput } = req.body;
-      if (!quantities || typeof quantities !== 'object') {
-        return res.status(400).json({
-          error: 'Missing required field: quantities (object with line item codes as keys)'
-        });
-      }
-      const savedEstimate = await createEstimateFromTemplate(
-        req.params.id,
-        quantities,
-        estimateInput
-      );
-      res.status(201).json(savedEstimate);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
+  app.post('/api/estimate-templates/:id/create', requireAuth, asyncHandler(async (req, res, next) => {
+    const { quantities, ...estimateInput } = req.body;
+    if (!quantities || typeof quantities !== 'object') {
+      return next(errors.badRequest('Missing required field: quantities (object with line item codes as keys)'));
     }
-  });
+    const savedEstimate = await createEstimateFromTemplate(
+      req.params.id,
+      quantities,
+      estimateInput
+    );
+    res.status(201).json(savedEstimate);
+  }));
 
   // Get carrier profiles
   app.get('/api/carrier-profiles', requireAuth, requireOrganization, async (req, res) => {
@@ -1775,21 +1700,16 @@ export async function registerRoutes(
   });
 
   // Get regions
-  app.get('/api/regions', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('regions')
-        .select('*')
-        .order('id');
+  app.get('/api/regions', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('regions')
+      .select('*')
+      .order('id');
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data);
+  }));
 
   // ============================================
   // COVERAGE TYPES ROUTES
