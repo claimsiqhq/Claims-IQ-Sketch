@@ -930,7 +930,7 @@ export async function registerRoutes(
   app.put('/api/users/password', requireAuth, validateBody(z.object({
     currentPassword: z.string().min(1, 'Current password is required'),
     newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-  })), async (req, res) => {
+  })), asyncHandler(async (req, res, next) => {
     try {
       const userId = req.user!.id;
       const { currentPassword, newPassword } = req.body;
