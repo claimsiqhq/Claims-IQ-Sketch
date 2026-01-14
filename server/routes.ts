@@ -2082,32 +2082,22 @@ export async function registerRoutes(
   // ============================================
 
   // Get full estimate hierarchy
-  app.get('/api/estimates/:id/hierarchy', requireAuth, async (req, res) => {
-    try {
-      const hierarchy = await getEstimateHierarchy(req.params.id);
-      res.json(hierarchy);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/estimates/:id/hierarchy', requireAuth, asyncHandler(async (req, res, next) => {
+    const hierarchy = await getEstimateHierarchy(req.params.id);
+    res.json(hierarchy);
+  }));
 
   // Initialize estimate hierarchy with defaults
-  app.post('/api/estimates/:id/hierarchy/initialize', requireAuth, async (req, res) => {
-    try {
-      const { structureName, includeInterior, includeExterior, includeRoofing } = req.body;
-      const hierarchy = await initializeEstimateHierarchy(req.params.id, {
-        structureName,
-        includeInterior,
-        includeExterior,
-        includeRoofing,
-      });
-      res.status(201).json(hierarchy);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.post('/api/estimates/:id/hierarchy/initialize', requireAuth, asyncHandler(async (req, res, next) => {
+    const { structureName, includeInterior, includeExterior, includeRoofing } = req.body;
+    const hierarchy = await initializeEstimateHierarchy(req.params.id, {
+      structureName,
+      includeInterior,
+      includeExterior,
+      includeRoofing,
+    });
+    res.status(201).json(hierarchy);
+  }));
 
   // ============================================
   // SKETCH GEOMETRY ROUTES (Voice-First)
@@ -2129,28 +2119,16 @@ export async function registerRoutes(
   });
 
   // Update sketch geometry for an estimate
-  app.put('/api/estimates/:id/sketch', requireAuth, async (req, res) => {
-    try {
-      const sketch = await updateEstimateSketch(req.params.id, req.body);
-      res.json(sketch);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('locked')) {
-        res.status(403).json({ error: message });
-      } else if (message.includes('not found')) {
-        res.status(404).json({ error: message });
-      } else {
-        res.status(500).json({ error: message });
-      }
-    }
-  });
+  app.put('/api/estimates/:id/sketch', requireAuth, asyncHandler(async (req, res, next) => {
+    const sketch = await updateEstimateSketch(req.params.id, req.body);
+    res.json(sketch);
+  }));
 
   // Validate sketch geometry for export
-  app.post('/api/estimates/:id/sketch/validate', requireAuth, async (req, res) => {
-    try {
-      const validation = await validateEstimateSketchForExport(req.params.id);
-      res.json(validation);
-    } catch (error) {
+  app.post('/api/estimates/:id/sketch/validate', requireAuth, asyncHandler(async (req, res, next) => {
+    const validation = await validateEstimateSketchForExport(req.params.id);
+    res.json(validation);
+  }));
       const message = error instanceof Error ? error.message : 'Unknown error';
       if (message.includes('not found')) {
         res.status(404).json({ error: message });
