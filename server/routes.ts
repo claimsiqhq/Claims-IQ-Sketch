@@ -653,10 +653,6 @@ export async function registerRoutes(
     );
     res.json(result);
   }));
-      console.error('[Calendar Sync] Push sync failed:', error);
-      next(errors.internal(`Push sync failed: ${message}`));
-    }
-  }));
 
   // Full bidirectional sync
   app.post('/api/calendar/sync/full', requireAuth, requireOrganization, apiRateLimiter, validateBody(calendarSyncFullSchema), asyncHandler(async (req, res, next) => {
@@ -750,7 +746,7 @@ export async function registerRoutes(
     }
 
     res.status(200).send(JSON.stringify({ user: null, authenticated: false }));
-  });
+  }));
 
   // Check authentication status
   app.get('/api/auth/check', (req, res) => {
@@ -909,67 +905,65 @@ export async function registerRoutes(
     lastName: z.string().optional(),
     email: z.string().email().optional(),
   })), asyncHandler(async (req, res, next) => {
-    try {
-      const userId = req.user!.id;
-      const { name, displayName, firstName, lastName, email } = req.body;
+    const userId = req.user!.id;
+    const { name, displayName, firstName, lastName, email } = req.body;
 
-      // Support 'displayName', 'name' (split into first/last), and explicit firstName/lastName
-      let first = firstName;
-      let last = lastName;
+    // Support 'displayName', 'name' (split into first/last), and explicit firstName/lastName
+    let first = firstName;
+    let last = lastName;
 
-      // Use displayName or name if explicit firstName/lastName not provided
-      const nameValue = displayName || name;
-      if (nameValue && !firstName && !lastName) {
-        // Split name into first and last
-        const nameParts = nameValue.trim().split(/\s+/);
-        first = nameParts[0] || '';
-        last = nameParts.slice(1).join(' ') || '';
+    // Use displayName or name if explicit firstName/lastName not provided
+    const nameValue = displayName || name;
+    if (nameValue && !firstName && !lastName) {
+      // Split name into first and last
+      const nameParts = nameValue.trim().split(/\s+/);
+      first = nameParts[0] || '';
+      last = nameParts.slice(1).join(' ') || '';
+    }
+
+    const updatedUser = await updateUserProfile(userId, {
+      firstName: first,
+      lastName: last,
+      email
+    });
+    if (!updatedUser) {
+      return next(errors.notFound('User'));
+    }
+
+    // Update the session with the new user data so subsequent auth checks reflect the changes
+    if (req.user) {
+      req.user.firstName = updatedUser.firstName;
+      req.user.lastName = updatedUser.lastName;
+      if (updatedUser.email) req.user.email = updatedUser.email;
+    }
+
+    // Re-login to persist the updated user in the session
+    req.login(updatedUser, (err) => {
+      if (err) {
+        console.error('Session update error:', err);
       }
+    });
 
-      const updatedUser = await updateUserProfile(userId, {
-        firstName: first,
-        lastName: last,
-        email
-      });
-      if (!updatedUser) {
-        return next(errors.notFound('User'));
-      }
+    // Return user with combined name for client compatibility
+    const userWithName = {
+      ...updatedUser,
+      name: [updatedUser.firstName, updatedUser.lastName].filter(Boolean).join(' ') || updatedUser.username
+    };
 
-      // Update the session with the new user data so subsequent auth checks reflect the changes
-      if (req.user) {
-        req.user.firstName = updatedUser.firstName;
-        req.user.lastName = updatedUser.lastName;
-        if (updatedUser.email) req.user.email = updatedUser.email;
-      }
-
-      // Re-login to persist the updated user in the session
-      req.login(updatedUser, (err) => {
-        if (err) {
-          console.error('Session update error:', err);
-        }
-      });
-
-      // Return user with combined name for client compatibility
-      const userWithName = {
-        ...updatedUser,
-        name: [updatedUser.firstName, updatedUser.lastName].filter(Boolean).join(' ') || updatedUser.username
-      };
-
-      res.json({ user: userWithName, message: 'Profile updated successfully' });
+    res.json({ user: userWithName, message: 'Profile updated successfully' });
   }));
 
   // Change user password
   app.put('/api/users/password', requireAuth, apiRateLimiter, validateBody(passwordChangeSchema), asyncHandler(async (req, res, next) => {
-    try {
-      const userId = req.user!.id;
-      const { currentPassword, newPassword } = req.body;
-      
-      const result = await changeUserPassword(userId, currentPassword, newPassword);
-      if (!result.success) {
-        return next(errors.badRequest(result.error));
-      }
-      
-      res.json({ message: 'Password changed successfully' });
+    const userId = req.user!.id;
+    const { currentPassword, newPassword } = req.body;
+    
+    const result = await changeUserPassword(userId, currentPassword, newPassword);
+    if (!result.success) {
+      return next(errors.badRequest(result.error));
+    }
+    
+    res.json({ message: 'Password changed successfully' });
   }));
 
   // Get user preferences
@@ -993,39 +987,38 @@ export async function registerRoutes(
 
   // Update user preferences
   app.put('/api/users/preferences', requireAuth, apiRateLimiter, validateBody(z.record(z.unknown())), asyncHandler(async (req, res, next) => {
-    try {
-      const userId = req.user!.id;
-      const preferences = req.body;
+    const userId = req.user!.id;
+    const preferences = req.body;
 
-      // Get existing preferences
-      const { data: existingData, error: fetchError } = await supabaseAdmin
-        .from('users')
-        .select('preferences')
-        .eq('id', userId)
-        .single();
+    // Get existing preferences
+    const { data: existingData, error: fetchError } = await supabaseAdmin
+      .from('users')
+      .select('preferences')
+      .eq('id', userId)
+      .single();
 
-      if (fetchError) {
-        if (fetchError.code === 'PGRST116') {
-          return next(errors.notFound('User'));
-        }
-        throw fetchError;
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        return next(errors.notFound('User'));
       }
+      throw fetchError;
+    }
 
-      const existingPrefs = existingData.preferences || {};
-      const mergedPrefs = { ...existingPrefs, ...preferences };
+    const existingPrefs = existingData.preferences || {};
+    const mergedPrefs = { ...existingPrefs, ...preferences };
 
-      // Update preferences
-      const { error: updateError } = await supabaseAdmin
-        .from('users')
-        .update({
-          preferences: mergedPrefs,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', userId);
+    // Update preferences
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        preferences: mergedPrefs,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
 
-      if (updateError) throw updateError;
+    if (updateError) throw updateError;
 
-      res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
+    res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
   }));
 
 
@@ -1993,13 +1986,12 @@ export async function registerRoutes(
 
   // Get HTML report preview
   app.get('/api/estimates/:id/report/html', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
-      const options = {
-        includeLineItemDetails: req.query.includeLineItems !== 'false',
-        includeDepreciation: req.query.includeDepreciation !== 'false',
-        includeCoverageSummary: req.query.includeCoverage !== 'false',
-        companyName: req.query.companyName as string,
-      };
+    const options = {
+      includeLineItemDetails: req.query.includeLineItems !== 'false',
+      includeDepreciation: req.query.includeDepreciation !== 'false',
+      includeCoverageSummary: req.query.includeCoverage !== 'false',
+      companyName: req.query.companyName as string,
+    };
     const html = await generatePdfReport(req.params.id, options);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
@@ -2042,7 +2034,6 @@ export async function registerRoutes(
 
   // Generate CSV export
   app.get('/api/estimates/:id/export/csv', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
     const csv = await generateCsvExport(req.params.id);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.csv"`);
@@ -2052,14 +2043,13 @@ export async function registerRoutes(
   // Generate ESX ZIP archive (Tier A - standards-compliant, with sketch PDF)
   // This is the primary export format for Xactimate import
   app.get('/api/estimates/:id/export/esx-zip', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-    try {
-      const includeSketch = req.query.includeSketch !== 'false';
-      const includePhotos = req.query.includePhotos === 'true';
+    const includeSketch = req.query.includeSketch !== 'false';
+    const includePhotos = req.query.includePhotos === 'true';
 
-      const esxZip = await generateEsxZipArchive(req.params.id, {
-        includeSketchPdf: includeSketch,
-        includePhotos,
-      });
+    const esxZip = await generateEsxZipArchive(req.params.id, {
+      includeSketchPdf: includeSketch,
+      includePhotos,
+    });
 
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
@@ -2930,17 +2920,16 @@ export async function registerRoutes(
 
   // List claims for organization
   app.get('/api/claims', requireAuth, requireOrganization, apiRateLimiter, validateQuery(paginationQuerySchema.merge(statusQuerySchema)), asyncHandler(async (req, res, next) => {
-    try {
-      const { status, loss_type, adjuster_id, search, limit, offset, include_closed } = req.query;
-      const result = await listClaims(req.organizationId!, {
-        status: status as string,
-        lossType: loss_type as string,
-        assignedAdjusterId: adjuster_id as string,
-        search: search as string,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined,
-        includeClosed: include_closed === 'true'
-      });
+    const { status, loss_type, adjuster_id, search, limit, offset, include_closed } = req.query;
+    const result = await listClaims(req.organizationId!, {
+      status: status as string,
+      lossType: loss_type as string,
+      assignedAdjusterId: adjuster_id as string,
+      search: search as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined,
+      includeClosed: include_closed === 'true'
+    });
     res.json(result);
   }));
 
