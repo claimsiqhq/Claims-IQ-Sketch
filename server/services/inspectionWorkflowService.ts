@@ -2429,61 +2429,31 @@ ${formatWizardContext(wizardContext)}
 
 This workflow is NOT a narrative. It is NOT a summary. It is an ordered execution plan.
 
-## CLAIM CONTEXT (Comprehensive)
-- Claim Number: ${context.claimNumber}
-- Policy Number: ${context.policyNumber || 'Unknown'}
-- Insured: ${context.insured.name}${context.insured.name2 ? ` & ${context.insured.name2}` : ''}
-- Date of Loss: ${context.dateOfLossFormatted || 'Unknown'}
+## EXECUTIVE SUMMARY
+${briefingSection ? `
+${briefingSection.split('\n').slice(1).join('\n')}
+` : `
+- Claim: ${context.claimNumber}
+- Peril: ${context.peril.primaryDisplay}
 - Property: ${context.property.address}
-  - Year Built: ${context.property.yearBuilt || 'Unknown'}
-  - Stories: ${context.property.stories || 'Unknown'}
-  - Roof Year: ${context.property.roof.yearInstalled || 'Unknown'} (Age: ${context.property.roof.ageAtLoss ?? 'Unknown'} years)
-  - Wood Roof: ${context.property.roof.isWoodRoof ? 'Yes' : 'No'}
+`}
 
-## PERIL ANALYSIS
-- Primary Peril: ${context.peril.primaryDisplay}
-- Secondary Perils: ${context.peril.secondaryDisplay.join(', ') || 'None'}
-- Applicable Deductible: ${context.deductibles.applicableForPeril.formatted}
-- Exterior Damaged: ${context.property.exteriorDamaged ? 'Yes' : 'No'}
-- Interior Damaged: ${context.property.interiorDamaged ? 'Yes' : 'No'}
-
-## COVERAGE LIMITS
-- Dwelling: ${context.coverages.dwelling?.limitFormatted || 'Unknown'}
-- Other Structures: ${context.coverages.otherStructures?.limitFormatted || 'Unknown'}
-- Personal Property: ${context.coverages.personalProperty?.limitFormatted || 'Unknown'}
-
-## LOSS SETTLEMENT RULES
-- Dwelling: ${context.lossSettlement.dwelling.basis}
-- Roofing: ${context.lossSettlement.roofing.basis}${context.lossSettlement.roofing.isScheduled ? ' (SCHEDULED - DEPRECIATION APPLIES)' : ''}
-${context.lossSettlement.roofing.calculatedPaymentPct !== undefined ? `  - Estimated Payment: ${context.lossSettlement.roofing.calculatedPaymentPct}% of RCV` : ''}
-${context.lossSettlement.roofing.metalFunctionalRequirement ? '  - Metal Functional Requirement: APPLIES (cosmetic excluded)' : ''}
-- Personal Property: ${context.lossSettlement.personalProperty.basis}
-
-## ENDORSEMENTS WITH INSPECTION IMPACT
-${context.endorsements.extracted.length > 0 ? context.endorsements.extracted.map(e => `
+## CRITICAL ALERTS & REQUIREMENTS
+${context.endorsements.extracted.length > 0 ? `
+**ENDORSEMENTS REQUIRING SPECIFIC INSPECTION STEPS:**
+${context.endorsements.extracted.map(e => `
 [${e.formCode}] ${e.title}
-  Category: ${e.category.replace(/_/g, ' ')}
-  Impacts: ${e.impacts.slice(0, 2).join('; ') || 'See details'}
   Inspection Requirements:
-${e.inspectionRequirements.map(r => `    - ${r}`).join('\n') || '    - Standard inspection'}`).join('\n') : 'No endorsements with special inspection requirements'}
+${e.inspectionRequirements.map(r => `    - ${r}`).join('\n') || '    - Standard inspection'}`).join('\n')}
+` : 'No endorsements with special inspection requirements'}
 
-## COVERAGE ALERTS
-${context.alerts.map(a => `[${a.severity.toUpperCase()}] ${a.title}: ${a.description}`).join('\n') || 'No alerts'}
+${context.alerts.length > 0 ? `
+**COVERAGE ALERTS:**
+${context.alerts.map(a => `[${a.severity.toUpperCase()}] ${a.title}: ${a.description}`).join('\n')}
+` : ''}
 
-## PERIL-SPECIFIC GUIDANCE
-Priority Areas: ${perilRules?.priorityAreas?.slice(0, 5).map(a => a.area).join(', ') || 'Standard areas'}
-Common Misses: ${perilRules?.commonMisses?.slice(0, 3).map(m => m.issue).join(', ') || 'Standard items'}
-Safety: ${perilRules?.safetyConsiderations?.slice(0, 2).join('; ') || 'Standard safety protocols'}
-${briefingSection}${wizardSection}
-## WORKFLOW REQUIREMENTS (MANDATORY)
-1. Workflow MUST be divided into ordered PHASES: pre_inspection, initial_walkthrough, exterior, roof, interior, utilities, mitigation, closeout
-2. Each phase MUST contain ordered, atomic steps with clear instructions
-3. Each step MUST include required flag, estimated time, and explicit evidence requirements
-4. Endorsement requirements MUST be reflected in specific steps (not just mentioned)
-5. If roofing is on SCHEDULED basis, include steps for age verification and material documentation
-6. If metal functional requirement applies, include steps for water intrusion documentation
-
-## CRITICAL: STEP TYPE EVIDENCE REQUIREMENTS
+${wizardSection}
+## STEP TYPE REQUIREMENTS
 ${generateStepTypeGuidanceForPrompt()}
 
 IMPORTANT RULES FOR EVIDENCE REQUIREMENTS:
@@ -2494,6 +2464,48 @@ IMPORTANT RULES FOR EVIDENCE REQUIREMENTS:
 - DO NOT add damage_severity to non-damage steps (only photo and observation steps show damage severity, and only if tags include "damage")
 - Measurement steps require measurement values, NOT photos (photos optional for visual reference only)
 - Safety check steps require checklist completion, photos optional only if hazard is visible
+
+## REFERENCE DATA (For Details Only)
+- Claim Number: ${context.claimNumber}
+- Policy Number: ${context.policyNumber || 'Unknown'}
+- Insured: ${context.insured.name}${context.insured.name2 ? ` & ${context.insured.name2}` : ''}
+- Date of Loss: ${context.dateOfLossFormatted || 'Unknown'}
+- Property: ${context.property.address}
+  - Year Built: ${context.property.yearBuilt || 'Unknown'}
+  - Stories: ${context.property.stories || 'Unknown'}
+  - Roof Year: ${context.property.roof.yearInstalled || 'Unknown'} (Age: ${context.property.roof.ageAtLoss ?? 'Unknown'} years)
+  - Wood Roof: ${context.property.roof.isWoodRoof ? 'Yes' : 'No'}
+
+- Primary Peril: ${context.peril.primaryDisplay}
+- Secondary Perils: ${context.peril.secondaryDisplay.join(', ') || 'None'}
+- Applicable Deductible: ${context.deductibles.applicableForPeril.formatted}
+- Exterior Damaged: ${context.property.exteriorDamaged ? 'Yes' : 'No'}
+- Interior Damaged: ${context.property.interiorDamaged ? 'Yes' : 'No'}
+
+- Coverage Limits:
+  - Dwelling: ${context.coverages.dwelling?.limitFormatted || 'Unknown'}
+  - Other Structures: ${context.coverages.otherStructures?.limitFormatted || 'Unknown'}
+  - Personal Property: ${context.coverages.personalProperty?.limitFormatted || 'Unknown'}
+
+- Loss Settlement:
+  - Dwelling: ${context.lossSettlement.dwelling.basis}
+  - Roofing: ${context.lossSettlement.roofing.basis}${context.lossSettlement.roofing.isScheduled ? ' (SCHEDULED - DEPRECIATION APPLIES)' : ''}
+${context.lossSettlement.roofing.calculatedPaymentPct !== undefined ? `  - Estimated Payment: ${context.lossSettlement.roofing.calculatedPaymentPct}% of RCV` : ''}
+${context.lossSettlement.roofing.metalFunctionalRequirement ? '  - Metal Functional Requirement: APPLIES (cosmetic excluded)' : ''}
+  - Personal Property: ${context.lossSettlement.personalProperty.basis}
+
+- Peril-Specific Guidance:
+  - Priority Areas: ${perilRules?.priorityAreas?.slice(0, 5).map(a => a.area).join(', ') || 'Standard areas'}
+  - Common Misses: ${perilRules?.commonMisses?.slice(0, 3).map(m => m.issue).join(', ') || 'Standard items'}
+  - Safety: ${perilRules?.safetyConsiderations?.slice(0, 2).join('; ') || 'Standard safety protocols'}
+
+## WORKFLOW REQUIREMENTS (MANDATORY)
+1. Workflow MUST be divided into ordered PHASES: pre_inspection, initial_walkthrough, exterior, roof, interior, utilities, mitigation, closeout
+2. Each phase MUST contain ordered, atomic steps with clear instructions
+3. Each step MUST include required flag, estimated time, and explicit evidence requirements
+4. Endorsement requirements MUST be reflected in specific steps (not just mentioned)
+5. If roofing is on SCHEDULED basis, include steps for age verification and material documentation
+6. If metal functional requirement applies, include steps for water intrusion documentation
 
 Generate a JSON workflow matching this exact schema:
 {

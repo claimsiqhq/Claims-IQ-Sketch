@@ -74,6 +74,10 @@ import {
   type InspectionStepType,
   type InspectionStepStatus,
 } from "@/lib/api";
+import {
+  canCompleteWithoutPhotos,
+  canCompleteWithoutNotes,
+} from "../../shared/config/stepTypeConfig";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -227,10 +231,15 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
     if (!evidenceReqs || evidenceReqs.length === 0) {
       // Even without explicit requirements, blocking steps need basic evidence
+      // But respect step type capabilities
       if (isBlockingStep) {
         const totalPhotos = (step.assets?.filter(a => a.assetType === 'photo').length || 0) + pendingPhotos.length;
         const combinedNotes = (step.notes || '') + pendingNotes;
-        if (totalPhotos === 0 && !combinedNotes.trim()) {
+        
+        const canSkipPhotosForType = canCompleteWithoutPhotos(step.stepType, evidenceReqs);
+        const canSkipNotesForType = canCompleteWithoutNotes(step.stepType, evidenceReqs);
+        
+        if (!canSkipPhotosForType && totalPhotos === 0 && !canSkipNotesForType && !combinedNotes.trim()) {
           return {
             valid: false,
             message: 'This required step needs at least a photo or notes.'

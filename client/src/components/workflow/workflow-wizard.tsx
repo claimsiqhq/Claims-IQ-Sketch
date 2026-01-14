@@ -13,7 +13,9 @@
  * 6. Review & Generate - Confirm and create workflow
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getClaim, getClaimBriefing } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +53,7 @@ import {
   Droplets,
   Plug,
   ThermometerSun,
+  Info,
 } from "lucide-react";
 
 // Types for wizard data
@@ -184,8 +187,25 @@ export function WorkflowWizard({
   isGenerating = false,
 }: WorkflowWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
+  const [isPrePopulated, setIsPrePopulated] = useState(false);
 
-  // Initialize wizard data
+  // Fetch claim data for pre-population
+  const { data: claimData } = useQuery({
+    queryKey: ['claim', claimId],
+    queryFn: () => getClaim(claimId),
+    enabled: !!claimId,
+    staleTime: 30000,
+  });
+
+  // Fetch briefing for suggested rooms/areas
+  const { data: briefingData } = useQuery({
+    queryKey: ['briefing', claimId],
+    queryFn: () => getClaimBriefing(claimId),
+    enabled: !!claimId,
+    staleTime: 30000,
+  });
+
+  // Initialize wizard data with defaults (will be pre-populated if data available)
   const [propertyInfo, setPropertyInfo] = useState<WizardPropertyInfo>({
     propertyType: "single_family",
     stories: 1,
@@ -216,6 +236,95 @@ export function WorkflowWizard({
   });
 
   const [rooms, setRooms] = useState<WizardRoom[]>(DEFAULT_ROOMS);
+
+  // Pre-populate wizard from available data
+  useEffect(() => {
+    if (isPrePopulated || !claimData) return;
+
+    const lossContext = claimData.lossContext;
+    if (!lossContext) {
+      setIsPrePopulated(true);
+      return;
+    }
+
+    // Pre-populate property info from FNOL
+    if (lossContext.property) {
+      const prop = lossContext.property;
+      setPropertyInfo(prev => ({
+        ...prev,
+        stories: prop.stories || prev.stories,
+        roofType: prop.roof?.material 
+          ? (prop.roof.material.toLowerCase().includes('shingle') ? 'shingle' :
+             prop.roof.material.toLowerCase().includes('tile') ? 'tile' :
+             prop.roof.material.toLowerCase().includes('metal') ? 'metal' :
+             prop.roof.material.toLowerCase().includes('flat') ? 'flat' :
+             'unknown')
+          : prev.roofType,
+      }));
+
+      // Infer features from property data if available
+      // Note: FNOL may not have explicit basement/attic flags, but we can infer from stories
+      if (prop.stories && prop.stories > 1) {
+        setPropertyInfo(prev => ({
+          ...prev,
+          hasAttic: true, // Multi-story homes typically have attics
+        }));
+      }
+    }
+
+    // Pre-populate affected areas from loss description or briefing
+    if (claimData.lossDescription) {
+      const desc = claimData.lossDescription.toLowerCase();
+      setAffectedAreas(prev => ({
+        ...prev,
+        roof: prev.roof || desc.includes('roof') || desc.includes('shingle') || desc.includes('hail'),
+        interior: prev.interior || desc.includes('interior') || desc.includes('inside') || desc.includes('water'),
+        basement: prev.basement || desc.includes('basement'),
+        attic: prev.attic || desc.includes('attic'),
+      }));
+    }
+
+    // Pre-populate rooms from briefing inspection strategy
+    if (briefingData?.briefingJson?.inspection_strategy?.where_to_start) {
+      const suggestedAreas = briefingData.briefingJson.inspection_strategy.where_to_start;
+      const roomKeywords: Record<string, string> = {
+        'kitchen': 'Kitchen',
+        'bathroom': 'Master Bathroom',
+        'bedroom': 'Master Bedroom',
+        'living': 'Living Room',
+        'dining': 'Dining Room',
+        'basement': 'Basement',
+        'attic': 'Attic Space',
+        'garage': 'Garage Interior',
+      };
+
+      const suggestedRooms: WizardRoom[] = [];
+      for (const area of suggestedAreas) {
+        const lowerArea = area.toLowerCase();
+        for (const [keyword, roomName] of Object.entries(roomKeywords)) {
+          if (lowerArea.includes(keyword) && !suggestedRooms.some(r => r.name === roomName)) {
+            suggestedRooms.push({
+              name: roomName,
+              level: keyword === 'basement' ? 'basement' : keyword === 'attic' ? 'attic' : 'main',
+              hasDamage: true,
+              damageType: 'Suggested from briefing',
+            });
+          }
+        }
+      }
+
+      if (suggestedRooms.length > 0) {
+        setRooms(prev => {
+          // Merge with existing rooms, avoiding duplicates
+          const existingNames = new Set(prev.map(r => r.name));
+          const newRooms = suggestedRooms.filter(r => !existingNames.has(r.name));
+          return [...prev, ...newRooms];
+        });
+      }
+    }
+
+    setIsPrePopulated(true);
+  }, [claimData, briefingData, isPrePopulated]);
 
   const [safetyInfo, setSafetyInfo] = useState<WizardSafetyInfo>({
     activeLeaks: false,
@@ -375,6 +484,18 @@ export function WorkflowWizard({
                   <div className="flex items-center gap-2 text-sm">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <span>{propertyAddress}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Pre-population indicator */}
+            {isPrePopulated && claimData?.lossContext && (
+              <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+                <CardContent className="py-2">
+                  <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+                    <Info className="h-3 w-3" />
+                    <span>Some fields pre-filled from FNOL data. You can override any value.</span>
                   </div>
                 </CardContent>
               </Card>
