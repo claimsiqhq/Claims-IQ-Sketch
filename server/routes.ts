@@ -1182,42 +1182,16 @@ export async function registerRoutes(
 
       // Only return basic health information - no row counts or sensitive data
       // For detailed status, use authenticated endpoints
-
-      // Try to get regions list from regional_multipliers
-      let regions: { id: string; name: string }[] = [];
-      try {
-        const { data: regionsData, error: regionsError } = await supabaseAdmin
-          .from('regional_multipliers')
-          .select('region_code, region_name')
-          .eq('is_active', true)
-          .order('region_code');
-
-        if (!regionsError && regionsData) {
-          regions = regionsData.map(r => ({
-            id: r.region_code,
-            name: r.region_name
-          }));
-        }
-      } catch {
-        // Table doesn't exist, that's ok
-      }
-
       res.json({
         database: {
-          connected: true,
+          connected: !timeError,
           time: dbTime,
           version: dbVersion
         },
-        counts: {
-          claims: claimsCount,
-          estimates: estimatesCount,
-          lineItems: lineItemsCount,
-          priceLists: priceListsCount,
-          regions: regionsCount
-        },
-        regions,
-        environment: process.env.NODE_ENV || 'development',
-        openaiConfigured: !!process.env.OPENAI_API_KEY
+        status: 'ok',
+        environment: process.env.NODE_ENV || 'development'
+        // Note: Removed row counts and regions list to reduce information leakage
+        // Use authenticated /api/admin/system/stats for detailed metrics
       });
     } catch (error) {
       res.json({
