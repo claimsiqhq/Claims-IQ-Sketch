@@ -1149,18 +1149,21 @@ export async function registerRoutes(
   // but exposes minimal information to reduce data leakage risk
   app.get('/api/system/status', asyncHandler(async (req, res, next) => {
     try {
-      // Test database connection
-      const { data: timeData, error: timeError } = await supabaseAdmin
-        .rpc('get_current_time');
+      // Test database connection by querying estimates table
+      // This validates that we can actually read from application tables
+      const { data: estimatesData, error: dbError } = await supabaseAdmin
+        .from('estimates')
+        .select('id')
+        .limit(1);
 
-      const dbTime = timeData || new Date().toISOString();
+      const dbTime = new Date().toISOString();
       const dbVersion = 'PostgreSQL (Supabase)';
 
       // Only return basic health information - no row counts or sensitive data
       // For detailed status, use authenticated endpoints
       res.json({
         database: {
-          connected: !timeError,
+          connected: !dbError,
           time: dbTime,
           version: dbVersion
         },
