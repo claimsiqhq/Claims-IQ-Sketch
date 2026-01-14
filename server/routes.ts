@@ -1501,20 +1501,16 @@ export async function registerRoutes(
 
   // List estimates
   app.get('/api/estimates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
-      const { status, claim_id, limit, offset } = req.query;
-      const result = await listEstimates({
-        organizationId: req.organizationId!,
-        status: status as string,
-        claimId: claim_id as string,
-        limit: limit ? parseInt(limit as string) : undefined,
-        offset: offset ? parseInt(offset as string) : undefined,
-      });
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    const { status, claim_id, limit, offset } = req.query;
+    const result = await listEstimates({
+      organizationId: req.organizationId!,
+      status: status as string,
+      claimId: claim_id as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined,
+    });
+    res.json(result);
+  }));
 
   // Get estimate by ID
   app.get('/api/estimates/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
@@ -2035,14 +2031,13 @@ export async function registerRoutes(
   });
 
   // Generate ESX XML export
-  app.get('/api/estimates/:id/export/esx-xml', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const metadata = {
-        dateOfLoss: req.query.dateOfLoss as string,
-        insuredName: req.query.insuredName as string,
-        adjusterName: req.query.adjusterName as string,
-        priceListDate: req.query.priceListDate as string,
-      };
+  app.get('/api/estimates/:id/export/esx-xml', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const metadata = {
+      dateOfLoss: req.query.dateOfLoss as string,
+      insuredName: req.query.insuredName as string,
+      adjusterName: req.query.adjusterName as string,
+      priceListDate: req.query.priceListDate as string,
+    };
     const xml = await generateEsxXml(req.params.id, metadata);
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="estimate-${req.params.id}.esx"`);
@@ -5109,23 +5104,18 @@ export async function registerRoutes(
    * GET /api/xact/components/:code
    * Get a specific component by code with its price
    */
-  app.get('/api/xact/components/:code', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('xact_components')
-        .select('*')
-        .eq('code', req.params.code.toUpperCase())
-        .limit(1)
-        .single();
-      if (error || !data) {
-        return res.status(404).json({ error: 'Component not found' });
-      }
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/xact/components/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('xact_components')
+      .select('*')
+      .eq('code', req.params.code.toUpperCase())
+      .limit(1)
+      .single();
+    if (error || !data) {
+      return next(errors.notFound('Component'));
     }
-  });
+    res.json(data);
+  }));
 
   /**
    * GET /api/xact/search
@@ -5335,45 +5325,35 @@ export async function registerRoutes(
    * PUT /api/prompts/:key
    * Update an AI prompt (admin only)
    */
-  app.put('/api/prompts/:key', requireAuth, async (req, res) => {
-    try {
-      const { systemPrompt, userPromptTemplate, model, temperature, maxTokens, responseFormat, description, isActive } = req.body;
+  app.put('/api/prompts/:key', requireAuth, asyncHandler(async (req, res, next) => {
+    const { systemPrompt, userPromptTemplate, model, temperature, maxTokens, responseFormat, description, isActive } = req.body;
 
-      const updated = await updatePrompt(req.params.key, {
-        systemPrompt,
-        userPromptTemplate,
-        model,
-        temperature,
-        maxTokens,
-        responseFormat,
-        description,
-        isActive,
-      });
+    const updated = await updatePrompt(req.params.key, {
+      systemPrompt,
+      userPromptTemplate,
+      model,
+      temperature,
+      maxTokens,
+      responseFormat,
+      description,
+      isActive,
+    });
 
-      if (!updated) {
-        return res.status(404).json({ error: 'Prompt not found' });
-      }
-
-      res.json({ prompt: updated, message: 'Prompt updated successfully' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!updated) {
+      return next(errors.notFound('Prompt'));
     }
-  });
+
+    res.json({ prompt: updated, message: 'Prompt updated successfully' });
+  }));
 
   /**
    * POST /api/prompts/refresh-cache
    * Force refresh the prompts cache
    */
-  app.post('/api/prompts/refresh-cache', requireAuth, async (req, res) => {
-    try {
-      await refreshCache();
-      res.json({ message: 'Cache refreshed successfully' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.post('/api/prompts/refresh-cache', requireAuth, asyncHandler(async (req, res, next) => {
+    await refreshCache();
+    res.json({ message: 'Cache refreshed successfully' });
+  }));
 
   return httpServer;
 }
