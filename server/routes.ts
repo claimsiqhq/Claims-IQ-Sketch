@@ -1063,45 +1063,30 @@ export async function registerRoutes(
     }
   });
 
-  app.get('/api/pricing/region/:zipCode', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const region = await getRegionByZip(req.params.zipCode);
-      if (!region) {
-        return res.status(404).json({ error: 'Region not found' });
-      }
-      res.json(region);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/pricing/region/:zipCode', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const region = await getRegionByZip(req.params.zipCode);
+    if (!region) {
+      return next(errors.notFound('Region'));
     }
-  });
+    res.json(region);
+  }));
 
-  app.post('/api/scrape/home-depot', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const result = await runScrapeJob();
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.post('/api/scrape/home-depot', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const result = await runScrapeJob();
+    res.json(result);
+  }));
 
-  app.get('/api/scrape/test', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const results = await testScrape();
-      const data = Array.from(results.entries()).map(([sku, product]) => ({
-        sku,
-        name: product.name,
-        price: product.price,
-        unit: product.unit,
-        url: product.url
-      }));
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/scrape/test', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const results = await testScrape();
+    const data = Array.from(results.entries()).map(([sku, product]) => ({
+      sku,
+      name: product.name,
+      price: product.price,
+      unit: product.unit,
+      url: product.url
+    }));
+    res.json(data);
+  }));
 
   app.get('/api/scrape/config', requireAuth, requireOrganization, (req, res) => {
     res.json({
@@ -1534,8 +1519,7 @@ export async function registerRoutes(
   });
 
   // List estimates
-  app.get('/api/estimates', requireAuth, requireOrganization, async (req, res) => {
-    try {
+  app.get('/api/estimates', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
       const { status, claim_id, limit, offset } = req.query;
       const result = await listEstimates({
         organizationId: req.organizationId!,
@@ -1552,8 +1536,7 @@ export async function registerRoutes(
   });
 
   // Get estimate by ID
-  app.get('/api/estimates/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
+  app.get('/api/estimates/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
       const estimate = await getEstimate(req.params.id, req.organizationId!);
       if (!estimate) {
         return res.status(404).json({ error: 'Estimate not found' });
