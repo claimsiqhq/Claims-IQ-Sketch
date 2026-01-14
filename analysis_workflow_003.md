@@ -13,24 +13,21 @@
 - **Configuration includes:** Evidence config, UI elements config, validation config, prompt guidance
 
 ### ✅ PASS - Imports Verified
-- **Client:** `client/src/components/workflow/step-completion-dialog.tsx` imports from `../../../shared/config/stepTypeConfig`
+- **Client:** `client/src/components/workflow/step-completion-dialog.tsx` imports from `@shared/config/stepTypeConfig` (using tsconfig path mapping)
+- **Client:** `client/src/components/workflow-panel.tsx` imports from `@shared/config/stepTypeConfig` (using tsconfig path mapping)
 - **Server:** `server/services/inspectionWorkflowService.ts` imports `generateStepTypeGuidanceForPrompt` from `../../shared/config/stepTypeConfig`
 
-### ⚠️ PARTIAL - Hardcoded Values Found
-**Issue Found:** `client/src/components/workflow/evidence-capture.tsx` still uses `|| 1` fallback:
-```typescript
-{capturedPhotos.length >= (requirement.photo?.minCount || 1) && (
-{capturedPhotos.length < (requirement.photo?.minCount || 1) && (
-  Need {(requirement.photo?.minCount || 1) - capturedPhotos.length} more photo(s)
-```
+### ✅ PASS - Hardcoded Values Fixed
+**Fixed:** `client/src/components/workflow/evidence-capture.tsx` updated:
+- Changed `|| 1` to `?? 0` (nullish coalescing)
+- Added explicit check: `requirement.photo?.minCount !== undefined && requirement.photo.minCount > 0`
+- Now respects `minCount: 0` from requirements
 
-**Recommendation:** Update `evidence-capture.tsx` to use step type config defaults instead of `|| 1`.
-
-**Other Hardcoded Values:**
+**Other Hardcoded Values (Acceptable):**
 - `server/services/inspectionWorkflowService.ts:1352` - `prompt_version: promptConfig.version || 1` (acceptable - version fallback)
 - `server/services/inspectionWorkflowService.ts:2192` - `paymentPct || 100` (acceptable - percentage fallback)
 
-**Summary:** One file needs update (`evidence-capture.tsx`), others are acceptable fallbacks.
+**Summary:** All workflow-related hardcoded values fixed. Only acceptable fallbacks remain.
 
 ---
 
@@ -49,26 +46,22 @@
 - Helper calls `shouldShowPhotoCapture(step.stepType, step.evidenceRequirements)`
 - No hardcoded rendering
 
-### ❌ FAIL - Damage Severity NOT Wrapped in Conditional
+### ✅ PASS - Damage Severity Conditional Rendering
 **Location:** `client/src/components/workflow/step-completion-dialog.tsx:396-424`
 ```typescript
-{/* Damage Severity - Quick select */}
-<div className="space-y-2">
-  <Label className="text-sm font-medium">Damage Severity</Label>
-  {/* ... damage severity UI ... */}
-</div>
-```
-
-**Issue:** Damage severity section is NOT wrapped in `{shouldRenderDamageSeverity() && ...}` conditional.
-
-**Fix Required:** Wrap the damage severity section (lines 396-424) in:
-```typescript
+{/* Damage Severity - Conditionally rendered */}
 {shouldRenderDamageSeverity() && (
   <div className="space-y-2">
-    {/* Damage Severity UI */}
+    <Label className="text-sm font-medium">Damage Severity</Label>
+    {/* ... damage severity UI ... */}
   </div>
 )}
 ```
+
+**Status:** ✅ **FIXED** - Damage severity section is now wrapped in conditional rendering.
+- Uses `shouldRenderDamageSeverity()` helper
+- Helper calls `shouldShowDamageSeverity(step.stepType, step.tags)`
+- Only shows for damage-related steps
 
 ### ✅ PASS - Notes Section Conditional Rendering
 **Location:** `client/src/components/workflow/step-completion-dialog.tsx:366`
@@ -212,34 +205,31 @@ DELETE FROM inspection_workflows;
 
 ## VALIDATION 6: TYPE SAFETY CHECK
 
-### ❌ FAIL - TypeScript Errors Found
+### ✅ PASS - TypeScript Errors Fixed
 
-**Critical Errors Related to Workflow Refactor:**
+**All Workflow Refactor Errors Fixed:**
 
-1. **Import Path Error:**
-   ```
-   client/src/components/workflow-panel.tsx(80,8): error TS2307: Cannot find module '../../shared/config/stepTypeConfig'
-   ```
-   **Issue:** Import path is incorrect. Should be `../../../shared/config/stepTypeConfig` (3 levels up, not 2)
+1. **Import Path Errors** ✅ **FIXED**
+   - **Files:** `workflow-panel.tsx`, `step-completion-dialog.tsx`
+   - **Fix Applied:** Changed to use tsconfig path mapping `@shared/config/stepTypeConfig`
+   - **Status:** TypeScript can now resolve imports correctly
 
-2. **Import Path Error:**
-   ```
-   client/src/components/workflow/step-completion-dialog.tsx(54,8): error TS2307: Cannot find module '../../../shared/config/stepTypeConfig'
-   ```
-   **Issue:** Same import path issue - needs verification
+2. **Legacy Assets Field** ✅ **FIXED**
+   - **File:** `client/src/components/workflow-panel.tsx:657`
+   - **Fix Applied:** Removed `assets` field from `StepData` object creation
+   - **Status:** No more type errors for legacy assets
 
-3. **Type Error:**
-   ```
-   client/src/components/workflow-panel.tsx(657,9): error TS2353: Object literal may only specify known properties, and 'assets' does not exist in type 'StepData'
-   ```
-   **Issue:** Code still trying to set `assets` field on `StepData` object
+3. **Missing Variables** ✅ **FIXED**
+   - **File:** `client/src/components/workflow/step-completion-dialog.tsx:237,240`
+   - **Fix Applied:** Restored `photoRequirementMet`, `canSkipPhotos`, `noteRequirementMet`, `canSkipNotes` variables
+   - **Status:** All variable references resolved
 
-**Other Type Errors (Not Related to Refactor):**
+**Remaining Type Errors (Not Related to Refactor):**
 - Multiple `any` type errors in `briefing-panel.tsx` (pre-existing)
 - Property errors in `CoverageHighlights.tsx` (pre-existing)
-- Other unrelated type errors
+- Other unrelated type errors in `workflow-panel.tsx` (pre-existing)
 
-**Summary:** 3 critical type errors related to workflow refactor need fixing. Other errors are pre-existing.
+**Summary:** ✅ All workflow refactor-related type errors fixed. Remaining errors are pre-existing and unrelated.
 
 ---
 
@@ -424,19 +414,35 @@ ORDER BY step_index;
 
 **All Critical Issues Fixed:**
 1. ✅ Damage severity conditional rendering - Fixed
-2. ✅ TypeScript import path errors - Fixed
+2. ✅ TypeScript import path errors - Fixed (using `@shared` path mapping)
 3. ✅ Legacy assets reference - Fixed
 4. ✅ Hardcoded photo fallback - Fixed
+5. ✅ Missing validation variables - Fixed
+
+**Code Quality:**
+- ✅ No linter errors in workflow components
+- ✅ All imports resolve correctly
+- ✅ Type safety maintained
+- ✅ Conditional rendering implemented correctly
 
 **Remaining Work:**
 - Runtime testing required to verify AI generates correct evidence requirements
-- Database migrations need to be run
+- Database migrations need to be run (046, 047, 048)
 - End-to-end workflow generation testing needed
+- Verify AI follows step type guidance in prompts
 
 **System Status:** ✅ **READY FOR TESTING**
 
 All code-level validations pass. The system is ready for:
-1. Running migrations
+1. Running migrations (`046_clear_legacy_workflows.sql`, `047_update_workflow_generator_step_type_guidance.sql`, `048_update_voice_room_sketch_photo_requirements.sql`)
 2. Generating test workflows
 3. Verifying UI rendering for each step type
 4. Testing voice agent alignment
+5. Validating AI generates varied evidence requirements by step type
+
+**Next Steps:**
+1. Run migrations
+2. Generate test workflow
+3. Query database to verify step types have correct evidence requirements
+4. Test UI rendering for each step type
+5. Test voice agent references workflow requirements
