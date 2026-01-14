@@ -256,25 +256,26 @@ export async function searchXactItemsWithPricing(
     categoryMap.set(cat.code, cat.description);
   }
   
-  const results: XactSearchResult[] = [];
-  
-  for (const item of items || []) {
-    const price = await calculateXactPrice(item.full_code);
-    
-    results.push({
-      id: item.id,
-      fullCode: item.full_code,
-      description: item.description,
-      unit: item.unit,
-      categoryCode: item.category_code,
-      categoryDescription: categoryMap.get(item.category_code) || item.category_code,
-      unitPrice: price?.unitPrice || 0,
-      materialCost: price?.materialTotal || 0,
-      laborCost: price?.laborTotal || 0,
-      opEligible: item.op_eligible ?? true,
-      taxable: item.taxable ?? true,
-    });
-  }
+  // Batch calculate prices in parallel to avoid N+1 query issue
+  const results: XactSearchResult[] = await Promise.all(
+    (items || []).map(async (item) => {
+      const price = await calculateXactPrice(item.full_code);
+      
+      return {
+        id: item.id,
+        fullCode: item.full_code,
+        description: item.description,
+        unit: item.unit,
+        categoryCode: item.category_code,
+        categoryDescription: categoryMap.get(item.category_code) || item.category_code,
+        unitPrice: price?.unitPrice || 0,
+        materialCost: price?.materialTotal || 0,
+        laborCost: price?.laborTotal || 0,
+        opEligible: item.op_eligible ?? true,
+        taxable: item.taxable ?? true,
+      };
+    })
+  );
   
   return {
     items: results,

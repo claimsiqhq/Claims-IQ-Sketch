@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
+import { z } from "zod";
 import { storage } from "./storage";
 import { supabaseAdmin } from './lib/supabaseAdmin';
 import {
@@ -65,6 +66,7 @@ import {
   refreshCache,
 } from "./services/promptService";
 import { passport, requireAuth } from "./middleware/auth";
+import { validateBody, validateQuery } from "./middleware/validation";
 import { updateUserProfile, changeUserPassword } from "./services/auth";
 import {
   signUp as supabaseSignUp,
@@ -977,18 +979,13 @@ export async function registerRoutes(
   });
 
   // Change user password
-  app.put('/api/users/password', requireAuth, async (req, res) => {
+  app.put('/api/users/password', requireAuth, validateBody(z.object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+  })), async (req, res) => {
     try {
       const userId = req.user!.id;
       const { currentPassword, newPassword } = req.body;
-      
-      if (!currentPassword || !newPassword) {
-        return res.status(400).json({ error: 'Current password and new password are required' });
-      }
-      
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
-      }
       
       const result = await changeUserPassword(userId, currentPassword, newPassword);
       if (!result.success) {
