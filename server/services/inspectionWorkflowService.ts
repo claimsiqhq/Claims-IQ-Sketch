@@ -2336,8 +2336,29 @@ function buildEnhancedWorkflowPrompt(
 ): string {
   const perilRules = PERIL_INSPECTION_RULES[context.peril.primary];
 
+  // Helper function to format briefing photo requirements for workflow generation
+  function formatBriefingPhotoRequirements(briefingJson: any): string {
+    if (!briefingJson?.photo_requirements || briefingJson.photo_requirements.length === 0) {
+      return '';
+    }
+
+    const sections: string[] = [];
+    sections.push('**BRIEFING-SPECIFIED PHOTO REQUIREMENTS:**');
+    
+    for (const pr of briefingJson.photo_requirements) {
+      const category = pr.category || 'General';
+      const items = pr.items || [];
+      if (items.length > 0) {
+        sections.push(`- ${category}: ${items.join(', ')}`);
+      }
+    }
+
+    return sections.join('\n');
+  }
+
   // Build briefing section with FULL content (not just 3 fields)
   let briefingSection = '';
+  let briefingPhotoRequirementsSection = '';
   if (briefing?.briefingJson) {
     const b = briefing.briefingJson;
     briefingSection = `
@@ -2354,10 +2375,6 @@ ${b.inspection_strategy ? `
 - What to Watch For: ${b.inspection_strategy.what_to_watch_for?.join(', ') || 'Standard items'}
 - Common Misses: ${b.inspection_strategy.common_misses?.join(', ') || 'Check thoroughly'}
 ` : ''}
-${b.photo_requirements?.length > 0 ? `
-**Photo Requirements from Briefing:**
-${b.photo_requirements.map((pr: { category: string; items: string[] }) => `- ${pr.category}: ${pr.items.join(', ')}`).join('\n')}
-` : ''}
 ${b.endorsement_watchouts?.length > 0 ? `
 **Endorsement Watchouts from Briefing:**
 ${b.endorsement_watchouts.map((ew: { endorsement_id: string; impact: string; inspection_implications: string[] }) => `- ${ew.endorsement_id}: ${ew.impact}
@@ -2369,8 +2386,15 @@ ${b.depreciation_notes.map((n: string) => `- ${n}`).join('\n')}
 ` : ''}
 ${b.open_questions_for_adjuster?.length > 0 ? `
 **Open Questions to Address:**
-${b.open_questions_for_adjuster.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
+${b.open_questions_for_adjuster.map((q: any, i: number) => {
+    const question = typeof q === 'string' ? q : q.question || 'Unspecified question';
+    const context = typeof q === 'string' ? undefined : q.context;
+    return `${i + 1}. ${question}${context ? ` (${context})` : ''}`;
+  }).join('\n')}
 ` : ''}`;
+
+    // Format photo requirements separately for emphasis
+    briefingPhotoRequirementsSection = formatBriefingPhotoRequirements(b);
   }
 
   // Build wizard context section if available
@@ -2403,6 +2427,9 @@ ${context.endorsements.extracted.map(e => `
 [${e.formCode}] ${e.title}
   Inspection Requirements:
 ${e.inspectionRequirements.map(r => `    - ${r}`).join('\n') || '    - Standard inspection'}`).join('\n')}
+
+IMPORTANT: Create specific workflow steps for each inspection requirement listed above.
+Endorsement requirements MUST be reflected in specific steps (not just mentioned).
 ` : 'No endorsements with special inspection requirements'}
 
 ${context.alerts.length > 0 ? `
@@ -2411,6 +2438,16 @@ ${context.alerts.map(a => `[${a.severity.toUpperCase()}] ${a.title}: ${a.descrip
 ` : ''}
 
 ${wizardSection}
+${briefingPhotoRequirementsSection ? `
+${briefingPhotoRequirementsSection}
+
+IMPORTANT: Use these briefing photo requirements to:
+- Set appropriate min_count for photo/observation steps in matching categories
+- Ensure all briefing-specified photos have corresponding workflow steps
+- Add angles array based on briefing item descriptions (e.g., "wide shot" → "wide", "close-up" → "detail")
+- Create photo steps for each briefing category that requires documentation
+
+` : ''}
 ## STEP TYPE REQUIREMENTS
 ${generateStepTypeGuidanceForPrompt()}
 
