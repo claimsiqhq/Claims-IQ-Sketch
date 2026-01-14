@@ -1628,8 +1628,14 @@ export async function processDocument(
           }
         }
 
-        // NOTE: AI Pipeline is now triggered ONLY inside createClaimFromDocuments
-        // to prevent duplicate pipeline runs that cause performance issues
+        // Auto-trigger AI generation pipeline if claim already exists
+        // (If claim was just created, pipeline is triggered in createClaimFromDocuments)
+        if (claimId) {
+          // Auto-trigger AI generation pipeline (async, non-blocking)
+          triggerAIGenerationPipeline(claimId, organizationId, 'fnol').catch(err => {
+            console.error('[AI Pipeline] Background error:', err);
+          });
+        }
 
         console.log(`[FNOL] Extraction completed for document ${documentId}, claimId: ${claimId}`);
         return fnolExtraction;
