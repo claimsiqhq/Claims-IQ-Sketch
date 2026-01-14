@@ -4969,27 +4969,22 @@ export async function registerRoutes(
    * GET /api/xact/categories/:code
    * Get a specific category by code
    */
-  app.get('/api/xact/categories/:code', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('xact_categories')
-        .select('*')
-        .eq('code', req.params.code.toUpperCase())
-        .limit(1)
-        .maybeSingle();
-      
-      if (error) {
-        return res.status(500).json({ error: error.message });
-      }
-      if (!data) {
-        return res.status(404).json({ error: 'Category not found' });
-      }
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/xact/categories/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('xact_categories')
+      .select('*')
+      .eq('code', req.params.code.toUpperCase())
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) {
+      return next(errors.internal(error.message));
     }
-  });
+    if (!data) {
+      return next(errors.notFound('Category'));
+    }
+    res.json(data);
+  }));
 
   /**
    * GET /api/xact/line-items
@@ -5000,89 +4995,74 @@ export async function registerRoutes(
    *   - limit: max results (default 50, max 500)
    *   - offset: pagination offset
    */
-  app.get('/api/xact/line-items', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { q, category, limit = '50', offset = '0' } = req.query;
-      const limitNum = Math.min(parseInt(limit as string) || 50, 500);
-      const offsetNum = parseInt(offset as string) || 0;
+  app.get('/api/xact/line-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { q, category, limit = '50', offset = '0' } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 50, 500);
+    const offsetNum = parseInt(offset as string) || 0;
 
-      let query = supabaseAdmin
-        .from('xact_line_items')
-        .select('*', { count: 'exact' });
+    let query = supabaseAdmin
+      .from('xact_line_items')
+      .select('*', { count: 'exact' });
 
-      if (q) {
-        const searchTerm = (q as string).toLowerCase();
-        query = query.or(`description.ilike.%${searchTerm}%,full_code.ilike.%${searchTerm}%,selector_code.ilike.%${searchTerm}%`);
-      }
-
-      if (category) {
-        query = query.eq('category_code', (category as string).toUpperCase());
-      }
-
-      const { data, error, count } = await query
-        .order('full_code')
-        .range(offsetNum, offsetNum + limitNum - 1);
-
-      if (error) throw new Error(error.message);
-
-      res.json({
-        items: data,
-        total: count || 0,
-        limit: limitNum,
-        offset: offsetNum,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (q) {
+      const searchTerm = (q as string).toLowerCase();
+      query = query.or(`description.ilike.%${searchTerm}%,full_code.ilike.%${searchTerm}%,selector_code.ilike.%${searchTerm}%`);
     }
-  });
+
+    if (category) {
+      query = query.eq('category_code', (category as string).toUpperCase());
+    }
+
+    const { data, error, count } = await query
+      .order('full_code')
+      .range(offsetNum, offsetNum + limitNum - 1);
+
+    if (error) throw new Error(error.message);
+
+    res.json({
+      items: data,
+      total: count || 0,
+      limit: limitNum,
+      offset: offsetNum,
+    });
+  }));
 
   /**
    * GET /api/xact/line-items/:code
    * Get a specific line item by full code
    */
-  app.get('/api/xact/line-items/:code', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('xact_line_items')
-        .select('*')
-        .eq('full_code', req.params.code.toUpperCase())
-        .limit(1)
-        .single();
-      if (error || !data) {
-        return res.status(404).json({ error: 'Line item not found' });
-      }
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/xact/line-items/:code', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('xact_line_items')
+      .select('*')
+      .eq('full_code', req.params.code.toUpperCase())
+      .limit(1)
+      .single();
+    if (error || !data) {
+      return next(errors.notFound('Line item'));
     }
-  });
+    res.json(data);
+  }));
 
   /**
    * GET /api/xact/stats
    * Get statistics about the Xactimate catalog
    */
-  app.get('/api/xact/stats', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { count: catCount } = await supabaseAdmin.from('xact_categories').select('*', { count: 'exact', head: true });
-      const { count: itemCount } = await supabaseAdmin.from('xact_line_items').select('*', { count: 'exact', head: true });
-      const { count: compCount } = await supabaseAdmin.from('xact_components').select('*', { count: 'exact', head: true });
-      
-      // For top categories and component breakdown, use RPC or simple queries
-      // Simplified version - just return counts
-      res.json({
-        totalCategories: catCount || 0,
-        totalLineItems: itemCount || 0,
-        totalComponents: compCount || 0,
-        topCategories: [],
-        componentBreakdown: [],
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/xact/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { count: catCount } = await supabaseAdmin.from('xact_categories').select('*', { count: 'exact', head: true });
+    const { count: itemCount } = await supabaseAdmin.from('xact_line_items').select('*', { count: 'exact', head: true });
+    const { count: compCount } = await supabaseAdmin.from('xact_components').select('*', { count: 'exact', head: true });
+    
+    // For top categories and component breakdown, use RPC or simple queries
+    // Simplified version - just return counts
+    res.json({
+      totalCategories: catCount || 0,
+      totalLineItems: itemCount || 0,
+      totalComponents: compCount || 0,
+      topCategories: [],
+      componentBreakdown: [],
+    });
+  }));
 
   /**
    * GET /api/xact/components
@@ -5093,42 +5073,37 @@ export async function registerRoutes(
    *   - limit: max results (default 50, max 500)
    *   - offset: pagination offset
    */
-  app.get('/api/xact/components', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { q, type, limit = '50', offset = '0' } = req.query;
-      const limitNum = Math.min(parseInt(limit as string) || 50, 500);
-      const offsetNum = parseInt(offset as string) || 0;
+  app.get('/api/xact/components', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { q, type, limit = '50', offset = '0' } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 50, 500);
+    const offsetNum = parseInt(offset as string) || 0;
 
-      let query = supabaseAdmin
-        .from('xact_components')
-        .select('*', { count: 'exact' });
+    let query = supabaseAdmin
+      .from('xact_components')
+      .select('*', { count: 'exact' });
 
-      if (q) {
-        const searchTerm = (q as string).toLowerCase();
-        query = query.or(`description.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%`);
-      }
-
-      if (type) {
-        query = query.eq('component_type', type as string);
-      }
-
-      const { data, error, count } = await query
-        .order('code')
-        .range(offsetNum, offsetNum + limitNum - 1);
-
-      if (error) throw new Error(error.message);
-
-      res.json({
-        items: data,
-        total: count || 0,
-        limit: limitNum,
-        offset: offsetNum,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (q) {
+      const searchTerm = (q as string).toLowerCase();
+      query = query.or(`description.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%`);
     }
-  });
+
+    if (type) {
+      query = query.eq('component_type', type as string);
+    }
+
+    const { data, error, count } = await query
+      .order('code')
+      .range(offsetNum, offsetNum + limitNum - 1);
+
+    if (error) throw new Error(error.message);
+
+    res.json({
+      items: data,
+      total: count || 0,
+      limit: limitNum,
+      offset: offsetNum,
+    });
+  }));
 
   /**
    * GET /api/xact/components/:code
@@ -5161,26 +5136,21 @@ export async function registerRoutes(
    *   - limit: max results (default 20)
    *   - offset: pagination offset
    */
-  app.get('/api/xact/search', async (req, res) => {
-    try {
-      const { q, category, limit = '20', offset = '0' } = req.query;
-      
-      if (!q) {
-        return res.status(400).json({ error: 'Search query (q) is required' });
-      }
-      
-      const result = await searchXactItemsWithPricing(q as string, {
-        category: category as string | undefined,
-        limit: Math.min(parseInt(limit as string) || 20, 100),
-        offset: parseInt(offset as string) || 0,
-      });
-      
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/xact/search', asyncHandler(async (req, res, next) => {
+    const { q, category, limit = '20', offset = '0' } = req.query;
+    
+    if (!q) {
+      return next(errors.badRequest('Search query (q) is required'));
     }
-  });
+    
+    const result = await searchXactItemsWithPricing(q as string, {
+      category: category as string | undefined,
+      limit: Math.min(parseInt(limit as string) || 20, 100),
+      offset: parseInt(offset as string) || 0,
+    });
+    
+    res.json(result);
+  }));
 
   /**
    * GET /api/xact/price/:code
