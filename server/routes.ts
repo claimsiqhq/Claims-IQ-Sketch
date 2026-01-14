@@ -2745,7 +2745,6 @@ export async function registerRoutes(
 
   // Add line item from zone dimension (auto-calculate quantity)
   app.post('/api/zones/:id/line-items/from-dimension', requireAuth, asyncHandler(async (req, res, next) => {
-    try {
     const { lineItemCode, dimensionKey, unitPrice, taxRate, depreciationPct, isRecoverable, notes } = req.body;
     if (!lineItemCode || !dimensionKey) {
       return next(errors.badRequest('lineItemCode and dimensionKey required'));
@@ -2980,368 +2979,280 @@ export async function registerRoutes(
   });
 
   // Get claims for map display
-  app.get('/api/claims/map', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { adjuster_id, status, loss_type, my_claims } = req.query;
+  app.get('/api/claims/map', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { adjuster_id, status, loss_type, my_claims } = req.query;
 
-      // If my_claims=true and user is an adjuster, filter to their claims
-      let assignedAdjusterId = adjuster_id as string | undefined;
-      if (my_claims === 'true' && req.user?.id) {
-        assignedAdjusterId = req.user.id;
-      }
-
-      const claims = await getClaimsForMap(req.organizationId!, {
-        assignedAdjusterId,
-        status: status as string,
-        lossType: loss_type as string
-      });
-      res.json({ claims, total: claims.length });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    // If my_claims=true and user is an adjuster, filter to their claims
+    let assignedAdjusterId = adjuster_id as string | undefined;
+    if (my_claims === 'true' && req.user?.id) {
+      assignedAdjusterId = req.user.id;
     }
-  });
+
+    const claims = await getClaimsForMap(req.organizationId!, {
+      assignedAdjusterId,
+      status: status as string,
+      lossType: loss_type as string
+    });
+    res.json({ claims, total: claims.length });
+  }));
 
   // Get map geocoding statistics
-  app.get('/api/claims/map/stats', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const stats = await getMapStats(req.organizationId!);
-      res.json(stats);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/claims/map/stats', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const stats = await getMapStats(req.organizationId!);
+    res.json(stats);
+  }));
 
   // Trigger geocoding for pending claims
-  app.post('/api/claims/geocode-pending', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { limit } = req.body;
-      const count = await geocodePendingClaims(req.organizationId!, limit || 100);
-      res.json({ queued: count, message: `Queued ${count} claims for geocoding` });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.post('/api/claims/geocode-pending', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { limit } = req.body;
+    const count = await geocodePendingClaims(req.organizationId!, limit || 100);
+    res.json({ queued: count, message: `Queued ${count} claims for geocoding` });
+  }));
 
   // Get single claim
-  app.get('/api/claims/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const claim = await getClaim(req.params.id, req.organizationId!);
-      if (!claim) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-      res.json(claim);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/claims/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const claim = await getClaim(req.params.id, req.organizationId!);
+    if (!claim) {
+      return next(errors.notFound('Claim'));
     }
-  });
+    res.json(claim);
+  }));
 
   // Update claim
-  app.put('/api/claims/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const claim = await updateClaim(req.params.id, req.organizationId!, req.body);
-      if (!claim) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-
-      // Associate any documents from metadata.documentIds with the claim
-      const documentIds = claim.metadata?.documentIds;
-      if (Array.isArray(documentIds) && documentIds.length > 0) {
-        const { error } = await supabaseAdmin
-          .from('documents')
-          .update({
-            claim_id: claim.id,
-            updated_at: new Date().toISOString()
-          })
-          .in('id', documentIds)
-          .eq('organization_id', req.organizationId!)
-          .is('claim_id', null);
-
-        if (error) throw error;
-      }
-
-      // Re-geocode if address fields were updated
-      if (req.body.propertyAddress || req.body.propertyCity || req.body.propertyState || req.body.propertyZip) {
-        queueGeocoding(claim.id);
-      }
-
-      res.json(claim);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.put('/api/claims/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const claim = await updateClaim(req.params.id, req.organizationId!, req.body);
+    if (!claim) {
+      return next(errors.notFound('Claim'));
     }
-  });
+
+    // Associate any documents from metadata.documentIds with the claim
+    const documentIds = claim.metadata?.documentIds;
+    if (Array.isArray(documentIds) && documentIds.length > 0) {
+      const { error } = await supabaseAdmin
+        .from('documents')
+        .update({
+          claim_id: claim.id,
+          updated_at: new Date().toISOString()
+        })
+        .in('id', documentIds)
+        .eq('organization_id', req.organizationId!)
+        .is('claim_id', null);
+
+      if (error) throw error;
+    }
+
+    // Re-geocode if address fields were updated
+    if (req.body.propertyAddress || req.body.propertyCity || req.body.propertyState || req.body.propertyZip) {
+      queueGeocoding(claim.id);
+    }
+
+    res.json(claim);
+  }));
 
   // Purge ALL claims - permanently delete all claims and related data
   // NOTE: Must be defined BEFORE /api/claims/:id to avoid :id matching "purge-all"
   app.delete('/api/claims/purge-all', (req, res, next) => {
     console.log('[Purge] Request received - isAuthenticated:', req.isAuthenticated(), 'userId:', req.user?.id, 'orgId:', req.organizationId, 'memberRole:', req.membershipRole);
     next();
-  }, requireAuth, requireOrganization, requireOrgRole('owner'), async (req, res) => {
-    try {
-      console.log('[Purge] Passed all auth checks, deleting claims for org:', req.organizationId);
-      const result = await purgeAllClaims(req.organizationId!);
-      res.json({
-        success: true,
-        message: `Permanently deleted ${result.claimsDeleted} claims and ${result.relatedRecordsDeleted} related records`,
-        ...result
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Purge all claims failed:', error);
-      res.status(500).json({ error: message });
-    }
-  });
+  }, requireAuth, requireOrganization, requireOrgRole('owner'), asyncHandler(async (req, res, next) => {
+    console.log('[Purge] Passed all auth checks, deleting claims for org:', req.organizationId);
+    const result = await purgeAllClaims(req.organizationId!);
+    res.json({
+      success: true,
+      message: `Permanently deleted ${result.claimsDeleted} claims and ${result.relatedRecordsDeleted} related records`,
+      ...result
+    });
+  }));
 
   // Delete claim
-  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), async (req, res) => {
-    try {
-      const success = await deleteClaim(req.params.id, req.organizationId!);
-      if (!success) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), asyncHandler(async (req, res, next) => {
+    const success = await deleteClaim(req.params.id, req.organizationId!);
+    if (!success) {
+      return next(errors.notFound('Claim'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // Save rooms to claim with full hierarchy (structures → rooms → damage zones)
-  app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { rooms, structures } = req.body;
-      const { saveClaimHierarchy, saveClaimRoomsAndZones } = await import('./services/rooms');
-      
-      // Verify claim exists and belongs to organization
-      const { data: claimCheck, error: claimError } = await supabaseAdmin
-        .from('claims')
-        .select('id')
-        .eq('id', req.params.id)
-        .eq('organization_id', req.organizationId)
-        .single();
-      if (claimError || !claimCheck) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-
-      // Use new hierarchy save if structures provided
-      if (structures && structures.length > 0) {
-        const result = await saveClaimHierarchy(
-          req.params.id,
-          req.organizationId!,
-          structures,
-          rooms || []
-        );
-        
-        res.json({ 
-          success: true, 
-          structuresSaved: result.structures.length,
-          roomsSaved: result.rooms.length, 
-          damageZonesSaved: result.damageZones.length,
-          structures: result.structures,
-          rooms: result.rooms,
-          damageZones: result.damageZones
-        });
-      } else {
-        // Legacy: rooms only
-        const result = await saveClaimRoomsAndZones(
-          req.params.id,
-          req.organizationId!,
-          rooms || []
-        );
-        
-        res.json({ 
-          success: true, 
-          roomsSaved: result.rooms.length, 
-          damageZonesSaved: result.damageZones.length,
-          rooms: result.rooms,
-          damageZones: result.damageZones
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { rooms, structures } = req.body;
+    const { saveClaimHierarchy, saveClaimRoomsAndZones } = await import('./services/rooms');
+    
+    // Verify claim exists and belongs to organization
+    const { data: claimCheck, error: claimError } = await supabaseAdmin
+      .from('claims')
+      .select('id')
+      .eq('id', req.params.id)
+      .eq('organization_id', req.organizationId)
+      .single();
+    if (claimError || !claimCheck) {
+      return next(errors.notFound('Claim'));
     }
-  });
+
+    // Use new hierarchy save if structures provided
+    if (structures && structures.length > 0) {
+      const result = await saveClaimHierarchy(
+        req.params.id,
+        req.organizationId!,
+        structures,
+        rooms || []
+      );
+      
+      res.json({ 
+        success: true, 
+        structuresSaved: result.structures.length,
+        roomsSaved: result.rooms.length, 
+        damageZonesSaved: result.damageZones.length,
+        structures: result.structures,
+        rooms: result.rooms,
+        damageZones: result.damageZones
+      });
+    } else {
+      // Legacy: rooms only
+      const result = await saveClaimRoomsAndZones(
+        req.params.id,
+        req.organizationId!,
+        rooms || []
+      );
+      
+      res.json({ 
+        success: true, 
+        roomsSaved: result.rooms.length, 
+        damageZonesSaved: result.damageZones.length,
+        rooms: result.rooms,
+        damageZones: result.damageZones
+      });
+    }
+  }));
 
   // Get claim rooms with hierarchy (structures → rooms → damage zones)
-  app.get('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { getClaimHierarchy } = await import('./services/rooms');
-      
-      // Verify claim exists and belongs to organization
-      const { data: claimCheck, error: claimError } = await supabaseAdmin
-        .from('claims')
-        .select('id')
-        .eq('id', req.params.id)
-        .eq('organization_id', req.organizationId)
-        .single();
-      if (claimError || !claimCheck) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-
-      const result = await getClaimHierarchy(req.params.id);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.get('/api/claims/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { getClaimHierarchy } = await import('./services/rooms');
+    
+    // Verify claim exists and belongs to organization
+    const { data: claimCheck, error: claimError } = await supabaseAdmin
+      .from('claims')
+      .select('id')
+      .eq('id', req.params.id)
+      .eq('organization_id', req.organizationId)
+      .single();
+    if (claimError || !claimCheck) {
+      return next(errors.notFound('Claim'));
     }
-  });
+
+    const result = await getClaimHierarchy(req.params.id);
+    res.json(result);
+  }));
 
   // Delete all rooms and structures for a claim (for deleting saved sketches)
-  app.delete('/api/claims/:id/rooms', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { deleteRoomsByClaimId, deleteStructuresByClaimId } = await import('./services/rooms');
+  app.delete('/api/claims/:id/rooms', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { deleteRoomsByClaimId, deleteStructuresByClaimId } = await import('./services/rooms');
 
-      // Verify claim exists and belongs to organization
-      const { data: claimCheck, error: claimError } = await supabaseAdmin
-        .from('claims')
-        .select('id')
-        .eq('id', req.params.id)
-        .eq('organization_id', req.organizationId)
-        .single();
-      if (claimError || !claimCheck) {
-        return res.status(404).json({ error: 'Claim not found' });
-      }
-
-      // Delete rooms (this also deletes damage zones)
-      const roomsDeleted = await deleteRoomsByClaimId(req.params.id);
-      // Delete structures
-      const structuresDeleted = await deleteStructuresByClaimId(req.params.id);
-
-      res.json({
-        success: true,
-        roomsDeleted,
-        structuresDeleted
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    // Verify claim exists and belongs to organization
+    const { data: claimCheck, error: claimError } = await supabaseAdmin
+      .from('claims')
+      .select('id')
+      .eq('id', req.params.id)
+      .eq('organization_id', req.organizationId)
+      .single();
+    if (claimError || !claimCheck) {
+      return next(errors.notFound('Claim'));
     }
-  });
+
+    // Delete rooms (this also deletes damage zones)
+    const roomsDeleted = await deleteRoomsByClaimId(req.params.id);
+    // Delete structures
+    const structuresDeleted = await deleteStructuresByClaimId(req.params.id);
+
+    res.json({
+      success: true,
+      roomsDeleted,
+      structuresDeleted
+    });
+  }));
 
   // ============================================
   // CLAIM SCOPE ITEMS (uses estimate infrastructure)
   // ============================================
 
   // Get scope items for a claim
-  app.get('/api/claims/:id/scope-items', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const items = await getScopeItemsForClaim(req.params.id);
-      res.json(items);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/claims/:id/scope-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const items = await getScopeItemsForClaim(req.params.id);
+    res.json(items);
+  }));
 
   // Add scope item to claim
-  app.post('/api/claims/:id/scope-items', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes } = req.body;
-      
-      if (!lineItemCode || !description || !quantity || !unit || unitPrice === undefined) {
-        return res.status(400).json({ 
-          error: 'Missing required fields: lineItemCode, description, quantity, unit, unitPrice' 
-        });
-      }
-
-      const item = await addScopeItemToClaim(
-        req.params.id,
-        req.organizationId!,
-        { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes }
-      );
-      res.status(201).json(item);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.post('/api/claims/:id/scope-items', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes } = req.body;
+    
+    if (!lineItemCode || !description || !quantity || !unit || unitPrice === undefined) {
+      return next(errors.badRequest('Missing required fields: lineItemCode, description, quantity, unit, unitPrice'));
     }
-  });
+
+    const item = await addScopeItemToClaim(
+      req.params.id,
+      req.organizationId!,
+      { lineItemCode, description, category, quantity, unit, unitPrice, roomName, notes }
+    );
+    res.status(201).json(item);
+  }));
 
   // Update scope item
-  app.patch('/api/scope-items/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { quantity, notes } = req.body;
-      const item = await updateScopeItem(req.params.id, { quantity, notes });
-      if (!item) {
-        return res.status(404).json({ error: 'Scope item not found' });
-      }
-      res.json(item);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.patch('/api/scope-items/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { quantity, notes } = req.body;
+    const item = await updateScopeItem(req.params.id, { quantity, notes });
+    if (!item) {
+      return next(errors.notFound('Scope item'));
     }
-  });
+    res.json(item);
+  }));
 
   // Delete scope item
-  app.delete('/api/scope-items/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const success = await deleteScopeItem(req.params.id);
-      if (!success) {
-        return res.status(404).json({ error: 'Scope item not found' });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+  app.delete('/api/scope-items/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const success = await deleteScopeItem(req.params.id);
+    if (!success) {
+      return next(errors.notFound('Scope item'));
     }
-  });
+    res.json({ success: true });
+  }));
 
   // Get claim documents
-  app.get('/api/claims/:id/documents', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const documents = await getClaimDocuments(req.params.id, req.organizationId!);
-      res.json(documents);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+  app.get('/api/claims/:id/documents', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const documents = await getClaimDocuments(req.params.id, req.organizationId!);
+    res.json(documents);
+  }));
 
   // Get comprehensive policy form extractions for a claim
-  app.get('/api/claims/:id/policy-extractions', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('policy_form_extractions')
-        .select('*')
-        .eq('claim_id', req.params.id)
-        .eq('organization_id', req.organizationId!)
-        .order('created_at', { ascending: false });
+  app.get('/api/claims/:id/policy-extractions', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('policy_form_extractions')
+      .select('*')
+      .eq('claim_id', req.params.id)
+      .eq('organization_id', req.organizationId!)
+      .order('created_at', { ascending: false });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      res.json(data || []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
-    }
-  });
+    res.json(data || []);
+  }));
 
   // Get a specific policy extraction by ID
-  app.get('/api/policy-extractions/:id', requireAuth, requireOrganization, async (req, res) => {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('policy_form_extractions')
-        .select('*')
-        .eq('id', req.params.id)
-        .eq('organization_id', req.organizationId!)
-        .single();
+  app.get('/api/policy-extractions/:id', requireAuth, requireOrganization, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('policy_form_extractions')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('organization_id', req.organizationId!)
+      .single();
 
-      if (error) throw error;
+    if (error) throw error;
 
-      if (!data) {
-        return res.status(404).json({ error: 'Policy extraction not found' });
-      }
-
-      res.json(data);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ error: message });
+    if (!data) {
+      return next(errors.notFound('Policy extraction'));
     }
-  });
+
+    res.json(data);
+  }));
 
   // Get comprehensive endorsement extractions for a claim
   app.get('/api/claims/:id/endorsement-extractions', requireAuth, requireOrganization, async (req, res) => {
