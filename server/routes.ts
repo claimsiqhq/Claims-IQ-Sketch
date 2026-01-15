@@ -341,6 +341,9 @@ export async function registerRoutes(
           return res.status(500).json({ error: 'Login error' });
         }
         
+        // Store rememberMe preference in session
+        (req.session as any).rememberMe = rememberMe;
+
         // Set session duration based on remember me
         if (rememberMe) {
           req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -364,6 +367,9 @@ export async function registerRoutes(
             user: { 
               id: user.id, 
               username: user.username,
+              email: (user as any).email,
+              firstName: (user as any).firstName,
+              lastName: (user as any).lastName,
               currentOrganizationId: user.currentOrganizationId
             },
             message: 'Login successful'

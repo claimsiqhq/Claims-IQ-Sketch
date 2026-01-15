@@ -34,6 +34,8 @@ const log = createLogger({ module: 'auth-routes' });
  * Rate limited: 5 attempts per 15 minutes
  */
 router.post('/login', authRateLimiter, (req: Request, res: Response, next: NextFunction) => {
+  const rememberMe = req.body.rememberMe === true;
+
   passport.authenticate('local', (err: Error | null, user: Express.User | false, info: { message: string }) => {
     if (err) {
       log.error({ err }, 'Login error');
@@ -47,17 +49,33 @@ router.post('/login', authRateLimiter, (req: Request, res: Response, next: NextF
         log.error({ err: loginErr }, 'Session login error');
         return res.status(500).json({ message: 'Login failed due to session error' });
       }
-      log.info({ userId: (user as any).id }, 'User logged in');
-      return res.json({
-        user: {
-          id: (user as any).id,
-          username: (user as any).username,
-          email: (user as any).email,
-          firstName: (user as any).firstName,
-          lastName: (user as any).lastName,
-          role: (user as any).role,
-          currentOrganizationId: (user as any).currentOrganizationId,
+      // Store rememberMe preference in session
+      (req.session as any).rememberMe = rememberMe;
+
+      // Set session duration based on remember me
+      if (rememberMe) {
+        req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+      } else {
+        req.session.cookie.maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      }
+
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          log.error({ err: saveErr }, 'Session save error');
+          return res.status(500).json({ message: 'Session save error' });
         }
+        log.info({ userId: (user as any).id }, 'User logged in');
+        return res.json({
+          user: {
+            id: (user as any).id,
+            username: (user as any).username,
+            email: (user as any).email,
+            firstName: (user as any).firstName,
+            lastName: (user as any).lastName,
+            role: (user as any).role,
+            currentOrganizationId: (user as any).currentOrganizationId,
+          }
+        });
       });
     });
   })(req, res, next);

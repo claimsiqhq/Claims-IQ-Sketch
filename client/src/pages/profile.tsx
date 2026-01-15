@@ -45,12 +45,18 @@ export default function Profile() {
     setSavingProfile(true);
     
     try {
+      const trimmedName = formData.displayName.trim();
+      const nameParts = trimmedName ? trimmedName.split(/\s+/) : [];
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ');
+
       const response = await fetch('/api/users/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          name: formData.displayName,
+          firstName,
+          lastName,
           email: formData.email,
         }),
       });

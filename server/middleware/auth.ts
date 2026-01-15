@@ -80,6 +80,9 @@ export function setupAuth(app: Express): void {
   const cookieSecure = isProduction ? true : 'auto';
   const cookieSameSite = isProduction ? 'none' : 'lax';
 
+  const defaultSessionMaxAge = 24 * 60 * 60 * 1000;
+  const rememberMeMaxAge = 30 * 24 * 60 * 60 * 1000;
+
   app.use(session({
     name: 'claimsiq.sid',
     store: sessionStore,
@@ -90,10 +93,22 @@ export function setupAuth(app: Express): void {
     cookie: {
       secure: cookieSecure,
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000,
+      maxAge: defaultSessionMaxAge,
       sameSite: cookieSameSite,
     },
   }));
+
+  // Adjust session maxAge based on rememberMe flag
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (req.session) {
+      const rememberMe = Boolean((req.session as any).rememberMe);
+      const desiredMaxAge = rememberMe ? rememberMeMaxAge : defaultSessionMaxAge;
+      if (req.session.cookie.maxAge !== desiredMaxAge) {
+        req.session.cookie.maxAge = desiredMaxAge;
+      }
+    }
+    next();
+  });
 
   app.use(passport.initialize());
   app.use(passport.session());
