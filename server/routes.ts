@@ -3709,6 +3709,7 @@ export async function registerRoutes(
    */
   app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { forceRegenerate, wizardContext } = req.body;
+    console.log('[WORKFLOW_DEBUG] POST /workflow/generate called:', { claimId: req.params.id, forceRegenerate, hasWizardContext: !!wizardContext });
     const result = await generateInspectionWorkflow(
       req.params.id,
       req.organizationId!,
