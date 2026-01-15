@@ -415,11 +415,12 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
     try {
       // Generate workflow with wizard context
-      // The backend will use this context to create a more tailored workflow
-      await generateInspectionWorkflow(claimId, false, data);
+      // If a workflow already exists, force regeneration to get a new one
+      const shouldForceRegenerate = !!workflow;
+      await generateInspectionWorkflow(claimId, shouldForceRegenerate, data);
       await fetchWorkflow();
       setShowWizard(false);
-      toast.success('Workflow generated successfully');
+      toast.success(shouldForceRegenerate ? 'Workflow regenerated successfully' : 'Workflow generated successfully');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate workflow';
       setError(message);
