@@ -383,6 +383,15 @@ interface PolicyInspectionStep {
   estimated_minutes: number;
   peril_specific?: string;
   policySource: string;  // Endorsement form code or "base_policy"
+  evidence_requirements?: Array<{
+    type: string;
+    label: string;
+    required: boolean;
+    photo?: { minCount: number; angles: string[] };
+    note?: { minLength: number; promptText?: string };
+    checklist?: { items: string[] };
+    measurement?: { type: string; unit: string };
+  }>;
 }
 
 /**
@@ -607,6 +616,137 @@ function transformToEvidenceRequirements(step: Record<string, unknown>): Record<
 
   // No evidence requirements found
   return [];
+}
+
+/**
+ * Returns default evidence requirements based on step type.
+ * Used for programmatically-created steps (endorsement, briefing-derived)
+ * that bypass AI generation.
+ */
+function getDefaultEvidenceForStepType(
+  stepType: string,
+  context?: {
+    label?: string;
+    photoCount?: number;
+    checklistItems?: string[];
+  }
+): Array<{
+  type: string;
+  label: string;
+  required: boolean;
+  photo?: { minCount: number; angles: string[] };
+  note?: { minLength: number; promptText?: string };
+  checklist?: { items: string[] };
+  measurement?: { type: string; unit: string };
+}> {
+  const label = context?.label || '';
+
+  switch (stepType) {
+    case 'interview':
+      return [{
+        type: 'note',
+        label: label || 'Interview notes',
+        required: true,
+        note: { minLength: 10, promptText: 'Document key points from conversation' }
+      }];
+
+    case 'documentation':
+      return [{
+        type: 'note',
+        label: label || 'Documentation notes',
+        required: false,
+        note: { minLength: 0, promptText: 'Note any relevant findings' }
+      }];
+
+    case 'checklist':
+      return [{
+        type: 'checklist',
+        label: label || 'Verification checklist',
+        required: true,
+        checklist: { items: context?.checklistItems || ['Item reviewed', 'Item confirmed'] }
+      }];
+
+    case 'photo':
+      return [
+        {
+          type: 'photo',
+          label: label || 'Required photos',
+          required: true,
+          photo: { minCount: context?.photoCount || 3, angles: ['wide', 'detail', 'close'] }
+        },
+        {
+          type: 'note',
+          label: 'Photo description',
+          required: true,
+          note: { minLength: 10, promptText: 'Describe what the photos show' }
+        }
+      ];
+
+    case 'observation':
+      return [
+        {
+          type: 'photo',
+          label: label || 'Observation photos',
+          required: true,
+          photo: { minCount: context?.photoCount || 2, angles: ['wide', 'detail'] }
+        },
+        {
+          type: 'note',
+          label: 'Observation notes',
+          required: true,
+          note: { minLength: 10, promptText: 'Describe observed conditions' }
+        }
+      ];
+
+    case 'measurement':
+      return [
+        {
+          type: 'measurement',
+          label: label || 'Measurements',
+          required: true,
+          measurement: { type: 'linear', unit: 'ft' }
+        },
+        {
+          type: 'note',
+          label: 'Measurement notes',
+          required: false,
+          note: { minLength: 0, promptText: 'Note any measurement considerations' }
+        }
+      ];
+
+    case 'safety_check':
+    case 'safety':
+      return [
+        {
+          type: 'checklist',
+          label: 'Safety checklist',
+          required: true,
+          checklist: { items: ['Area is safe to enter', 'No immediate hazards', 'PPE adequate'] }
+        },
+        {
+          type: 'note',
+          label: 'Safety notes',
+          required: true,
+          note: { minLength: 10, promptText: 'Document any safety concerns or precautions' }
+        }
+      ];
+
+    case 'equipment':
+      return [{
+        type: 'checklist',
+        label: 'Equipment checklist',
+        required: true,
+        checklist: { items: context?.checklistItems || ['Equipment ready', 'Batteries charged'] }
+      }];
+
+    default:
+      return [{
+        type: 'note',
+        label: 'Notes',
+        required: false,
+        note: { minLength: 0, promptText: 'Add any relevant notes' }
+      }];
+  }
 }
 
 /**
@@ -905,6 +1045,19 @@ async function createStepsFromWorkflowJson(
     const stepIndex = i + 1;
 
     try {
+      // Get evidence requirements - use existing, then fallback to defaults
+      let evidenceRequirements = step.evidence_requirements;
+
+      // Fallback: if still empty and step has a type, apply defaults
+      if ((!evidenceRequirements || (Array.isArray(evidenceRequirements) && evidenceRequirements.length === 0)) && step.step_type) {
+        evidenceRequirements = getDefaultEvidenceForStepType(step.step_type);
+        console.log('[WORKFLOW_SAVE] Applied default evidence for step:', {
+          stepTitle: step.title,
+          stepType: step.step_type,
+          defaultEvidence: evidenceRequirements,
+        });
+      }
+
       const { data: insertedStepData, error: stepError } = await supabaseAdmin
         .from('inspection_workflow_steps')
         .insert({
@@ -924,7 +1077,7 @@ async function createStepsFromWorkflowJson(
           origin: step.origin || null,
           source_rule_id: step.source_rule_id || null,
           conditions: step.conditions || null,
-          evidence_requirements: step.evidence_requirements || null,
+          evidence_requirements: evidenceRequirements || null,
           blocking: step.blocking || null,
           blocking_condition: step.blocking_condition || null,
           geometry_binding: step.geometry_binding || null,
@@ -1338,6 +1491,12 @@ export async function generateInspectionWorkflow(
 
     // 8a: Add endorsement-driven steps (policy requirements take priority)
     for (const step of endorsementSteps) {
+      // Use evidence_requirements from the step, or apply defaults based on step_type
+      const evidenceReqs = step.evidence_requirements || getDefaultEvidenceForStepType(step.step_type, {
+        label: `${step.policySource || 'Endorsement'} documentation`,
+        photoCount: step.step_type === 'photo' ? 3 : 2,
+      });
+
       workflowSteps.push({
         phase: step.phase as InspectionPhase,
         step_type: step.step_type as InspectionStepType,
@@ -1348,6 +1507,7 @@ export async function generateInspectionWorkflow(
         estimated_minutes: step.estimated_minutes,
         peril_specific: step.peril_specific || null,
         endorsement_source: step.policySource,
+        evidence_requirements: evidenceReqs,
       });
     }
 
@@ -2339,6 +2499,9 @@ REQUIRED DOCUMENTATION:
       tags: ['policy_requirement', 'roof_schedule', 'depreciation', 'critical'],
       estimated_minutes: 15,
       policySource: context.lossSettlement.roofing.sourceEndorsement || 'roof_schedule',
+      evidence_requirements: getDefaultEvidenceForStepType('documentation', {
+        label: 'Roof schedule depreciation documentation',
+      }),
     });
   }
 
@@ -2364,6 +2527,10 @@ WARNING: Cosmetic denting alone is typically NOT covered under this endorsement.
       tags: ['policy_requirement', 'metal_functional', 'water_intrusion', 'critical'],
       estimated_minutes: 20,
       policySource: context.lossSettlement.roofing.sourceEndorsement || 'metal_functional_rule',
+      evidence_requirements: getDefaultEvidenceForStepType('observation', {
+        label: 'Metal component functional damage verification',
+        photoCount: 3,
+      }),
     });
   }
 
@@ -2386,6 +2553,10 @@ This documentation supports potential O&L claims if repairs trigger code upgrade
       tags: ['policy_coverage', 'ordinance_law', 'code_compliance'],
       estimated_minutes: 10,
       policySource: 'ordinance_or_law_coverage',
+      evidence_requirements: getDefaultEvidenceForStepType('observation', {
+        label: 'Code compliance issues documentation',
+        photoCount: 2,
+      }),
     });
   }
 
@@ -2410,6 +2581,9 @@ Items exceeding special limits may not be fully covered unless scheduled.`,
       tags: ['special_limits', 'personal_property', 'documentation'],
       estimated_minutes: 10,
       policySource: 'special_limits_of_liability',
+      evidence_requirements: getDefaultEvidenceForStepType('documentation', {
+        label: 'High-value personal property documentation',
+      }),
     });
   }
 
@@ -2448,6 +2622,10 @@ Category: ${endorsement.category.replace(/_/g, ' ')}`,
     tags: ['endorsement_requirement', endorsement.formCode.replace(/\s/g, '_')],
     estimated_minutes: 5,
     policySource: endorsement.formCode,
+    evidence_requirements: getDefaultEvidenceForStepType(stepType, {
+      label: `${endorsement.formCode} documentation`,
+      photoCount: stepType === 'photo' ? 3 : 2
+    }),
   };
 }
 
