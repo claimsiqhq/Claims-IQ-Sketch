@@ -19,6 +19,8 @@
 
 import OpenAI from 'openai';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import {
   PromptKey,
@@ -1262,29 +1264,42 @@ export async function generateInspectionWorkflow(
     // Build ENHANCED prompt with full context
     const userPrompt = buildEnhancedWorkflowPrompt(context, briefing, wizardContext);
 
-    // [WORKFLOW_AUDIT] Log prompt data for verification - output in separate lines for capture
-    console.log('[WORKFLOW_AUDIT] ========== WORKFLOW GENERATION AUDIT START ==========');
-    console.log('[WORKFLOW_AUDIT] Claim ID:', claimId);
-    console.log('[WORKFLOW_AUDIT] Force Regenerate:', forceRegenerate);
-    console.log('[WORKFLOW_AUDIT] Prompt Length:', userPrompt.length, 'characters');
-    console.log('[WORKFLOW_AUDIT] Briefing Provided:', !!briefing?.briefingJson);
-    console.log('[WORKFLOW_AUDIT] Wizard Context Provided:', !!wizardContext);
-    console.log('[WORKFLOW_AUDIT] Has Inspection Strategy:', userPrompt.includes('inspection_strategy') || userPrompt.includes('Where to Start') || userPrompt.includes('Inspection Strategy'));
-    console.log('[WORKFLOW_AUDIT] Has Photo Requirements:', userPrompt.includes('photo_requirements') || userPrompt.includes('Photo Requirements') || userPrompt.includes('PHOTO REQUIREMENTS'));
-    console.log('[WORKFLOW_AUDIT] Has Endorsement Watchouts:', userPrompt.includes('endorsement_watchouts') || userPrompt.includes('Endorsement Watchouts'));
-    console.log('[WORKFLOW_AUDIT] Has Depreciation Notes:', userPrompt.includes('depreciation_notes') || userPrompt.includes('Depreciation Notes'));
-    console.log('[WORKFLOW_AUDIT] Has Open Questions:', userPrompt.includes('open_questions') || userPrompt.includes('Open Questions'));
-    console.log('[WORKFLOW_AUDIT] Has Stories Info:', userPrompt.includes('stories') || userPrompt.includes('MULTI-STORY'));
-    console.log('[WORKFLOW_AUDIT] Has Year Built:', userPrompt.includes('Year Built') || userPrompt.includes('year_built'));
-    console.log('[WORKFLOW_AUDIT] Has Roof Schedule:', userPrompt.includes('ROOF AGE VERIFICATION') || userPrompt.includes('Payment Schedule'));
-    console.log('[WORKFLOW_AUDIT] Has Wood Roof:', userPrompt.includes('WOOD ROOF') || userPrompt.includes('wood_roof'));
-    console.log('[WORKFLOW_AUDIT] Has Damage Scope:', userPrompt.includes('EXTERIOR-ONLY') || userPrompt.includes('INTERIOR-ONLY'));
-    console.log('[WORKFLOW_AUDIT] Has Briefing Section:', userPrompt.includes('AI CLAIM BRIEFING'));
-    console.log('[WORKFLOW_AUDIT] Has Property Adaptations:', userPrompt.includes('PROPERTY-DRIVEN WORKFLOW ADAPTATIONS'));
-    console.log('[WORKFLOW_AUDIT] Has Wizard Context Section:', userPrompt.includes('FIELD ADJUSTER INPUT'));
-    console.log('[WORKFLOW_AUDIT] System Prompt Preview:', promptConfig.systemPrompt.substring(0, 300));
-    console.log('[WORKFLOW_AUDIT] User Prompt Preview:', userPrompt.substring(0, 500));
-    console.log('[WORKFLOW_AUDIT] ========== WORKFLOW GENERATION AUDIT END ==========');
+    // [WORKFLOW_AUDIT] Log prompt data for verification - write to file for reliable capture
+    const auditData = {
+      timestamp: new Date().toISOString(),
+      claimId,
+      forceRegenerate,
+      promptLength: userPrompt.length,
+      briefingProvided: !!briefing?.briefingJson,
+      wizardContextProvided: !!wizardContext,
+      briefingDataIncluded: {
+        hasInspectionStrategy: userPrompt.includes('inspection_strategy') || userPrompt.includes('Where to Start') || userPrompt.includes('Inspection Strategy'),
+        hasPhotoRequirements: userPrompt.includes('photo_requirements') || userPrompt.includes('Photo Requirements') || userPrompt.includes('PHOTO REQUIREMENTS'),
+        hasEndorsementWatchouts: userPrompt.includes('endorsement_watchouts') || userPrompt.includes('Endorsement Watchouts'),
+        hasDepreciationNotes: userPrompt.includes('depreciation_notes') || userPrompt.includes('Depreciation Notes'),
+        hasOpenQuestions: userPrompt.includes('open_questions') || userPrompt.includes('Open Questions'),
+      },
+      propertyContextIncluded: {
+        hasStories: userPrompt.includes('stories') || userPrompt.includes('MULTI-STORY'),
+        hasYearBuilt: userPrompt.includes('Year Built') || userPrompt.includes('year_built'),
+        hasRoofSchedule: userPrompt.includes('ROOF AGE VERIFICATION') || userPrompt.includes('Payment Schedule'),
+        hasWoodRoof: userPrompt.includes('WOOD ROOF') || userPrompt.includes('wood_roof'),
+        hasDamageScope: userPrompt.includes('EXTERIOR-ONLY') || userPrompt.includes('INTERIOR-ONLY'),
+      },
+      contextMetrics: {
+        hasBriefingSection: userPrompt.includes('AI CLAIM BRIEFING'),
+        hasPropertyAdaptations: userPrompt.includes('PROPERTY-DRIVEN WORKFLOW ADAPTATIONS'),
+        hasWizardContextSection: userPrompt.includes('FIELD ADJUSTER INPUT'),
+      },
+      systemPromptPreview: promptConfig.systemPrompt.substring(0, 500),
+      userPromptPreview: userPrompt.substring(0, 2000),
+      fullUserPrompt: userPrompt,
+    };
+    
+    // Write to file for reliable capture
+    const auditFilePath = path.join(process.cwd(), 'workflow_audit.json');
+    fs.writeFileSync(auditFilePath, JSON.stringify(auditData, null, 2));
+    console.log('[WORKFLOW_AUDIT] Audit data written to:', auditFilePath);
 
     const completion = await openai.chat.completions.create({
       model: promptConfig.model || 'gpt-4o',
