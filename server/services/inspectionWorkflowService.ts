@@ -542,6 +542,72 @@ function formatEffectivePolicyContext(effectivePolicy: EffectivePolicy | null): 
 }
 
 /**
+ * Transform legacy `assets` array to `evidence_requirements` format.
+ * The AI prompt schema uses `assets` but database uses `evidence_requirements`.
+ * Also handles `required_evidence` which is mentioned in prompt instructions.
+ *
+ * @param step The step object from AI response
+ * @returns evidence_requirements array in the correct format
+ */
+function transformToEvidenceRequirements(step: Record<string, unknown>): Record<string, unknown>[] {
+  // Priority: evidence_requirements > required_evidence > assets
+  if (step.evidence_requirements && Array.isArray(step.evidence_requirements)) {
+    return step.evidence_requirements as Record<string, unknown>[];
+  }
+
+  if (step.required_evidence && Array.isArray(step.required_evidence)) {
+    return step.required_evidence as Record<string, unknown>[];
+  }
+
+  // Transform assets array to evidence_requirements format
+  if (step.assets && Array.isArray(step.assets)) {
+    const assets = step.assets as Array<{
+      asset_type?: string;
+      type?: string;
+      label?: string;
+      description?: string;
+      required?: boolean;
+      metadata?: Record<string, unknown>;
+    }>;
+
+    return assets.map(asset => {
+      const assetType = asset.asset_type || asset.type || 'note';
+      const base: Record<string, unknown> = {
+        type: assetType === 'document' ? 'note' : assetType, // Normalize 'document' to 'note'
+        required: asset.required !== false,
+        label: asset.label || asset.description || `${assetType} evidence`,
+      };
+
+      // Add type-specific configuration
+      if (assetType === 'photo') {
+        base.photo = {
+          minCount: 1,
+          angles: [],
+        };
+      } else if (assetType === 'measurement') {
+        base.measurement = {
+          type: (asset.metadata as any)?.measurement_type || 'linear',
+          unit: (asset.metadata as any)?.unit || 'ft',
+        };
+      } else if (assetType === 'note' || assetType === 'document') {
+        base.note = {
+          minLength: 10,
+        };
+      } else if (assetType === 'checklist') {
+        base.checklist = {
+          items: (asset.metadata as any)?.items || [],
+        };
+      }
+
+      return base;
+    });
+  }
+
+  // No evidence requirements found
+  return [];
+}
+
+/**
  * Normalize AI response to handle different schema formats.
  * The prompt generates steps nested inside phases, but downstream code expects
  * a flat top-level steps array. This function extracts steps from phases ONLY
@@ -567,6 +633,8 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
           const phaseId = phase.phase_id || phase.phase || 'unknown';
           for (const step of phase.steps) {
             // Preserve AI-provided fields, use safe defaults for required fields
+            // Transform assets/required_evidence to evidence_requirements format
+            const evidenceRequirements = transformToEvidenceRequirements(step);
             extractedSteps.push({
               phase: phaseId,
               step_type: step.step_type ?? 'observation',
@@ -576,8 +644,8 @@ function normalizeAIResponse(response: Record<string, unknown>): AIWorkflowRespo
               estimated_minutes: step.estimated_minutes ?? 5,
               tags: step.tags ?? [],
               peril_specific: step.peril_specific || step.endorsement_related || null,
-              // NO LEGACY ASSETS - only use evidence_requirements from AI response
-              evidence_requirements: step.required_evidence || step.evidence_requirements || [],
+              // Transform assets/required_evidence/evidence_requirements to unified format
+              evidence_requirements: evidenceRequirements,
             });
           }
         }
@@ -1273,6 +1341,22 @@ export async function generateInspectionWorkflow(
 
     // 8b: Add AI-generated steps
     for (const step of (aiResponse.steps || [])) {
+      // Transform assets/required_evidence/evidence_requirements to unified format
+      // The AI prompt schema uses 'assets' but database uses 'evidence_requirements'
+      const evidenceRequirements = transformToEvidenceRequirements(step as unknown as Record<string, unknown>);
+
+      // [WORKFLOW_SAVE] Log evidence mapping for debugging
+      if (evidenceRequirements.length > 0) {
+        console.log('[WORKFLOW_SAVE] Step evidence mapping:', {
+          stepTitle: step.title,
+          stepType: step.step_type,
+          hasAssets: !!(step as any).assets,
+          hasRequiredEvidence: !!(step as any).required_evidence,
+          hasEvidenceRequirements: !!step.evidence_requirements,
+          transformedEvidence: evidenceRequirements,
+        });
+      }
+
       workflowSteps.push({
         phase: step.phase as InspectionPhase,
         step_type: step.step_type as InspectionStepType,
@@ -1282,8 +1366,8 @@ export async function generateInspectionWorkflow(
         tags: step.tags || [],
         estimated_minutes: step.estimated_minutes,
         peril_specific: step.peril_specific || null,
-        // NO LEGACY ASSETS - evidence_requirements stored in workflow_json
-        evidence_requirements: step.evidence_requirements || [],
+        // Transform assets/required_evidence/evidence_requirements to unified format
+        evidence_requirements: evidenceRequirements,
       });
     }
 
