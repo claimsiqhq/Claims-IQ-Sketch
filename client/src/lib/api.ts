@@ -2301,6 +2301,9 @@ export interface InspectionWorkflowStep {
       promptText: string;
       minLength?: number;
     };
+    checklist?: {
+      items?: string[];
+    };
   }>;
   blocking?: string;
   blockingCondition?: Record<string, unknown>;

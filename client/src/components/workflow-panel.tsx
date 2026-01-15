@@ -214,7 +214,8 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
   const validateStepEvidence = useCallback((
     step: InspectionWorkflowStep,
     pendingPhotos: CapturedPhoto[] = [],
-    pendingNotes: string = ''
+    pendingNotes: string = '',
+    pendingChecklist: Array<{ label: string; checked: boolean }> = []
   ): { valid: boolean; message?: string } => {
     // Check if step is blocking (required OR blocking='blocking')
     const blocking = (step as InspectionWorkflowStep & { blocking?: string }).blocking;
@@ -227,6 +228,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
       label?: string;
       photo?: { minCount?: number; count?: number };
       note?: { minLength?: number };
+      checklist?: { items?: string[] };
     }> | undefined;
 
     if (!evidenceReqs || evidenceReqs.length === 0) {
@@ -236,6 +238,9 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         // NO LEGACY ASSETS - only check pending photos from dialog
         const totalPhotos = pendingPhotos.length;
         const combinedNotes = (step.notes || '') + pendingNotes;
+        const checklistComplete = pendingChecklist.length === 0
+          ? true
+          : pendingChecklist.every(item => item.checked);
         
         const canSkipPhotosForType = canCompleteWithoutPhotos(step.stepType, evidenceReqs);
         const canSkipNotesForType = canCompleteWithoutNotes(step.stepType, evidenceReqs);
@@ -244,6 +249,12 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
           return {
             valid: false,
             message: 'This required step needs at least a photo or notes.'
+          };
+        }
+        if (!checklistComplete) {
+          return {
+            valid: false,
+            message: 'This required step needs all checklist items completed.'
           };
         }
       }
@@ -284,6 +295,20 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
               ? `This step requires notes (minimum ${minLength} characters).`
               : 'This step requires notes.'
           };
+        }
+      }
+
+      if (req.type === 'checklist' && req.required) {
+        const checklistItems = req.checklist?.items || [];
+        if (checklistItems.length > 0) {
+          const checklistMap = new Map(pendingChecklist.map(item => [item.label, item.checked]));
+          const allChecked = checklistItems.every(item => checklistMap.get(item) === true);
+          if (!allChecked) {
+            return {
+              valid: false,
+              message: 'This step requires all checklist items to be completed.'
+            };
+          }
         }
       }
     }
@@ -463,7 +488,7 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
 
       // Validate evidence requirements for blocking steps (include pending photos)
       if (isBlockingStep && step) {
-        const validation = validateStepEvidence(step, data.photos, data.findings);
+        const validation = validateStepEvidence(step, data.photos, data.findings, data.checklistItems);
         if (!validation.valid) {
           toast.error(validation.message || 'Evidence requirements not met');
           setIsSubmittingStep(false);
@@ -1332,12 +1357,12 @@ export function WorkflowPanel({ claimId, className }: WorkflowPanelProps) {
         onComplete={handleStepComplete}
         onSkip={handleStepSkip}
         isSubmitting={isSubmittingStep}
-        validateEvidence={(step, pendingPhotos, pendingNotes) => {
+        validateEvidence={(step, pendingPhotos, pendingNotes, pendingChecklist) => {
           if (!workflow) return { valid: true };
           const workflowStep = workflow.steps.find(s => s.id === step.id);
           if (!workflowStep) return { valid: true };
           // Pass pending photos and notes to validation
-          return validateStepEvidence(workflowStep, pendingPhotos, pendingNotes);
+          return validateStepEvidence(workflowStep, pendingPhotos, pendingNotes, pendingChecklist);
         }}
       />
 

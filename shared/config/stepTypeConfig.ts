@@ -420,7 +420,7 @@ export function shouldShowPhotoCapture(
   evidenceRequirements?: Array<{ type: string; required?: boolean; photo?: { minCount?: number } }>
 ): boolean {
   // First check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const photoReq = evidenceRequirements.find(r => r.type === 'photo');
     if (photoReq) {
       return photoReq.required === true || (photoReq.photo?.minCount ?? 0) > 0;
@@ -475,7 +475,7 @@ export function getRequiredPhotoCount(
   evidenceRequirements?: Array<{ type: string; required?: boolean; photo?: { minCount?: number } }>
 ): number {
   // First check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const photoReq = evidenceRequirements.find(r => r.type === 'photo' && r.required);
     if (photoReq?.photo?.minCount !== undefined) {
       return photoReq.photo.minCount;
@@ -505,7 +505,7 @@ export function shouldShowNotesField(
   evidenceRequirements?: Array<{ type: string; required?: boolean; note?: { minLength?: number } }>
 ): boolean {
   // Check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const noteReq = evidenceRequirements.find(r => r.type === 'note');
     if (noteReq) {
       return true; // Show if note requirement exists
@@ -525,7 +525,7 @@ export function getNoteRequirement(
   evidenceRequirements?: Array<{ type: string; required?: boolean; note?: { minLength?: number } }>
 ): { required: boolean; minLength: number } {
   // Check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const noteReq = evidenceRequirements.find(r => r.type === 'note');
     if (noteReq) {
       return {
@@ -551,7 +551,7 @@ export function shouldShowMeasurementInput(
   evidenceRequirements?: Array<{ type: string; required?: boolean; measurement?: { type?: string; unit?: string } }>
 ): boolean {
   // Check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const measurementReq = evidenceRequirements.find(r => r.type === 'measurement');
     if (measurementReq) {
       return true;
@@ -571,7 +571,7 @@ export function shouldShowChecklist(
   evidenceRequirements?: Array<{ type: string; required?: boolean }>
 ): boolean {
   // Check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const checklistReq = evidenceRequirements.find(r => r.type === 'checklist');
     if (checklistReq) {
       return true;
@@ -591,7 +591,7 @@ export function canCompleteWithoutPhotos(
   evidenceRequirements?: Array<{ type: string; required?: boolean }>
 ): boolean {
   // Check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const photoReq = evidenceRequirements.find(r => r.type === 'photo' && r.required === true);
     if (photoReq) {
       return false; // Photo is required
@@ -611,7 +611,7 @@ export function canCompleteWithoutNotes(
   evidenceRequirements?: Array<{ type: string; required?: boolean }>
 ): boolean {
   // Check explicit evidence requirements
-  if (evidenceRequirements) {
+  if (evidenceRequirements && evidenceRequirements.length > 0) {
     const noteReq = evidenceRequirements.find(r => r.type === 'note' && r.required === true);
     if (noteReq) {
       return false; // Notes are required

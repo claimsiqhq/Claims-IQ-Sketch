@@ -13,7 +13,7 @@
  * - Quick action buttons
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { CompactPhotoCapture, CapturedPhoto } from "./photo-capture";
@@ -48,6 +49,7 @@ import {
   shouldShowNotesField,
   getNoteRequirement as getNoteRequirementFromConfig,
   shouldShowMeasurementInput,
+  shouldShowChecklist,
   canCompleteWithoutPhotos,
   canCompleteWithoutNotes,
   getStepTypeConfig,
@@ -73,7 +75,7 @@ import {
 // Evidence requirement from workflow JSON
 export interface EvidenceRequirement {
   id?: string;
-  type: 'photo' | 'measurement' | 'note';
+  type: 'photo' | 'measurement' | 'note' | 'checklist';
   label: string;
   required: boolean;
   description?: string;
@@ -91,6 +93,9 @@ export interface EvidenceRequirement {
   note?: {
     promptText?: string;
     minLength?: number;
+  };
+  checklist?: {
+    items?: string[];
   };
 }
 
@@ -123,6 +128,7 @@ export interface StepCompletionData {
   measurementUnit?: string;
   followUpNeeded: boolean;
   followUpNote?: string;
+  checklistItems?: Array<{ label: string; checked: boolean }>;
 }
 
 interface StepCompletionDialogProps {
@@ -133,7 +139,12 @@ interface StepCompletionDialogProps {
   onSkip?: (stepId: string, reason: string) => void;
   isSubmitting?: boolean;
   /** Validates evidence including both stored and pending evidence */
-  validateEvidence?: (step: StepData, pendingPhotos: CapturedPhoto[], pendingNotes: string) => { valid: boolean; message?: string };
+  validateEvidence?: (
+    step: StepData,
+    pendingPhotos: CapturedPhoto[],
+    pendingNotes: string,
+    pendingChecklist?: Array<{ label: string; checked: boolean }>
+  ) => { valid: boolean; message?: string };
 }
 
 export function StepCompletionDialog({
@@ -158,6 +169,30 @@ export function StepCompletionDialog({
   const [followUpNote, setFollowUpNote] = useState("");
   const [skipReason, setSkipReason] = useState("");
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
+
+  const checklistRequirement = useMemo(
+    () => step?.evidenceRequirements?.find(req => req.type === "checklist"),
+    [step]
+  );
+
+  const checklistItems = useMemo(() => {
+    if (!step) return [];
+    const fromRequirement = checklistRequirement?.checklist?.items;
+    if (fromRequirement && fromRequirement.length > 0) {
+      return fromRequirement;
+    }
+    const config = getStepTypeConfig(step.stepType);
+    return config.defaultEvidence.checklist.defaultItems || [];
+  }, [step, checklistRequirement]);
+
+  const checklistRequired = checklistRequirement?.required ?? (
+    step ? getStepTypeConfig(step.stepType).defaultEvidence.checklist.required : false
+  );
+
+  const checklistComplete = checklistItems.length === 0
+    ? true
+    : checklistItems.every(item => checklistState[item] === true);
 
   // Reset form when step changes
   useEffect(() => {
@@ -171,8 +206,17 @@ export function StepCompletionDialog({
       setFollowUpNote("");
       setSkipReason("");
       setShowSkipConfirm(false);
+      if (checklistItems.length > 0) {
+        const initialChecklist: Record<string, boolean> = {};
+        checklistItems.forEach(item => {
+          initialChecklist[item] = false;
+        });
+        setChecklistState(initialChecklist);
+      } else {
+        setChecklistState({});
+      }
     }
-  }, [step?.id]);
+  }, [step?.id, checklistItems]);
 
   if (!step) return null;
 
@@ -214,9 +258,16 @@ export function StepCompletionDialog({
     return shouldShowMeasurementInput(step.stepType, step.evidenceRequirements);
   };
 
+  const shouldRenderChecklist = (): boolean => {
+    return shouldShowChecklist(step.stepType, step.evidenceRequirements) && checklistItems.length > 0;
+  };
+
   // Validate evidence using provided validator (includes pending photos and notes)
   const evidenceValidation = validateEvidence
-    ? validateEvidence(step, photos, findings)
+    ? validateEvidence(step, photos, findings, checklistItems.map(label => ({
+        label,
+        checked: checklistState[label] === true,
+      })))
     : { valid: true };
 
   // Check if step is blocking (required or blocking='blocking')
@@ -229,8 +280,11 @@ export function StepCompletionDialog({
   const photoRequirementMet = canSkipPhotos || hasEnoughPhotos;
   const noteRequirementMet = canSkipNotes || hasRequiredNotes;
   const measurementRequirementMet = !requiresMeasurement || hasMeasurement;
+  const checklistRequirementMet = !checklistRequired || checklistComplete;
 
-  const hasBasicRequirements = !isBlockingStep || (photoRequirementMet && noteRequirementMet && measurementRequirementMet);
+  const hasBasicRequirements = !isBlockingStep || (
+    photoRequirementMet && noteRequirementMet && measurementRequirementMet && checklistRequirementMet
+  );
 
   // Check if can complete - must pass both basic requirements and evidence validation
   const canComplete = hasBasicRequirements && evidenceValidation.valid;
@@ -250,6 +304,9 @@ export function StepCompletionDialog({
       if (!measurementRequirementMet) {
         return 'This step requires a measurement value.';
       }
+      if (!checklistRequirementMet) {
+        return 'This step requires all checklist items to be completed.';
+      }
     }
     return undefined;
   };
@@ -259,7 +316,15 @@ export function StepCompletionDialog({
   const handleComplete = () => {
     // Double-check validation before submitting (include pending photos and notes)
     if (validateEvidence) {
-      const finalValidation = validateEvidence(step, photos, findings);
+      const finalValidation = validateEvidence(
+        step,
+        photos,
+        findings,
+        checklistItems.map(label => ({
+          label,
+          checked: checklistState[label] === true,
+        }))
+      );
       if (!finalValidation.valid) {
         // Validation failed - don't proceed
         return;
@@ -282,6 +347,9 @@ export function StepCompletionDialog({
       measurementUnit: step.stepType === "measurement" ? measurementUnit : undefined,
       followUpNeeded,
       followUpNote: followUpNeeded ? followUpNote : undefined,
+      checklistItems: checklistItems.length > 0
+        ? checklistItems.map(label => ({ label, checked: checklistState[label] === true }))
+        : undefined,
     });
   };
 
@@ -397,6 +465,37 @@ export function StepCompletionDialog({
                 className="min-h-[100px]"
                 disabled={isSubmitting}
               />
+            </div>
+          )}
+
+          {/* Checklist - Conditionally rendered */}
+          {shouldRenderChecklist() && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                Checklist
+                {checklistRequired && (
+                  <span className="text-xs text-muted-foreground">(Required)</span>
+                )}
+              </Label>
+              <div className="space-y-2">
+                {checklistItems.map((item) => (
+                  <div key={item} className="flex items-start gap-2">
+                    <Checkbox
+                      checked={checklistState[item] === true}
+                      onCheckedChange={(checked) =>
+                        setChecklistState((prev) => ({
+                          ...prev,
+                          [item]: checked === true,
+                        }))
+                      }
+                      disabled={isSubmitting}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm">{item}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
