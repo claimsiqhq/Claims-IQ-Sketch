@@ -561,6 +561,31 @@ export async function generateClaimBriefing(
       const promptConfig = await getPromptWithFallback(PromptKey.CLAIM_BRIEFING);
       const userPrompt = buildEnhancedBriefingPrompt(context);
 
+      // [BRIEFING_AUDIT] Log prompt data for verification
+      console.log('[BRIEFING_AUDIT] Full prompt being sent:', JSON.stringify({
+        systemPromptPreview: promptConfig.systemPrompt.substring(0, 500),
+        userPromptPreview: userPrompt.substring(0, 1000),
+        propertyDataIncluded: {
+          hasYearBuilt: userPrompt.includes('Year Built') || userPrompt.includes('year_built'),
+          hasStories: userPrompt.includes('Stories') || userPrompt.includes('stories'),
+          hasRoofYearInstalled: userPrompt.includes('Roof Year Installed') || userPrompt.includes('year_installed'),
+          hasRoofAgeAtLoss: userPrompt.includes('Roof Age at Loss') || userPrompt.includes('ageAtLoss'),
+          hasExteriorDamaged: userPrompt.includes('Exterior Damaged'),
+          hasInteriorDamaged: userPrompt.includes('Interior Damaged'),
+        },
+        policyDataIncluded: {
+          hasCoverageA: userPrompt.includes('Coverage A') || userPrompt.includes('Dwelling'),
+          hasDeductibles: userPrompt.includes('Deductible'),
+          hasEndorsements: userPrompt.includes('Endorsement') || userPrompt.includes('endorsement'),
+        },
+        contextMetrics: {
+          promptLength: userPrompt.length,
+          hasDepreciationContext: userPrompt.includes('DEPRECIATION'),
+          hasAlertsSection: userPrompt.includes('COVERAGE ALERTS'),
+          hasInsightsSection: userPrompt.includes('CLAIM INSIGHTS'),
+        }
+      }, null, 2));
+
       const completion = await openai.chat.completions.create({
         model: promptConfig.model,
         messages: [

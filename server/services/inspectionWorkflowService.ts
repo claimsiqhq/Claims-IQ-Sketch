@@ -1194,6 +1194,33 @@ export async function generateInspectionWorkflow(
     // Build ENHANCED prompt with full context
     const userPrompt = buildEnhancedWorkflowPrompt(context, briefing, wizardContext);
 
+    // [WORKFLOW_AUDIT] Log prompt data for verification
+    console.log('[WORKFLOW_AUDIT] Full prompt being sent:', JSON.stringify({
+      systemPromptPreview: promptConfig.systemPrompt.substring(0, 500),
+      userPromptPreview: userPrompt.substring(0, 1000),
+      briefingDataIncluded: {
+        hasInspectionStrategy: userPrompt.includes('inspection_strategy') || userPrompt.includes('Where to Start') || userPrompt.includes('Inspection Strategy'),
+        hasPhotoRequirements: userPrompt.includes('photo_requirements') || userPrompt.includes('Photo Requirements') || userPrompt.includes('PHOTO REQUIREMENTS'),
+        hasEndorsementWatchouts: userPrompt.includes('endorsement_watchouts') || userPrompt.includes('Endorsement Watchouts'),
+        hasDepreciationNotes: userPrompt.includes('depreciation_notes') || userPrompt.includes('Depreciation Notes'),
+        hasOpenQuestions: userPrompt.includes('open_questions') || userPrompt.includes('Open Questions'),
+      },
+      propertyContextIncluded: {
+        hasStories: userPrompt.includes('stories') || userPrompt.includes('MULTI-STORY'),
+        hasYearBuilt: userPrompt.includes('Year Built') || userPrompt.includes('year_built'),
+        hasRoofSchedule: userPrompt.includes('ROOF AGE VERIFICATION') || userPrompt.includes('Payment Schedule'),
+        hasWoodRoof: userPrompt.includes('WOOD ROOF') || userPrompt.includes('wood_roof'),
+        hasDamageScope: userPrompt.includes('EXTERIOR-ONLY') || userPrompt.includes('INTERIOR-ONLY'),
+      },
+      contextMetrics: {
+        promptLength: userPrompt.length,
+        hasBriefingSection: userPrompt.includes('AI CLAIM BRIEFING'),
+        hasPropertyAdaptations: userPrompt.includes('PROPERTY-DRIVEN WORKFLOW ADAPTATIONS'),
+        hasWizardContext: userPrompt.includes('FIELD ADJUSTER INPUT'),
+        briefingProvided: !!briefing?.briefingJson,
+      }
+    }, null, 2));
+
     const completion = await openai.chat.completions.create({
       model: promptConfig.model || 'gpt-4o',
       messages: [
