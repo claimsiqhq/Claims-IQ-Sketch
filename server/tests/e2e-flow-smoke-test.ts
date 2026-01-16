@@ -46,7 +46,7 @@ const testResults: TestResult[] = [];
 let testClaimId: string | null = null;
 let testFlowInstanceId: string | null = null;
 let testOrganizationId: string | null = null;
-let testUserId: string = randomUUID();
+let testUserId: string | null = null;
 
 // Helper function to log test results
 function logResult(step: number, name: string, passed: boolean, notes: string, error?: string) {
@@ -69,6 +69,21 @@ async function step0_verifyPrerequisites(): Promise<boolean> {
   console.log('='.repeat(60));
 
   try {
+    // Get a test user from the database
+    const { data: testUser, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .limit(1)
+      .single();
+
+    if (userError || !testUser?.id) {
+      logResult(0, 'Verify Prerequisites', false, 'Cannot find test user in database', userError?.message);
+      return false;
+    }
+
+    testUserId = testUser.id;
+    console.log(`   Using test user ID: ${testUserId}`);
+
     // Check flow_definitions table exists and has water damage flow
     const { data: flowDefs, error: flowError } = await supabase
       .from('flow_definitions')
@@ -438,7 +453,7 @@ async function step5_executeFirstMovement(): Promise<boolean> {
         claim_id: testClaimId,
         status: 'completed',
         completed_at: new Date().toISOString(),
-        completed_by: testUserId,
+        completed_by: testUserId!,
         notes: 'E2E Test: Address verified - 123 Test Street matches policy',
         evidence_data: {
           photos: [],
@@ -512,7 +527,7 @@ async function step6_testPhotoCapture(): Promise<boolean> {
         label: 'Water Source - Burst Pipe',
         description: 'E2E Test: Photo of burst pipe under kitchen sink',
         analysis_status: 'pending',
-        uploaded_by: testUserId
+        uploaded_by: testUserId!
       })
       .select()
       .single();
@@ -606,7 +621,7 @@ async function step7_testAudioObservation(): Promise<boolean> {
         },
         extraction_status: 'completed',
         duration_seconds: 15,
-        recorded_by: testUserId
+        recorded_by: testUserId!
       })
       .select()
       .single();
@@ -738,7 +753,7 @@ async function step8_completeMovementWithEvidence(): Promise<boolean> {
         claim_id: testClaimId,
         status: 'completed',
         completed_at: new Date().toISOString(),
-        completed_by: testUserId,
+        completed_by: testUserId!,
         notes: 'E2E Test: Movement completed with photo and audio evidence',
         evidence_data: {
           photos: photos?.map(p => p.id) || [],
@@ -835,7 +850,7 @@ async function step9_testPhaseTransition(): Promise<boolean> {
             claim_id: testClaimId,
             status: 'completed',
             completed_at: new Date().toISOString(),
-            completed_by: testUserId,
+            completed_by: testUserId!,
             notes: 'E2E Test: Bulk completion for phase transition test'
           });
       }
@@ -961,7 +976,7 @@ async function step10_testSkipMovement(): Promise<boolean> {
         claim_id: testClaimId,
         status: 'skipped',
         completed_at: new Date().toISOString(),
-        completed_by: testUserId,
+        completed_by: testUserId!,
         notes: 'E2E Test: Movement skipped - not applicable to this claim'
       });
 
@@ -1030,7 +1045,7 @@ async function step11_completeRemainingPhases(): Promise<boolean> {
               claim_id: testClaimId,
               status: 'completed',
               completed_at: new Date().toISOString(),
-              completed_by: testUserId,
+              completed_by: testUserId!,
               notes: 'E2E Test: Bulk completion'
             });
         }
