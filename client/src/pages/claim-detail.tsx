@@ -135,6 +135,7 @@ import { PerilBadgeGroup, PerilAdvisoryBanner, PerilHint } from "@/components/pe
 import { InspectionTipsPanel } from "@/components/inspection-tips-panel";
 import { BriefingPanel } from "@/components/briefing-panel";
 import { WorkflowPanel } from "@/components/workflow-panel";
+import { ClaimFlowSection } from "@/components/flow";
 import { CarrierGuidancePanel } from "@/components/carrier-guidance-panel";
 import ClaimChecklistPanel from "@/components/claim-checklist";
 import { Room, RoomOpening, Peril, PERIL_LABELS } from "@/lib/types";
@@ -2386,9 +2387,18 @@ export default function ClaimDetail() {
 
             {/* TAB: WORKFLOW */}
             <TabsContent value="workflow" className="h-full p-4 md:p-6 m-0 overflow-auto">
-              <div className="max-w-4xl mx-auto">
+              <div className="max-w-4xl mx-auto space-y-6">
                 {apiClaim?.id ? (
-                  <WorkflowPanel claimId={apiClaim.id} />
+                  <>
+                    {/* Flow Engine Section - New movement-based inspection flow */}
+                    <ClaimFlowSection
+                      claimId={apiClaim.id}
+                      perilType={apiClaim.primaryPeril || apiClaim.lossType}
+                    />
+
+                    {/* Legacy Workflow Panel - Existing step-based workflow */}
+                    <WorkflowPanel claimId={apiClaim.id} />
+                  </>
                 ) : (
                   <div className="text-center text-muted-foreground py-8">
                     Loading claim data...

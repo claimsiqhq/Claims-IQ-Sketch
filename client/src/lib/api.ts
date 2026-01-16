@@ -3613,3 +3613,479 @@ export async function validateFlowJson(flowJson: FlowJson): Promise<FlowValidati
   }
   return response.json();
 }
+
+// ============================================
+// FLOW ENGINE API (Runtime Flow Execution)
+// ============================================
+
+/**
+ * Flow Instance - A running instance of a flow for a specific claim
+ */
+export interface FlowInstance {
+  id: string;
+  claimId: string;
+  flowDefinitionId: string;
+  status: 'active' | 'paused' | 'completed' | 'cancelled';
+  currentPhaseId: string | null;
+  currentPhaseIndex: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  flowName?: string;
+  flowDescription?: string;
+  currentPhaseName?: string;
+  currentPhaseDescription?: string;
+  completedMovements: string[];
+  flow_definitions?: FlowDefinition;
+  phases?: FlowPhaseStatus[];
+  progress?: FlowProgress;
+}
+
+/**
+ * Flow Progress summary
+ */
+export interface FlowProgress {
+  total: number;
+  completed: number;
+  percentComplete: number;
+}
+
+/**
+ * Flow Phase with completion status
+ */
+export interface FlowPhaseStatus {
+  id: string;
+  name: string;
+  description: string;
+  sequenceOrder: number;
+  isCompleted: boolean;
+  movementCount: number;
+  completedMovementCount: number;
+}
+
+/**
+ * Flow Movement - A single action within a phase
+ */
+export interface FlowMovement {
+  id: string;
+  phaseId: string;
+  name: string;
+  description: string;
+  sequenceOrder: number;
+  isRequired: boolean;
+  roomSpecific: boolean;
+  roomName: string | null;
+  validationRequirements: any;
+  completionStatus?: 'pending' | 'completed' | 'skipped';
+  completedAt?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Movement Completion record
+ */
+export interface MovementCompletion {
+  id: string;
+  flowInstanceId: string;
+  movementId: string;
+  claimId: string;
+  status: 'completed' | 'skipped';
+  completedAt: string;
+  completedBy: string;
+  notes: string | null;
+  evidenceData: any;
+}
+
+/**
+ * Movement Evidence record
+ */
+export interface MovementEvidence {
+  id: string;
+  movementId: string;
+  flowInstanceId: string;
+  type: 'photo' | 'audio' | 'measurement' | 'note';
+  referenceId?: string;
+  data?: any;
+  createdAt: string;
+  createdBy: string;
+}
+
+/**
+ * Next Movement response
+ */
+export interface NextMovementResponse {
+  type: 'movement' | 'gate' | 'complete';
+  movement?: FlowMovement;
+  gate?: {
+    id: string;
+    name: string;
+    description: string;
+    evaluationCriteria: any;
+  };
+}
+
+/**
+ * Gate evaluation result
+ */
+export interface GateEvaluationResult {
+  passed: boolean;
+  reason?: string;
+  nextPhaseId?: string;
+  message: string;
+}
+
+/**
+ * Flow Timeline event
+ */
+export interface FlowTimelineEvent {
+  id: string;
+  type: 'movement_completed' | 'movement_skipped' | 'phase_started' | 'phase_completed' | 'gate_passed' | 'gate_failed';
+  timestamp: string;
+  movementId?: string;
+  movementName?: string;
+  phaseId?: string;
+  phaseName?: string;
+  notes?: string;
+}
+
+/**
+ * Start a new flow for a claim
+ */
+export async function startFlowForClaim(
+  claimId: string,
+  perilType: string
+): Promise<{ flowInstanceId: string; message: string }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/flows`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ perilType }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to start flow');
+  }
+  return response.json();
+}
+
+/**
+ * Get active flow for a claim
+ */
+export async function getActiveFlowForClaim(claimId: string): Promise<FlowInstance | null> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/flows`, {
+    credentials: 'include',
+  });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch active flow');
+  }
+  return response.json();
+}
+
+/**
+ * Cancel active flow for a claim
+ */
+export async function cancelFlowForClaim(claimId: string): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/flows`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to cancel flow');
+  }
+  return response.json();
+}
+
+/**
+ * Get flow instance with full details
+ */
+export async function getFlowInstance(flowInstanceId: string): Promise<FlowInstance> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow instance');
+  }
+  return response.json();
+}
+
+/**
+ * Get flow progress summary
+ */
+export async function getFlowProgress(flowInstanceId: string): Promise<FlowProgress> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/progress`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow progress');
+  }
+  return response.json();
+}
+
+/**
+ * Get flow timeline
+ */
+export async function getFlowTimeline(flowInstanceId: string): Promise<FlowTimelineEvent[]> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/timeline`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow timeline');
+  }
+  return response.json();
+}
+
+/**
+ * Get all phases for a flow instance
+ */
+export async function getFlowPhases(flowInstanceId: string): Promise<FlowPhaseStatus[]> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/phases`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow phases');
+  }
+  return response.json();
+}
+
+/**
+ * Get movements for a specific phase
+ */
+export async function getPhaseMovements(
+  flowInstanceId: string,
+  phaseId: string
+): Promise<FlowMovement[]> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/phases/${phaseId}/movements`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch phase movements');
+  }
+  return response.json();
+}
+
+/**
+ * Get next movement to complete
+ */
+export async function getNextMovement(flowInstanceId: string): Promise<NextMovementResponse> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/next`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch next movement');
+  }
+  return response.json();
+}
+
+/**
+ * Complete a movement
+ */
+export async function completeFlowMovement(
+  flowInstanceId: string,
+  movementId: string,
+  data: {
+    userId: string;
+    notes?: string;
+    evidence?: {
+      photos?: string[];
+      audioObservationId?: string;
+      measurements?: Record<string, any>;
+    };
+  }
+): Promise<MovementCompletion> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to complete movement');
+  }
+  return response.json();
+}
+
+/**
+ * Skip a movement
+ */
+export async function skipFlowMovement(
+  flowInstanceId: string,
+  movementId: string,
+  data: {
+    userId: string;
+    reason: string;
+  }
+): Promise<MovementCompletion> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/skip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to skip movement');
+  }
+  return response.json();
+}
+
+/**
+ * Get evidence for a movement
+ */
+export async function getMovementEvidence(
+  flowInstanceId: string,
+  movementId: string
+): Promise<MovementEvidence[]> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/evidence`, {
+    credentials: 'include',
+  });
+  if (response.status === 404) {
+    return [];
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch movement evidence');
+  }
+  return response.json();
+}
+
+/**
+ * Attach evidence to a movement
+ */
+export async function attachMovementEvidence(
+  flowInstanceId: string,
+  movementId: string,
+  data: {
+    type: 'photo' | 'audio' | 'measurement' | 'note';
+    referenceId?: string;
+    data?: any;
+    userId: string;
+  }
+): Promise<{ evidenceId: string; message: string }> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/evidence`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to attach evidence');
+  }
+  return response.json();
+}
+
+/**
+ * Validate evidence for a movement
+ */
+export async function validateMovementEvidence(
+  flowInstanceId: string,
+  movementId: string
+): Promise<{ isValid: boolean; missingItems: string[]; qualityIssues: string[] }> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/validate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to validate evidence');
+  }
+  return response.json();
+}
+
+/**
+ * Evaluate a gate
+ */
+export async function evaluateFlowGate(
+  flowInstanceId: string,
+  gateId: string
+): Promise<GateEvaluationResult> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/gates/${gateId}/evaluate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to evaluate gate');
+  }
+  return response.json();
+}
+
+/**
+ * Add room-specific movements to a flow
+ */
+export async function addFlowRoomMovements(
+  flowInstanceId: string,
+  data: {
+    roomName: string;
+    roomType?: string;
+    movementTemplates?: string[];
+  }
+): Promise<{ message: string; roomName: string; movementCount: number }> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to add room movements');
+  }
+  return response.json();
+}
+
+/**
+ * Get AI-suggested movements
+ */
+export async function getSuggestedMovements(
+  flowInstanceId: string,
+  context?: Record<string, any>
+): Promise<{ suggestions: FlowMovement[] }> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ context }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to get suggestions');
+  }
+  return response.json();
+}
+
+/**
+ * Insert a custom movement
+ */
+export async function insertCustomMovement(
+  flowInstanceId: string,
+  data: {
+    phaseId: string;
+    name: string;
+    description?: string;
+    afterMovementId?: string;
+  }
+): Promise<{ id: string; message: string }> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to insert custom movement');
+  }
+  return response.json();
+}
