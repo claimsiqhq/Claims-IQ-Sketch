@@ -15,6 +15,8 @@ import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import Photos from "@/pages/photos";
 import Calendar from "@/pages/calendar";
 import FlowBuilder from "@/pages/flow-builder";
+import FlowProgress from "@/pages/flow-progress";
+import MovementExecution from "@/pages/movement-execution";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { UploadStatusBar } from "@/components/UploadStatusBar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -80,6 +82,17 @@ function Router() {
       <Route path="/flow-builder/:id">
         <ProtectedRoute>
           <FlowBuilder />
+        </ProtectedRoute>
+      </Route>
+      {/* Flow Execution Routes */}
+      <Route path="/flows/:flowId">
+        <ProtectedRoute>
+          <FlowProgress />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/flows/:flowId/movements/:movementId">
+        <ProtectedRoute>
+          <MovementExecution />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />
