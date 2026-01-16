@@ -1,3 +1,6 @@
+// Load environment variables from .env file BEFORE any other imports
+import 'dotenv/config';
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
