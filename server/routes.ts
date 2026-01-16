@@ -284,6 +284,7 @@ import {
   updateScopeItem,
   deleteScopeItem,
 } from "./services/estimateHierarchy";
+import flowEngineRoutes from './routes/flowEngineRoutes';
 
 // Create logger for routes
 const log = createLogger({ module: 'routes' });
@@ -321,6 +322,9 @@ export async function registerRoutes(
 
   // Apply tenant middleware to all routes (after auth)
   app.use(tenantMiddleware);
+
+  // Flow Engine routes (new movement-based inspection system)
+  app.use('/api', flowEngineRoutes);
 
   // ============================================
   // AUTH ROUTES
