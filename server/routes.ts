@@ -77,7 +77,6 @@ import {
   claimUpdateSchema,
   aiSuggestEstimateSchema,
   aiQuickSuggestSchema,
-  workflowRegenerateSchema,
   workflowExpandRoomsSchema,
   addLineItemToZoneSchema,
   updateLineItemSchema,
@@ -107,9 +106,6 @@ import {
   subroomUpdateSchema,
   coverageCreateSchema,
   lineItemCoverageUpdateSchema,
-  workflowStepUpdateSchema,
-  workflowStepCreateSchema,
-  workflowRoomCreateSchema,
   workflowEvidenceSchema,
   workflowMutationSchema,
   calendarAppointmentCreateSchema,
@@ -237,16 +233,8 @@ import {
   updateCarrierOverlays,
 } from "./services/carrierOverlayService";
 import {
-  generateInspectionWorkflow,
-  regenerateWorkflow,
   expandWorkflowForRooms,
   validateWorkflowJson,
-  getWorkflow,
-  getClaimWorkflow,
-  updateWorkflowStep,
-  addWorkflowStep,
-  addWorkflowRoom,
-  shouldRegenerateWorkflow,
 } from "./services/inspectionWorkflowService";
 import {
   createStructure,
@@ -3510,29 +3498,6 @@ export async function registerRoutes(
     res.json(result);
   }));
 
-  /**
-   * POST /api/claims/:id/workflow/generate-enhanced
-   * Generate an enhanced inspection workflow using UnifiedClaimContext.
-   * NOTE: The main generateInspectionWorkflow now uses enhanced context by default.
-   */
-  app.post('/api/claims/:id/workflow/generate-enhanced', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const { generateInspectionWorkflow } = await import('./services/inspectionWorkflowService');
-    const forceRegenerate = req.query.force === 'true';
-
-    const result = await generateInspectionWorkflow(
-      req.params.id,
-      req.organizationId!,
-      undefined, // userId
-      forceRegenerate
-    );
-
-    if (!result.success) {
-      return next(errors.internal(result.error || 'Failed to generate workflow'));
-    }
-
-    res.json(result);
-  }));
-
   // ============================================================================
   // FLOW ENGINE (NEW) - Test Routes
   // ============================================================================
@@ -3752,243 +3717,8 @@ export async function registerRoutes(
   }));
 
   // ============================================
-  // INSPECTION WORKFLOW ROUTES
+  // WORKFLOW EXPANSION AND VALIDATION ROUTES
   // ============================================
-
-  /**
-   * POST /api/claims/:id/workflow/generate
-   * Generate a new inspection workflow for a claim.
-   * Uses FNOL, policy, endorsements, briefing, peril rules, and optional wizard context.
-   */
-  app.post('/api/claims/:id/workflow/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const { forceRegenerate, wizardContext } = req.body;
-    const result = await generateInspectionWorkflow(
-      req.params.id,
-      req.organizationId!,
-      req.user?.id,
-      forceRegenerate === true,
-      wizardContext
-    );
-
-    if (!result.success) {
-      return next(errors.badRequest(result.error || 'Failed to generate workflow'));
-    }
-
-    res.json({
-      workflow: result.workflow,
-      workflowId: result.workflowId,
-      version: result.version,
-      model: result.model,
-      tokenUsage: result.tokenUsage,
-    });
-  }));
-
-  /**
-   * GET /api/claims/:id/workflow
-   * Get the current inspection workflow for a claim with all steps and rooms.
-   */
-  app.get('/api/claims/:id/workflow', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const workflow = await getClaimWorkflow(req.params.id, req.organizationId!);
-
-    if (!workflow) {
-      return next(errors.notFound('Workflow'));
-    }
-
-    res.json(workflow);
-  }));
-
-  /**
-   * GET /api/claims/:id/workflow/status
-   * Check if the workflow should be regenerated due to claim changes.
-   */
-  app.get('/api/claims/:id/workflow/status', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const result = await shouldRegenerateWorkflow(req.params.id, req.organizationId!);
-    res.json(result);
-  }));
-
-  /**
-   * POST /api/claims/:id/workflow/regenerate
-   * Regenerate a workflow due to claim changes.
-   * Archives the previous workflow and creates a new version.
-   */
-  app.post('/api/claims/:id/workflow/regenerate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowRegenerateSchema), asyncHandler(async (req, res, next) => {
-    const { reason } = req.body;
-    if (!reason) {
-      return next(errors.badRequest('reason is required for regeneration'));
-    }
-
-    try {
-      const result = await regenerateWorkflow(
-        req.params.id,
-        req.organizationId!,
-        reason,
-        req.user?.id
-      );
-
-      if (!result.success) {
-        return next(errors.badRequest(result.error || 'Failed to regenerate workflow'));
-      }
-
-      res.json({
-        workflow: result.workflow,
-        workflowId: result.workflowId,
-        version: result.version,
-        model: result.model,
-        tokenUsage: result.tokenUsage,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return next(errors.internal(message));
-    }
-  }));
-
-  /**
-   * GET /api/workflow/:id
-   * Get a specific workflow by ID with all steps and rooms.
-   */
-  app.get('/api/workflow/:id', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const workflow = await getWorkflow(req.params.id, req.organizationId!);
-
-    if (!workflow) {
-      return next(errors.notFound('Workflow'));
-    }
-
-    res.json(workflow);
-  }));
-
-  /**
-   * PATCH /api/workflow/:id/steps/:stepId
-   * Update a workflow step (status, notes, actual minutes, etc.)
-   * Enforces evidence requirements for blocking steps when completing.
-   */
-  app.patch('/api/workflow/:id/steps/:stepId', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), stepId: z.string().uuid() })), validateBody(workflowStepUpdateSchema), asyncHandler(async (req, res, next) => {
-    const { status, notes, actualMinutes, skipValidation } = req.body;
-
-    // If completing a step, validate evidence requirements for blocking steps
-    if (status === 'completed' && !skipValidation) {
-      // Get the step with evidence to check requirements
-      const { data: stepData, error: fetchError } = await supabaseAdmin
-        .from('inspection_workflow_steps')
-        .select(`
-          id,
-          required,
-          evidence_requirements,
-          evidence:workflow_step_evidence(id, evidence_type, requirement_id)
-        `)
-        .eq('id', req.params.stepId)
-        .single();
-
-      if (fetchError || !stepData) {
-        return next(errors.notFound('Step'));
-      }
-
-      // Check if this is a blocking step with evidence requirements
-      if (stepData.required && stepData.evidence_requirements) {
-        const evidenceReqs = stepData.evidence_requirements as Array<{
-          type: string;
-          required: boolean;
-          photo?: { minCount?: number; count?: number };
-        }>;
-        const attachedEvidence = (stepData.evidence || []) as Array<{ evidence_type: string }>;
-
-        for (const req of evidenceReqs) {
-          if (req.required) {
-            if (req.type === 'photo') {
-              const photoCount = attachedEvidence.filter(e => e.evidence_type === 'photo').length;
-              const minPhotos = req.photo?.minCount || req.photo?.count || 1;
-              if (photoCount < minPhotos) {
-                return next(errors.badRequest('Evidence requirements not met', {
-                  details: {
-                    type: 'photos',
-                    required: minPhotos,
-                    current: photoCount
-                  }
-                }));
-              }
-            }
-            if (req.type === 'measurement') {
-              const measurementCount = attachedEvidence.filter(e => e.evidence_type === 'measurement').length;
-              if (measurementCount === 0) {
-                return next(errors.badRequest('Evidence requirements not met', {
-                  details: { type: 'measurements', required: 1, current: 0 }
-                }));
-              }
-            }
-          }
-        }
-      }
-    }
-
-    const updates: Parameters<typeof updateWorkflowStep>[1] = {};
-    if (status !== undefined) updates.status = status;
-    if (notes !== undefined) updates.notes = notes;
-    if (actualMinutes !== undefined) updates.actualMinutes = actualMinutes;
-    if (status === 'completed' && req.user?.id) {
-      updates.completedBy = req.user.id;
-    }
-
-    const step = await updateWorkflowStep(req.params.stepId, updates);
-
-    if (!step) {
-      return next(errors.notFound('Step'));
-    }
-
-    res.json({ step });
-  }));
-
-  /**
-   * POST /api/workflow/:id/steps
-   * Add a new custom step to a workflow.
-   */
-  app.post('/api/workflow/:id/steps', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowStepCreateSchema), asyncHandler(async (req, res, next) => {
-    const { phase, stepType, title, instructions, required, estimatedMinutes, roomId, roomName } = req.body;
-
-    if (!phase || !stepType || !title) {
-      return next(errors.badRequest('phase, stepType, and title are required'));
-    }
-
-    const step = await addWorkflowStep(req.params.id, {
-      phase,
-      stepType,
-      title,
-      instructions,
-      required,
-      estimatedMinutes,
-      roomId,
-      roomName,
-    });
-
-    if (!step) {
-      return next(errors.badRequest('Failed to add step'));
-    }
-
-    res.status(201).json({ step });
-  }));
-
-  /**
-   * POST /api/workflow/:id/rooms
-   * Add a new room to a workflow.
-   */
-  app.post('/api/workflow/:id/rooms', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowRoomCreateSchema), asyncHandler(async (req, res, next) => {
-    const { name, level, roomType, notes } = req.body;
-
-    if (!name) {
-      return next(errors.badRequest('name is required'));
-    }
-
-    const room = await addWorkflowRoom(req.params.id, {
-      name,
-      level,
-      roomType,
-      notes,
-    });
-
-    if (!room) {
-      return next(errors.badRequest('Failed to add room'));
-    }
-
-    res.status(201).json({ room });
-  }));
 
   /**
    * POST /api/workflow/:id/expand-rooms
