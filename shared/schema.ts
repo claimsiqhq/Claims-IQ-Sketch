@@ -4762,6 +4762,129 @@ export type InsertFlowDefinition = z.infer<typeof insertFlowDefinitionSchema>;
 export type FlowDefinition = typeof flowDefinitions.$inferSelect;
 
 // ============================================
+// CLAIM FLOW INSTANCES TABLE
+// ============================================
+
+/**
+ * Tracks active flow instances for claims.
+ * Each claim can have one active flow at a time.
+ */
+export const claimFlowInstances = pgTable("claim_flow_instances", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: "cascade" }),
+  flowDefinitionId: uuid("flow_definition_id").notNull().references(() => flowDefinitions.id),
+  
+  // Status
+  status: varchar("status", { length: 20 }).notNull().default("active"), // active, paused, completed, cancelled
+  
+  // Current position in flow
+  currentPhaseId: varchar("current_phase_id", { length: 100 }),
+  currentPhaseIndex: integer("current_phase_index").notNull().default(0),
+  
+  // Progress tracking (JSONB arrays)
+  completedMovements: jsonb("completed_movements").notNull().default([]).$type<string[]>(), // ["phaseId:movementId", ...]
+  dynamicMovements: jsonb("dynamic_movements").notNull().default([]).$type<any[]>(), // Custom/room-specific movements
+  
+  // Timestamps
+  startedAt: timestamp("started_at").default(sql`NOW()`),
+  completedAt: timestamp("completed_at"),
+  
+  // Audit
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  claimIdx: index("claim_flow_instances_claim_idx").on(table.claimId),
+  statusIdx: index("claim_flow_instances_status_idx").on(table.status),
+  flowDefIdx: index("claim_flow_instances_flow_def_idx").on(table.flowDefinitionId),
+}));
+
+export const insertClaimFlowInstanceSchema = createInsertSchema(claimFlowInstances).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimFlowInstance = z.infer<typeof insertClaimFlowInstanceSchema>;
+export type ClaimFlowInstance = typeof claimFlowInstances.$inferSelect;
+
+// ============================================
+// MOVEMENT COMPLETIONS TABLE
+// ============================================
+
+/**
+ * Records when movements are completed with evidence.
+ */
+export const movementCompletions = pgTable("movement_completions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  flowInstanceId: uuid("flow_instance_id").notNull().references(() => claimFlowInstances.id, { onDelete: "cascade" }),
+  movementId: varchar("movement_id", { length: 200 }).notNull(), // "phaseId:movementId" format
+  claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: "cascade" }),
+  
+  // Completion status
+  status: varchar("status", { length: 20 }).notNull().default("completed"), // completed, skipped
+  
+  // Evidence and notes
+  notes: text("notes"),
+  evidenceData: jsonb("evidence_data").$type<{
+    photos?: string[];
+    audioId?: string;
+    measurements?: any;
+  }>(),
+  
+  // Audit
+  completedAt: timestamp("completed_at").default(sql`NOW()`),
+  completedBy: uuid("completed_by"),
+  
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  flowInstanceIdx: index("movement_completions_flow_instance_idx").on(table.flowInstanceId),
+  movementIdx: index("movement_completions_movement_idx").on(table.movementId),
+  claimIdx: index("movement_completions_claim_idx").on(table.claimId),
+}));
+
+export const insertMovementCompletionSchema = createInsertSchema(movementCompletions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMovementCompletion = z.infer<typeof insertMovementCompletionSchema>;
+export type MovementCompletion = typeof movementCompletions.$inferSelect;
+
+// ============================================
+// MOVEMENT EVIDENCE TABLE
+// ============================================
+
+/**
+ * Stores evidence attached to movements (photos, audio, measurements).
+ */
+export const movementEvidence = pgTable("movement_evidence", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  flowInstanceId: uuid("flow_instance_id").notNull().references(() => claimFlowInstances.id, { onDelete: "cascade" }),
+  movementId: varchar("movement_id", { length: 200 }).notNull(),
+  
+  // Evidence type and reference
+  evidenceType: varchar("evidence_type", { length: 30 }).notNull(), // photo, audio, measurement, note
+  referenceId: varchar("reference_id", { length: 100 }), // ID of photo, audio, etc.
+  evidenceData: jsonb("evidence_data"), // Additional data
+  
+  // Audit
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+}, (table) => ({
+  flowInstanceIdx: index("movement_evidence_flow_instance_idx").on(table.flowInstanceId),
+  movementIdx: index("movement_evidence_movement_idx").on(table.movementId),
+  typeIdx: index("movement_evidence_type_idx").on(table.evidenceType),
+}));
+
+export const insertMovementEvidenceSchema = createInsertSchema(movementEvidence).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMovementEvidence = z.infer<typeof insertMovementEvidenceSchema>;
+export type MovementEvidence = typeof movementEvidence.$inferSelect;
+
+// ============================================
 // EXPORT VALIDATION TYPES
 // ============================================
 

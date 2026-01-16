@@ -15,6 +15,13 @@
       "when": 1768155390396,
       "tag": "0001_wakeful_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1768569212012,
+      "tag": "0002_daffy_dreaming_celestial",
+      "breakpoints": true
     }
   ]
 }
