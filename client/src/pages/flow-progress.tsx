@@ -41,6 +41,7 @@ import {
   FlowProgressBar,
   PhaseCard,
 } from "@/components/flow";
+import { VoiceGuidedInspection } from "@/components/flow/VoiceGuidedInspection";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +55,7 @@ export default function FlowProgressPage() {
   // State for expanded phases
   const [phaseMovements, setPhaseMovements] = useState<Record<string, FlowMovement[]>>({});
   const [loadingPhases, setLoadingPhases] = useState<Set<string>>(new Set());
+  const [voiceMode, setVoiceMode] = useState(false);
 
   // Fetch flow instance
   const {
@@ -223,17 +225,29 @@ export default function FlowProgressPage() {
                   )}
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  queryClient.invalidateQueries({ queryKey: ['flowInstance', flowId] });
-                  queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
-                  queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
-                }}
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                {!isCompleted && !isCancelled && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setVoiceMode(true)}
+                  >
+                    <Mic className="h-4 w-4 mr-2" />
+                    Voice Mode
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    queryClient.invalidateQueries({ queryKey: ['flowInstance', flowId] });
+                    queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
+                    queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             {/* Progress Bar */}

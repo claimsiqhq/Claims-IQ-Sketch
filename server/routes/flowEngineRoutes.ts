@@ -244,7 +244,7 @@ router.get('/flows/:flowInstanceId/phases/:phaseId/movements', async (req, res) 
   try {
     const { flowInstanceId, phaseId } = req.params;
 
-    const movements = await getPhaseMovements(phaseId, flowInstanceId);
+    const movements = await getPhaseMovements(flowInstanceId, phaseId);
 
     res.status(200).json(movements);
 
