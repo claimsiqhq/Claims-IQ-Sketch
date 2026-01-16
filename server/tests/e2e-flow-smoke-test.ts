@@ -79,9 +79,11 @@ async function step0_verifyPrerequisites(): Promise<boolean> {
       return false;
     }
 
-    // Find water damage flow definition
+    // Find water damage flow definition (could be 'water' or 'water_damage')
     const waterFlow = flowDefs?.find(fd =>
+      fd.peril_type === 'water' ||
       fd.peril_type === 'water_damage' ||
+      (fd.flow_json as any)?.metadata?.primary_peril === 'water' ||
       (fd.flow_json as any)?.metadata?.primary_peril === 'water_damage'
     );
 
@@ -130,7 +132,7 @@ async function step1_createTestClaim(): Promise<boolean> {
       property_state: 'TS',
       property_zip: '12345',
       loss_type: 'water',
-      primary_peril: 'water_damage',
+      primary_peril: 'water',
       status: 'open',
       date_of_loss: new Date().toISOString().split('T')[0],
       loss_description: 'Water damage from burst pipe - E2E smoke test',
@@ -186,7 +188,7 @@ async function step2_verifyClaim(): Promise<boolean> {
     console.log(`   Primary Peril: ${claim.primary_peril}`);
     console.log(`   Status: ${claim.status}`);
 
-    const isValid = claim.primary_peril === 'water_damage' && claim.status === 'open';
+    const isValid = (claim.primary_peril === 'water' || claim.primary_peril === 'water_damage') && claim.status === 'open';
     logResult(2, 'Verify Claim', isValid,
       isValid ? 'Claim verified successfully' : 'Claim data mismatch');
     return isValid;
@@ -218,7 +220,9 @@ async function step3_startFlow(): Promise<boolean> {
     }
 
     const flowDef = flowDefs?.find(fd =>
+      fd.peril_type === 'water' ||
       fd.peril_type === 'water_damage' ||
+      (fd.flow_json as any)?.metadata?.primary_peril === 'water' ||
       (fd.flow_json as any)?.metadata?.primary_peril === 'water_damage'
     );
 
