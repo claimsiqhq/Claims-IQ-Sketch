@@ -999,7 +999,9 @@ const safeParseFloat = (val: string | number | undefined, defaultVal: number = 0
 export async function saveClaimRooms(
   claimId: string,
   rooms: ClaimRoom[],
-  damageZones: ClaimDamageZone[]
+  damageZones: ClaimDamageZone[],
+  flowInstanceId?: string,
+  movementId?: string
 ): Promise<{ success: boolean; roomsSaved: number; damageZonesSaved: number }> {
   // Transform to backend format: rooms with nested damageZones
   const roomsWithZones = rooms.map((room) => {
@@ -1041,7 +1043,11 @@ export async function saveClaimRooms(
   const response = await fetch(`${API_BASE}/claims/${claimId}/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rooms: roomsWithZones }),
+    body: JSON.stringify({ 
+      rooms: roomsWithZones,
+      flowInstanceId,
+      movementId
+    }),
     credentials: 'include',
   });
   if (!response.ok) {
@@ -3981,6 +3987,23 @@ export async function attachMovementEvidence(
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.error || 'Failed to attach evidence');
+  }
+  return response.json();
+}
+
+/**
+ * Get sketch evidence (rooms/zones and damage markers) for a movement
+ */
+export async function getMovementSketchEvidence(
+  flowInstanceId: string,
+  movementId: string
+): Promise<{ zones: ClaimRoom[]; damageMarkers: ClaimDamageZone[] }> {
+  const response = await fetch(`${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/sketch-evidence`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch sketch evidence');
   }
   return response.json();
 }

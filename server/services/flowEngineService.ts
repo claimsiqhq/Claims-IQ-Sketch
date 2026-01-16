@@ -699,6 +699,74 @@ export async function getMovementEvidence(
     }
   }
 
+  // Get sketch zones (rooms) linked to this movement
+  const { data: sketchZones, error: zonesError } = await supabaseAdmin
+    .from('claim_rooms')
+    .select('id, name, room_type, width_ft, length_ft, polygon, created_at')
+    .eq('flow_instance_id', flowInstanceId)
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+  if (zonesError) {
+    console.error('[FlowEngineService] Error getting sketch zones:', zonesError);
+  }
+
+  // Get damage markers (damage zones) linked to this movement
+  const { data: damageMarkers, error: markersError } = await supabaseAdmin
+    .from('claim_damage_zones')
+    .select('id, damage_type, severity, category, affected_walls, polygon, created_at')
+    .eq('flow_instance_id', flowInstanceId)
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+  if (markersError) {
+    console.error('[FlowEngineService] Error getting damage markers:', markersError);
+  }
+
+  // Add sketch zones
+  if (sketchZones?.length) {
+    for (const zone of sketchZones) {
+      const alreadyAdded = result.some(r => r.referenceId === zone.id && r.type === 'sketch_zone');
+      if (!alreadyAdded) {
+        result.push({
+          id: zone.id,
+          type: 'sketch_zone',
+          referenceId: zone.id,
+          data: {
+            name: zone.name,
+            roomType: zone.room_type,
+            widthFt: zone.width_ft,
+            lengthFt: zone.length_ft,
+            polygon: zone.polygon
+          },
+          createdAt: zone.created_at,
+          source: 'claim_rooms'
+        });
+      }
+    }
+  }
+
+  // Add damage markers
+  if (damageMarkers?.length) {
+    for (const marker of damageMarkers) {
+      const alreadyAdded = result.some(r => r.referenceId === marker.id && r.type === 'damage_marker');
+      if (!alreadyAdded) {
+        result.push({
+          id: marker.id,
+          type: 'damage_marker',
+          referenceId: marker.id,
+          data: {
+            damageType: marker.damage_type,
+            severity: marker.severity,
+            category: marker.category,
+            affectedWalls: marker.affected_walls,
+            polygon: marker.polygon
+          },
+          createdAt: marker.created_at,
+          source: 'claim_damage_zones'
+        });
+      }
+    }
+  }
+
   // Add evidence from completions (inline evidence_data)
   if (completions?.length) {
     for (const completion of completions) {

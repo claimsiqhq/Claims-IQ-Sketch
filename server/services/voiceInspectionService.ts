@@ -156,6 +156,33 @@ RESPONSE STYLE:
       return await this.handlePhotoTrigger(session);
     }
     
+    if (normalizedCommand.match(/^(open sketch|start sketch|draw|sketch)$/)) {
+      return {
+        action: 'trigger_sketch',
+        response: `Opening sketch mode. Draw zones and mark damage for this step.`,
+        data: { 
+          flowInstanceId: session.flowInstanceId,
+          movementId: session.currentMovementId 
+        }
+      };
+    }
+    
+    if (normalizedCommand.match(/^(add zone|new zone|create zone)$/)) {
+      return {
+        action: 'trigger_zone_creation',
+        response: `Ready to create a new zone. What room or area?`,
+        data: { awaitingZoneName: true }
+      };
+    }
+    
+    if (normalizedCommand.match(/^(add damage|mark damage|damage here)$/)) {
+      return {
+        action: 'trigger_damage_marker',
+        response: `What type of damage? Water, fire, mold, structural, or other?`,
+        data: { awaitingDamageType: true }
+      };
+    }
+    
     if (normalizedCommand.startsWith('add note ') || normalizedCommand.startsWith('note ')) {
       const noteText = command.replace(/^(add note |note )/i, '');
       return await this.handleAddNote(session, noteText);

@@ -25,14 +25,16 @@ import {
   X,
   Play,
   Pause,
-  Download
+  Download,
+  Square,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MovementEvidence } from "@/lib/api";
 
 interface EvidenceItem {
   id: string;
-  type: 'photo' | 'audio' | 'measurement' | 'note';
+  type: 'photo' | 'audio' | 'measurement' | 'note' | 'sketch_zone' | 'damage_marker';
   url?: string;
   thumbnailUrl?: string;
   label?: string;
@@ -53,6 +55,8 @@ const TYPE_ICONS = {
   audio: Mic,
   measurement: Ruler,
   note: FileText,
+  sketch_zone: Square,
+  damage_marker: AlertTriangle,
 };
 
 const TYPE_COLORS = {
@@ -60,6 +64,8 @@ const TYPE_COLORS = {
   audio: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
   measurement: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
   note: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+  sketch_zone: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300",
+  damage_marker: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
 };
 
 export function EvidenceGrid({

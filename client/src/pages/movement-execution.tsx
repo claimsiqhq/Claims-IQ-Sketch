@@ -32,7 +32,8 @@ import {
   Plus,
   Trash2,
   Lock,
-  Info
+  Info,
+  Square
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -75,6 +76,7 @@ export default function MovementExecutionPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [showSkipDialog, setShowSkipDialog] = useState(false);
   const [skipReason, setSkipReason] = useState('');
+  const [showSketch, setShowSketch] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -369,7 +371,7 @@ export default function MovementExecutionPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Capture Buttons */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <input
                     type="file"
                     accept="image/*"
@@ -381,7 +383,7 @@ export default function MovementExecutionPage() {
                   />
                   <Button
                     variant="outline"
-                    className="flex-1"
+                    className="flex-1 min-w-[120px]"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Camera className="h-4 w-4 mr-2" />
@@ -389,11 +391,19 @@ export default function MovementExecutionPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    className="flex-1"
+                    className="flex-1 min-w-[120px]"
                     disabled // Voice note feature placeholder
                   >
                     <Mic className="h-4 w-4 mr-2" />
                     Voice Note
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 min-w-[120px]"
+                    onClick={() => setShowSketch(true)}
+                  >
+                    <Square className="h-4 w-4 mr-2" />
+                    Sketch
                   </Button>
                 </div>
 
@@ -485,6 +495,34 @@ export default function MovementExecutionPage() {
             )}
           </div>
         </ScrollArea>
+        
+        {/* Sketch Dialog */}
+        <Dialog open={showSketch} onOpenChange={setShowSketch}>
+          <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Sketch Documentation</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-hidden">
+              <FlowSketchCapture
+                flowInstanceId={flowId!}
+                movementId={movementId!}
+                claimId={flowInstance!.claimId}
+                movementName={movement.name}
+                onZoneCreated={() => {
+                  queryClient.invalidateQueries({ queryKey: ['movementEvidence', flowId, movementId] });
+                  queryClient.invalidateQueries({ queryKey: ['movementSketchEvidence', flowId, movementId] });
+                  toast.success('Zone created');
+                }}
+                onDamageAdded={() => {
+                  queryClient.invalidateQueries({ queryKey: ['movementEvidence', flowId, movementId] });
+                  queryClient.invalidateQueries({ queryKey: ['movementSketchEvidence', flowId, movementId] });
+                  toast.success('Damage marker added');
+                }}
+                onClose={() => setShowSketch(false)}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Bottom Actions */}
         <div className="border-t p-4 bg-background space-y-3">
