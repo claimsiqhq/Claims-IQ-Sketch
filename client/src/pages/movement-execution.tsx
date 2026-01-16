@@ -49,7 +49,7 @@ import {
   type FlowMovement,
   type MovementEvidence,
 } from "@/lib/api";
-import { EvidenceGrid } from "@/components/flow";
+import { EvidenceGrid, LoadingButton, ErrorBanner, EmptyState } from "@/components/flow";
 import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -268,21 +268,24 @@ export default function MovementExecutionPage() {
   if (flowError || !flowInstance || !movement) {
     return (
       <Layout>
-        <div className="p-4">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              {flowError instanceof Error ? flowError.message : 'Movement not found'}
-            </AlertDescription>
-          </Alert>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={() => setLocation(`/flows/${flowId}`)}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Flow
-          </Button>
+        <div className="p-4 space-y-4">
+          <ErrorBanner
+            message={flowError instanceof Error ? flowError.message : 'Movement not found'}
+          />
+          <EmptyState
+            icon="⚠️"
+            title="Movement not found"
+            description="This movement could not be loaded. It may have been removed or you may not have access to it."
+            action={
+              <Button
+                variant="outline"
+                onClick={() => setLocation(`/flows/${flowId}`)}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Flow
+              </Button>
+            }
+          />
         </div>
       </Layout>
     );
@@ -452,11 +455,11 @@ export default function MovementExecutionPage() {
 
                 {/* Empty State */}
                 {capturedPhotos.length === 0 && existingEvidenceItems.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Camera className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No evidence captured yet</p>
-                    <p className="text-xs">Tap the button above to capture photos</p>
-                  </div>
+                  <EmptyState
+                    icon={<Camera className="h-8 w-8 mx-auto opacity-50" />}
+                    title="No evidence captured yet"
+                    description="Take a photo, record a voice note, or add a sketch to document this movement."
+                  />
                 )}
               </CardContent>
             </Card>
@@ -546,18 +549,11 @@ export default function MovementExecutionPage() {
               onClick={() => completeMutation.mutate()}
               disabled={isSubmitting || (movement.isRequired && !hasEvidence && !notes)}
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {isUploading ? 'Uploading...' : 'Completing...'}
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Complete
-                </>
-              )}
-            </Button>
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                Complete
+              </>
+            </LoadingButton>
           </div>
 
           {/* Required notice */}
@@ -594,16 +590,15 @@ export default function MovementExecutionPage() {
               >
                 Cancel
               </Button>
-              <Button
+              <LoadingButton
                 onClick={() => skipMutation.mutate(skipReason)}
-                disabled={!skipReason.trim() || skipMutation.isPending}
+                loading={skipMutation.isPending}
+                loadingText="Skipping..."
+                disabled={!skipReason.trim()}
               >
-                {skipMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  'Skip Movement'
-                )}
-              </Button>
+                <SkipForward className="h-4 w-4 mr-2" />
+                Skip Movement
+              </LoadingButton>
             </DialogFooter>
           </DialogContent>
         </Dialog>

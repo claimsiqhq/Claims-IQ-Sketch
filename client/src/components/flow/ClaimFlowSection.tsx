@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FlowStatusCard } from "./FlowStatusCard";
 import { StartFlowButton } from "./StartFlowButton";
+import { ErrorBanner, EmptyState } from "./";
 import { ClipboardCheck, AlertCircle } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getActiveFlowForClaim, cancelFlowForClaim } from "@/lib/api";
@@ -110,12 +111,7 @@ export function ClaimFlowSection({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Unable to load flow status. You can still start a new flow.
-            </AlertDescription>
-          </Alert>
+          <ErrorBanner message="Unable to load flow status. You can still start a new flow." />
           <StartFlowButton
             claimId={claimId}
             perilType={perilType}
@@ -150,16 +146,18 @@ export function ClaimFlowSection({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Start a guided inspection flow to systematically capture all required
-          evidence for this claim. The flow will walk you through each phase and
-          movement based on the peril type.
-        </p>
-        <StartFlowButton
-          claimId={claimId}
-          perilType={perilType}
-          onStart={handleFlowStarted}
-          className="w-full"
+        <EmptyState
+          icon={<ClipboardCheck className="h-8 w-8 mx-auto opacity-50" />}
+          title="No active inspection flow"
+          description="Start a guided inspection flow to systematically document this claim. The flow will walk you through all required evidence collection steps."
+          action={
+            <StartFlowButton
+              claimId={claimId}
+              perilType={perilType}
+              onStart={handleFlowStarted}
+              className="w-full"
+            />
+          }
         />
       </CardContent>
     </Card>

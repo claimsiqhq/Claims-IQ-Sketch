@@ -10,6 +10,8 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "./LoadingButton";
+import { ErrorBanner } from "./ErrorBanner";
 import {
   Dialog,
   DialogContent,
@@ -198,22 +200,15 @@ export function StartFlowButton({
             >
               Cancel
             </Button>
-            <Button
+            <LoadingButton
               onClick={handleConfirmStart}
-              disabled={!selectedPeril || isStarting}
+              loading={isStarting}
+              loadingText="Starting..."
+              disabled={!selectedPeril}
             >
-              {isStarting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <PlayCircle className="h-4 w-4 mr-2" />
-                  Start Flow
-                </>
-              )}
-            </Button>
+              <PlayCircle className="h-4 w-4 mr-2" />
+              Start Flow
+            </LoadingButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

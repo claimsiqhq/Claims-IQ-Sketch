@@ -40,10 +40,15 @@ import {
 import {
   FlowProgressBar,
   PhaseCard,
+  LoadingButton,
+  StatusBadge,
+  ErrorBanner,
+  EmptyState,
 } from "@/components/flow";
 import { VoiceGuidedInspection } from "@/components/flow/VoiceGuidedInspection";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function FlowProgressPage() {
   const [, params] = useRoute("/flows/:flowId");
@@ -101,16 +106,18 @@ export default function FlowProgressPage() {
     try {
       const movements = await getPhaseMovements(flowId!, phaseId);
       setPhaseMovements(prev => ({ ...prev, [phaseId]: movements }));
-    } catch (err) {
-      console.error('Failed to load phase movements:', err);
-    } finally {
-      setLoadingPhases(prev => {
-        const next = new Set(prev);
-        next.delete(phaseId);
-        return next;
-      });
-    }
-  };
+      } catch (err) {
+        console.error('Failed to load phase movements:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load movements');
+        toast.error('Failed to load movements');
+      } finally {
+        setLoadingPhases(prev => {
+          const next = new Set(prev);
+          next.delete(phaseId);
+          return next;
+        });
+      }
+    };
 
   // Auto-load movements for current phase
   useEffect(() => {
@@ -144,7 +151,17 @@ export default function FlowProgressPage() {
       // Handle gate - maybe show a dialog or navigate to gate evaluation
       // For now, just refetch to check if gate passed
       refetchFlow();
+    } else if (nextMovement?.type === 'complete') {
+      toast.success('All movements complete!');
     }
+  };
+
+  const handleRefetch = () => {
+    setError(null);
+    refetchFlow();
+    queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
+    queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
+    toast.success('Refreshed');
   };
 
   // Loading state
@@ -164,21 +181,36 @@ export default function FlowProgressPage() {
   if (flowError || phasesError || !flowInstance) {
     return (
       <Layout>
-        <div className="p-4">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              {flowError instanceof Error ? flowError.message : 'Failed to load flow'}
-            </AlertDescription>
-          </Alert>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={() => setLocation('/')}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Claims
-          </Button>
+        <div className="p-4 space-y-4">
+          <ErrorBanner
+            message={flowError instanceof Error ? flowError.message : phasesError instanceof Error ? phasesError.message : 'Failed to load flow'}
+          />
+          <EmptyState
+            icon="⚠️"
+            title="Unable to load flow"
+            description="The flow instance could not be loaded. Please try again or return to your claims."
+            action={
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    refetchFlow();
+                    queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Try Again
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setLocation('/')}
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Claims
+                </Button>
+              </div>
+            }
+          />
         </div>
       </Layout>
     );
@@ -239,13 +271,11 @@ export default function FlowProgressPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => {
-                    queryClient.invalidateQueries({ queryKey: ['flowInstance', flowId] });
-                    queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
-                    queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
-                  }}
+                  onClick={handleRefetch}
+                  disabled={isLoadingPhases || isLoadingNext}
+                  aria-label="Refresh flow data"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className={cn("h-4 w-4", (isLoadingPhases || isLoadingNext) && "animate-spin")} />
                 </Button>
               </div>
             </div>
@@ -363,11 +393,11 @@ export default function FlowProgressPage() {
                   />
                 ))
               ) : (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    No phases found for this flow.
-                  </CardContent>
-                </Card>
+                <EmptyState
+                  icon="📋"
+                  title="No phases found"
+                  description="This flow doesn't have any phases defined yet."
+                />
               )}
             </div>
           </div>
@@ -376,15 +406,15 @@ export default function FlowProgressPage() {
         {/* Bottom Action Bar */}
         {!isCompleted && !isCancelled && (
           <div className="border-t p-4 bg-background">
-            <Button
+            <LoadingButton
               className="w-full"
               size="lg"
               onClick={handleContinue}
-              disabled={isLoadingNext || nextMovement?.type === 'complete'}
+              loading={isLoadingNext}
+              loadingText="Loading next movement..."
+              disabled={nextMovement?.type === 'complete'}
             >
-              {isLoadingNext ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : nextMovement?.type === 'complete' ? (
+              {nextMovement?.type === 'complete' ? (
                 <>
                   <CheckCircle2 className="h-5 w-5 mr-2" />
                   Phase Complete
@@ -395,7 +425,7 @@ export default function FlowProgressPage() {
                   Continue Inspection
                 </>
               )}
-            </Button>
+            </LoadingButton>
           </div>
         )}
       </div>
