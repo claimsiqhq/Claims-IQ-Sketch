@@ -1281,3 +1281,286 @@ export async function getFlowInstance(flowInstanceId: string): Promise<FlowInsta
     completedMovements: data.completed_movements || []
   };
 }
+
+/**
+ * Get current movement details
+ */
+export async function getCurrentMovement(flowInstanceId: string): Promise<Movement> {
+  const instance = await getFlowInstance(flowInstanceId);
+  if (!instance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const { data: flowInstance } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhase = phases[instance.currentPhaseIndex];
+  
+  if (!currentPhase) {
+    throw new Error('No current phase');
+  }
+
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+  
+  // Find first incomplete movement in current phase
+  for (let i = 0; i < (currentPhase.movements?.length || 0); i++) {
+    const movement = currentPhase.movements[i];
+    const movementKey = `${currentPhase.id}:${movement.id}`;
+    
+    if (!completedMovements.has(movementKey)) {
+      return {
+        id: movement.id,
+        phaseId: currentPhase.id,
+        name: movement.name,
+        description: movement.description || '',
+        sequenceOrder: i,
+        isRequired: movement.is_required !== false,
+        roomSpecific: false,
+        roomName: null,
+        validationRequirements: movement.evidence_requirements || null,
+        completionStatus: 'pending'
+      };
+    }
+  }
+  
+  throw new Error('No current movement (all movements in current phase are complete)');
+}
+
+/**
+ * Get current phase
+ */
+export async function getCurrentPhase(flowInstanceId: string): Promise<FlowJsonPhase> {
+  const instance = await getFlowInstance(flowInstanceId);
+  if (!instance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const { data: flowInstance } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhase = phases[instance.currentPhaseIndex];
+  
+  if (!currentPhase) {
+    throw new Error('No current phase');
+  }
+
+  return currentPhase;
+}
+
+/**
+ * Peek at next movement without advancing
+ */
+export async function peekNextMovement(flowInstanceId: string): Promise<Movement | null> {
+  const instance = await getFlowInstance(flowInstanceId);
+  if (!instance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const { data: flowInstance } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhaseIndex = instance.currentPhaseIndex;
+  const currentPhase = phases[currentPhaseIndex];
+  
+  if (!currentPhase) {
+    return null;
+  }
+
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+  
+  // Find first incomplete movement in current phase
+  let foundCurrent = false;
+  for (let i = 0; i < (currentPhase.movements?.length || 0); i++) {
+    const movement = currentPhase.movements[i];
+    const movementKey = `${currentPhase.id}:${movement.id}`;
+    
+    if (!completedMovements.has(movementKey)) {
+      foundCurrent = true;
+      // Check if there's a next movement in this phase
+      if (i < (currentPhase.movements?.length || 0) - 1) {
+        const nextMovement = currentPhase.movements[i + 1];
+        return {
+          id: nextMovement.id,
+          phaseId: currentPhase.id,
+          name: nextMovement.name,
+          description: nextMovement.description || '',
+          sequenceOrder: i + 1,
+          isRequired: nextMovement.is_required !== false,
+          roomSpecific: false,
+          roomName: null,
+          validationRequirements: nextMovement.evidence_requirements || null,
+          completionStatus: 'pending'
+        };
+      }
+      break;
+    }
+  }
+  
+  // All movements in current phase complete - check next phase
+  if (currentPhaseIndex < phases.length - 1) {
+    const nextPhase = phases[currentPhaseIndex + 1];
+    const firstMovement = nextPhase.movements?.[0];
+    if (firstMovement) {
+      return {
+        id: firstMovement.id,
+        phaseId: nextPhase.id,
+        name: firstMovement.name,
+        description: firstMovement.description || '',
+        sequenceOrder: 0,
+        isRequired: firstMovement.is_required !== false,
+        roomSpecific: false,
+        roomName: null,
+        validationRequirements: firstMovement.evidence_requirements || null,
+        completionStatus: 'pending'
+      };
+    }
+  }
+  
+  return null; // At end of flow
+}
+
+/**
+ * Get previous movement
+ */
+export async function getPreviousMovement(flowInstanceId: string): Promise<Movement | null> {
+  const instance = await getFlowInstance(flowInstanceId);
+  if (!instance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const { data: flowInstance } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhaseIndex = instance.currentPhaseIndex;
+  const currentPhase = phases[currentPhaseIndex];
+  
+  if (!currentPhase) {
+    return null;
+  }
+
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+  
+  // Find current movement index
+  let currentMovementIndex = -1;
+  for (let i = 0; i < (currentPhase.movements?.length || 0); i++) {
+    const movement = currentPhase.movements[i];
+    const movementKey = `${currentPhase.id}:${movement.id}`;
+    if (!completedMovements.has(movementKey)) {
+      currentMovementIndex = i;
+      break;
+    }
+  }
+  
+  // Check if there's a previous movement in current phase
+  if (currentMovementIndex > 0) {
+    const prevMovement = currentPhase.movements[currentMovementIndex - 1];
+    return {
+      id: prevMovement.id,
+      phaseId: currentPhase.id,
+      name: prevMovement.name,
+      description: prevMovement.description || '',
+      sequenceOrder: currentMovementIndex - 1,
+      isRequired: prevMovement.is_required !== false,
+      roomSpecific: false,
+      roomName: null,
+      validationRequirements: prevMovement.evidence_requirements || null,
+      completionStatus: 'pending'
+    };
+  }
+  
+  // Check if there's a previous phase
+  if (currentPhaseIndex > 0) {
+    const prevPhase = phases[currentPhaseIndex - 1];
+    const lastMovementIndex = (prevPhase.movements?.length || 0) - 1;
+    if (lastMovementIndex >= 0) {
+      const lastMovement = prevPhase.movements[lastMovementIndex];
+      return {
+        id: lastMovement.id,
+        phaseId: prevPhase.id,
+        name: lastMovement.name,
+        description: lastMovement.description || '',
+        sequenceOrder: lastMovementIndex,
+        isRequired: lastMovement.is_required !== false,
+        roomSpecific: false,
+        roomName: null,
+        validationRequirements: lastMovement.evidence_requirements || null,
+        completionStatus: 'pending'
+      };
+    }
+  }
+  
+  return null; // At start of flow
+}
+
+/**
+ * Navigate to specific movement
+ */
+export async function goToMovement(flowInstanceId: string, movementId: string): Promise<void> {
+  const instance = await getFlowInstance(flowInstanceId);
+  if (!instance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const { data: flowInstance } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  
+  // Find movement position
+  for (let pi = 0; pi < phases.length; pi++) {
+    const phase = phases[pi];
+    for (let mi = 0; mi < (phase.movements?.length || 0); mi++) {
+      if (phase.movements[mi].id === movementId) {
+        await supabaseAdmin
+          .from('claim_flow_instances')
+          .update({ 
+            current_phase_index: pi,
+            current_phase_id: phase.id
+          })
+          .eq('id', flowInstanceId);
+        return;
+      }
+    }
+  }
+  
+  throw new Error(`Movement ${movementId} not found in flow`);
+}

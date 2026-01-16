@@ -271,6 +271,7 @@ import {
   deleteScopeItem,
 } from "./services/estimateHierarchy";
 import flowEngineRoutes from './routes/flowEngineRoutes';
+import voiceInspectionRoutes from './routes/voiceInspectionRoutes';
 
 // Create logger for routes
 const log = createLogger({ module: 'routes' });
@@ -311,6 +312,9 @@ export async function registerRoutes(
 
   // Flow Engine routes (new movement-based inspection system)
   app.use('/api', flowEngineRoutes);
+  
+  // Voice Inspection routes
+  app.use('/api/voice-inspection', voiceInspectionRoutes);
 
   // ============================================
   // AUTH ROUTES
