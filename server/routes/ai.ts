@@ -118,21 +118,26 @@ router.post('/voice/session', requireAuth, requireOrganization, async (req: Requ
 
     // For scope or sketch mode with a claimId, verify prerequisites exist
     if (claimId && (mode === 'scope' || mode === 'sketch') && !skipPrerequisiteCheck) {
-      const { getClaimWorkflow } = await import('../services/inspectionWorkflowService');
+      const { getCurrentFlow } = await import('../services/flowEngineService');
 
       // Check for briefing
       const briefing = await getClaimBriefing(claimId, organizationId);
 
-      // Check for workflow
-      const workflow = await getClaimWorkflow(claimId, organizationId);
+      // Check for flow (replaces old workflow)
+      let flow = null;
+      try {
+        flow = await getCurrentFlow(claimId);
+      } catch (error) {
+        log.warn({ claimId, error }, 'Error getting flow for claim');
+      }
 
       const hasBriefing = briefing !== null;
-      const hasWorkflow = workflow !== null;
+      const hasWorkflow = flow !== null;
 
       if (!hasBriefing || !hasWorkflow) {
         const missing: string[] = [];
         if (!hasBriefing) missing.push('AI briefing');
-        if (!hasWorkflow) missing.push('inspection workflow');
+        if (!hasWorkflow) missing.push('inspection flow');
 
         log.warn({ claimId, mode, hasBriefing, hasWorkflow }, 'Voice session prerequisites not met');
 
@@ -143,7 +148,7 @@ router.post('/voice/session', requireAuth, requireOrganization, async (req: Requ
             hasBriefing,
             hasWorkflow,
             missing,
-            suggestion: 'Please wait for the AI briefing and inspection workflow to be generated, or try again shortly.',
+            suggestion: 'Please wait for the AI briefing and inspection flow to be generated, or try again shortly.',
           },
         });
       }

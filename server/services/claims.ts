@@ -911,15 +911,19 @@ export async function purgeAllClaims(organizationId: string): Promise<{
   
   const estimateIds = estimates?.map(e => e.id) || [];
 
-  // 4. Get all inspection workflows for these claims
-  const { data: workflows } = await supabaseAdmin
-    .from('inspection_workflows')
-    .select('id')
-    .in('claim_id', claimIds);
+  // 4. Get all inspection workflows for these claims (old system - may not exist)
+  let workflowIds: string[] = [];
+  try {
+    const { data: workflows } = await supabaseAdmin
+      .from('inspection_workflows')
+      .select('id')
+      .in('claim_id', claimIds);
+    workflowIds = workflows?.map(w => w.id) || [];
+  } catch (e) {
+    console.log('[purge] inspection_workflows table may not exist (migrated to flow engine):', e);
+  }
 
-  const workflowIds = workflows?.map(w => w.id) || [];
-
-  // 5. Delete workflow child tables first
+  // 5. Delete workflow child tables first (old system)
   if (workflowIds.length > 0) {
     const workflowChildTables = [
       'workflow_step_evidence',
@@ -939,6 +943,51 @@ export async function purgeAllClaims(organizationId: string): Promise<{
       } catch (e) {
         console.log(`[purge] Could not delete from ${table}:`, e);
       }
+    }
+  }
+
+  // 5b. Delete flow engine data (new system)
+  // First get flow instances for these claims
+  let flowInstanceIds: string[] = [];
+  try {
+    const { data: flowInstances } = await supabaseAdmin
+      .from('claim_flow_instances')
+      .select('id')
+      .in('claim_id', claimIds);
+    flowInstanceIds = flowInstances?.map(f => f.id) || [];
+  } catch (e) {
+    console.log('[purge] claim_flow_instances table may not exist:', e);
+  }
+
+  // Delete flow-related records
+  if (flowInstanceIds.length > 0) {
+    const flowChildTables = [
+      'movement_completions',
+      'gate_evaluations',
+      'audio_observations',
+    ];
+
+    for (const table of flowChildTables) {
+      try {
+        await supabaseAdmin
+          .from(table)
+          .delete()
+          .in('flow_instance_id', flowInstanceIds);
+        relatedRecordsDeleted += flowInstanceIds.length;
+      } catch (e) {
+        console.log(`[purge] Could not delete from ${table}:`, e);
+      }
+    }
+
+    // Delete the flow instances themselves
+    try {
+      await supabaseAdmin
+        .from('claim_flow_instances')
+        .delete()
+        .in('id', flowInstanceIds);
+      relatedRecordsDeleted += flowInstanceIds.length;
+    } catch (e) {
+      console.log('[purge] Could not delete from claim_flow_instances:', e);
     }
   }
 
