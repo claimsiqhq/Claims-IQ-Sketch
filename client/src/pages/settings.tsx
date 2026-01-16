@@ -1603,7 +1603,41 @@ function MS365IntegrationCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {status?.connected ? (
+        {status?.expired ? (
+          <>
+            <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              <div className="flex-1">
+                <p className="font-medium text-amber-800">Session Expired</p>
+                <p className="text-sm text-amber-700">
+                  Your Microsoft 365 connection has expired. Please reconnect to continue syncing your calendar.
+                </p>
+                {status.expiresAt && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Expired on: {new Date(status.expiresAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
+            <Button
+              onClick={handleConnect}
+              disabled={isConnecting}
+              data-testid="button-reconnect-ms365"
+            >
+              {isConnecting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Reconnecting...
+                </>
+              ) : (
+                <>
+                  <Link2 className="h-4 w-4 mr-2" />
+                  Reconnect Microsoft 365
+                </>
+              )}
+            </Button>
+          </>
+        ) : status?.connected ? (
           <>
             <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
               <CheckCircle className="h-5 w-5 text-emerald-600" />
