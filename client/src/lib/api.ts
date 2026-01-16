@@ -3946,6 +3946,108 @@ export async function skipFlowMovement(
 }
 
 /**
+ * Get system status
+ */
+export async function getSystemStatus(): Promise<{
+  status: string;
+  timestamp: string;
+  version: string;
+  environment: string;
+  openaiConfigured: boolean;
+}> {
+  const response = await fetch(`${API_BASE}/system/status`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch system status');
+  }
+  return response.json();
+}
+
+/**
+ * Run Home Depot scraper
+ */
+export async function runHomeDepotScraper(): Promise<{
+  jobId: string;
+  status: string;
+  itemsProcessed: number;
+  itemsUpdated: number;
+}> {
+  const response = await fetch(`${API_BASE}/scrape/home-depot`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to run scraper');
+  }
+  return response.json();
+}
+
+/**
+ * Get scraper configuration
+ */
+export async function getScraperConfig(): Promise<{
+  productMappings: Record<string, {
+    search: string;
+    filters: Record<string, string[]>;
+    unit: string;
+  }>;
+  storeRegions: Record<string, string>;
+}> {
+  const response = await fetch(`${API_BASE}/scrape/config`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to load scraper configuration');
+  }
+  return response.json();
+}
+
+/**
+ * Get scraped prices
+ */
+export async function getScrapedPrices(): Promise<Array<{
+  sku: string;
+  material_name: string;
+  unit: string;
+  region_id: string;
+  price: number;
+  source: string;
+  effective_date: string;
+}>> {
+  const response = await fetch(`${API_BASE}/scrape/prices`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to load scraped prices');
+  }
+  return response.json();
+}
+
+/**
+ * Get scrape job history
+ */
+export async function getScrapeJobs(): Promise<Array<{
+  id: string;
+  source: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  items_processed: number;
+  items_updated: number;
+  errors: string | null;
+}>> {
+  const response = await fetch(`${API_BASE}/scrape/jobs`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to load scrape jobs');
+  }
+  return response.json();
+}
+
+/**
  * Get evidence for a movement
  */
 export async function getMovementEvidence(

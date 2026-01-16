@@ -60,6 +60,9 @@ export const errors = {
   conflict: (message: string, details?: Record<string, unknown>) =>
     createApiError(message, 409, 'CONFLICT', details),
   
+  versionConflict: (message: string = 'Resource version conflict', details?: Record<string, unknown>) =>
+    createApiError(message, 409, 'VERSION_CONFLICT', details),
+  
   validation: (message: string, details?: Record<string, unknown>) =>
     createApiError(message, 422, 'VALIDATION_ERROR', details),
   

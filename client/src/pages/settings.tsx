@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import Layout from "@/components/layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +59,11 @@ import {
   syncCalendarToMs365,
   syncCalendarFull,
   getCalendarSyncStatus,
+  getSystemStatus,
+  runHomeDepotScraper,
+  getScraperConfig,
+  getScrapedPrices,
+  getScrapeJobs,
   type CalendarSyncStatus,
   type CalendarSyncResult
 } from "@/lib/api";
@@ -154,16 +160,62 @@ export default function Settings() {
   const displayEmail = authUser?.email || user?.email || '';
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState(tabFromUrl || "profile");
-  const [isScrapingHomeDepot, setIsScrapingHomeDepot] = useState(false);
   const [lastScrapeResult, setLastScrapeResult] = useState<ScrapeJobResult | null>(null);
-  const [scraperConfig, setScraperConfig] = useState<ScraperConfig | null>(null);
-  const [isLoadingConfig, setIsLoadingConfig] = useState(false);
-  const [scrapedPrices, setScrapedPrices] = useState<ScrapedPrice[]>([]);
-  const [isLoadingPrices, setIsLoadingPrices] = useState(false);
-  const [scrapeJobs, setScrapeJobs] = useState<ScrapeJob[]>([]);
-  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [isLoadingSystem, setIsLoadingSystem] = useState(false);
+
+  // React Query hooks for data fetching
+  const { data: systemStatus, isLoading: isLoadingSystem } = useQuery({
+    queryKey: ['systemStatus'],
+    queryFn: getSystemStatus,
+    staleTime: 30000, // 30 seconds
+  });
+
+  const { data: scraperConfig, isLoading: isLoadingConfig } = useQuery({
+    queryKey: ['scraperConfig'],
+    queryFn: getScraperConfig,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  const { data: scrapedPrices = [], isLoading: isLoadingPrices } = useQuery({
+    queryKey: ['scrapedPrices'],
+    queryFn: getScrapedPrices,
+    staleTime: 60 * 1000, // 1 minute
+  });
+
+  const { data: scrapeJobs = [] } = useQuery({
+    queryKey: ['scrapeJobs'],
+    queryFn: getScrapeJobs,
+    staleTime: 60 * 1000, // 1 minute
+  });
+
+  const { data: userPreferences, isLoading: isLoadingPreferences } = useQuery({
+    queryKey: ['userPreferences'],
+    queryFn: getUserPreferences,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Mutations
+  const scrapeMutation = useMutation({
+    mutationFn: runHomeDepotScraper,
+    onSuccess: (result) => {
+      setLastScrapeResult(result);
+      toast({
+        title: "Scrape Complete",
+        description: `Processed ${result.itemsProcessed} items, updated ${result.itemsUpdated} prices.`,
+      });
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['scrapedPrices'] });
+      queryClient.invalidateQueries({ queryKey: ['scrapeJobs'] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Scrape Failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
   
   const [profileData, setProfileData] = useState({
     displayName: displayName,
@@ -209,118 +261,21 @@ export default function Settings() {
     }));
   }, [displayName, displayEmail]);
 
-  const runHomeDepotScraper = async () => {
-    setIsScrapingHomeDepot(true);
-    try {
-      const response = await fetch('/api/scrape/home-depot', { method: 'POST', credentials: 'include' });
-      if (!response.ok) {
-        throw new Error('Failed to run scraper');
-      }
-      const result = await response.json();
-      setLastScrapeResult(result);
-      toast({
-        title: "Scrape Complete",
-        description: `Processed ${result.itemsProcessed} items, updated ${result.itemsUpdated} prices.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Scrape Failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
-    } finally {
-      setIsScrapingHomeDepot(false);
-    }
-  };
-
-  const loadScraperConfig = async () => {
-    setIsLoadingConfig(true);
-    try {
-      const response = await fetch('/api/scrape/config', { credentials: 'include' });
-      if (!response.ok) throw new Error('Failed to load config');
-      const config = await response.json();
-      setScraperConfig(config);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load scraper configuration",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingConfig(false);
-    }
-  };
-
-  const loadScrapedPrices = async () => {
-    setIsLoadingPrices(true);
-    try {
-      const [pricesRes, jobsRes] = await Promise.all([
-        fetch('/api/scrape/prices', { credentials: 'include' }),
-        fetch('/api/scrape/jobs', { credentials: 'include' })
-      ]);
-      if (pricesRes.ok) {
-        const prices = await pricesRes.json();
-        setScrapedPrices(prices);
-      }
-      if (jobsRes.ok) {
-        const jobs = await jobsRes.json();
-        setScrapeJobs(jobs);
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load scraped prices",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingPrices(false);
-    }
-  };
-
-  const loadSystemStatus = async () => {
-    setIsLoadingSystem(true);
-    try {
-      const response = await fetch('/api/system/status', { credentials: 'include' });
-      if (response.ok) {
-        const status = await response.json();
-        setSystemStatus(status);
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load system status",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingSystem(false);
-    }
-  };
-
+  // Update local state when preferences load
   useEffect(() => {
-    loadSystemStatus();
-    loadUserPreferences();
-  }, []);
-
-  const loadUserPreferences = async () => {
-    setIsLoadingPreferences(true);
-    try {
-      const prefs = await getUserPreferences();
-      if (prefs.estimateDefaults) {
-        setEstimateDefaults(prev => ({ ...prev, ...prefs.estimateDefaults }));
+    if (userPreferences) {
+      if (userPreferences.estimateDefaults) {
+        setEstimateDefaults(prev => ({ ...prev, ...userPreferences.estimateDefaults }));
       }
-      if (prefs.notifications) {
-        setNotifications(prev => ({ ...prev, ...prefs.notifications }));
+      if (userPreferences.notifications) {
+        setNotifications(prev => ({ ...prev, ...userPreferences.notifications }));
       }
-      if (prefs.carrier) {
-        setDefaultCarrier(prefs.carrier.defaultCarrier || "state-farm");
-        setApprovalThreshold(prefs.carrier.approvalThreshold || 10000);
+      if (userPreferences.carrier) {
+        setDefaultCarrier(userPreferences.carrier.defaultCarrier || "state-farm");
+        setApprovalThreshold(userPreferences.carrier.approvalThreshold || 10000);
       }
-    } catch (error) {
-      // Failed to load preferences - will show error state
-    } finally {
-      setIsLoadingPreferences(false);
     }
-  };
+  }, [userPreferences]);
 
   const groupedPrices = scrapedPrices.reduce((acc, price) => {
     if (!acc[price.sku]) {
@@ -1214,7 +1169,7 @@ export default function Settings() {
                     disabled={isScrapingHomeDepot}
                     data-testid="button-run-scraper"
                   >
-                    {isScrapingHomeDepot ? (
+                    {scrapeMutation.isPending ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         Scraping...

@@ -662,14 +662,14 @@ export async function updateEstimate(
 
   // Optimistic locking: check if version matches expected version
   if (expectedVersion !== undefined && currentEstimate.version !== expectedVersion) {
-    const error: any = new Error('Estimate has been modified by another user. Please refresh and try again.');
-    error.statusCode = 409;
-    error.code = 'VERSION_CONFLICT';
-    error.details = {
-      currentVersion: currentEstimate.version,
-      expectedVersion,
-    };
-    throw error;
+    const { errors } = await import('../middleware/errorHandler');
+    throw errors.versionConflict(
+      'Estimate has been modified by another user. Please refresh and try again.',
+      {
+        currentVersion: currentEstimate.version,
+        expectedVersion,
+      }
+    );
   }
 
   const newVersion = currentEstimate.version + 1;
