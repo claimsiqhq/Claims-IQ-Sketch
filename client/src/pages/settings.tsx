@@ -248,7 +248,6 @@ export default function Settings() {
 
   const [defaultCarrier, setDefaultCarrier] = useState("state-farm");
   const [approvalThreshold, setApprovalThreshold] = useState(10000);
-  const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [isPurgingClaims, setIsPurgingClaims] = useState(false);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
