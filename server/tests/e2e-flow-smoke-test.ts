@@ -582,14 +582,13 @@ async function step7_testAudioObservation(): Promise<boolean> {
     const currentPhase = flowJson?.phases?.[flowInstance?.current_phase_index || 0];
     const currentMovementKey = `${currentPhase?.id}:${currentPhase?.movements?.[1]?.id}`;
 
-    // Create a test audio observation record
+    // Create a test audio observation record (note: movement_id is tracked via movement_evidence table, not in audio_observations)
     const { data: audio, error: audioError } = await supabase
       .from('audio_observations')
       .insert({
         organization_id: testOrganizationId,
         claim_id: testClaimId,
         flow_instance_id: testFlowInstanceId,
-        movement_id: currentMovementKey,
         audio_storage_path: `test/${testClaimId}/test-audio-${Date.now()}.webm`,
         audio_url: `https://test-bucket.storage.supabase.co/test/${testClaimId}/test-audio.webm`,
         transcription: 'E2E Test: Water source identified as burst copper pipe under kitchen sink. Appears to be due to freezing. Water has spread to adjacent dining room.',
@@ -615,9 +614,9 @@ async function step7_testAudioObservation(): Promise<boolean> {
     console.log(`   Audio ID: ${audio.id}`);
     console.log(`   Transcription: ${audio.transcription?.substring(0, 50)}...`);
     console.log(`   Duration: ${audio.duration_seconds}s`);
-    console.log(`   Movement ID: ${audio.movement_id}`);
+    console.log(`   Flow Instance ID: ${audio.flow_instance_id}`);
 
-    // Attach evidence to movement
+    // Attach evidence to movement via movement_evidence table
     const { error: evidenceError } = await supabase
       .from('movement_evidence')
       .insert({
@@ -637,12 +636,12 @@ async function step7_testAudioObservation(): Promise<boolean> {
       console.log(`   Warning: Evidence link failed: ${evidenceError.message}`);
     }
 
-    // Verify audio is linked
+    // Verify audio is linked via flow_instance_id
     const { data: linkedAudio } = await supabase
       .from('audio_observations')
       .select('*')
       .eq('flow_instance_id', testFlowInstanceId!)
-      .eq('movement_id', currentMovementKey);
+      .eq('claim_id', testClaimId!);
 
     const audioLinked = linkedAudio && linkedAudio.length > 0;
     console.log(`   Audio observations linked: ${linkedAudio?.length || 0}`);
