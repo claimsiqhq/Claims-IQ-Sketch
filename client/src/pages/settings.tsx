@@ -1344,7 +1344,7 @@ export default function Settings() {
 function MS365IntegrationCard() {
   const { toast } = useToast();
   const searchString = useSearch();
-  const [status, setStatus] = useState<{ connected: boolean; configured: boolean; expiresAt: string | null } | null>(null);
+  const [status, setStatus] = useState<{ connected: boolean; configured: boolean; expiresAt: string | null; expired?: boolean } | null>(null);
   const [syncStatus, setSyncStatus] = useState<CalendarSyncStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
