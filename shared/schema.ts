@@ -914,6 +914,11 @@ export const claimPhotos = pgTable("claim_photos", {
   analysisStatus: varchar("analysis_status", { length: 30 }).default("pending"), // pending, analyzing, completed, failed, concerns
   analysisError: text("analysis_error"), // Error message if analysis failed
 
+  // Flow context (for linking to flow engine movements)
+  flowInstanceId: uuid("flow_instance_id").references(() => claimFlowInstances.id, { onDelete: 'set null' }),
+  movementId: text("movement_id"), // Format: "phaseId:movementId"
+  capturedContext: text("captured_context"), // Additional context about how/when photo was captured
+
   // Timestamps
   capturedAt: timestamp("captured_at").default(sql`NOW()`),
   analyzedAt: timestamp("analyzed_at"),
@@ -927,6 +932,8 @@ export const claimPhotos = pgTable("claim_photos", {
   structureIdx: index("claim_photos_structure_idx").on(table.structureId),
   roomIdx: index("claim_photos_room_idx").on(table.roomId),
   damageIdx: index("claim_photos_damage_idx").on(table.damageZoneId),
+  flowInstanceIdx: index("claim_photos_flow_instance_idx").on(table.flowInstanceId),
+  movementIdx: index("claim_photos_movement_idx").on(table.movementId),
 }));
 
 export const insertClaimPhotoSchema = createInsertSchema(claimPhotos).omit({
