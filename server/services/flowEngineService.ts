@@ -459,6 +459,12 @@ export async function completeMovement(
   const movementKey = `${currentPhase.id}:${movementId}`;
   const completedMovements = [...(flowInstance.completed_movements || []), movementKey];
 
+  // Get sketch evidence IDs for this movement
+  const sketchEvidence = await getMovementEvidence(flowInstanceId, movementKey);
+  const sketchEvidenceIds = sketchEvidence
+    .filter(e => e.type === 'sketch_zone' || e.type === 'damage_marker')
+    .map(e => e.id);
+
   // Update flow instance
   const { error: updateError } = await supabaseAdmin
     .from('claim_flow_instances')
@@ -486,7 +492,8 @@ export async function completeMovement(
       evidence_data: {
         photos: evidence.photos || [],
         audioId: evidence.audioId || null,
-        measurements: evidence.measurements || null
+        measurements: evidence.measurements || null,
+        evidence_sketch_ids: sketchEvidenceIds
       }
     })
     .select()

@@ -197,6 +197,110 @@ export function EvidenceGrid({
                 </div>
               </ScrollArea>
             )}
+
+            {previewItem?.type === 'sketch_zone' && previewItem.data && (
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">Room Name</div>
+                      <div className="text-lg font-medium">
+                        {previewItem.data.name || previewItem.label || 'Unnamed Room'}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  {previewItem.data.roomType && (
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="text-sm text-muted-foreground">Room Type</div>
+                        <div className="text-lg font-medium capitalize">
+                          {previewItem.data.roomType}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+                {(previewItem.data.widthFt || previewItem.data.lengthFt) && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">Dimensions</div>
+                      <div className="text-xl font-bold">
+                        {previewItem.data.widthFt}' × {previewItem.data.lengthFt}'
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                {previewItem.data.polygon && Array.isArray(previewItem.data.polygon) && previewItem.data.polygon.length > 0 && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">Shape</div>
+                      <div className="text-sm">
+                        {previewItem.data.polygon.length} vertices (custom polygon)
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {previewItem?.type === 'damage_marker' && previewItem.data && (
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">Damage Type</div>
+                      <div className="text-lg font-medium capitalize">
+                        {previewItem.data.damageType || 'Unknown'}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  {previewItem.data.severity && (
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="text-sm text-muted-foreground">Severity</div>
+                        <div className="text-lg font-medium capitalize">
+                          {previewItem.data.severity}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+                {previewItem.data.category && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">IICRC Category</div>
+                      <div className="text-xl font-bold">
+                        Category {previewItem.data.category}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                {previewItem.data.affectedWalls && Array.isArray(previewItem.data.affectedWalls) && previewItem.data.affectedWalls.length > 0 && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">Affected Walls</div>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {previewItem.data.affectedWalls.map((wall: string, idx: number) => (
+                          <Badge key={idx} variant="outline" className="capitalize">
+                            {wall}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                {previewItem.data.polygon && Array.isArray(previewItem.data.polygon) && previewItem.data.polygon.length > 0 && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-sm text-muted-foreground">Shape</div>
+                      <div className="text-sm">
+                        {previewItem.data.polygon.length} vertices (custom polygon)
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
