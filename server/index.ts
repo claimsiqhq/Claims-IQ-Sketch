@@ -22,14 +22,22 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow Replit domains (for development and deployment)
+    if (origin.endsWith('.replit.dev') || origin.endsWith('.replit.app') || origin.endsWith('.repl.co')) {
+      return callback(null, true);
     }
+    
+    // Allow configured origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // In development, log rejected origins for debugging
+    console.log(`CORS: Rejected origin ${origin}`);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
