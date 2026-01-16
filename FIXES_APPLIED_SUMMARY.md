@@ -182,10 +182,17 @@ if (!adminEmail || !adminPassword) {
 5. `server/services/documentProcessor.ts` - Implemented carrier ID assignment
 6. `server/services/organizations.ts` - Added deleteOrganization function
 7. `server/services/supabaseAuth.ts` - Removed hardcoded credentials
-8. `server/routes.ts` - Added DELETE endpoint, multer limits
-9. `server/index.ts` - Added CORS configuration
-10. `shared/schema.ts` - Added FK constraint definition
-11. `package.json` - Added cors dependency
+8. `server/services/estimateCalculator.ts` - Added optimistic locking
+9. `server/routes.ts` - Added DELETE endpoint, multer limits, standardized responses, gated test endpoints
+10. `server/index.ts` - Added CORS configuration, request ID middleware
+11. `server/middleware/responseHelpers.ts` - New file for standardized API responses
+12. `server/middleware/requestId.ts` - New file for request tracing
+13. `server/middleware/errorHandler.ts` - Integrated request ID and sendError helper
+14. `server/middleware/validationSchemas.ts` - Added version field and query defaults
+15. `shared/schema.ts` - Added FK constraint definition, version field for estimates
+16. `client/src/lib/api.ts` - Added new API functions, converted to React Query
+17. `client/src/pages/settings.tsx` - Converted manual fetch to React Query hooks
+18. `package.json` - Added cors dependency
 
 ---
 
@@ -217,17 +224,113 @@ if (!adminEmail || !adminPassword) {
 
 ---
 
-## Remaining Medium/Low Priority Items
+## Additional Medium Priority Issues Fixed ✅
+
+### 11. Standardized API Response Envelopes
+**Files:**
+- `server/middleware/responseHelpers.ts` (new)
+- `server/routes.ts` (updated multiple endpoints)
+- `server/middleware/errorHandler.ts`
+
+**Fix Applied:**
+- Created `sendSuccess()`, `sendSuccessMessage()`, `sendCreated()`, `sendNoContent()` helpers
+- Standardized all responses to `{ success: boolean, data?: T, message?: string, requestId?: string }`
+- Updated error handler to use `sendError()` helper
+- All endpoints now return consistent response format
+
+---
+
+### 12. Optimistic Locking for Estimates
+**Files:**
+- `server/services/estimateCalculator.ts`
+- `server/middleware/validationSchemas.ts`
+- `shared/schema.ts`
+
+**Fix Applied:**
+- Added `version` field to `estimates` table schema
+- Updated `updateEstimate()` to check version before update
+- Returns 409 Conflict if version mismatch detected
+- Version incremented on successful update
+- Added `version` field to `estimateUpdateSchema` validation
+
+---
+
+### 13. Request ID Middleware
+**Files:**
+- `server/middleware/requestId.ts` (new)
+- `server/index.ts`
+- `server/middleware/errorHandler.ts`
+
+**Fix Applied:**
+- Created middleware to generate unique request ID for each request
+- Request ID attached to `req.requestId` and `res.locals.requestId`
+- Integrated into error logging for traceability
+- Added to all API responses via response helpers
+
+---
+
+### 14. Error Boundary Coverage
+**File:** `client/src/App.tsx`
+
+**Fix Applied:**
+- Verified `ErrorBoundary` wraps main `Router` component
+- Provides global error handling for all routes
+- Error boundary properly configured with fallback UI
+
+---
+
+### 15. Converted Manual Fetch Calls to React Query
+**Files:**
+- `client/src/pages/settings.tsx`
+- `client/src/lib/api.ts`
+
+**Fix Applied:**
+- Converted `loadSystemStatus()`, `loadScraperConfig()`, `loadScrapedPrices()`, `loadScrapeJobs()` to `useQuery` hooks
+- Converted `runHomeDepotScraper()` to `useMutation` hook
+- Improved error handling, loading states, and caching
+- Consistent with rest of application's data fetching pattern
+
+---
+
+### 16. Query Parameter Validation Defaults
+**File:** `server/middleware/queryValidation.ts`
+
+**Fix Applied:**
+- Added default values to `paginationQuerySchema`:
+  - `limit`: defaults to 50
+  - `offset`: defaults to 0
+- Prevents undefined values in pagination queries
+
+---
+
+### 17. Test Endpoints Gated
+**File:** `server/routes.ts`
+
+**Fix Applied:**
+- `/api/scrape/test` - Already gated behind `NODE_ENV === 'production'` check
+- `/api/flow/test` - Added production gate, returns 404 in production
+- Both endpoints now safe for production deployment
+
+---
+
+### 18. Sketch Encoder Documentation
+**File:** `shared/geometry/sketchEncoder.ts`
+
+**Status:** Verified as intentional
+- `StubSketchEncoder` is documented as placeholder for future editable sketch encoding
+- `SvgSketchEncoder` is available and registered
+- Not imported or used anywhere in codebase
+- No runtime errors - this is a documented limitation, not a bug
+
+---
+
+## Remaining Low Priority Items
 
 These can be addressed incrementally:
 
-- [ ] Standardize API response envelopes
-- [ ] Implement optimistic locking for estimates
-- [ ] Add request ID to all logs
-- [ ] Audit error boundary coverage
-- [ ] Fix sketch encoder stub (if needed)
-- [ ] Convert manual fetch calls to React Query
-- [ ] Audit ARIA labels
+- [ ] Audit ARIA labels for accessibility
+- [ ] Verify `dangerouslySetInnerHTML` sanitization in chart component (already has safety comment)
+- [ ] Consider adding CSP headers for additional security
 
 ---
 

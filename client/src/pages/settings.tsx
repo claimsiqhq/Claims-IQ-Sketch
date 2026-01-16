@@ -1006,7 +1006,7 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <Button
-                  onClick={loadSystemStatus}
+                  onClick={() => queryClient.invalidateQueries({ queryKey: ['systemStatus'] })}
                   disabled={isLoadingSystem}
                   variant="outline"
                   size="sm"
@@ -1165,8 +1165,8 @@ export default function Settings() {
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-4">
                   <Button 
-                    onClick={runHomeDepotScraper} 
-                    disabled={isScrapingHomeDepot}
+                    onClick={() => scrapeMutation.mutate()} 
+                    disabled={scrapeMutation.isPending}
                     data-testid="button-run-scraper"
                   >
                     {scrapeMutation.isPending ? (
@@ -1184,7 +1184,7 @@ export default function Settings() {
                   
                   <Button 
                     variant="outline" 
-                    onClick={loadScraperConfig}
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ['scraperConfig'] })}
                     disabled={isLoadingConfig}
                     data-testid="button-view-config"
                   >

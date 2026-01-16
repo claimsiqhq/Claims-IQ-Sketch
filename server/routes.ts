@@ -1539,7 +1539,8 @@ export async function registerRoutes(
       limit: limit ? parseInt(limit as string) : undefined,
       offset: offset ? parseInt(offset as string) : undefined,
     });
-    res.json(result);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, result);
   }));
 
   // Get estimate by ID
@@ -1548,7 +1549,8 @@ export async function registerRoutes(
       if (!estimate) {
         return next(errors.notFound('Estimate'));
       }
-      res.json(estimate);
+      const { sendSuccess } = await import('./middleware/responseHelpers');
+      sendSuccess(res, estimate);
   }));
 
   // Update estimate
@@ -1703,7 +1705,7 @@ export async function registerRoutes(
   }));
 
   // Get carrier profiles
-  app.get('/api/carrier-profiles', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
+  app.get('/api/carrier-profiles', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({}).passthrough()), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('carrier_profiles')
       .select('*')
@@ -1712,11 +1714,12 @@ export async function registerRoutes(
 
     if (error) throw error;
 
-    res.json(data);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, data);
   }));
 
   // Get regions
-  app.get('/api/regions', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
+  app.get('/api/regions', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({}).passthrough()), asyncHandler(async (req, res, next) => {
     const { data, error } = await supabaseAdmin
       .from('regions')
       .select('*')
@@ -1724,7 +1727,8 @@ export async function registerRoutes(
 
     if (error) throw error;
 
-    res.json(data);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, data);
   }));
 
   // ============================================
@@ -1742,7 +1746,8 @@ export async function registerRoutes(
 
     if (error) throw error;
 
-    res.json(data);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, data);
   }));
 
   // Get coverage type by code
@@ -2907,7 +2912,8 @@ export async function registerRoutes(
     if (!org) {
       return next(errors.notFound('Organization'));
     }
-    res.json(org);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, org);
   }));
 
   // Update current organization
@@ -2924,13 +2930,15 @@ export async function registerRoutes(
     if (!org) {
       return next(errors.notFound('Organization'));
     }
-    res.json(org);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, org);
   }));
 
   // Get organization members
   app.get('/api/organizations/current/members', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const members = await getOrganizationMembers(req.organizationId!);
-    res.json(members);
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, members);
   }));
 
   // Add member to organization
@@ -2940,13 +2948,15 @@ export async function registerRoutes(
       return next(errors.badRequest('userId required'));
     }
     await addOrganizationMember(req.organizationId!, userId, role || 'member');
-    res.status(201).json({ success: true });
+    const { sendCreated } = await import('./middleware/responseHelpers');
+    sendCreated(res, { success: true }, 'Member added successfully');
   }));
 
   // Remove member from organization
   app.delete('/api/organizations/current/members/:userId', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateParams(z.object({ userId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
     await removeOrganizationMember(req.organizationId!, req.params.userId);
-    res.json({ success: true });
+    const { sendSuccessMessage } = await import('./middleware/responseHelpers');
+    sendSuccessMessage(res, 'Member removed successfully');
   }));
 
   // ============================================
@@ -3563,8 +3573,18 @@ export async function registerRoutes(
   /**
    * Test route: Get flow definition for a peril/property type
    * GET /api/flow/test?peril=wind&propertyType=residential
+   * Only available in development mode
    */
   app.get("/api/flow/test", async (req, res) => {
+    // Gate test endpoint behind development mode
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Endpoint not found',
+        code: 'NOT_FOUND'
+      });
+    }
+    
     try {
       const peril = (req.query.peril as string) || "wind";
       const propertyType = (req.query.propertyType as string) || "residential";

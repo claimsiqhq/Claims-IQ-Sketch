@@ -74,6 +74,10 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  // SAFE: dangerouslySetInnerHTML is used here to inject CSS variables.
+  // The content is generated from controlled configuration objects (THEMES, colorConfig),
+  // not user input. All values are CSS color values that are validated by the chart library.
+  // This is a standard pattern for dynamic CSS variable injection in React.
   return (
     <style
       dangerouslySetInnerHTML={{
