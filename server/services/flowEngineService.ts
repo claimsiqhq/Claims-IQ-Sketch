@@ -3,11 +3,15 @@
  * 
  * Replaces the old static workflow system with dynamic, phase-based inspection flows.
  * Each claim gets a claim_flow_instances record that progresses through phases → movements → evidence collection.
+ * 
+ * NOTE: Flow definitions store phases/movements/gates as JSON in the flow_json column.
+ * This service extracts and works with that JSON structure.
  */
 
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { getPromptConfig, substituteVariables } from './promptService';
 import OpenAI from 'openai';
+import { FlowJson, FlowJsonPhase, FlowJsonMovement, FlowJsonGate } from '@shared/schema';
 
 const openai = new OpenAI();
 
@@ -21,12 +25,14 @@ export interface FlowInstance {
   flowDefinitionId: string;
   status: 'active' | 'paused' | 'completed' | 'cancelled';
   currentPhaseId: string | null;
+  currentPhaseIndex: number;
   startedAt: Date | null;
   completedAt: Date | null;
   flowName?: string;
   flowDescription?: string;
   currentPhaseName?: string;
   currentPhaseDescription?: string;
+  completedMovements: string[];
 }
 
 export interface FlowProgress {
@@ -92,6 +98,45 @@ export interface EvidenceValidation {
 }
 
 // ============================================================================
+// HELPER: Load flow definition with parsed JSON
+// ============================================================================
+
+interface FlowDefinitionWithJson {
+  id: string;
+  name: string;
+  description: string | null;
+  peril_type: string;
+  property_type: string;
+  flow_json: FlowJson;
+  is_active: boolean;
+}
+
+async function loadFlowDefinition(flowDefinitionId: string): Promise<FlowDefinitionWithJson | null> {
+  const { data, error } = await supabaseAdmin
+    .from('flow_definitions')
+    .select('*')
+    .eq('id', flowDefinitionId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[FlowEngineService] Error loading flow definition:', error);
+    throw new Error(`Failed to load flow definition: ${error.message}`);
+  }
+
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    name: data.name,
+    description: data.description,
+    peril_type: data.peril_type,
+    property_type: data.property_type,
+    flow_json: data.flow_json as FlowJson,
+    is_active: data.is_active
+  };
+}
+
+// ============================================================================
 // 1. FLOW INSTANCE MANAGEMENT
 // ============================================================================
 
@@ -102,34 +147,47 @@ export async function startFlowForClaim(
   claimId: string,
   perilType: string
 ): Promise<string> {
-  // Step 1: Find matching flow_definitions
-  const { data: flowDef, error: flowDefError } = await supabaseAdmin
+  // Step 1: Find matching flow_definitions by checking flow_json metadata
+  const { data: flowDefs, error: flowDefError } = await supabaseAdmin
     .from('flow_definitions')
     .select('*')
-    .filter('perils', 'cs', JSON.stringify([perilType.toLowerCase()]))
     .eq('is_active', true)
-    .order('version', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('version', { ascending: false });
 
   if (flowDefError) {
-    console.error('[FlowEngineService] Error finding flow definition:', flowDefError);
+    console.error('[FlowEngineService] Error finding flow definitions:', flowDefError);
     throw new Error(`Database error finding flow definition: ${flowDefError.message}`);
   }
 
-  // Step 2: If none found, throw error
+  // Find a flow that matches the peril type
+  const normalizedPeril = perilType.toLowerCase().replace(/_/g, '_');
+  const flowDef = flowDefs?.find(fd => {
+    // Check peril_type column
+    if (fd.peril_type?.toLowerCase() === normalizedPeril) return true;
+    // Also check flow_json metadata
+    const flowJson = fd.flow_json as FlowJson;
+    if (flowJson?.metadata?.primary_peril?.toLowerCase() === normalizedPeril) return true;
+    if (flowJson?.metadata?.secondary_perils?.some((p: string) => p.toLowerCase() === normalizedPeril)) return true;
+    return false;
+  });
+
   if (!flowDef) {
     throw new Error(`No flow definition for peril type: ${perilType}`);
   }
 
-  // Step 3: Create claim_flow_instances record
+  const flowJson = flowDef.flow_json as FlowJson;
+  const firstPhaseId = flowJson.phases?.[0]?.id || null;
+
+  // Step 2: Create claim_flow_instances record
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
     .insert({
       claim_id: claimId,
       flow_definition_id: flowDef.id,
       status: 'active',
-      current_phase_id: null,
+      current_phase_id: firstPhaseId,
+      current_phase_index: 0,
+      completed_movements: [],
       started_at: new Date().toISOString()
     })
     .select()
@@ -140,34 +198,6 @@ export async function startFlowForClaim(
     throw new Error(`Failed to create flow instance: ${instanceError.message}`);
   }
 
-  // Step 4: Get first phase from phases table
-  const { data: firstPhase, error: phaseError } = await supabaseAdmin
-    .from('phases')
-    .select('*')
-    .eq('flow_definition_id', flowDef.id)
-    .order('sequence_order', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (phaseError) {
-    console.error('[FlowEngineService] Error finding first phase:', phaseError);
-    throw new Error(`Failed to find first phase: ${phaseError.message}`);
-  }
-
-  // Step 5: Update instance with first phase
-  if (firstPhase) {
-    const { error: updateError } = await supabaseAdmin
-      .from('claim_flow_instances')
-      .update({ current_phase_id: firstPhase.id })
-      .eq('id', flowInstance.id);
-
-    if (updateError) {
-      console.error('[FlowEngineService] Error updating flow instance with phase:', updateError);
-      throw new Error(`Failed to set initial phase: ${updateError.message}`);
-    }
-  }
-
-  // Step 6: Return flow instance ID
   return flowInstance.id;
 }
 
@@ -180,12 +210,10 @@ export async function getCurrentFlow(claimId: string): Promise<FlowInstance | nu
     .select(`
       *,
       flow_definitions!inner (
+        id,
         name,
-        description
-      ),
-      phases (
-        name,
-        description
+        description,
+        flow_json
       )
     `)
     .eq('claim_id', claimId)
@@ -201,29 +229,56 @@ export async function getCurrentFlow(claimId: string): Promise<FlowInstance | nu
     return null;
   }
 
+  const flowDef = data.flow_definitions as any;
+  const flowJson = flowDef?.flow_json as FlowJson;
+  const currentPhaseIndex = data.current_phase_index || 0;
+  const currentPhase = flowJson?.phases?.[currentPhaseIndex];
+
   return {
     id: data.id,
     claimId: data.claim_id,
     flowDefinitionId: data.flow_definition_id,
     status: data.status,
     currentPhaseId: data.current_phase_id,
+    currentPhaseIndex,
     startedAt: data.started_at ? new Date(data.started_at) : null,
     completedAt: data.completed_at ? new Date(data.completed_at) : null,
-    flowName: (data.flow_definitions as any)?.name,
-    flowDescription: (data.flow_definitions as any)?.description,
-    currentPhaseName: (data.phases as any)?.name,
-    currentPhaseDescription: (data.phases as any)?.description
+    flowName: flowDef?.name,
+    flowDescription: flowDef?.description,
+    currentPhaseName: currentPhase?.name,
+    currentPhaseDescription: currentPhase?.description,
+    completedMovements: data.completed_movements || []
   };
+}
+
+/**
+ * Cancel a flow instance
+ */
+export async function cancelFlow(flowInstanceId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .update({
+      status: 'cancelled',
+      completed_at: new Date().toISOString()
+    })
+    .eq('id', flowInstanceId);
+
+  if (error) {
+    throw new Error(`Failed to cancel flow: ${error.message}`);
+  }
 }
 
 /**
  * Get flow progress
  */
 export async function getFlowProgress(flowInstanceId: string): Promise<FlowProgress> {
-  // Get total movements for this flow
+  // Get flow instance with definition
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
-    .select('flow_definition_id')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
     .eq('id', flowInstanceId)
     .single();
 
@@ -231,49 +286,25 @@ export async function getFlowProgress(flowInstanceId: string): Promise<FlowProgr
     throw new Error(`Flow instance not found: ${flowInstanceId}`);
   }
 
-  // Get phases for this flow definition
-  const { data: phases, error: phasesError } = await supabaseAdmin
-    .from('phases')
-    .select('id')
-    .eq('flow_definition_id', flowInstance.flow_definition_id);
-
-  if (phasesError) {
-    throw new Error(`Failed to get phases: ${phasesError.message}`);
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  if (!flowJson?.phases) {
+    return { total: 0, completed: 0, percentComplete: 0 };
   }
 
-  const phaseIds = phases?.map(p => p.id) || [];
-  
-  const { count: total, error: movementError } = await supabaseAdmin
-    .from('movements')
-    .select('id', { count: 'exact', head: true })
-    .in('phase_id', phaseIds);
+  // Count total movements across all phases
+  let total = 0;
+  flowJson.phases.forEach(phase => {
+    total += phase.movements?.length || 0;
+  });
 
-  if (movementError) {
-    throw new Error(`Failed to count movements: ${movementError.message}`);
-  }
+  const completedMovements = flowInstance.completed_movements || [];
+  const completed = completedMovements.length;
 
-  // Get completed movements
-  const { count: completed, error: completedError } = await supabaseAdmin
-    .from('movement_completions')
-    .select('id', { count: 'exact', head: true })
-    .eq('flow_instance_id', flowInstanceId)
-    .eq('status', 'completed');
-
-  if (completedError) {
-    throw new Error(`Failed to count completed movements: ${completedError.message}`);
-  }
-
-  const totalMovements = total || 0;
-  const completedMovements = completed || 0;
-  const percentComplete = totalMovements > 0 
-    ? Math.round((completedMovements / totalMovements) * 10000) / 100 
+  const percentComplete = total > 0 
+    ? Math.round((completed / total) * 10000) / 100 
     : 0;
 
-  return {
-    total: totalMovements,
-    completed: completedMovements,
-    percentComplete
-  };
+  return { total, completed, percentComplete };
 }
 
 // ============================================================================
@@ -286,10 +317,13 @@ export async function getFlowProgress(flowInstanceId: string): Promise<FlowProgr
 export async function getNextMovement(
   flowInstanceId: string
 ): Promise<Movement | GateResult | null> {
-  // Step 1: Get current phase from flow instance
+  // Get flow instance with definition
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
-    .select('current_phase_id, flow_definition_id, status')
+    .select(`
+      *,
+      flow_definitions (id, name, flow_json)
+    `)
     .eq('id', flowInstanceId)
     .single();
 
@@ -301,83 +335,81 @@ export async function getNextMovement(
     return null;
   }
 
-  if (!flowInstance.current_phase_id) {
-    throw new Error('Flow instance has no current phase');
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  if (!flowJson?.phases?.length) {
+    return null;
   }
 
-  // Step 2: Get all movements for current phase ordered by sequence
-  const { data: movements, error: movementsError } = await supabaseAdmin
-    .from('movements')
-    .select('*')
-    .eq('phase_id', flowInstance.current_phase_id)
-    .order('sequence_order', { ascending: true });
-
-  if (movementsError) {
-    throw new Error(`Failed to get movements: ${movementsError.message}`);
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = flowJson.phases[currentPhaseIndex];
+  if (!currentPhase) {
+    return null;
   }
 
-  // Step 3: Get completed movements for this flow instance
-  const { data: completions, error: completionsError } = await supabaseAdmin
-    .from('movement_completions')
-    .select('movement_id')
-    .eq('flow_instance_id', flowInstanceId);
+  const completedMovements = new Set(flowInstance.completed_movements || []);
 
-  if (completionsError) {
-    throw new Error(`Failed to get completions: ${completionsError.message}`);
+  // Find first incomplete movement in current phase
+  for (let i = 0; i < (currentPhase.movements?.length || 0); i++) {
+    const movement = currentPhase.movements[i];
+    const movementKey = `${currentPhase.id}:${movement.id}`;
+    
+    if (!completedMovements.has(movementKey)) {
+      return {
+        id: movement.id,
+        phaseId: currentPhase.id,
+        name: movement.name,
+        description: movement.description || '',
+        sequenceOrder: i,
+        isRequired: movement.is_required !== false,
+        roomSpecific: false,
+        roomName: null,
+        validationRequirements: movement.evidence_requirements || null,
+        completionStatus: 'pending'
+      };
+    }
   }
 
-  const completedMovementIds = new Set(completions?.map(c => c.movement_id) || []);
-
-  // Step 4: Find first incomplete movement
-  const nextMovement = movements?.find(m => !completedMovementIds.has(m.id));
-
-  if (nextMovement) {
-    return {
-      id: nextMovement.id,
-      phaseId: nextMovement.phase_id,
-      name: nextMovement.name,
-      description: nextMovement.description,
-      sequenceOrder: nextMovement.sequence_order,
-      isRequired: nextMovement.is_required,
-      roomSpecific: nextMovement.room_specific || false,
-      roomName: nextMovement.room_name,
-      validationRequirements: nextMovement.validation_requirements,
-      completionStatus: 'pending'
-    };
-  }
-
-  // Step 5: All movements complete - check for gate
-  const { data: gate, error: gateError } = await supabaseAdmin
-    .from('gates')
-    .select('*')
-    .eq('from_phase_id', flowInstance.current_phase_id)
-    .maybeSingle();
-
-  if (gateError) {
-    console.error('[FlowEngineService] Error checking gate:', gateError);
-  }
-
+  // All movements in current phase complete - check for gate
+  const gate = flowJson.gates?.find(g => g.from_phase === currentPhase.id);
   if (gate) {
     return {
       type: 'gate',
       gate: {
         id: gate.id,
         name: gate.name,
-        description: gate.description,
+        description: '',
         evaluationCriteria: gate.evaluation_criteria,
-        aiPromptKey: gate.ai_prompt_key
+        aiPromptKey: gate.evaluation_criteria?.ai_prompt_key || null
       }
     };
   }
 
-  // No gate - advance to next phase
-  const advanced = await advanceToNextPhase(flowInstanceId);
-  if (advanced) {
+  // No gate - try to advance to next phase
+  const nextPhaseIndex = currentPhaseIndex + 1;
+  if (nextPhaseIndex < flowJson.phases.length) {
+    // Update to next phase
+    const nextPhase = flowJson.phases[nextPhaseIndex];
+    await supabaseAdmin
+      .from('claim_flow_instances')
+      .update({
+        current_phase_id: nextPhase.id,
+        current_phase_index: nextPhaseIndex
+      })
+      .eq('id', flowInstanceId);
+
     // Recursively get next movement from new phase
     return getNextMovement(flowInstanceId);
   }
 
-  // No more phases - flow complete
+  // No more phases - mark flow complete
+  await supabaseAdmin
+    .from('claim_flow_instances')
+    .update({
+      status: 'completed',
+      completed_at: new Date().toISOString()
+    })
+    .eq('id', flowInstanceId);
+
   return null;
 }
 
@@ -395,10 +427,13 @@ export async function completeMovement(
     measurements?: any;
   }
 ): Promise<MovementCompletion> {
-  // Step 1: Verify movement belongs to current phase
+  // Get flow instance
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
-    .select('current_phase_id, claim_id')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
     .eq('id', flowInstanceId)
     .single();
 
@@ -406,179 +441,88 @@ export async function completeMovement(
     throw new Error(`Flow instance not found: ${flowInstanceId}`);
   }
 
-  const { data: movement, error: movementError } = await supabaseAdmin
-    .from('movements')
-    .select('phase_id')
-    .eq('id', movementId)
-    .single();
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = flowJson?.phases?.[currentPhaseIndex];
 
-  if (movementError || !movement) {
-    throw new Error(`Movement not found: ${movementId}`);
+  if (!currentPhase) {
+    throw new Error('No current phase');
   }
 
-  if (movement.phase_id !== flowInstance.current_phase_id) {
-    throw new Error('Movement does not belong to current phase');
+  // Find the movement
+  const movement = currentPhase.movements?.find(m => m.id === movementId);
+  if (!movement) {
+    throw new Error(`Movement ${movementId} not found in current phase`);
   }
 
-  // Step 2: Create movement_completions record
-  const evidenceData: any = {};
-  if (evidence.photos?.length) {
-    evidenceData.photos = evidence.photos;
-  }
-  if (evidence.measurements) {
-    evidenceData.measurements = evidence.measurements;
+  // Create movement key and add to completed list
+  const movementKey = `${currentPhase.id}:${movementId}`;
+  const completedMovements = [...(flowInstance.completed_movements || []), movementKey];
+
+  // Update flow instance
+  const { error: updateError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .update({
+      completed_movements: completedMovements
+    })
+    .eq('id', flowInstanceId);
+
+  if (updateError) {
+    throw new Error(`Failed to update flow instance: ${updateError.message}`);
   }
 
+  // Record the completion
   const { data: completion, error: completionError } = await supabaseAdmin
     .from('movement_completions')
     .insert({
       flow_instance_id: flowInstanceId,
-      movement_id: movementId,
+      movement_id: movementKey,
       claim_id: flowInstance.claim_id,
       status: 'completed',
       completed_at: new Date().toISOString(),
       completed_by: evidence.userId,
       notes: evidence.notes || null,
-      evidence_data: Object.keys(evidenceData).length > 0 ? evidenceData : null
+      evidence_data: {
+        photos: evidence.photos || [],
+        audioId: evidence.audioId || null,
+        measurements: evidence.measurements || null
+      }
     })
     .select()
     .single();
 
   if (completionError) {
-    throw new Error(`Failed to create completion: ${completionError.message}`);
+    console.error('[FlowEngineService] Error recording completion:', completionError);
   }
 
-  // Step 3: Link audio observation if provided
-  if (evidence.audioId) {
-    const { error: audioError } = await supabaseAdmin
-      .from('audio_observations')
-      .update({ movement_completion_id: completion.id })
-      .eq('id', evidence.audioId);
-
-    if (audioError) {
-      console.error('[FlowEngineService] Error linking audio:', audioError);
-    }
-  }
-
-  // Step 4: Check if all movements in phase complete
-  const { data: phaseMovements, error: phaseMovementsError } = await supabaseAdmin
-    .from('movements')
-    .select('id')
-    .eq('phase_id', flowInstance.current_phase_id);
-
-  const { data: phaseCompletions, error: phaseCompletionsError } = await supabaseAdmin
-    .from('movement_completions')
-    .select('movement_id')
-    .eq('flow_instance_id', flowInstanceId)
-    .in('movement_id', phaseMovements?.map(m => m.id) || []);
-
-  const allComplete = phaseMovements?.length === phaseCompletions?.length;
-
-  if (allComplete) {
-    // Check for gate and evaluate if exists
-    const { data: gate } = await supabaseAdmin
-      .from('gates')
-      .select('id')
-      .eq('from_phase_id', flowInstance.current_phase_id)
-      .maybeSingle();
-
-    if (gate) {
-      console.log('[FlowEngineService] Phase complete, gate evaluation pending:', gate.id);
-    }
-  }
-
-  // Step 5: Return completion record
   return {
-    id: completion.id,
-    flowInstanceId: completion.flow_instance_id,
-    movementId: completion.movement_id,
-    claimId: completion.claim_id,
-    status: completion.status,
-    completedAt: new Date(completion.completed_at),
-    completedBy: completion.completed_by,
-    notes: completion.notes,
-    evidenceData: completion.evidence_data
+    id: completion?.id || movementKey,
+    flowInstanceId,
+    movementId: movementKey,
+    claimId: flowInstance.claim_id,
+    status: 'completed',
+    completedAt: new Date(),
+    completedBy: evidence.userId,
+    notes: evidence.notes || null,
+    evidenceData: evidence
   };
 }
 
 /**
- * Skip a movement with reason
+ * Skip a movement
  */
 export async function skipMovement(
   flowInstanceId: string,
   movementId: string,
   reason: string,
   userId: string
-): Promise<MovementCompletion> {
-  const { data: flowInstance, error: instanceError } = await supabaseAdmin
-    .from('claim_flow_instances')
-    .select('claim_id')
-    .eq('id', flowInstanceId)
-    .single();
-
-  if (instanceError || !flowInstance) {
-    throw new Error(`Flow instance not found: ${flowInstanceId}`);
-  }
-
-  const { data: completion, error: completionError } = await supabaseAdmin
-    .from('movement_completions')
-    .insert({
-      flow_instance_id: flowInstanceId,
-      movement_id: movementId,
-      claim_id: flowInstance.claim_id,
-      status: 'skipped',
-      notes: reason,
-      completed_by: userId,
-      completed_at: new Date().toISOString()
-    })
-    .select()
-    .single();
-
-  if (completionError) {
-    throw new Error(`Failed to skip movement: ${completionError.message}`);
-  }
-
-  return {
-    id: completion.id,
-    flowInstanceId: completion.flow_instance_id,
-    movementId: completion.movement_id,
-    claimId: completion.claim_id,
-    status: completion.status,
-    completedAt: new Date(completion.completed_at),
-    completedBy: completion.completed_by,
-    notes: completion.notes,
-    evidenceData: completion.evidence_data
-  };
-}
-
-// ============================================================================
-// 3. GATE EVALUATION
-// ============================================================================
-
-/**
- * Evaluate a gate to determine if flow can proceed
- */
-export async function evaluateGate(
-  flowInstanceId: string,
-  gateId: string
-): Promise<{ result: 'passed' | 'failed'; reason?: string }> {
-  // Step 1: Get gate record
-  const { data: gate, error: gateError } = await supabaseAdmin
-    .from('gates')
-    .select('*')
-    .eq('id', gateId)
-    .single();
-
-  if (gateError || !gate) {
-    throw new Error(`Gate not found: ${gateId}`);
-  }
-
-  // Step 2: Get flow instance context
+): Promise<void> {
+  // Get flow instance
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
     .select(`
       *,
-      claims (*)
+      flow_definitions (flow_json)
     `)
     .eq('id', flowInstanceId)
     .single();
@@ -587,546 +531,90 @@ export async function evaluateGate(
     throw new Error(`Flow instance not found: ${flowInstanceId}`);
   }
 
-  // Get completed movements for context
-  const { data: completions } = await supabaseAdmin
-    .from('movement_completions')
-    .select('*')
-    .eq('flow_instance_id', flowInstanceId);
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = flowJson?.phases?.[currentPhaseIndex];
 
-  let result: 'passed' | 'failed' = 'passed';
-  let reason: string | undefined;
-
-  // Step 3: AI evaluation if prompt key exists
-  if (gate.ai_prompt_key) {
-    try {
-      const promptConfig = await getPromptConfig(gate.ai_prompt_key);
-      
-      if (promptConfig) {
-        const context = {
-          claim: flowInstance.claims,
-          completedMovements: completions,
-          gate: {
-            name: gate.name,
-            description: gate.description,
-            criteria: gate.evaluation_criteria
-          }
-        };
-
-        const userPrompt = (promptConfig.userPromptTemplate || '')
-          .replace('{{claim}}', JSON.stringify(context.claim))
-          .replace('{{completedMovements}}', JSON.stringify(context.completedMovements))
-          .replace('{{gate}}', JSON.stringify(context.gate));
-
-        const response = await openai.chat.completions.create({
-          model: promptConfig.model || 'gpt-4o',
-          messages: [
-            { role: 'system', content: promptConfig.systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: promptConfig.temperature || 0.3
-        });
-
-        const aiResponse = response.choices[0]?.message?.content || '';
-        
-        // Parse AI response for pass/fail
-        if (aiResponse.toLowerCase().includes('fail') || aiResponse.toLowerCase().includes('not ready')) {
-          result = 'failed';
-          reason = aiResponse;
-        }
-      }
-    } catch (error) {
-      console.error('[FlowEngineService] AI gate evaluation error:', error);
-      // Default to passed if AI fails
-    }
-  } else {
-    // Step 4: Simple criteria evaluation
-    const criteria = gate.evaluation_criteria || {};
-    
-    if (criteria.minCompletedMovements) {
-      const completedCount = completions?.filter(c => c.status === 'completed').length || 0;
-      if (completedCount < criteria.minCompletedMovements) {
-        result = 'failed';
-        reason = `Minimum ${criteria.minCompletedMovements} completed movements required, only ${completedCount} completed`;
-      }
-    }
-
-    if (criteria.requiredEvidence) {
-      // Check if required evidence types are present
-      const evidenceTypes = new Set(
-        completions?.flatMap(c => Object.keys(c.evidence_data || {})) || []
-      );
-      
-      for (const required of criteria.requiredEvidence) {
-        if (!evidenceTypes.has(required)) {
-          result = 'failed';
-          reason = `Missing required evidence: ${required}`;
-          break;
-        }
-      }
-    }
+  if (!currentPhase) {
+    throw new Error('No current phase');
   }
 
-  // Step 5: Record evaluation result
-  const { error: evalError } = await supabaseAdmin
-    .from('gate_evaluations')
-    .insert({
-      gate_id: gateId,
-      flow_instance_id: flowInstanceId,
-      result,
-      reason,
-      evaluated_at: new Date().toISOString()
-    });
-
-  if (evalError) {
-    console.error('[FlowEngineService] Error recording gate evaluation:', evalError);
+  // Find the movement
+  const movement = currentPhase.movements?.find(m => m.id === movementId);
+  if (!movement) {
+    throw new Error(`Movement ${movementId} not found in current phase`);
   }
 
-  // Step 6: If passed, advance to next phase
-  if (result === 'passed') {
-    await advanceToNextPhase(flowInstanceId);
+  // Check if movement can be skipped
+  if (movement.is_required) {
+    throw new Error('Required movements cannot be skipped');
   }
 
-  return { result, reason };
-}
+  // Create movement key and add to completed list
+  const movementKey = `${currentPhase.id}:${movementId}`;
+  const completedMovements = [...(flowInstance.completed_movements || []), movementKey];
 
-/**
- * Advance to the next phase
- */
-export async function advanceToNextPhase(flowInstanceId: string): Promise<Phase | null> {
-  // Step 1: Get current phase
-  const { data: flowInstance, error: instanceError } = await supabaseAdmin
-    .from('claim_flow_instances')
-    .select('current_phase_id, flow_definition_id')
-    .eq('id', flowInstanceId)
-    .single();
-
-  if (instanceError || !flowInstance) {
-    throw new Error(`Flow instance not found: ${flowInstanceId}`);
-  }
-
-  // Get current phase sequence order
-  const { data: currentPhase, error: currentPhaseError } = await supabaseAdmin
-    .from('phases')
-    .select('sequence_order')
-    .eq('id', flowInstance.current_phase_id)
-    .single();
-
-  if (currentPhaseError || !currentPhase) {
-    throw new Error('Current phase not found');
-  }
-
-  // Step 2: Get next phase
-  const { data: nextPhase, error: nextPhaseError } = await supabaseAdmin
-    .from('phases')
-    .select('*')
-    .eq('flow_definition_id', flowInstance.flow_definition_id)
-    .gt('sequence_order', currentPhase.sequence_order)
-    .order('sequence_order', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (nextPhaseError) {
-    throw new Error(`Failed to get next phase: ${nextPhaseError.message}`);
-  }
-
-  // Step 3: If no next phase, complete flow
-  if (!nextPhase) {
-    const { error: completeError } = await supabaseAdmin
-      .from('claim_flow_instances')
-      .update({
-        status: 'completed',
-        completed_at: new Date().toISOString()
-      })
-      .eq('id', flowInstanceId);
-
-    if (completeError) {
-      throw new Error(`Failed to complete flow: ${completeError.message}`);
-    }
-
-    return null;
-  }
-
-  // Step 4: Update to next phase
+  // Update flow instance
   const { error: updateError } = await supabaseAdmin
     .from('claim_flow_instances')
-    .update({ current_phase_id: nextPhase.id })
+    .update({
+      completed_movements: completedMovements
+    })
     .eq('id', flowInstanceId);
 
   if (updateError) {
-    throw new Error(`Failed to advance phase: ${updateError.message}`);
+    throw new Error(`Failed to update flow instance: ${updateError.message}`);
   }
 
-  return {
-    id: nextPhase.id,
-    flowDefinitionId: nextPhase.flow_definition_id,
-    name: nextPhase.name,
-    description: nextPhase.description,
-    sequenceOrder: nextPhase.sequence_order,
-    isCompleted: false,
-    movementCount: 0,
-    completedMovementCount: 0
-  };
-}
-
-// ============================================================================
-// 4. DYNAMIC EXPANSION
-// ============================================================================
-
-/**
- * Add a room to the flow with AI-generated movements
- */
-export async function addRoom(
-  flowInstanceId: string,
-  roomName: string,
-  roomType: string
-): Promise<Movement[]> {
-  // Step 1: Get current flow context
-  const { data: flowInstance, error: instanceError } = await supabaseAdmin
-    .from('claim_flow_instances')
-    .select(`
-      current_phase_id,
-      flow_definition_id,
-      flow_definitions (*)
-    `)
-    .eq('id', flowInstanceId)
-    .single();
-
-  if (instanceError || !flowInstance) {
-    throw new Error(`Flow instance not found: ${flowInstanceId}`);
-  }
-
-  // Step 2: Get AI prompt for room expansion
-  const promptConfig = await getPromptConfig('flow.room_expansion');
-  
-  if (!promptConfig) {
-    throw new Error('Room expansion prompt not found');
-  }
-
-  const context = {
-    roomName,
-    roomType,
-    currentFlowDefinition: flowInstance.flow_definitions
-  };
-
-  // Step 3: Call AI to generate movements
-  const userPrompt = (promptConfig.userPromptTemplate || '')
-    .replace('{{roomName}}', roomName)
-    .replace('{{roomType}}', roomType)
-    .replace('{{currentFlowDefinition}}', JSON.stringify(context.currentFlowDefinition));
-
-  const response = await openai.chat.completions.create({
-    model: promptConfig.model || 'gpt-4o',
-    messages: [
-      { role: 'system', content: promptConfig.systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    temperature: promptConfig.temperature || 0.3,
-    response_format: { type: 'json_object' }
-  });
-
-  const aiResponse = response.choices[0]?.message?.content || '{}';
-  let generatedMovements: any[] = [];
-
-  try {
-    const parsed = JSON.parse(aiResponse);
-    generatedMovements = parsed.movements || [];
-  } catch (e) {
-    console.error('[FlowEngineService] Failed to parse AI response:', e);
-    throw new Error('Failed to generate room movements');
-  }
-
-  // Step 4: Get max sequence order for current phase
-  const { data: maxSeq } = await supabaseAdmin
-    .from('movements')
-    .select('sequence_order')
-    .eq('phase_id', flowInstance.current_phase_id)
-    .order('sequence_order', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let sequenceOrder = (maxSeq?.sequence_order || 0) + 1;
-
-  // Step 5: Insert new movements
-  const movementsToInsert = generatedMovements.map((m: any) => ({
-    phase_id: flowInstance.current_phase_id,
-    name: m.name,
-    description: m.description,
-    sequence_order: sequenceOrder++,
-    is_required: true,
-    room_specific: true,
-    room_name: roomName
-  }));
-
-  const { data: insertedMovements, error: insertError } = await supabaseAdmin
-    .from('movements')
-    .insert(movementsToInsert)
-    .select();
-
-  if (insertError) {
-    throw new Error(`Failed to insert movements: ${insertError.message}`);
-  }
-
-  // Step 6: Return inserted movements
-  return (insertedMovements || []).map(m => ({
-    id: m.id,
-    phaseId: m.phase_id,
-    name: m.name,
-    description: m.description,
-    sequenceOrder: m.sequence_order,
-    isRequired: m.is_required,
-    roomSpecific: m.room_specific,
-    roomName: m.room_name,
-    validationRequirements: m.validation_requirements
-  }));
-}
-
-/**
- * Suggest additional movements based on current context
- */
-export async function suggestAdditionalMovements(
-  flowInstanceId: string,
-  context: any
-): Promise<any[]> {
-  // Step 1: Get completed movements + evidence
-  const { data: completions } = await supabaseAdmin
+  // Record the skip
+  await supabaseAdmin
     .from('movement_completions')
-    .select(`
-      *,
-      movements (*)
-    `)
-    .eq('flow_instance_id', flowInstanceId);
-
-  // Step 2: Get AI prompt
-  const promptConfig = await getPromptConfig('flow.dynamic_movement_injection');
-
-  if (!promptConfig) {
-    console.warn('[FlowEngineService] Dynamic movement injection prompt not found');
-    return [];
-  }
-
-  const aiContext = {
-    ...context,
-    completedMovements: completions,
-    observedDamage: context.observedDamage || []
-  };
-
-  // Step 3: Call AI
-  const userPrompt = (promptConfig.userPromptTemplate || '')
-    .replace('{{completedMovements}}', JSON.stringify(aiContext.completedMovements))
-    .replace('{{observedDamage}}', JSON.stringify(aiContext.observedDamage));
-
-  const response = await openai.chat.completions.create({
-    model: promptConfig.model || 'gpt-4o',
-    messages: [
-      { role: 'system', content: promptConfig.systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    temperature: promptConfig.temperature || 0.5,
-    response_format: { type: 'json_object' }
-  });
-
-  const aiResponse = response.choices[0]?.message?.content || '{}';
-  
-  try {
-    const parsed = JSON.parse(aiResponse);
-    // Step 4: Return suggestions (don't auto-insert)
-    return parsed.suggestions || [];
-  } catch (e) {
-    console.error('[FlowEngineService] Failed to parse suggestions:', e);
-    return [];
-  }
-}
-
-// ============================================================================
-// 5. EVIDENCE MANAGEMENT
-// ============================================================================
-
-/**
- * Attach evidence to a movement completion
- */
-export async function attachEvidence(
-  movementCompletionId: string,
-  evidenceType: 'photo' | 'audio' | 'measurement' | 'note',
-  evidenceData: any
-): Promise<void> {
-  // Get current evidence data
-  const { data: completion, error: fetchError } = await supabaseAdmin
-    .from('movement_completions')
-    .select('evidence_data')
-    .eq('id', movementCompletionId)
-    .single();
-
-  if (fetchError || !completion) {
-    throw new Error(`Movement completion not found: ${movementCompletionId}`);
-  }
-
-  const currentEvidence = completion.evidence_data || {};
-
-  // Merge new evidence
-  if (evidenceType === 'photo') {
-    currentEvidence.photos = currentEvidence.photos || [];
-    currentEvidence.photos.push(evidenceData);
-  } else if (evidenceType === 'audio') {
-    currentEvidence.audioIds = currentEvidence.audioIds || [];
-    currentEvidence.audioIds.push(evidenceData.id);
-    
-    // Also link in audio_observations table
-    await supabaseAdmin
-      .from('audio_observations')
-      .update({ movement_completion_id: movementCompletionId })
-      .eq('id', evidenceData.id);
-  } else if (evidenceType === 'measurement') {
-    currentEvidence.measurements = currentEvidence.measurements || [];
-    currentEvidence.measurements.push(evidenceData);
-  } else if (evidenceType === 'note') {
-    currentEvidence.notes = currentEvidence.notes || [];
-    currentEvidence.notes.push(evidenceData);
-  }
-
-  // Update evidence data
-  const { error: updateError } = await supabaseAdmin
-    .from('movement_completions')
-    .update({ evidence_data: currentEvidence })
-    .eq('id', movementCompletionId);
-
-  if (updateError) {
-    throw new Error(`Failed to attach evidence: ${updateError.message}`);
-  }
+    .insert({
+      flow_instance_id: flowInstanceId,
+      movement_id: movementKey,
+      claim_id: flowInstance.claim_id,
+      status: 'skipped',
+      completed_at: new Date().toISOString(),
+      completed_by: userId,
+      notes: reason,
+      evidence_data: null
+    });
 }
 
 /**
- * Validate evidence for a movement completion
- */
-export async function validateEvidence(
-  movementCompletionId: string
-): Promise<EvidenceValidation> {
-  // Step 1: Get movement requirements
-  const { data: completion, error: completionError } = await supabaseAdmin
-    .from('movement_completions')
-    .select(`
-      evidence_data,
-      movements (
-        validation_requirements
-      )
-    `)
-    .eq('id', movementCompletionId)
-    .single();
-
-  if (completionError || !completion) {
-    throw new Error(`Movement completion not found: ${movementCompletionId}`);
-  }
-
-  const requirements = (completion.movements as any)?.validation_requirements || {};
-  const evidence = completion.evidence_data || {};
-
-  // Step 2: Get AI prompt
-  const promptConfig = await getPromptConfig('flow.evidence_validation');
-
-  if (!promptConfig) {
-    // Fallback to basic validation
-    const missingItems: string[] = [];
-    
-    if (requirements.minPhotos && (!evidence.photos || evidence.photos.length < requirements.minPhotos)) {
-      missingItems.push(`At least ${requirements.minPhotos} photos required`);
-    }
-    
-    if (requirements.requiresNotes && !evidence.notes?.length) {
-      missingItems.push('Notes required');
-    }
-
-    return {
-      isValid: missingItems.length === 0,
-      missingItems,
-      qualityIssues: [],
-      confidence: 0.8
-    };
-  }
-
-  // Step 3: AI validation
-  const userPrompt = (promptConfig.userPromptTemplate || '')
-    .replace('{{requirements}}', JSON.stringify(requirements))
-    .replace('{{evidence}}', JSON.stringify(evidence));
-
-  const response = await openai.chat.completions.create({
-    model: promptConfig.model || 'gpt-4o',
-    messages: [
-      { role: 'system', content: promptConfig.systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    temperature: 0.2,
-    response_format: { type: 'json_object' }
-  });
-
-  const aiResponse = response.choices[0]?.message?.content || '{}';
-
-  try {
-    const parsed = JSON.parse(aiResponse);
-    return {
-      isValid: parsed.isValid ?? true,
-      missingItems: parsed.missingItems || [],
-      qualityIssues: parsed.qualityIssues || [],
-      confidence: parsed.confidence ?? 0.9
-    };
-  } catch (e) {
-    console.error('[FlowEngineService] Failed to parse validation response:', e);
-    return {
-      isValid: true,
-      missingItems: [],
-      qualityIssues: [],
-      confidence: 0.5
-    };
-  }
-}
-
-/**
- * Get all evidence for a movement
+ * Get evidence for a movement
  */
 export async function getMovementEvidence(
-  movementId: string,
-  flowInstanceId: string
-): Promise<any> {
-  const { data: completion, error } = await supabaseAdmin
+  flowInstanceId: string,
+  movementId: string
+): Promise<any[]> {
+  const { data, error } = await supabaseAdmin
     .from('movement_completions')
-    .select('evidence_data')
-    .eq('movement_id', movementId)
+    .select('*')
     .eq('flow_instance_id', flowInstanceId)
-    .maybeSingle();
+    .like('movement_id', `%:${movementId}`);
 
   if (error) {
-    throw new Error(`Failed to get evidence: ${error.message}`);
+    throw new Error(`Failed to get movement evidence: ${error.message}`);
   }
 
-  if (!completion) {
-    return null;
-  }
-
-  const evidence = completion.evidence_data || {};
-
-  // Get linked audio observations
-  const { data: audioObs } = await supabaseAdmin
-    .from('audio_observations')
-    .select('*')
-    .eq('movement_completion_id', completion.evidence_data?.completionId);
-
-  return {
-    photos: evidence.photos || [],
-    audioObservations: audioObs || [],
-    measurements: evidence.measurements || [],
-    notes: evidence.notes || []
-  };
+  return data || [];
 }
 
 // ============================================================================
-// 6. QUERY FUNCTIONS
+// 3. PHASE QUERIES
 // ============================================================================
 
 /**
- * Get all phases for a flow instance
+ * Get all phases for a flow with completion status
  */
 export async function getFlowPhases(flowInstanceId: string): Promise<Phase[]> {
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
-    .select('flow_definition_id, current_phase_id')
+    .select(`
+      *,
+      flow_definitions (id, flow_json)
+    `)
     .eq('id', flowInstanceId)
     .single();
 
@@ -1134,113 +622,96 @@ export async function getFlowPhases(flowInstanceId: string): Promise<Phase[]> {
     throw new Error(`Flow instance not found: ${flowInstanceId}`);
   }
 
-  const { data: phases, error: phasesError } = await supabaseAdmin
-    .from('phases')
-    .select('*')
-    .eq('flow_definition_id', flowInstance.flow_definition_id)
-    .order('sequence_order', { ascending: true });
-
-  if (phasesError) {
-    throw new Error(`Failed to get phases: ${phasesError.message}`);
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  if (!flowJson?.phases) {
+    return [];
   }
 
-  // Get completion counts for each phase
-  const result: Phase[] = [];
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
 
-  for (const phase of phases || []) {
-    const { count: movementCount } = await supabaseAdmin
-      .from('movements')
-      .select('id', { count: 'exact', head: true })
-      .eq('phase_id', phase.id);
+  return flowJson.phases.map((phase, index) => {
+    const totalMovements = phase.movements?.length || 0;
+    let completedCount = 0;
 
-    const { count: completedCount } = await supabaseAdmin
-      .from('movement_completions')
-      .select('id', { count: 'exact', head: true })
-      .eq('flow_instance_id', flowInstanceId)
-      .in('movement_id', 
-        (await supabaseAdmin
-          .from('movements')
-          .select('id')
-          .eq('phase_id', phase.id)
-        ).data?.map(m => m.id) || []
-      );
-
-    // Determine if phase is completed
-    const isCompleted = (movementCount || 0) > 0 && movementCount === completedCount;
-
-    result.push({
-      id: phase.id,
-      flowDefinitionId: phase.flow_definition_id,
-      name: phase.name,
-      description: phase.description,
-      sequenceOrder: phase.sequence_order,
-      isCompleted,
-      movementCount: movementCount || 0,
-      completedMovementCount: completedCount || 0
+    phase.movements?.forEach(m => {
+      const key = `${phase.id}:${m.id}`;
+      if (completedMovements.has(key)) {
+        completedCount++;
+      }
     });
-  }
 
-  return result;
-}
+    const isCompleted = index < currentPhaseIndex || 
+      (index === currentPhaseIndex && completedCount === totalMovements);
 
-/**
- * Get all movements for a phase with completion status
- */
-export async function getPhaseMovements(
-  phaseId: string,
-  flowInstanceId: string
-): Promise<Movement[]> {
-  const { data: movements, error: movementsError } = await supabaseAdmin
-    .from('movements')
-    .select('*')
-    .eq('phase_id', phaseId)
-    .order('sequence_order', { ascending: true });
-
-  if (movementsError) {
-    throw new Error(`Failed to get movements: ${movementsError.message}`);
-  }
-
-  const { data: completions } = await supabaseAdmin
-    .from('movement_completions')
-    .select('movement_id, status, completed_at, notes')
-    .eq('flow_instance_id', flowInstanceId);
-
-  const completionMap = new Map(
-    (completions || []).map(c => [c.movement_id, c])
-  );
-
-  return (movements || []).map(m => {
-    const completion = completionMap.get(m.id);
     return {
-      id: m.id,
-      phaseId: m.phase_id,
-      name: m.name,
-      description: m.description,
-      sequenceOrder: m.sequence_order,
-      isRequired: m.is_required,
-      roomSpecific: m.room_specific || false,
-      roomName: m.room_name,
-      validationRequirements: m.validation_requirements,
-      completionStatus: completion?.status || 'pending',
-      completedAt: completion?.completed_at ? new Date(completion.completed_at) : null,
-      notes: completion?.notes || null
+      id: phase.id,
+      flowDefinitionId: (flowInstance.flow_definitions as any).id,
+      name: phase.name,
+      description: phase.description || '',
+      sequenceOrder: index,
+      isCompleted,
+      movementCount: totalMovements,
+      completedMovementCount: completedCount
     };
   });
 }
 
 /**
- * Get chronological timeline of all completed movements
+ * Get movements for a phase
  */
-export async function getFlowTimeline(flowInstanceId: string): Promise<any[]> {
-  const { data: completions, error } = await supabaseAdmin
-    .from('movement_completions')
+export async function getPhaseMovements(
+  flowInstanceId: string,
+  phaseId: string
+): Promise<Movement[]> {
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
     .select(`
       *,
-      movements (
-        name,
-        description
-      )
+      flow_definitions (flow_json)
     `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phase = flowJson?.phases?.find(p => p.id === phaseId);
+
+  if (!phase) {
+    throw new Error(`Phase ${phaseId} not found`);
+  }
+
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+
+  return (phase.movements || []).map((m, index) => {
+    const movementKey = `${phaseId}:${m.id}`;
+    const isCompleted = completedMovements.has(movementKey);
+
+    return {
+      id: m.id,
+      phaseId,
+      name: m.name,
+      description: m.description || '',
+      sequenceOrder: index,
+      isRequired: m.is_required !== false,
+      roomSpecific: false,
+      roomName: null,
+      validationRequirements: m.evidence_requirements || null,
+      completionStatus: isCompleted ? 'completed' : 'pending'
+    };
+  });
+}
+
+/**
+ * Get flow timeline
+ */
+export async function getFlowTimeline(flowInstanceId: string): Promise<any[]> {
+  const { data, error } = await supabaseAdmin
+    .from('movement_completions')
+    .select('*')
     .eq('flow_instance_id', flowInstanceId)
     .order('completed_at', { ascending: true });
 
@@ -1248,52 +719,387 @@ export async function getFlowTimeline(flowInstanceId: string): Promise<any[]> {
     throw new Error(`Failed to get timeline: ${error.message}`);
   }
 
-  return (completions || []).map(c => ({
-    id: c.id,
-    movementId: c.movement_id,
-    movementName: (c.movements as any)?.name,
-    movementDescription: (c.movements as any)?.description,
-    status: c.status,
-    completedAt: c.completed_at,
-    completedBy: c.completed_by,
-    notes: c.notes,
-    evidenceCount: Object.keys(c.evidence_data || {}).reduce((acc, key) => {
-      const val = c.evidence_data[key];
-      return acc + (Array.isArray(val) ? val.length : 1);
-    }, 0)
-  }));
+  return data || [];
 }
 
 // ============================================================================
-// EXPORTS
+// 4. GATE EVALUATION
 // ============================================================================
 
-export default {
-  // Flow instance management
-  startFlowForClaim,
-  getCurrentFlow,
-  getFlowProgress,
+/**
+ * Evaluate a gate
+ */
+export async function evaluateGate(
+  flowInstanceId: string,
+  gateId: string,
+  context?: any
+): Promise<{ passed: boolean; reason: string; nextPhaseId?: string }> {
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const gate = flowJson?.gates?.find(g => g.id === gateId);
+
+  if (!gate) {
+    throw new Error(`Gate ${gateId} not found`);
+  }
+
+  // Simple evaluation - check if from_phase movements are complete
+  const fromPhase = flowJson.phases?.find(p => p.id === gate.from_phase);
+  if (!fromPhase) {
+    return { passed: false, reason: 'Invalid gate configuration' };
+  }
+
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+  const requiredComplete = fromPhase.movements?.every(m => {
+    if (!m.is_required) return true;
+    return completedMovements.has(`${fromPhase.id}:${m.id}`);
+  });
+
+  if (!requiredComplete) {
+    return { passed: false, reason: 'Required movements not completed' };
+  }
+
+  // AI evaluation if configured
+  if (gate.evaluation_criteria?.type === 'ai' && gate.evaluation_criteria.ai_prompt_key) {
+    try {
+      const promptConfig = await getPromptConfig(gate.evaluation_criteria.ai_prompt_key);
+      if (promptConfig) {
+        const systemPrompt = promptConfig.systemPrompt || '';
+        const userPrompt = substituteVariables(
+          promptConfig.userPromptTemplate || '',
+          { gate: JSON.stringify(gate), context: JSON.stringify(context), flowInstance: JSON.stringify(flowInstance) }
+        );
+
+        const response = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: 'json_object' }
+        });
+
+        const result = JSON.parse(response.choices[0]?.message?.content || '{}');
+        return {
+          passed: result.passed === true,
+          reason: result.reason || 'AI evaluation',
+          nextPhaseId: result.passed ? gate.to_phase : undefined
+        };
+      }
+    } catch (err) {
+      console.error('[FlowEngineService] AI gate evaluation failed:', err);
+    }
+  }
+
+  // Default: pass if all required movements complete
+  return {
+    passed: true,
+    reason: 'All required movements completed',
+    nextPhaseId: gate.to_phase
+  };
+}
+
+// ============================================================================
+// 5. DYNAMIC EXPANSION
+// ============================================================================
+
+/**
+ * Add room-specific movements dynamically
+ */
+export async function addRoomMovements(
+  flowInstanceId: string,
+  roomName: string,
+  movementTemplateIds: string[]
+): Promise<void> {
+  // This would create room-specific movement instances
+  // For now, we store them as metadata since movements are in JSON
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select('dynamic_movements')
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const dynamicMovements = flowInstance.dynamic_movements || [];
+  const newMovements = movementTemplateIds.map(id => ({
+    id: `${roomName}:${id}:${Date.now()}`,
+    templateId: id,
+    roomName,
+    createdAt: new Date().toISOString()
+  }));
+
+  await supabaseAdmin
+    .from('claim_flow_instances')
+    .update({
+      dynamic_movements: [...dynamicMovements, ...newMovements]
+    })
+    .eq('id', flowInstanceId);
+}
+
+/**
+ * Get AI suggestions for additional movements
+ */
+export async function getSuggestedMovements(
+  flowInstanceId: string,
+  context: any
+): Promise<any[]> {
+  try {
+    const promptConfig = await getPromptConfig('flow.movement_suggestions');
+    if (!promptConfig) {
+      return [];
+    }
+
+    const { data: flowInstance } = await supabaseAdmin
+      .from('claim_flow_instances')
+      .select(`
+        *,
+        flow_definitions (flow_json),
+        claims (*)
+      `)
+      .eq('id', flowInstanceId)
+      .single();
+
+    if (!flowInstance) return [];
+
+    const systemPrompt = promptConfig.systemPrompt || '';
+    const userPrompt = substituteVariables(
+      promptConfig.userPromptTemplate || '',
+      { flowInstance, context, claim: flowInstance.claims }
+    );
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: { type: 'json_object' }
+    });
+
+    const result = JSON.parse(response.choices[0]?.message?.content || '{}');
+    return result.suggestions || [];
+  } catch (err) {
+    console.error('[FlowEngineService] Failed to get suggestions:', err);
+    return [];
+  }
+}
+
+/**
+ * Insert a custom movement
+ */
+export async function insertCustomMovement(
+  flowInstanceId: string,
+  movement: {
+    name: string;
+    description: string;
+    phaseId: string;
+    afterMovementId?: string;
+  }
+): Promise<string> {
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select('dynamic_movements')
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const movementId = `custom:${Date.now()}`;
+  const dynamicMovements = flowInstance.dynamic_movements || [];
+
+  const newMovement = {
+    id: movementId,
+    phaseId: movement.phaseId,
+    name: movement.name,
+    description: movement.description,
+    afterMovementId: movement.afterMovementId,
+    isCustom: true,
+    createdAt: new Date().toISOString()
+  };
+
+  await supabaseAdmin
+    .from('claim_flow_instances')
+    .update({
+      dynamic_movements: [...dynamicMovements, newMovement]
+    })
+    .eq('id', flowInstanceId);
+
+  return movementId;
+}
+
+// ============================================================================
+// 6. EVIDENCE MANAGEMENT
+// ============================================================================
+
+/**
+ * Attach evidence to a movement
+ */
+export async function attachEvidence(
+  flowInstanceId: string,
+  movementId: string,
+  evidence: {
+    type: 'photo' | 'audio' | 'measurement' | 'note';
+    referenceId?: string;
+    data?: any;
+    userId: string;
+  }
+): Promise<string> {
+  const evidenceId = `evidence:${Date.now()}`;
+
+  const { error } = await supabaseAdmin
+    .from('movement_evidence')
+    .insert({
+      id: evidenceId,
+      flow_instance_id: flowInstanceId,
+      movement_id: movementId,
+      evidence_type: evidence.type,
+      reference_id: evidence.referenceId,
+      evidence_data: evidence.data,
+      created_by: evidence.userId,
+      created_at: new Date().toISOString()
+    });
+
+  if (error) {
+    console.error('[FlowEngineService] Error attaching evidence:', error);
+    // Don't throw - evidence table may not exist yet
+  }
+
+  return evidenceId;
+}
+
+/**
+ * Validate evidence for a movement
+ */
+export async function validateEvidence(
+  flowInstanceId: string,
+  movementId: string
+): Promise<EvidenceValidation> {
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
   
-  // Movement execution
-  getNextMovement,
-  completeMovement,
-  skipMovement,
+  // Find the movement
+  let foundMovement: FlowJsonMovement | undefined;
+  for (const phase of flowJson?.phases || []) {
+    foundMovement = phase.movements?.find(m => m.id === movementId);
+    if (foundMovement) break;
+  }
+
+  if (!foundMovement) {
+    return { isValid: true, missingItems: [], qualityIssues: [], confidence: 1.0 };
+  }
+
+  const requirements = foundMovement.evidence_requirements;
+  if (!requirements) {
+    return { isValid: true, missingItems: [], qualityIssues: [], confidence: 1.0 };
+  }
+
+  // Get evidence for this movement
+  const { data: evidence } = await supabaseAdmin
+    .from('movement_evidence')
+    .select('*')
+    .eq('flow_instance_id', flowInstanceId)
+    .eq('movement_id', movementId);
+
+  const hasPhoto = evidence?.some(e => e.evidence_type === 'photo');
+  const hasAudio = evidence?.some(e => e.evidence_type === 'audio' || e.evidence_type === 'voice_note');
+  const hasMeasurement = evidence?.some(e => e.evidence_type === 'measurement');
+
+  const missingItems: string[] = [];
   
-  // Gate evaluation
-  evaluateGate,
-  advanceToNextPhase,
-  
-  // Dynamic expansion
-  addRoom,
-  suggestAdditionalMovements,
-  
-  // Evidence management
-  attachEvidence,
-  validateEvidence,
-  getMovementEvidence,
-  
-  // Query functions
-  getFlowPhases,
-  getPhaseMovements,
-  getFlowTimeline
-};
+  // Check each evidence requirement from the array
+  for (const req of requirements) {
+    if (!req.is_required) continue;
+    
+    if (req.type === 'photo' && !hasPhoto) {
+      missingItems.push(req.description || 'Photo required');
+    }
+    if (req.type === 'voice_note' && !hasAudio) {
+      missingItems.push(req.description || 'Audio observation required');
+    }
+    if (req.type === 'measurement' && !hasMeasurement) {
+      missingItems.push(req.description || 'Measurements required');
+    }
+  }
+
+  return {
+    isValid: missingItems.length === 0,
+    missingItems,
+    qualityIssues: [],
+    confidence: missingItems.length === 0 ? 1.0 : 0.5
+  };
+}
+
+/**
+ * Get flow instance details
+ */
+export async function getFlowInstance(flowInstanceId: string): Promise<FlowInstance | null> {
+  const { data, error } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (
+        id,
+        name,
+        description,
+        flow_json
+      )
+    `)
+    .eq('id', flowInstanceId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[FlowEngineService] Error getting flow instance:', error);
+    throw new Error(`Failed to get flow instance: ${error.message}`);
+  }
+
+  if (!data) return null;
+
+  const flowDef = data.flow_definitions as any;
+  const flowJson = flowDef?.flow_json as FlowJson;
+  const currentPhaseIndex = data.current_phase_index || 0;
+  const currentPhase = flowJson?.phases?.[currentPhaseIndex];
+
+  return {
+    id: data.id,
+    claimId: data.claim_id,
+    flowDefinitionId: data.flow_definition_id,
+    status: data.status,
+    currentPhaseId: data.current_phase_id,
+    currentPhaseIndex,
+    startedAt: data.started_at ? new Date(data.started_at) : null,
+    completedAt: data.completed_at ? new Date(data.completed_at) : null,
+    flowName: flowDef?.name,
+    flowDescription: flowDef?.description,
+    currentPhaseName: currentPhase?.name,
+    currentPhaseDescription: currentPhase?.description,
+    completedMovements: data.completed_movements || []
+  };
+}

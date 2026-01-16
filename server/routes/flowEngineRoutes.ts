@@ -14,14 +14,17 @@ import {
   completeMovement,
   skipMovement,
   evaluateGate,
-  addRoom,
-  suggestAdditionalMovements,
+  addRoomMovements,
+  getSuggestedMovements,
+  insertCustomMovement,
   attachEvidence,
   validateEvidence,
   getMovementEvidence,
   getFlowPhases,
   getPhaseMovements,
-  getFlowTimeline
+  getFlowTimeline,
+  cancelFlow,
+  getFlowInstance
 } from '../services/flowEngineService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
