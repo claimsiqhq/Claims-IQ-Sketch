@@ -15,6 +15,7 @@ import {
   MapPin,
   Camera,
   Calendar,
+  Workflow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -218,6 +219,13 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
                           <div className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg transition-colors min-tap-target">
                             <Mic className="h-5 w-5 text-muted-foreground" />
                             <span className="font-medium">Voice Sketch</span>
+                          </div>
+                        </Link>
+
+                        <Link href="/flow-builder" onClick={() => setIsMoreOpen(false)}>
+                          <div className="flex items-center gap-3 p-3 hover:bg-muted rounded-lg transition-colors min-tap-target">
+                            <Workflow className="h-5 w-5 text-muted-foreground" />
+                            <span className="font-medium">Flow Builder</span>
                           </div>
                         </Link>
 

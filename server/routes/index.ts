@@ -19,6 +19,7 @@ import aiRoutes from './ai';
 import pricingRoutes from './pricing';
 import scopeRoutes from './scopeRoutes';
 import audioObservationsRoutes, { claimAudioObservationsRouter } from './audioObservations';
+import flowDefinitionRoutes from './flowDefinitionRoutes';
 
 const log = createLogger({ module: 'routes' });
 
@@ -153,6 +154,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/audio-observations', audioObservationsRoutes);
   app.use('/api/claims', claimAudioObservationsRouter);
 
+  // Flow Definition routes
+  app.use('/api/flow-definitions', flowDefinitionRoutes);
+
   // =================================================
   // Health Check
   // =================================================
@@ -199,4 +203,5 @@ export {
   pricingRoutes,
   scopeRoutes,
   audioObservationsRoutes,
+  flowDefinitionRoutes,
 };
