@@ -1,7 +1,7 @@
 # Workflow Audit 012: Sketch Integration with Flow Engine
 
 **Date:** January 13, 2026  
-**Status:** ✅ Mostly Implemented (2 items pending)  
+**Status:** ✅ Fully Implemented  
 **Feature:** Sketch Integration with Flow Engine (Prompt #8)
 
 ---
@@ -17,8 +17,8 @@ Implemented integration between the sketch system (rooms/zones, damage markers) 
 - ✅ Sketch integration in movement execution page
 - ✅ Voice commands for sketch operations added
 - ✅ Evidence retrieval includes sketch data
-- ⚠️ Evidence Grid rendering for sketch types (partial - types/icons added, JSX pending)
-- ⚠️ Movement completion sketch evidence IDs (not yet implemented)
+- ✅ Evidence Grid rendering for sketch types (complete with detailed previews)
+- ✅ Movement completion sketch evidence IDs (implemented)
 
 ---
 
@@ -167,7 +167,7 @@ export async function createDamageZone(
 
 **File:** `server/services/flowEngineService.ts`
 
-**Updated Function:**
+**Updated Functions:**
 
 **`getMovementEvidence()`:**
 - Now queries `claim_rooms` table for sketch zones linked to movement
@@ -177,6 +177,12 @@ export async function createDamageZone(
 - Deduplicates evidence (checks if already in `movement_evidence` before adding)
 
 **Note:** The function uses `.or()` query to match both exact `movement_id` and partial matches (for cases where movement_id format might vary).
+
+**`completeMovement()`:**
+- Now fetches sketch evidence before creating completion record
+- Extracts sketch evidence IDs (for `sketch_zone` and `damage_marker` types)
+- Includes `evidence_sketch_ids` array in `evidence_data` object stored in `movement_completions` table
+- This allows completion records to explicitly track which sketch items were associated with the movement
 
 ### 3. API Routes
 
@@ -429,16 +435,12 @@ export async function getMovementSketchEvidence(
 ## Known Limitations
 
 ### 1. Evidence Grid Rendering
-- **Status:** ⚠️ Partial implementation
-- **Issue:** Types and icons added, but JSX rendering logic for sketch types in preview dialog not yet implemented
-- **Impact:** Sketch zones and markers display as generic cards without detailed preview
-- **Mitigation:** Can still view sketch items in dedicated sketch page
+- **Status:** ✅ Complete
+- **Note:** Full JSX rendering for sketch types implemented with detailed previews for zones and damage markers
 
 ### 2. Movement Completion Sketch IDs
-- **Status:** ⚠️ Not implemented
-- **Issue:** `completeMovement()` does not include `evidence_sketch_ids` array in completion record
-- **Impact:** Sketch evidence IDs not explicitly tracked in completion record (though still accessible via `getMovementEvidence()`)
-- **Note:** This was mentioned in Prompt #8 instructions but not yet implemented
+- **Status:** ✅ Complete
+- **Note:** `completeMovement()` now includes `evidence_sketch_ids` array in completion record
 
 ### 3. Voice Sketch Integration
 - **Status:** ⚠️ Partial integration
@@ -530,8 +532,8 @@ export async function getMovementSketchEvidence(
 - ✅ Sketch component integrated into movement execution
 - ✅ Evidence retrieval includes sketch data
 - ✅ Voice commands added for sketch operations
-- ⚠️ Evidence Grid rendering (partial - types/icons added, JSX pending)
-- ⚠️ Movement completion sketch IDs (not yet implemented)
+- ✅ Evidence Grid rendering (complete with detailed previews)
+- ✅ Movement completion sketch IDs (implemented)
 
 ### Performance Targets
 - **Sketch Creation:** <200ms per room/zone
@@ -589,14 +591,12 @@ The sketch integration with the flow engine has been successfully implemented, e
 3. **Evidence Integration:** `getMovementEvidence()` now includes sketch data
 4. **Frontend Components:** Flow-aware sketch component integrated into movement execution
 5. **Voice Commands:** Sketch operations accessible via voice-guided inspection
+6. **Evidence Grid Rendering:** Complete JSX preview logic for sketch types with detailed information displays
+7. **Movement Completion:** `completeMovement()` now includes `evidence_sketch_ids` array in completion record
 
-Two items remain pending:
-1. **Evidence Grid Rendering:** JSX preview logic for sketch types (types/icons already added)
-2. **Movement Completion:** Include `evidence_sketch_ids` array in completion record
+All planned features have been implemented. The implementation maintains backward compatibility (existing sketch data remains valid) and provides a solid foundation for future enhancements such as direct voice sketch integration and AI-powered sketch suggestions.
 
-The implementation maintains backward compatibility (existing sketch data remains valid) and provides a solid foundation for future enhancements such as direct voice sketch integration and AI-powered sketch suggestions.
-
-**Status:** ✅ Ready for testing and production deployment (with pending items noted)
+**Status:** ✅ Ready for testing and production deployment
 
 ---
 
@@ -609,30 +609,28 @@ The implementation maintains backward compatibility (existing sketch data remain
 - Sketch component integration: ✅ **Working**
 - Evidence retrieval includes sketch: ✅ **Working**
 - Voice commands for sketch: ✅ **Working**
-- Evidence Grid sketch rendering: ⚠️ **Partial** (types/icons added, JSX preview pending)
-- Movement completion sketch IDs: ❌ **Not Implemented**
-- Ready for next prompt: ✅ **Yes** (with noted limitations)
+- Evidence Grid sketch rendering: ✅ **Complete** (detailed previews implemented)
+- Movement completion sketch IDs: ✅ **Complete** (implemented in `completeMovement()`)
+- Ready for next prompt: ✅ **Yes** (all items complete)
 
-**Pending Items:**
-1. **Evidence Grid JSX Rendering:** Complete the preview dialog rendering for `sketch_zone` and `damage_marker` types. Currently, these types display as generic cards. Should show room details (name, dimensions, type) and damage details (type, severity, affected walls) in the preview dialog.
+**Completed Items:**
+1. **Evidence Grid JSX Rendering:** ✅ Complete - Preview dialog now shows detailed information for `sketch_zone` and `damage_marker` types:
+   - Sketch zones: Room name, room type, dimensions (width × length), polygon vertex count
+   - Damage markers: Damage type, severity, IICRC category, affected walls (as badges), polygon vertex count
 
-2. **Movement Completion Sketch IDs:** Update `completeMovement()` in `flowEngineService.ts` to include an `evidence_sketch_ids` array in the completion record. This array should contain the IDs of all sketch zones and damage markers linked to the movement. Example:
-   ```typescript
-   evidence_data: {
-     photos: evidence.photos || [],
-     audioId: evidence.audioId || null,
-     measurements: evidence.measurements || null,
-     evidence_sketch_ids: sketchEvidence.data?.map(e => e.evidence_id) || []
-   }
-   ```
+2. **Movement Completion Sketch IDs:** ✅ Complete - `completeMovement()` now:
+   - Fetches sketch evidence before creating completion record
+   - Extracts IDs for `sketch_zone` and `damage_marker` types
+   - Includes `evidence_sketch_ids` array in `evidence_data` object stored in `movement_completions` table
 
 **Recommendations for Prompt #9:**
-- Complete the Evidence Grid rendering for sketch types
-- Add sketch evidence IDs to movement completion records
 - Consider adding flow ownership validation to sketch endpoints
 - Consider adding movement ID validation in sketch creation functions
+- Consider adding visual room layout previews and damage zone polygons in Evidence Grid
+- Add E2E tests for sketch integration with flow engine
 
 **Testing Status:**
 - Manual testing recommended for sketch creation with flow context
+- Evidence Grid rendering should be tested with actual sketch data
+- Movement completion should be tested to verify sketch IDs are included
 - E2E tests should be added for sketch integration
-- Evidence Grid rendering should be tested once JSX is complete
