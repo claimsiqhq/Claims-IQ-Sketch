@@ -3090,7 +3090,7 @@ export async function registerRoutes(
 
   // Save rooms to claim with full hierarchy (structures → rooms → damage zones)
   app.post('/api/claims/:id/rooms', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(claimRoomsSaveSchema), asyncHandler(async (req, res, next) => {
-    const { rooms, structures } = req.body;
+    const { rooms, structures, flowInstanceId, movementId } = req.body;
     const { saveClaimHierarchy, saveClaimRoomsAndZones } = await import('./services/rooms');
     
     // Verify claim exists and belongs to organization
@@ -3110,7 +3110,9 @@ export async function registerRoutes(
         req.params.id,
         req.organizationId!,
         structures,
-        rooms || []
+        rooms || [],
+        flowInstanceId,
+        movementId
       );
       
       res.json({ 
@@ -3127,7 +3129,9 @@ export async function registerRoutes(
       const result = await saveClaimRoomsAndZones(
         req.params.id,
         req.organizationId!,
-        rooms || []
+        rooms || [],
+        flowInstanceId,
+        movementId
       );
       
       res.json({ 

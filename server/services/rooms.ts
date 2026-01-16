@@ -534,7 +534,9 @@ export async function saveClaimHierarchy(
   claimId: string,
   organizationId: string,
   structures: StructureInput[],
-  rooms: RoomInput[] = [] // Rooms not associated with a structure
+  rooms: RoomInput[] = [], // Rooms not associated with a structure
+  flowInstanceId?: string,
+  movementId?: string
 ): Promise<{ 
   structures: ClaimStructure[]; 
   rooms: ClaimRoom[]; 
@@ -585,7 +587,9 @@ export async function saveClaimHierarchy(
           organizationId,
           room,
           savedStructure.id,
-          j
+          j,
+          flowInstanceId,
+          movementId
         );
         savedRooms.push(savedRoom);
         savedDamageZones.push(...savedZones);
@@ -602,7 +606,9 @@ export async function saveClaimHierarchy(
       organizationId,
       room,
       structureId || null,
-      i + (structures.length * 100) // Offset sort order
+      i + (structures.length * 100), // Offset sort order
+      flowInstanceId,
+      movementId
     );
     savedRooms.push(savedRoom);
     savedDamageZones.push(...savedZones);
@@ -616,7 +622,9 @@ async function saveRoomWithDamageZones(
   organizationId: string,
   room: RoomInput,
   structureId: string | null,
-  sortOrder: number
+  sortOrder: number,
+  flowInstanceId?: string,
+  movementId?: string
 ): Promise<{ savedRoom: ClaimRoom; savedZones: ClaimDamageZone[] }> {
   const savedRoom = await createRoom({
     claimId,
@@ -624,6 +632,8 @@ async function saveRoomWithDamageZones(
     structureId,
     name: room.name,
     shape: room.shape || 'rectangular',
+    flowInstanceId,
+    movementId,
     widthFt: String(room.width_ft),
     lengthFt: String(room.length_ft),
     ceilingHeightFt: room.ceiling_height_ft ? String(room.ceiling_height_ft) : '8.0',
@@ -658,6 +668,8 @@ async function saveRoomWithDamageZones(
         isFreeform: zone.is_freeform || false,
         notes: zone.notes || null,
         sortOrder: j,
+        flowInstanceId,
+        movementId,
       });
       savedZones.push(savedZone);
     }
@@ -670,7 +682,9 @@ async function saveRoomWithDamageZones(
 export async function saveClaimRoomsAndZones(
   claimId: string,
   organizationId: string,
-  rooms: RoomInput[]
+  rooms: RoomInput[],
+  flowInstanceId?: string,
+  movementId?: string
 ): Promise<{ rooms: ClaimRoom[]; damageZones: ClaimDamageZone[] }> {
   await deleteRoomsByClaimId(claimId);
 
@@ -684,6 +698,8 @@ export async function saveClaimRoomsAndZones(
       organizationId,
       name: room.name,
       shape: room.shape || 'rectangular',
+      flowInstanceId,
+      movementId,
       widthFt: String(room.width_ft),
       lengthFt: String(room.length_ft),
       ceilingHeightFt: room.ceiling_height_ft ? String(room.ceiling_height_ft) : '8.0',
@@ -718,6 +734,8 @@ export async function saveClaimRoomsAndZones(
           isFreeform: zone.is_freeform || false,
           notes: zone.notes || null,
           sortOrder: j,
+          flowInstanceId,
+          movementId,
         });
         savedDamageZones.push(savedZone);
       }

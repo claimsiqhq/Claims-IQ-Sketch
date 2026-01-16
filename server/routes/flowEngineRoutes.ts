@@ -371,6 +371,49 @@ router.get('/flows/:flowInstanceId/movements/:movementId/evidence', async (req, 
   }
 });
 
+/**
+ * GET /api/flows/:flowInstanceId/movements/:movementId/sketch-evidence
+ * Get sketch evidence (rooms/zones and damage markers) for a movement
+ */
+router.get('/flows/:flowInstanceId/movements/:movementId/sketch-evidence', async (req, res) => {
+  try {
+    const { flowInstanceId, movementId } = req.params;
+
+    // Get rooms/zones created during this movement
+    const { data: rooms, error: roomsError } = await supabaseAdmin
+      .from('claim_rooms')
+      .select('*')
+      .eq('flow_instance_id', flowInstanceId)
+      .eq('movement_id', movementId);
+
+    if (roomsError) {
+      console.error('[FlowEngineRoutes] Error fetching rooms:', roomsError);
+    }
+
+    // Get damage zones created during this movement
+    const { data: damageZones, error: zonesError } = await supabaseAdmin
+      .from('claim_damage_zones')
+      .select('*')
+      .eq('flow_instance_id', flowInstanceId)
+      .eq('movement_id', movementId);
+
+    if (zonesError) {
+      console.error('[FlowEngineRoutes] Error fetching damage zones:', zonesError);
+    }
+
+    res.status(200).json({
+      zones: rooms || [],
+      damageMarkers: damageZones || []
+    });
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] GET /flows/:flowInstanceId/movements/:movementId/sketch-evidence error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ============================================================================
 // 4. GATE EVALUATION
 // ============================================================================
