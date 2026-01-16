@@ -20,6 +20,7 @@ import pricingRoutes from './pricing';
 import scopeRoutes from './scopeRoutes';
 import audioObservationsRoutes, { claimAudioObservationsRouter } from './audioObservations';
 import flowDefinitionRoutes from './flowDefinitionRoutes';
+import flowEngineRoutes from './flowEngineRoutes';
 
 const log = createLogger({ module: 'routes' });
 
@@ -157,6 +158,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Flow Definition routes
   app.use('/api/flow-definitions', flowDefinitionRoutes);
 
+  // Flow Engine routes (replaces legacy workflow endpoints)
+  app.use('/api', flowEngineRoutes);
+
   // =================================================
   // Health Check
   // =================================================
@@ -204,4 +208,5 @@ export {
   scopeRoutes,
   audioObservationsRoutes,
   flowDefinitionRoutes,
+  flowEngineRoutes,
 };
