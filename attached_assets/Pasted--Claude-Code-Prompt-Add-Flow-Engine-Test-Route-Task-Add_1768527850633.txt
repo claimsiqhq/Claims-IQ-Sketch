@@ -1,0 +1,73 @@
+# Claude Code Prompt: Add Flow Engine Test Route
+
+## Task
+
+Add a simple test route to verify the flow engine works. Add this to `server/routes.ts`.
+
+## Step 1: Add the import
+
+Near the top of `server/routes.ts`, find the other service imports and add:
+
+```typescript
+import { getFlowForClaim, getFlowByKey } from "./services/flowEngine";
+```
+
+## Step 2: Add test route
+
+Find a good spot in `server/routes.ts` (near other workflow routes, around line 3500-3700) and add:
+
+```typescript
+  // ============================================================================
+  // FLOW ENGINE (NEW) - Test Routes
+  // ============================================================================
+  
+  /**
+   * Test route: Get flow definition for a peril/property type
+   * GET /api/flow/test?peril=wind&propertyType=residential
+   */
+  app.get("/api/flow/test", async (req, res) => {
+    try {
+      const peril = (req.query.peril as string) || "wind";
+      const propertyType = (req.query.propertyType as string) || "residential";
+      
+      console.log(`[FlowEngine Test] Looking for flow: peril=${peril}, propertyType=${propertyType}`);
+      
+      const flow = await getFlowForClaim(peril, propertyType);
+      
+      if (!flow) {
+        return res.status(404).json({ 
+          error: "No flow found", 
+          peril, 
+          propertyType 
+        });
+      }
+      
+      res.json({
+        success: true,
+        flow: {
+          id: flow.id,
+          flowKey: flow.flowKey,
+          name: flow.name,
+          perils: flow.perils,
+          propertyTypes: flow.propertyTypes,
+          phaseCount: flow.definition?.phases?.length || 0,
+          phases: flow.definition?.phases?.map(p => ({
+            key: p.key,
+            name: p.name,
+            movementCount: p.movements?.length || 0
+          }))
+        }
+      });
+    } catch (error) {
+      console.error("[FlowEngine Test] Error:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+```
+
+## Step 3: Verify
+
+```bash
+grep -n "from.*flowEngine" server/routes.ts
+grep -n "/api/flow/test" server/routes.ts
+```
