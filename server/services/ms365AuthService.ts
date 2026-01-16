@@ -329,18 +329,55 @@ export async function getConnectionStatus(userId: string): Promise<{
   connected: boolean;
   configured: boolean;
   expiresAt: string | null;
+  expired: boolean;
 }> {
   const configured = isMs365Configured();
   
   if (!configured) {
-    return { connected: false, configured: false, expiresAt: null };
+    return { connected: false, configured: false, expiresAt: null, expired: false };
   }
 
   const tokens = await getUserTokens(userId);
   
+  if (!tokens) {
+    return { connected: false, configured: true, expiresAt: null, expired: false };
+  }
+  
+  // Check if token is expired
+  const expiresAt = tokens.expiresAt ? new Date(tokens.expiresAt) : null;
+  const isExpired = expiresAt ? expiresAt < new Date() : true;
+  
+  // If expired, try to refresh the token
+  if (isExpired && tokens.refreshToken) {
+    try {
+      const newAccessToken = await getValidAccessToken(userId);
+      if (newAccessToken) {
+        // Token was successfully refreshed
+        const updatedTokens = await getUserTokens(userId);
+        return {
+          connected: true,
+          configured: true,
+          expiresAt: updatedTokens?.expiresAt || null,
+          expired: false,
+        };
+      }
+    } catch (error) {
+      console.error('[MS365] Token refresh failed during status check:', error);
+    }
+    
+    // Refresh failed - user needs to reconnect
+    return {
+      connected: false,
+      configured: true,
+      expiresAt: tokens.expiresAt,
+      expired: true,
+    };
+  }
+  
   return {
-    connected: tokens !== null,
+    connected: true,
     configured: true,
-    expiresAt: tokens?.expiresAt || null,
+    expiresAt: tokens.expiresAt || null,
+    expired: false,
   };
 }
