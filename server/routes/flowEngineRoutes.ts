@@ -385,29 +385,40 @@ router.post('/flows/:flowInstanceId/gates/:gateId/evaluate', async (req, res) =>
 
     const result = await evaluateGate(flowInstanceId, gateId);
 
-    // Get next phase if passed
-    let nextPhase = null;
-    if (result.result === 'passed') {
+    // If passed, advance to next phase
+    if (result.passed && result.nextPhaseId) {
+      // Get flow instance to find next phase index from flow_json
       const { data: flowInstance } = await supabaseAdmin
         .from('claim_flow_instances')
-        .select('current_phase_id')
+        .select(`
+          *,
+          flow_definitions (flow_json)
+        `)
         .eq('id', flowInstanceId)
         .single();
 
-      if (flowInstance?.current_phase_id) {
-        const { data: phase } = await supabaseAdmin
-          .from('phases')
-          .select('*')
-          .eq('id', flowInstance.current_phase_id)
-          .single();
-        nextPhase = phase;
+      if (flowInstance) {
+        const flowJson = (flowInstance.flow_definitions as any)?.flow_json;
+        const phases = flowJson?.phases || [];
+        const nextPhaseIndex = phases.findIndex((p: any) => p.id === result.nextPhaseId);
+        
+        if (nextPhaseIndex >= 0) {
+          await supabaseAdmin
+            .from('claim_flow_instances')
+            .update({
+              current_phase_id: result.nextPhaseId,
+              current_phase_index: nextPhaseIndex
+            })
+            .eq('id', flowInstanceId);
+        }
       }
     }
 
     res.status(200).json({
-      result: result.result,
-      nextPhase,
-      message: result.reason || (result.result === 'passed' ? 'Gate passed, advancing to next phase' : 'Gate failed')
+      passed: result.passed,
+      reason: result.reason,
+      nextPhaseId: result.nextPhaseId,
+      message: result.passed ? 'Gate passed, advancing to next phase' : 'Gate failed'
     });
 
   } catch (error) {
@@ -434,13 +445,17 @@ router.post('/flows/:flowInstanceId/rooms', async (req, res) => {
     if (!roomName) {
       return res.status(400).json({ error: 'roomName is required' });
     }
-    if (!roomType) {
-      return res.status(400).json({ error: 'roomType is required' });
-    }
 
-    const movements = await addRoom(flowInstanceId, roomName, roomType);
+    // roomType can be used to determine movement templates
+    const movementTemplates = req.body.movementTemplates || [];
 
-    res.status(201).json(movements);
+    await addRoomMovements(flowInstanceId, roomName, movementTemplates);
+
+    res.status(201).json({ 
+      message: `Room "${roomName}" added with ${movementTemplates.length} movements`,
+      roomName,
+      movementCount: movementTemplates.length
+    });
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/rooms error:', error);
@@ -459,7 +474,7 @@ router.post('/flows/:flowInstanceId/suggest', async (req, res) => {
     const { flowInstanceId } = req.params;
     const { context } = req.body;
 
-    const suggestions = await suggestAdditionalMovements(flowInstanceId, context || {});
+    const suggestions = await getSuggestedMovements(flowInstanceId, context || {});
 
     res.status(200).json(suggestions);
 
@@ -478,7 +493,7 @@ router.post('/flows/:flowInstanceId/suggest', async (req, res) => {
 router.post('/flows/:flowInstanceId/movements', async (req, res) => {
   try {
     const { flowInstanceId } = req.params;
-    const { phaseId, name, description, isRequired } = req.body;
+    const { phaseId, name, description, afterMovementId } = req.body;
 
     if (!phaseId) {
       return res.status(400).json({ error: 'phaseId is required' });
@@ -487,35 +502,17 @@ router.post('/flows/:flowInstanceId/movements', async (req, res) => {
       return res.status(400).json({ error: 'name is required' });
     }
 
-    // Get max sequence order for phase
-    const { data: maxSeq } = await supabaseAdmin
-      .from('movements')
-      .select('sequence_order')
-      .eq('phase_id', phaseId)
-      .order('sequence_order', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const movementId = await insertCustomMovement(flowInstanceId, {
+      phaseId,
+      name,
+      description: description || '',
+      afterMovementId
+    });
 
-    const sequenceOrder = (maxSeq?.sequence_order || 0) + 1;
-
-    // Insert movement
-    const { data: movement, error } = await supabaseAdmin
-      .from('movements')
-      .insert({
-        phase_id: phaseId,
-        name,
-        description: description || '',
-        sequence_order: sequenceOrder,
-        is_required: isRequired ?? true
-      })
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to insert movement: ${error.message}`);
-    }
-
-    res.status(201).json(movement);
+    res.status(201).json({ 
+      id: movementId,
+      message: 'Custom movement added successfully'
+    });
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/movements error:', error);
@@ -536,30 +533,26 @@ router.post('/flows/:flowInstanceId/movements', async (req, res) => {
 router.post('/flows/:flowInstanceId/movements/:movementId/evidence', async (req, res) => {
   try {
     const { flowInstanceId, movementId } = req.params;
-    const { evidenceType, evidenceData } = req.body;
+    const { type, referenceId, data, userId } = req.body;
 
-    if (!evidenceType) {
-      return res.status(400).json({ error: 'evidenceType is required' });
+    if (!type) {
+      return res.status(400).json({ error: 'type is required (photo, audio, measurement, note)' });
     }
-    if (!evidenceData) {
-      return res.status(400).json({ error: 'evidenceData is required' });
-    }
-
-    // Get movement completion ID
-    const { data: completion, error: completionError } = await supabaseAdmin
-      .from('movement_completions')
-      .select('id')
-      .eq('flow_instance_id', flowInstanceId)
-      .eq('movement_id', movementId)
-      .single();
-
-    if (completionError || !completion) {
-      return res.status(404).json({ error: 'Movement completion not found. Complete the movement first.' });
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
     }
 
-    await attachEvidence(completion.id, evidenceType, evidenceData);
+    const evidenceId = await attachEvidence(flowInstanceId, movementId, {
+      type,
+      referenceId,
+      data,
+      userId
+    });
 
-    res.status(201).json({ message: 'Evidence attached successfully' });
+    res.status(201).json({ 
+      message: 'Evidence attached successfully',
+      evidenceId
+    });
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/movements/:movementId/evidence error:', error);
@@ -577,19 +570,7 @@ router.post('/flows/:flowInstanceId/movements/:movementId/validate', async (req,
   try {
     const { flowInstanceId, movementId } = req.params;
 
-    // Get movement completion ID
-    const { data: completion, error: completionError } = await supabaseAdmin
-      .from('movement_completions')
-      .select('id')
-      .eq('flow_instance_id', flowInstanceId)
-      .eq('movement_id', movementId)
-      .single();
-
-    if (completionError || !completion) {
-      return res.status(404).json({ error: 'Movement completion not found. Complete the movement first.' });
-    }
-
-    const validation = await validateEvidence(completion.id);
+    const validation = await validateEvidence(flowInstanceId, movementId);
 
     res.status(200).json(validation);
 
