@@ -583,22 +583,160 @@ export async function skipMovement(
 
 /**
  * Get evidence for a movement
+ * Queries movement_evidence table and joins with claim_photos and audio_observations
  */
 export async function getMovementEvidence(
   flowInstanceId: string,
   movementId: string
 ): Promise<any[]> {
-  const { data, error } = await supabaseAdmin
-    .from('movement_completions')
+  // First try to get evidence from the movement_evidence table
+  const { data: movementEvidence, error: evidenceError } = await supabaseAdmin
+    .from('movement_evidence')
     .select('*')
     .eq('flow_instance_id', flowInstanceId)
-    .like('movement_id', `%:${movementId}`);
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
 
-  if (error) {
-    throw new Error(`Failed to get movement evidence: ${error.message}`);
+  if (evidenceError) {
+    console.error('[FlowEngineService] Error getting movement_evidence:', evidenceError);
   }
 
-  return data || [];
+  // Get photos linked to this movement
+  const { data: photos, error: photosError } = await supabaseAdmin
+    .from('claim_photos')
+    .select('id, public_url, file_name, label, description, ai_analysis, created_at')
+    .eq('flow_instance_id', flowInstanceId)
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+  if (photosError) {
+    console.error('[FlowEngineService] Error getting linked photos:', photosError);
+  }
+
+  // Get audio observations linked to this movement
+  const { data: audioObs, error: audioError } = await supabaseAdmin
+    .from('audio_observations')
+    .select('id, transcription, transcription_status, audio_url, duration_seconds, created_at')
+    .eq('flow_instance_id', flowInstanceId)
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+  if (audioError) {
+    console.error('[FlowEngineService] Error getting linked audio:', audioError);
+  }
+
+  // Also check movement_completions for inline evidence_data
+  const { data: completions, error: completionsError } = await supabaseAdmin
+    .from('movement_completions')
+    .select('id, evidence_data, notes, completed_at')
+    .eq('flow_instance_id', flowInstanceId)
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+  if (completionsError) {
+    console.error('[FlowEngineService] Error getting completions:', completionsError);
+  }
+
+  // Combine all evidence sources
+  const result: any[] = [];
+
+  // Add movement_evidence records
+  if (movementEvidence?.length) {
+    for (const ev of movementEvidence) {
+      result.push({
+        id: ev.id,
+        type: ev.evidence_type,
+        referenceId: ev.reference_id || ev.evidence_id,
+        data: ev.evidence_data,
+        notes: ev.notes,
+        createdAt: ev.created_at,
+        source: 'movement_evidence'
+      });
+    }
+  }
+
+  // Add photos
+  if (photos?.length) {
+    for (const photo of photos) {
+      // Check if already added via movement_evidence
+      const alreadyAdded = result.some(r => r.referenceId === photo.id);
+      if (!alreadyAdded) {
+        result.push({
+          id: photo.id,
+          type: 'photo',
+          referenceId: photo.id,
+          data: {
+            url: photo.public_url,
+            fileName: photo.file_name,
+            label: photo.label,
+            description: photo.description,
+            aiAnalysis: photo.ai_analysis
+          },
+          createdAt: photo.created_at,
+          source: 'claim_photos'
+        });
+      }
+    }
+  }
+
+  // Add audio observations
+  if (audioObs?.length) {
+    for (const audio of audioObs) {
+      const alreadyAdded = result.some(r => r.referenceId === audio.id);
+      if (!alreadyAdded) {
+        result.push({
+          id: audio.id,
+          type: 'voice_note',
+          referenceId: audio.id,
+          data: {
+            transcription: audio.transcription,
+            transcriptionStatus: audio.transcription_status,
+            audioUrl: audio.audio_url,
+            durationSeconds: audio.duration_seconds
+          },
+          createdAt: audio.created_at,
+          source: 'audio_observations'
+        });
+      }
+    }
+  }
+
+  // Add evidence from completions (inline evidence_data)
+  if (completions?.length) {
+    for (const completion of completions) {
+      if (completion.evidence_data) {
+        const evidenceData = completion.evidence_data as any;
+        // Add photos from evidence_data
+        if (evidenceData.photos?.length) {
+          for (const photoId of evidenceData.photos) {
+            const alreadyAdded = result.some(r => r.referenceId === photoId);
+            if (!alreadyAdded) {
+              result.push({
+                id: `completion:${completion.id}:photo:${photoId}`,
+                type: 'photo',
+                referenceId: photoId,
+                data: { photoId },
+                createdAt: completion.completed_at,
+                source: 'movement_completions'
+              });
+            }
+          }
+        }
+        // Add audio from evidence_data
+        if (evidenceData.audioId) {
+          const alreadyAdded = result.some(r => r.referenceId === evidenceData.audioId);
+          if (!alreadyAdded) {
+            result.push({
+              id: `completion:${completion.id}:audio:${evidenceData.audioId}`,
+              type: 'voice_note',
+              referenceId: evidenceData.audioId,
+              data: { audioId: evidenceData.audioId },
+              createdAt: completion.completed_at,
+              source: 'movement_completions'
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================
@@ -949,35 +1087,75 @@ export async function insertCustomMovement(
 
 /**
  * Attach evidence to a movement
+ * Also updates the source record (claim_photos or audio_observations) with flow context
  */
 export async function attachEvidence(
   flowInstanceId: string,
   movementId: string,
   evidence: {
-    type: 'photo' | 'audio' | 'measurement' | 'note';
+    type: 'photo' | 'audio' | 'voice_note' | 'measurement' | 'note';
     referenceId?: string;
     data?: any;
     userId: string;
+    notes?: string;
   }
 ): Promise<string> {
   const evidenceId = `evidence:${Date.now()}`;
+  const normalizedType = evidence.type === 'voice_note' ? 'audio' : evidence.type;
 
+  // Insert into movement_evidence table
   const { error } = await supabaseAdmin
     .from('movement_evidence')
     .insert({
       id: evidenceId,
       flow_instance_id: flowInstanceId,
       movement_id: movementId,
-      evidence_type: evidence.type,
+      evidence_type: normalizedType,
       reference_id: evidence.referenceId,
+      evidence_id: evidence.referenceId, // Also set evidence_id for FK relationships
       evidence_data: evidence.data,
+      notes: evidence.notes,
+      attached_by: evidence.userId,
+      attached_at: new Date().toISOString(),
       created_by: evidence.userId,
       created_at: new Date().toISOString()
     });
 
   if (error) {
     console.error('[FlowEngineService] Error attaching evidence:', error);
-    // Don't throw - evidence table may not exist yet
+    // Continue anyway to update source records
+  }
+
+  // Also update the source record with flow context
+  if (evidence.referenceId) {
+    if (evidence.type === 'photo') {
+      // Update claim_photos with flow context
+      const { error: photoError } = await supabaseAdmin
+        .from('claim_photos')
+        .update({
+          flow_instance_id: flowInstanceId,
+          movement_id: movementId,
+          captured_context: evidence.notes || `Attached to movement: ${movementId}`
+        })
+        .eq('id', evidence.referenceId);
+
+      if (photoError) {
+        console.error('[FlowEngineService] Error updating photo flow context:', photoError);
+      }
+    } else if (evidence.type === 'audio' || evidence.type === 'voice_note') {
+      // Update audio_observations with flow context
+      const { error: audioError } = await supabaseAdmin
+        .from('audio_observations')
+        .update({
+          flow_instance_id: flowInstanceId,
+          movement_id: movementId
+        })
+        .eq('id', evidence.referenceId);
+
+      if (audioError) {
+        console.error('[FlowEngineService] Error updating audio flow context:', audioError);
+      }
+    }
   }
 
   return evidenceId;
