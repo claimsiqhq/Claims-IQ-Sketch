@@ -92,6 +92,20 @@ CREATE TABLE IF NOT EXISTS movement_completions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add missing columns if they don't exist (for existing tables)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'movement_completions' AND column_name = 'evidence_data') THEN
+    ALTER TABLE movement_completions ADD COLUMN evidence_data JSONB;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'movement_completions' AND column_name = 'notes') THEN
+    ALTER TABLE movement_completions ADD COLUMN notes TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'movement_completions' AND column_name = 'completed_by') THEN
+    ALTER TABLE movement_completions ADD COLUMN completed_by UUID;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS movement_completions_flow_instance_idx ON movement_completions(flow_instance_id);
 CREATE INDEX IF NOT EXISTS movement_completions_movement_idx ON movement_completions(movement_id);
 CREATE INDEX IF NOT EXISTS movement_completions_claim_idx ON movement_completions(claim_id);
