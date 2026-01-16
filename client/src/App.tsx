@@ -14,6 +14,7 @@ import ClaimsMap from "@/pages/claims-map";
 import VoiceSketchPage from "@/features/voice-sketch/VoiceSketchPage";
 import Photos from "@/pages/photos";
 import Calendar from "@/pages/calendar";
+import FlowBuilder from "@/pages/flow-builder";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { UploadStatusBar } from "@/components/UploadStatusBar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -69,6 +70,16 @@ function Router() {
       <Route path="/calendar">
         <ProtectedRoute>
           <Calendar />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/flow-builder">
+        <ProtectedRoute>
+          <FlowBuilder />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/flow-builder/:id">
+        <ProtectedRoute>
+          <FlowBuilder />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />

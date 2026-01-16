@@ -15,6 +15,7 @@ import {
   MapPin,
   Camera,
   Calendar,
+  Workflow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,7 @@ export default function DesktopLayout({ children }: DesktopLayoutProps) {
     { label: "Photos", icon: Camera, href: "/photos" },
     { label: "Claims Map", icon: MapPin, href: "/map" },
     { label: "Voice Sketch", icon: Mic, href: "/voice-sketch" },
+    { label: "Flow Builder", icon: Workflow, href: "/flow-builder" },
     { label: "Settings", icon: Settings, href: "/settings" },
   ];
 

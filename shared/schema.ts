@@ -4639,6 +4639,129 @@ export type InsertWorkflowRule = z.infer<typeof insertWorkflowRuleSchema>;
 export type WorkflowRule = typeof workflowRules.$inferSelect;
 
 // ============================================
+// FLOW DEFINITIONS TABLE
+// ============================================
+
+/**
+ * Flow JSON structure for typed guidance
+ */
+export interface FlowJsonEvidenceRequirement {
+  type: "photo" | "voice_note" | "measurement";
+  description: string;
+  is_required: boolean;
+  quantity_min: number;
+  quantity_max: number;
+  validation_rules?: {
+    photo?: {
+      min_resolution?: string;
+      required_content?: string[];
+      lighting?: string;
+    };
+    measurement?: {
+      unit?: string;
+      min_value?: number;
+      max_value?: number;
+    };
+  };
+}
+
+export interface FlowJsonMovement {
+  id: string;
+  name: string;
+  description: string;
+  sequence_order: number;
+  is_required: boolean;
+  criticality: "high" | "medium" | "low";
+  guidance: {
+    instruction: string;
+    tts_text: string;
+    tips: string[];
+  };
+  evidence_requirements: FlowJsonEvidenceRequirement[];
+  estimated_minutes: number;
+}
+
+export interface FlowJsonPhase {
+  id: string;
+  name: string;
+  description: string;
+  sequence_order: number;
+  movements: FlowJsonMovement[];
+}
+
+export interface FlowJsonGate {
+  id: string;
+  name: string;
+  from_phase: string;
+  to_phase: string;
+  gate_type: "blocking" | "advisory";
+  evaluation_criteria: {
+    type: "ai" | "simple";
+    ai_prompt_key?: string;
+    simple_rules?: {
+      condition: string;
+      required_movements?: string[];
+      required_evidence?: string[];
+    };
+  };
+}
+
+export interface FlowJson {
+  schema_version: string;
+  metadata: {
+    name: string;
+    description: string;
+    estimated_duration_minutes: number;
+    primary_peril: string;
+    secondary_perils: string[];
+  };
+  phases: FlowJsonPhase[];
+  gates: FlowJsonGate[];
+}
+
+/**
+ * Flow Definitions Table
+ * Stores JSON-based flow definitions for the flow engine.
+ * Each flow defines the movements (inspection steps) an adjuster performs for a specific peril type.
+ */
+export const flowDefinitions = pgTable("flow_definitions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id"), // null = system-wide
+
+  // Basic info
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  perilType: varchar("peril_type", { length: 50 }).notNull(), // "water", "wind", "hail", "fire", etc.
+  propertyType: varchar("property_type", { length: 50 }).notNull().default("residential"), // "residential", "commercial"
+
+  // The actual flow structure (JSON)
+  flowJson: jsonb("flow_json").notNull().$type<FlowJson>(),
+
+  // Versioning and status
+  version: integer("version").notNull().default(1),
+  isActive: boolean("is_active").notNull().default(true),
+
+  // Audit fields
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  orgIdx: index("flow_definitions_org_idx").on(table.organizationId),
+  perilIdx: index("flow_definitions_peril_idx").on(table.perilType),
+  propertyIdx: index("flow_definitions_property_idx").on(table.propertyType),
+  activeIdx: index("flow_definitions_active_idx").on(table.isActive),
+}));
+
+export const insertFlowDefinitionSchema = createInsertSchema(flowDefinitions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertFlowDefinition = z.infer<typeof insertFlowDefinitionSchema>;
+export type FlowDefinition = typeof flowDefinitions.$inferSelect;
+
+// ============================================
 // EXPORT VALIDATION TYPES
 // ============================================
 

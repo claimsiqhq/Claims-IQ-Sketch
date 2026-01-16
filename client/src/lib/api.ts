@@ -3301,3 +3301,315 @@ export async function getCalendarSyncStatus(): Promise<CalendarSyncStatus> {
   }
   return response.json();
 }
+
+// ============================================
+// FLOW DEFINITIONS API
+// ============================================
+
+/**
+ * Flow JSON Evidence Requirement type
+ */
+export interface FlowJsonEvidenceRequirement {
+  type: "photo" | "voice_note" | "measurement";
+  description: string;
+  is_required: boolean;
+  quantity_min: number;
+  quantity_max: number;
+  validation_rules?: {
+    photo?: {
+      min_resolution?: string;
+      required_content?: string[];
+      lighting?: string;
+    };
+    measurement?: {
+      unit?: string;
+      min_value?: number;
+      max_value?: number;
+    };
+  };
+}
+
+/**
+ * Flow JSON Movement type
+ */
+export interface FlowJsonMovement {
+  id: string;
+  name: string;
+  description: string;
+  sequence_order: number;
+  is_required: boolean;
+  criticality: "high" | "medium" | "low";
+  guidance: {
+    instruction: string;
+    tts_text: string;
+    tips: string[];
+  };
+  evidence_requirements: FlowJsonEvidenceRequirement[];
+  estimated_minutes: number;
+}
+
+/**
+ * Flow JSON Phase type
+ */
+export interface FlowJsonPhase {
+  id: string;
+  name: string;
+  description: string;
+  sequence_order: number;
+  movements: FlowJsonMovement[];
+}
+
+/**
+ * Flow JSON Gate type
+ */
+export interface FlowJsonGate {
+  id: string;
+  name: string;
+  from_phase: string;
+  to_phase: string;
+  gate_type: "blocking" | "advisory";
+  evaluation_criteria: {
+    type: "ai" | "simple";
+    ai_prompt_key?: string;
+    simple_rules?: {
+      condition: string;
+      required_movements?: string[];
+      required_evidence?: string[];
+    };
+  };
+}
+
+/**
+ * Complete Flow JSON structure
+ */
+export interface FlowJson {
+  schema_version: string;
+  metadata: {
+    name: string;
+    description: string;
+    estimated_duration_minutes: number;
+    primary_peril: string;
+    secondary_perils: string[];
+  };
+  phases: FlowJsonPhase[];
+  gates: FlowJsonGate[];
+}
+
+/**
+ * Flow Definition Summary (for list view)
+ */
+export interface FlowDefinitionSummary {
+  id: string;
+  organizationId: string | null;
+  name: string;
+  description: string | null;
+  perilType: string;
+  propertyType: string;
+  version: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  phaseCount: number;
+  movementCount: number;
+}
+
+/**
+ * Full Flow Definition
+ */
+export interface FlowDefinition {
+  id: string;
+  organizationId: string | null;
+  name: string;
+  description: string | null;
+  perilType: string;
+  propertyType: string;
+  flowJson: FlowJson;
+  version: number;
+  isActive: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Flow Definition Input for create/update
+ */
+export interface FlowDefinitionInput {
+  organizationId?: string | null;
+  name: string;
+  description?: string;
+  perilType: string;
+  propertyType: string;
+  flowJson: FlowJson;
+  isActive?: boolean;
+}
+
+/**
+ * Validation error type
+ */
+export interface FlowValidationError {
+  path: string;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+/**
+ * Validation result type
+ */
+export interface FlowValidationResult {
+  isValid: boolean;
+  errors: FlowValidationError[];
+  warnings: FlowValidationError[];
+}
+
+/**
+ * Get all flow definitions
+ */
+export async function getFlowDefinitions(organizationId?: string): Promise<FlowDefinitionSummary[]> {
+  const url = new URL(`${API_BASE}/flow-definitions`, window.location.origin);
+  if (organizationId) {
+    url.searchParams.set('organizationId', organizationId);
+  }
+
+  const response = await fetch(url.toString(), {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow definitions');
+  }
+  return response.json();
+}
+
+/**
+ * Get empty flow template
+ */
+export async function getFlowTemplate(): Promise<FlowJson> {
+  const response = await fetch(`${API_BASE}/flow-definitions/template`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow template');
+  }
+  return response.json();
+}
+
+/**
+ * Get a single flow definition
+ */
+export async function getFlowDefinition(id: string): Promise<FlowDefinition> {
+  const response = await fetch(`${API_BASE}/flow-definitions/${id}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch flow definition');
+  }
+  return response.json();
+}
+
+/**
+ * Create a new flow definition
+ */
+export async function createFlowDefinition(input: FlowDefinitionInput): Promise<FlowDefinition> {
+  const response = await fetch(`${API_BASE}/flow-definitions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to create flow definition');
+  }
+  return response.json();
+}
+
+/**
+ * Update a flow definition
+ */
+export async function updateFlowDefinition(
+  id: string,
+  input: Partial<FlowDefinitionInput>
+): Promise<FlowDefinition> {
+  const response = await fetch(`${API_BASE}/flow-definitions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to update flow definition');
+  }
+  return response.json();
+}
+
+/**
+ * Delete a flow definition
+ */
+export async function deleteFlowDefinition(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/flow-definitions/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to delete flow definition');
+  }
+}
+
+/**
+ * Duplicate a flow definition
+ */
+export async function duplicateFlowDefinition(
+  id: string,
+  newName: string
+): Promise<FlowDefinition> {
+  const response = await fetch(`${API_BASE}/flow-definitions/${id}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ newName }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to duplicate flow definition');
+  }
+  return response.json();
+}
+
+/**
+ * Toggle flow definition active status
+ */
+export async function toggleFlowDefinitionActive(
+  id: string
+): Promise<{ id: string; isActive: boolean }> {
+  const response = await fetch(`${API_BASE}/flow-definitions/${id}/activate`, {
+    method: 'PATCH',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to toggle active status');
+  }
+  return response.json();
+}
+
+/**
+ * Validate flow JSON
+ */
+export async function validateFlowJson(flowJson: FlowJson): Promise<FlowValidationResult> {
+  const response = await fetch(`${API_BASE}/flow-definitions/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ flowJson }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to validate flow JSON');
+  }
+  return response.json();
+}
