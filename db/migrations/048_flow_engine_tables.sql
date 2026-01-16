@@ -31,6 +31,7 @@ COMMENT ON TABLE flow_definitions IS 'Stores JSON-based flow definitions for the
 -- CLAIM FLOW INSTANCES TABLE
 -- ============================================
 
+-- Create table if it doesn't exist
 CREATE TABLE IF NOT EXISTS claim_flow_instances (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   claim_id UUID NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
@@ -45,6 +46,23 @@ CREATE TABLE IF NOT EXISTS claim_flow_instances (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Add missing columns if they don't exist (for existing tables)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_flow_instances' AND column_name = 'current_phase_id') THEN
+    ALTER TABLE claim_flow_instances ADD COLUMN current_phase_id VARCHAR(100);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_flow_instances' AND column_name = 'current_phase_index') THEN
+    ALTER TABLE claim_flow_instances ADD COLUMN current_phase_index INTEGER NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_flow_instances' AND column_name = 'completed_movements') THEN
+    ALTER TABLE claim_flow_instances ADD COLUMN completed_movements JSONB NOT NULL DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'claim_flow_instances' AND column_name = 'dynamic_movements') THEN
+    ALTER TABLE claim_flow_instances ADD COLUMN dynamic_movements JSONB NOT NULL DEFAULT '[]'::jsonb;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS claim_flow_instances_claim_idx ON claim_flow_instances(claim_id);
 CREATE INDEX IF NOT EXISTS claim_flow_instances_status_idx ON claim_flow_instances(status);
