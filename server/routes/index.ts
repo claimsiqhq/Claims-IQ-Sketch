@@ -18,6 +18,7 @@ import documentsRoutes from './documents';
 import aiRoutes from './ai';
 import pricingRoutes from './pricing';
 import scopeRoutes from './scopeRoutes';
+import audioObservationsRoutes, { claimAudioObservationsRouter } from './audioObservations';
 
 const log = createLogger({ module: 'routes' });
 
@@ -148,6 +149,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Scope Engine routes
   app.use('/api/scope', scopeRoutes);
 
+  // Audio Observations routes
+  app.use('/api/audio-observations', audioObservationsRoutes);
+  app.use('/api/claims', claimAudioObservationsRouter);
+
   // =================================================
   // Health Check
   // =================================================
@@ -193,4 +198,5 @@ export {
   aiRoutes,
   pricingRoutes,
   scopeRoutes,
+  audioObservationsRoutes,
 };
