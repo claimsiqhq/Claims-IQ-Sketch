@@ -4825,6 +4825,7 @@ export const movementCompletions = pgTable("movement_completions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   flowInstanceId: uuid("flow_instance_id").notNull().references(() => claimFlowInstances.id, { onDelete: "cascade" }),
   movementId: varchar("movement_id", { length: 200 }).notNull(), // "phaseId:movementId" format
+  movementPhase: varchar("movement_phase", { length: 100 }), // Phase ID for easier querying
   claimId: uuid("claim_id").notNull().references(() => claims.id, { onDelete: "cascade" }),
   
   // Completion status

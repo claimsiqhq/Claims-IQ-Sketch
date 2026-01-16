@@ -450,6 +450,7 @@ async function step5_executeFirstMovement(): Promise<boolean> {
       .insert({
         flow_instance_id: testFlowInstanceId,
         movement_id: movementKey,
+        movement_phase: currentPhase.id,
         claim_id: testClaimId,
         status: 'completed',
         completed_at: new Date().toISOString(),
@@ -750,6 +751,7 @@ async function step8_completeMovementWithEvidence(): Promise<boolean> {
       .insert({
         flow_instance_id: testFlowInstanceId,
         movement_id: movementKey,
+        movement_phase: currentPhase.id,
         claim_id: testClaimId,
         status: 'completed',
         completed_at: new Date().toISOString(),
@@ -847,6 +849,7 @@ async function step9_testPhaseTransition(): Promise<boolean> {
           .insert({
             flow_instance_id: testFlowInstanceId,
             movement_id: movementKey,
+            movement_phase: currentPhase.id,
             claim_id: testClaimId,
             status: 'completed',
             completed_at: new Date().toISOString(),
@@ -973,6 +976,7 @@ async function step10_testSkipMovement(): Promise<boolean> {
       .insert({
         flow_instance_id: testFlowInstanceId,
         movement_id: movementKey,
+        movement_phase: currentPhase.id,
         claim_id: testClaimId,
         status: 'skipped',
         completed_at: new Date().toISOString(),
@@ -1037,11 +1041,14 @@ async function step11_completeRemainingPhases(): Promise<boolean> {
           allMovementKeys.push(key);
 
           // Record completion
+          // Extract phase ID from key (format: "phaseId:movementId")
+          const phaseId = key.split(':')[0];
           await supabase
             .from('movement_completions')
             .insert({
               flow_instance_id: testFlowInstanceId,
               movement_id: key,
+              movement_phase: phaseId,
               claim_id: testClaimId,
               status: 'completed',
               completed_at: new Date().toISOString(),

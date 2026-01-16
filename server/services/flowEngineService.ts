@@ -477,6 +477,7 @@ export async function completeMovement(
     .insert({
       flow_instance_id: flowInstanceId,
       movement_id: movementKey,
+      movement_phase: currentPhase.id,
       claim_id: flowInstance.claim_id,
       status: 'completed',
       completed_at: new Date().toISOString(),
@@ -572,6 +573,7 @@ export async function skipMovement(
     .insert({
       flow_instance_id: flowInstanceId,
       movement_id: movementKey,
+      movement_phase: currentPhase.id,
       claim_id: flowInstance.claim_id,
       status: 'skipped',
       completed_at: new Date().toISOString(),
