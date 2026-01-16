@@ -602,15 +602,15 @@ export default function MovementExecutionPage() {
             )}
 
             {/* Complete Button */}
-            <Button
+            <LoadingButton
               className="flex-1"
               onClick={() => completeMutation.mutate()}
-              disabled={isSubmitting || (movement.isRequired && !hasEvidence && !notes)}
+              loading={isSubmitting}
+              loadingText={isUploading ? 'Uploading photos...' : 'Completing...'}
+              disabled={movement.isRequired && !hasEvidence && !notes}
             >
-              <>
-                <Check className="h-4 w-4 mr-2" />
-                Complete
-              </>
+              <Check className="h-4 w-4 mr-2" />
+              Complete
             </LoadingButton>
           </div>
 
