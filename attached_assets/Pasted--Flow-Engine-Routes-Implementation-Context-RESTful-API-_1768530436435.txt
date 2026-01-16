@@ -1,0 +1,267 @@
+# Flow Engine Routes Implementation
+
+## Context
+
+RESTful API routes for the flow engine. These routes replace the old 9 workflow endpoints.
+
+## Your Task: Create `server/routes/flowEngineRoutes.ts`
+
+Import the service:
+```typescript
+import express from 'express';
+import {
+  startFlowForClaim,
+  getCurrentFlow,
+  getFlowProgress,
+  getNextMovement,
+  completeMovement,
+  skipMovement,
+  evaluateGate,
+  addRoom,
+  suggestAdditionalMovements,
+  attachEvidence,
+  validateEvidence,
+  getMovementEvidence,
+  getFlowPhases,
+  getPhaseMovements,
+  getFlowTimeline
+} from '../services/flowEngineService';
+
+const router = express.Router();
+```
+
+## Routes to Implement
+
+### 1. Flow Instance Management
+
+**POST /api/claims/:claimId/flows**
+- Start new flow for claim
+- Body: `{ perilType: string }`
+- Returns: `{ flowInstanceId: string, message: string }`
+- Error if flow already active for claim
+
+**GET /api/claims/:claimId/flows**
+- Get active flow for claim
+- Returns: Flow instance with current phase info
+- Returns 404 if no active flow
+
+**DELETE /api/claims/:claimId/flows**
+- Cancel active flow
+- Updates status to 'cancelled'
+- Returns: `{ message: string }`
+
+### 2. Flow Progress
+
+**GET /api/flows/:flowInstanceId**
+- Get complete flow state
+- Includes: phases, current phase, completed movements
+- Returns: Full flow object
+
+**GET /api/flows/:flowInstanceId/progress**
+- Get progress summary
+- Returns: `{ total, completed, percentComplete }`
+
+**GET /api/flows/:flowInstanceId/timeline**
+- Get chronological completion history
+- Returns: Array of completed movements with timestamps
+
+**GET /api/flows/:flowInstanceId/phases**
+- Get all phases with completion status
+- Returns: Array of phases with progress
+
+**GET /api/flows/:flowInstanceId/phases/:phaseId/movements**
+- Get movements for specific phase
+- Returns: Array of movements with completion status
+
+### 3. Movement Execution
+
+**GET /api/flows/:flowInstanceId/next**
+- Get next movement to complete
+- Returns: 
+  - `{ type: 'movement', movement: {...} }` if movement available
+  - `{ type: 'gate', gate: {...} }` if gate needs evaluation
+  - `{ type: 'complete' }` if flow finished
+
+**POST /api/flows/:flowInstanceId/movements/:movementId/complete**
+- Mark movement as complete
+- Body:
+  ```json
+  {
+    "userId": "uuid",
+    "notes": "optional notes",
+    "evidence": {
+      "photos": ["photo_id_1", "photo_id_2"],
+      "audioObservationId": "uuid",
+      "measurements": {...}
+    }
+  }
+  ```
+- Returns: Movement completion record
+
+**POST /api/flows/:flowInstanceId/movements/:movementId/skip**
+- Skip movement with reason
+- Body: `{ userId: string, reason: string }`
+- Returns: Movement completion record with status='skipped'
+
+**GET /api/flows/:flowInstanceId/movements/:movementId/evidence**
+- Get all evidence for movement
+- Returns: Aggregated evidence object
+
+### 4. Gate Evaluation
+
+**POST /api/flows/:flowInstanceId/gates/:gateId/evaluate**
+- Evaluate gate to proceed to next phase
+- Body: `{ context?: any }` (optional additional context)
+- Returns: 
+  ```json
+  {
+    "result": "passed" | "failed",
+    "nextPhase": {...} | null,
+    "message": "explanation"
+  }
+  ```
+
+### 5. Dynamic Expansion
+
+**POST /api/flows/:flowInstanceId/rooms**
+- Add room-specific movements
+- Body: `{ roomName: string, roomType: string }`
+- Returns: Array of inserted movements
+
+**POST /api/flows/:flowInstanceId/suggest**
+- Get AI-suggested additional movements
+- Body: `{ context?: any }` (current observations, findings)
+- Returns: Array of suggested movements
+- Note: Suggestions not auto-inserted
+
+**POST /api/flows/:flowInstanceId/movements**
+- Manually insert custom movement
+- Body:
+  ```json
+  {
+    "phaseId": "uuid",
+    "name": "string",
+    "description": "string",
+    "isRequired": boolean
+  }
+  ```
+- Returns: Inserted movement
+
+### 6. Evidence Management
+
+**POST /api/flows/:flowInstanceId/movements/:movementId/evidence**
+- Attach evidence to movement completion
+- Body:
+  ```json
+  {
+    "evidenceType": "photo" | "audio" | "measurement" | "note",
+    "evidenceData": {...}
+  }
+  ```
+- Returns: Evidence record
+
+**POST /api/flows/:flowInstanceId/movements/:movementId/validate**
+- Validate evidence completeness
+- Uses AI validation
+- Returns:
+  ```json
+  {
+    "isValid": boolean,
+    "missingItems": string[],
+    "qualityIssues": string[],
+    "confidence": number
+  }
+  ```
+
+## Error Handling Pattern
+
+Every route should follow this pattern:
+
+```typescript
+router.post('/path', async (req, res) => {
+  try {
+    // Extract params/body
+    const { param1, param2 } = req.body;
+    
+    // Validate required fields
+    if (!param1) {
+      return res.status(400).json({ error: 'param1 is required' });
+    }
+    
+    // Call service
+    const result = await serviceFunction(param1, param2);
+    
+    // Return success
+    res.status(200).json(result);
+    
+  } catch (error) {
+    console.error('Route error:', error);
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Internal server error' 
+    });
+  }
+});
+```
+
+## Response Codes
+
+- `200` - Success
+- `201` - Created (for POST that creates resources)
+- `400` - Bad request (missing/invalid params)
+- `404` - Not found
+- `409` - Conflict (e.g., flow already exists)
+- `500` - Server error
+
+## Export
+
+```typescript
+export default router;
+```
+
+## Wire Into Main App
+
+In `server/routes.ts`:
+```typescript
+import flowEngineRoutes from './routes/flowEngineRoutes';
+app.use('/api', flowEngineRoutes);
+```
+
+## OLD Routes to REMOVE
+
+After implementing new routes, remove these old endpoints from `server/routes.ts`:
+
+```typescript
+// DELETE THESE:
+POST /api/claims/:id/workflow/generate-enhanced
+POST /api/claims/:id/workflow/generate
+GET  /api/claims/:id/workflow
+GET  /api/claims/:id/workflow/status
+POST /api/claims/:id/workflow/regenerate
+GET  /api/workflow/:id
+PATCH /api/workflow/:id/steps/:stepId
+POST /api/workflow/:id/steps
+POST /api/workflow/:id/rooms
+```
+
+Delete the route handler code for these 9 endpoints.
+
+## Testing
+
+Test flow:
+```bash
+# Start flow
+curl -X POST http://localhost:5000/api/claims/{claimId}/flows \
+  -H "Content-Type: application/json" \
+  -d '{"perilType": "water"}'
+
+# Get next movement
+curl http://localhost:5000/api/flows/{flowInstanceId}/next
+
+# Complete movement
+curl -X POST http://localhost:5000/api/flows/{flowInstanceId}/movements/{movementId}/complete \
+  -H "Content-Type: application/json" \
+  -d '{"userId": "xxx", "notes": "Done"}'
+
+# Check progress
+curl http://localhost:5000/api/flows/{flowInstanceId}/progress
+```
