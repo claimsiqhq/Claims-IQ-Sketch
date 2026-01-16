@@ -3,12 +3,12 @@
  *
  * Centralized service for managing AI prompts stored in the database.
  * Provides caching, template variable substitution, and usage tracking.
- * 
+ *
  * Uses Supabase client for all database operations.
  */
 
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { AiPrompt, PromptKey } from '../../shared/schema';
+import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { AiPrompt, PromptKey } from "../../shared/schema";
 
 // In-memory cache for prompts
 const promptCache = new Map<string, AiPrompt>();
@@ -22,12 +22,15 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 async function initializeCache(): Promise<void> {
   try {
     const { data: prompts, error } = await supabaseAdmin
-      .from('ai_prompts')
-      .select('*')
-      .eq('is_active', true);
+      .from("ai_prompts")
+      .select("*")
+      .eq("is_active", true);
 
     if (error) {
-      console.error('[PromptService] Failed to initialize cache:', error.message);
+      console.error(
+        "[PromptService] Failed to initialize cache:",
+        error.message,
+      );
       return;
     }
 
@@ -40,9 +43,11 @@ async function initializeCache(): Promise<void> {
 
     cacheInitialized = true;
     cacheLastRefresh = Date.now();
-    console.log(`[PromptService] Loaded ${prompts?.length || 0} prompts into cache`);
+    console.log(
+      `[PromptService] Loaded ${prompts?.length || 0} prompts into cache`,
+    );
   } catch (error) {
-    console.error('[PromptService] Failed to initialize cache:', error);
+    console.error("[PromptService] Failed to initialize cache:", error);
     // Don't throw - allow fallback to hardcoded prompts
   }
 }
@@ -59,7 +64,7 @@ function normalizePrompt(row: any): AiPrompt {
     systemPrompt: row.system_prompt,
     userPromptTemplate: row.user_prompt_template,
     model: row.model,
-    temperature: row.temperature?.toString() || '0.3',
+    temperature: row.temperature?.toString() || "0.3",
     maxTokens: row.max_tokens,
     responseFormat: row.response_format,
     description: row.description,
@@ -85,7 +90,9 @@ async function refreshCacheIfNeeded(): Promise<void> {
 /**
  * Get a prompt by its key
  */
-export async function getPrompt(key: PromptKey | string): Promise<AiPrompt | null> {
+export async function getPrompt(
+  key: PromptKey | string,
+): Promise<AiPrompt | null> {
   await refreshCacheIfNeeded();
 
   // Try cache first
@@ -99,13 +106,16 @@ export async function getPrompt(key: PromptKey | string): Promise<AiPrompt | nul
   // Fallback to database query
   try {
     const { data: prompts, error } = await supabaseAdmin
-      .from('ai_prompts')
-      .select('*')
-      .eq('prompt_key', key)
+      .from("ai_prompts")
+      .select("*")
+      .eq("prompt_key", key)
       .limit(1);
 
     if (error) {
-      console.error(`[PromptService] Failed to fetch prompt ${key}:`, error.message);
+      console.error(
+        `[PromptService] Failed to fetch prompt ${key}:`,
+        error.message,
+      );
       return null;
     }
 
@@ -127,7 +137,7 @@ export async function getPrompt(key: PromptKey | string): Promise<AiPrompt | nul
  */
 export async function getSystemPrompt(
   key: PromptKey | string,
-  variables?: Record<string, string>
+  variables?: Record<string, string>,
 ): Promise<string | null> {
   const prompt = await getPrompt(key);
   if (!prompt) return null;
@@ -140,7 +150,7 @@ export async function getSystemPrompt(
  */
 export async function getUserPromptTemplate(
   key: PromptKey | string,
-  variables?: Record<string, string>
+  variables?: Record<string, string>,
 ): Promise<string | null> {
   const prompt = await getPrompt(key);
   if (!prompt?.userPromptTemplate) return null;
@@ -167,9 +177,9 @@ export async function getPromptConfig(key: PromptKey | string): Promise<{
     systemPrompt: prompt.systemPrompt,
     userPromptTemplate: prompt.userPromptTemplate,
     model: prompt.model,
-    temperature: parseFloat(prompt.temperature || '0.3'),
+    temperature: parseFloat(prompt.temperature || "0.3"),
     maxTokens: prompt.maxTokens ?? null,
-    responseFormat: prompt.responseFormat || 'text',
+    responseFormat: prompt.responseFormat || "text",
     version: prompt.version ?? undefined,
   };
 }
@@ -179,13 +189,13 @@ export async function getPromptConfig(key: PromptKey | string): Promise<{
  */
 export function substituteVariables(
   template: string,
-  variables?: Record<string, string>
+  variables?: Record<string, string>,
 ): string {
   if (!variables) return template;
 
   let result = template;
   for (const [key, value] of Object.entries(variables)) {
-    const pattern = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+    const pattern = new RegExp(`\\{\\{${key}\\}\\}`, "g");
     result = result.replace(pattern, value);
   }
 
@@ -199,33 +209,42 @@ async function updateUsageCount(key: string): Promise<void> {
   try {
     // Get current usage count
     const { data: current, error: fetchError } = await supabaseAdmin
-      .from('ai_prompts')
-      .select('usage_count')
-      .eq('prompt_key', key)
+      .from("ai_prompts")
+      .select("usage_count")
+      .eq("prompt_key", key)
       .single();
 
     if (fetchError) {
-      console.error(`[PromptService] Failed to fetch usage count for ${key}:`, fetchError.message);
+      console.error(
+        `[PromptService] Failed to fetch usage count for ${key}:`,
+        fetchError.message,
+      );
       return;
     }
 
     const currentCount = current?.usage_count || 0;
 
     const { error } = await supabaseAdmin
-      .from('ai_prompts')
+      .from("ai_prompts")
       .update({
         usage_count: currentCount + 1,
         last_used_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('prompt_key', key);
+      .eq("prompt_key", key);
 
     if (error) {
-      console.error(`[PromptService] Failed to update usage count for ${key}:`, error.message);
+      console.error(
+        `[PromptService] Failed to update usage count for ${key}:`,
+        error.message,
+      );
     }
   } catch (error) {
     // Non-critical - don't fail the request
-    console.error(`[PromptService] Failed to update usage count for ${key}:`, error);
+    console.error(
+      `[PromptService] Failed to update usage count for ${key}:`,
+      error,
+    );
   }
 }
 
@@ -250,17 +269,20 @@ export async function refreshCache(): Promise<void> {
 export async function getAllPrompts(): Promise<AiPrompt[]> {
   try {
     const { data: prompts, error } = await supabaseAdmin
-      .from('ai_prompts')
-      .select('*');
+      .from("ai_prompts")
+      .select("*");
 
     if (error) {
-      console.error('[PromptService] Failed to fetch all prompts:', error.message);
+      console.error(
+        "[PromptService] Failed to fetch all prompts:",
+        error.message,
+      );
       return [];
     }
 
     return (prompts || []).map(normalizePrompt);
   } catch (error) {
-    console.error('[PromptService] Failed to fetch all prompts:', error);
+    console.error("[PromptService] Failed to fetch all prompts:", error);
     return [];
   }
 }
@@ -270,18 +292,33 @@ export async function getAllPrompts(): Promise<AiPrompt[]> {
  */
 export async function updatePrompt(
   key: string,
-  updates: Partial<Pick<AiPrompt, 'systemPrompt' | 'userPromptTemplate' | 'model' | 'temperature' | 'maxTokens' | 'responseFormat' | 'description' | 'isActive'>>
+  updates: Partial<
+    Pick<
+      AiPrompt,
+      | "systemPrompt"
+      | "userPromptTemplate"
+      | "model"
+      | "temperature"
+      | "maxTokens"
+      | "responseFormat"
+      | "description"
+      | "isActive"
+    >
+  >,
 ): Promise<AiPrompt | null> {
   try {
     // Get current version
     const { data: current, error: fetchError } = await supabaseAdmin
-      .from('ai_prompts')
-      .select('version')
-      .eq('prompt_key', key)
+      .from("ai_prompts")
+      .select("version")
+      .eq("prompt_key", key)
       .single();
 
     if (fetchError) {
-      console.error(`[PromptService] Failed to fetch prompt ${key}:`, fetchError.message);
+      console.error(
+        `[PromptService] Failed to fetch prompt ${key}:`,
+        fetchError.message,
+      );
       return null;
     }
 
@@ -293,24 +330,33 @@ export async function updatePrompt(
       updated_at: new Date().toISOString(),
     };
 
-    if (updates.systemPrompt !== undefined) dbUpdates.system_prompt = updates.systemPrompt;
-    if (updates.userPromptTemplate !== undefined) dbUpdates.user_prompt_template = updates.userPromptTemplate;
+    if (updates.systemPrompt !== undefined)
+      dbUpdates.system_prompt = updates.systemPrompt;
+    if (updates.userPromptTemplate !== undefined)
+      dbUpdates.user_prompt_template = updates.userPromptTemplate;
     if (updates.model !== undefined) dbUpdates.model = updates.model;
-    if (updates.temperature !== undefined) dbUpdates.temperature = updates.temperature;
-    if (updates.maxTokens !== undefined) dbUpdates.max_tokens = updates.maxTokens;
-    if (updates.responseFormat !== undefined) dbUpdates.response_format = updates.responseFormat;
-    if (updates.description !== undefined) dbUpdates.description = updates.description;
+    if (updates.temperature !== undefined)
+      dbUpdates.temperature = updates.temperature;
+    if (updates.maxTokens !== undefined)
+      dbUpdates.max_tokens = updates.maxTokens;
+    if (updates.responseFormat !== undefined)
+      dbUpdates.response_format = updates.responseFormat;
+    if (updates.description !== undefined)
+      dbUpdates.description = updates.description;
     if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
 
     const { data: updated, error } = await supabaseAdmin
-      .from('ai_prompts')
+      .from("ai_prompts")
       .update(dbUpdates)
-      .eq('prompt_key', key)
-      .select('*')
+      .eq("prompt_key", key)
+      .select("*")
       .single();
 
     if (error) {
-      console.error(`[PromptService] Failed to update prompt ${key}:`, error.message);
+      console.error(
+        `[PromptService] Failed to update prompt ${key}:`,
+        error.message,
+      );
       return null;
     }
 
@@ -364,8 +410,8 @@ export async function getPromptWithFallback(key: PromptKey | string): Promise<{
   // NO FALLBACKS - prompts MUST be in Supabase
   throw new Error(
     `[PromptService] MISSING PROMPT: No prompt found in database for key "${key}". ` +
-    `All prompts must be stored in the ai_prompts table in Supabase. ` +
-    `Please add the required prompt to the database before proceeding. ` +
-    `See documentation for required prompt structure and fields.`
+      `All prompts must be stored in the ai_prompts table in Supabase. ` +
+      `Please add the required prompt to the database before proceeding. ` +
+      `See documentation for required prompt structure and fields.`,
   );
 }
