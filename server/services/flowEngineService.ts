@@ -313,6 +313,7 @@ export async function getFlowProgress(flowInstanceId: string): Promise<FlowProgr
 
 /**
  * Get next movement for a flow instance
+ * Now includes dynamic movements from the dynamic_movements array
  */
 export async function getNextMovement(
   flowInstanceId: string
@@ -347,12 +348,36 @@ export async function getNextMovement(
   }
 
   const completedMovements = new Set(flowInstance.completed_movements || []);
+  const dynamicMovements = (flowInstance.dynamic_movements || []) as any[];
 
-  // Find first incomplete movement in current phase
+  // First, check for pending dynamic movements in current phase
+  const pendingDynamic = dynamicMovements.find(dm => {
+    const dmPhaseId = dm.phase_id || dm.phaseId;
+    const dmKey = `${dmPhaseId}:${dm.id}`;
+    return dmPhaseId === currentPhase.id && !completedMovements.has(dmKey);
+  });
+
+  if (pendingDynamic) {
+    const dmPhaseId = pendingDynamic.phase_id || pendingDynamic.phaseId;
+    return {
+      id: pendingDynamic.id,
+      phaseId: dmPhaseId,
+      name: pendingDynamic.name,
+      description: pendingDynamic.description || '',
+      sequenceOrder: -1, // Dynamic movements don't have fixed order
+      isRequired: pendingDynamic.is_required !== false,
+      roomSpecific: !!pendingDynamic.roomName || !!pendingDynamic.room_name,
+      roomName: pendingDynamic.roomName || pendingDynamic.room_name || null,
+      validationRequirements: pendingDynamic.evidence_requirements || null,
+      completionStatus: 'pending'
+    };
+  }
+
+  // Then check regular movements in current phase
   for (let i = 0; i < (currentPhase.movements?.length || 0); i++) {
     const movement = currentPhase.movements[i];
     const movementKey = `${currentPhase.id}:${movement.id}`;
-    
+
     if (!completedMovements.has(movementKey)) {
       return {
         id: movement.id,
@@ -517,14 +542,28 @@ export async function completeMovement(
 }
 
 /**
- * Skip a movement
+ * Skip movement response type
+ */
+export interface SkipMovementResult {
+  skipped: boolean;
+  wasRequired: boolean;
+  warning?: string;
+  completion: MovementCompletion | null;
+  phaseAdvanced?: boolean;
+  flowComplete?: boolean;
+}
+
+/**
+ * Skip a movement with reason
+ * Now supports forceSkipRequired flag to allow skipping required movements
  */
 export async function skipMovement(
   flowInstanceId: string,
   movementId: string,
   reason: string,
-  userId: string
-): Promise<void> {
+  userId: string,
+  forceSkipRequired: boolean = false
+): Promise<SkipMovementResult> {
   // Get flow instance
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
@@ -547,19 +586,42 @@ export async function skipMovement(
     throw new Error('No current phase');
   }
 
-  // Find the movement
-  const movement = currentPhase.movements?.find(m => m.id === movementId);
+  // Find the movement - check both regular and dynamic movements
+  let movement = currentPhase.movements?.find(m => m.id === movementId);
+  let isDynamic = false;
+
+  // Also check dynamic movements
+  if (!movement) {
+    const dynamicMovements = (flowInstance.dynamic_movements || []) as any[];
+    const dynamicMatch = dynamicMovements.find(dm => dm.id === movementId);
+    if (dynamicMatch) {
+      movement = {
+        id: dynamicMatch.id,
+        name: dynamicMatch.name,
+        is_required: dynamicMatch.is_required
+      } as FlowJsonMovement;
+      isDynamic = true;
+    }
+  }
+
   if (!movement) {
     throw new Error(`Movement ${movementId} not found in current phase`);
   }
 
-  // Check if movement can be skipped
-  if (movement.is_required) {
-    throw new Error('Required movements cannot be skipped');
+  const wasRequired = movement.is_required !== false;
+
+  // If required and not force-skipping, return warning instead of error
+  if (wasRequired && !forceSkipRequired) {
+    return {
+      skipped: false,
+      wasRequired: true,
+      warning: `Movement "${movement.name}" is required. The inspection cannot be finalized without completing it. Set forceSkipRequired=true to skip anyway.`,
+      completion: null
+    };
   }
 
   // Create movement key and add to completed list
-  const movementKey = `${currentPhase.id}:${movementId}`;
+  const movementKey = isDynamic ? `${currentPhase.id}:${movementId}` : `${currentPhase.id}:${movementId}`;
   const completedMovements = [...(flowInstance.completed_movements || []), movementKey];
 
   // Update flow instance
@@ -574,8 +636,8 @@ export async function skipMovement(
     throw new Error(`Failed to update flow instance: ${updateError.message}`);
   }
 
-  // Record the skip
-  await supabaseAdmin
+  // Record the skip with appropriate flags
+  const { data: completionData, error: completionError } = await supabaseAdmin
     .from('movement_completions')
     .insert({
       flow_instance_id: flowInstanceId,
@@ -583,11 +645,74 @@ export async function skipMovement(
       movement_phase: currentPhase.id,
       claim_id: flowInstance.claim_id,
       status: 'skipped',
+      skipped_required: wasRequired, // Track that a required step was skipped
       completed_at: new Date().toISOString(),
       completed_by: userId,
-      notes: reason,
+      notes: reason || (wasRequired ? 'Required step skipped by user' : 'Skipped'),
       evidence_data: null
-    });
+    })
+    .select()
+    .single();
+
+  if (completionError) {
+    console.error('[FlowEngineService] Error recording skip:', completionError);
+  }
+
+  // Check for phase advancement
+  const advanceResult = await checkPhaseAdvancement(flowInstanceId);
+
+  const completion: MovementCompletion = {
+    id: completionData?.id || movementKey,
+    flowInstanceId,
+    movementId: movementKey,
+    claimId: flowInstance.claim_id,
+    status: 'skipped',
+    completedAt: new Date(),
+    completedBy: userId,
+    notes: reason,
+    evidenceData: null
+  };
+
+  return {
+    skipped: true,
+    wasRequired,
+    warning: wasRequired ? 'This required step was skipped. Claim cannot be finalized until addressed.' : undefined,
+    completion,
+    phaseAdvanced: advanceResult.phaseAdvanced,
+    flowComplete: advanceResult.flowComplete
+  };
+}
+
+/**
+ * Check if a flow can be finalized (no skipped required movements)
+ */
+export async function canFinalizeFlow(flowInstanceId: string): Promise<{
+  canFinalize: boolean;
+  blockers: Array<{ movementId: string; reason: string }>;
+}> {
+  // Check for skipped required movements
+  const { data: skippedRequired, error } = await supabaseAdmin
+    .from('movement_completions')
+    .select('movement_id, notes')
+    .eq('flow_instance_id', flowInstanceId)
+    .eq('status', 'skipped')
+    .eq('skipped_required', true);
+
+  if (error) {
+    console.error('[FlowEngineService] Error checking skipped required:', error);
+    // On error, assume we can't finalize safely
+    return { canFinalize: false, blockers: [{ movementId: 'unknown', reason: 'Error checking skipped movements' }] };
+  }
+
+  const blockers = (skippedRequired || []).map(sr => ({
+    movementId: sr.movement_id,
+    reason: `Required step was skipped: ${sr.notes || 'No reason provided'}`
+  }));
+
+  return {
+    canFinalize: blockers.length === 0,
+    blockers
+  };
 }
 
 /**
@@ -1030,18 +1155,21 @@ export async function evaluateGate(
 // ============================================================================
 
 /**
- * Add room-specific movements dynamically
+ * Add room-specific movements dynamically based on templates
+ * Creates fully-formed dynamic movements that can be executed
  */
 export async function addRoomMovements(
   flowInstanceId: string,
   roomName: string,
   movementTemplateIds: string[]
-): Promise<void> {
-  // This would create room-specific movement instances
-  // For now, we store them as metadata since movements are in JSON
+): Promise<any[]> {
+  // Get flow instance with definition to find template movements
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
-    .select('dynamic_movements')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
     .eq('id', flowInstanceId)
     .single();
 
@@ -1049,20 +1177,69 @@ export async function addRoomMovements(
     throw new Error(`Flow instance not found: ${flowInstanceId}`);
   }
 
-  const dynamicMovements = flowInstance.dynamic_movements || [];
-  const newMovements = movementTemplateIds.map(id => ({
-    id: `${roomName}:${id}:${Date.now()}`,
-    templateId: id,
-    roomName,
-    createdAt: new Date().toISOString()
-  }));
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = flowJson?.phases?.[currentPhaseIndex];
+
+  if (!currentPhase) {
+    throw new Error('No current phase found');
+  }
+
+  // Create dynamic movements based on templates
+  const newMovements = movementTemplateIds.map(templateId => {
+    // Find the template movement in the flow definition
+    let template: FlowJsonMovement | undefined;
+
+    // Search all phases for the template
+    for (const phase of flowJson.phases || []) {
+      template = phase.movements?.find(m => m.id === templateId);
+      if (template) break;
+    }
+
+    if (!template) {
+      console.warn(`[FlowEngine] Movement template ${templateId} not found`);
+      return null;
+    }
+
+    // Create sanitized room name for ID
+    const sanitizedRoomName = roomName.toLowerCase().replace(/\s+/g, '_');
+
+    return {
+      id: `${templateId}_${sanitizedRoomName}_${Date.now()}`,
+      name: `${template.name} - ${roomName}`,
+      description: template.description?.replace(/\{\{room\}\}/g, roomName) || '',
+      phase_id: currentPhase.id,
+      is_required: template.is_required,
+      criticality: template.criticality || 'medium',
+      guidance: template.guidance ? {
+        ...template.guidance,
+        instruction: template.guidance.instruction?.replace(/\{\{room\}\}/g, roomName),
+        tts_text: template.guidance.tts_text?.replace(/\{\{room\}\}/g, roomName)
+      } : undefined,
+      evidence_requirements: template.evidence_requirements,
+      room_name: roomName,
+      template_id: templateId,
+      created_at: new Date().toISOString(),
+      is_dynamic: true
+    };
+  }).filter(Boolean);
+
+  if (newMovements.length === 0) {
+    return [];
+  }
+
+  // Append to dynamic_movements
+  const existingDynamic = flowInstance.dynamic_movements || [];
+  const updatedDynamic = [...existingDynamic, ...newMovements];
 
   await supabaseAdmin
     .from('claim_flow_instances')
-    .update({
-      dynamic_movements: [...dynamicMovements, ...newMovements]
-    })
+    .update({ dynamic_movements: updatedDynamic })
     .eq('id', flowInstanceId);
+
+  console.log(`[FlowEngine] Added ${newMovements.length} dynamic movements for room "${roomName}"`);
+
+  return newMovements;
 }
 
 /**
@@ -1310,6 +1487,169 @@ export async function validateEvidence(
     qualityIssues: [],
     confidence: missingItems.length === 0 ? 1.0 : 0.5
   };
+}
+
+/**
+ * AI-powered evidence validation response
+ */
+export interface AIEvidenceValidation {
+  isValid: boolean;
+  confidence: number;
+  missingItems: string[];
+  qualityIssues: string[];
+  suggestions: string[];
+  canProceed: boolean;
+  reason: string;
+}
+
+/**
+ * Validate evidence using AI for quality assessment
+ */
+export async function validateEvidenceWithAI(
+  flowInstanceId: string,
+  movementId: string
+): Promise<AIEvidenceValidation> {
+  // Get flow instance with definition
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json),
+      claims (peril_type, property_type)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = flowJson?.phases?.[currentPhaseIndex];
+
+  // Find the movement
+  let foundMovement: FlowJsonMovement | undefined;
+  let foundPhaseName = '';
+  for (const phase of flowJson?.phases || []) {
+    foundMovement = phase.movements?.find(m => m.id === movementId);
+    if (foundMovement) {
+      foundPhaseName = phase.name;
+      break;
+    }
+  }
+
+  if (!foundMovement) {
+    return {
+      isValid: true,
+      confidence: 1.0,
+      missingItems: [],
+      qualityIssues: [],
+      suggestions: [],
+      canProceed: true,
+      reason: 'Movement not found - assuming valid'
+    };
+  }
+
+  // Get captured evidence for this movement
+  const { data: evidence } = await supabaseAdmin
+    .from('movement_evidence')
+    .select(`
+      *,
+      photo:claim_photos(id, public_url, file_name, description, ai_analysis),
+      audio:audio_observations(id, transcription, transcription_status)
+    `)
+    .eq('flow_instance_id', flowInstanceId)
+    .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+  // Build context for AI
+  const requirements = foundMovement.evidence_requirements || [];
+  const captured = (evidence || []).map(e => ({
+    type: e.evidence_type,
+    description: (e as any).photo?.description || (e as any).audio?.transcription || 'No description',
+    metadata: (e as any).photo?.ai_analysis || null
+  }));
+
+  // Get the validation prompt
+  const promptConfig = await getPromptConfig('flow.evidence_validation');
+
+  if (!promptConfig) {
+    // Fallback to basic validation if prompt not found
+    console.warn('[FlowEngineService] AI validation prompt not found, using basic validation');
+    const basicResult = await validateEvidence(flowInstanceId, movementId);
+    return {
+      isValid: basicResult.isValid,
+      confidence: basicResult.confidence,
+      missingItems: basicResult.missingItems,
+      qualityIssues: basicResult.qualityIssues,
+      suggestions: [],
+      canProceed: basicResult.isValid,
+      reason: basicResult.isValid ? 'Basic validation passed' : 'Missing required evidence'
+    };
+  }
+
+  // Build the user prompt from template
+  const claim = flowInstance.claims as any;
+  const requirementsText = requirements.map(r =>
+    `- ${r.type}: ${r.description || 'Required'} (Required: ${r.is_required !== false}, Min: ${r.quantity_min || 1})`
+  ).join('\n');
+
+  const capturedText = captured.map(c =>
+    `- ${c.type}: ${c.description}${c.metadata ? `\n  Metadata: ${JSON.stringify(c.metadata)}` : ''}`
+  ).join('\n');
+
+  const userPrompt = substituteVariables(promptConfig.userPromptTemplate || '', {
+    movement_name: foundMovement.name,
+    phase_name: foundPhaseName || currentPhase?.name || 'Unknown',
+    peril_type: claim?.peril_type || flowJson?.metadata?.primary_peril || 'unknown',
+    requirements: requirementsText,
+    captured: capturedText
+  });
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: promptConfig.model || 'gpt-4o',
+      temperature: promptConfig.temperature || 0.3,
+      max_tokens: promptConfig.maxTokens || 1000,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: promptConfig.systemPrompt || '' },
+        { role: 'user', content: userPrompt }
+      ]
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('Empty response from AI');
+    }
+
+    const result = JSON.parse(content) as AIEvidenceValidation;
+
+    // Store validation result in movement_completions
+    await supabaseAdmin
+      .from('movement_completions')
+      .update({
+        evidence_validated: true,
+        evidence_validation_result: result
+      })
+      .eq('flow_instance_id', flowInstanceId)
+      .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
+
+    return result;
+  } catch (error) {
+    console.error('[FlowEngineService] AI evidence validation failed:', error);
+    // Fallback to basic validation
+    const basicResult = await validateEvidence(flowInstanceId, movementId);
+    return {
+      isValid: basicResult.isValid,
+      confidence: 0.5,
+      missingItems: basicResult.missingItems,
+      qualityIssues: ['AI validation unavailable'],
+      suggestions: [],
+      canProceed: basicResult.isValid,
+      reason: 'Fallback to basic validation due to AI error'
+    };
+  }
 }
 
 /**
@@ -1640,4 +1980,279 @@ export async function goToMovement(flowInstanceId: string, movementId: string): 
   }
   
   throw new Error(`Movement ${movementId} not found in flow`);
+}
+
+// ============================================================================
+// 7. PHASE ADVANCEMENT
+// ============================================================================
+
+/**
+ * Find a gate that controls transition between two phases
+ */
+function findGateForTransition(
+  gates: FlowJsonGate[] | undefined,
+  fromPhaseId: string,
+  toPhaseId: string
+): FlowJsonGate | null {
+  if (!gates) return null;
+  return gates.find(g => g.from_phase === fromPhaseId && g.to_phase === toPhaseId) || null;
+}
+
+/**
+ * Check if all required movements in a phase are complete
+ */
+function areRequiredMovementsComplete(
+  phase: FlowJsonPhase,
+  completedMovements: Set<string>
+): boolean {
+  const requiredMovements = (phase.movements || []).filter(m => m.is_required !== false);
+  return requiredMovements.every(m => completedMovements.has(`${phase.id}:${m.id}`));
+}
+
+/**
+ * Check if all movements in a phase are complete (required and optional)
+ */
+function areAllMovementsComplete(
+  phase: FlowJsonPhase,
+  completedMovements: Set<string>
+): boolean {
+  return (phase.movements || []).every(m => completedMovements.has(`${phase.id}:${m.id}`));
+}
+
+/**
+ * Advance the flow to the next phase after current phase is complete.
+ * Called automatically when the last movement of a phase is completed.
+ */
+export async function advanceToNextPhase(flowInstanceId: string): Promise<{
+  advanced: boolean;
+  previousPhase: string;
+  currentPhase: string | null;
+  flowComplete: boolean;
+  gateBlocked?: boolean;
+  gateReason?: string;
+}> {
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = phases[currentPhaseIndex];
+
+  if (!currentPhase) {
+    throw new Error('No current phase found');
+  }
+
+  // Check if there's a next phase
+  if (currentPhaseIndex >= phases.length - 1) {
+    // This was the last phase - mark flow as complete
+    await supabaseAdmin
+      .from('claim_flow_instances')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', flowInstanceId);
+
+    console.log(`[FlowEngine] Flow ${flowInstanceId}: Completed (last phase "${currentPhase.id}")`);
+
+    return {
+      advanced: false,
+      previousPhase: currentPhase.id,
+      currentPhase: null,
+      flowComplete: true
+    };
+  }
+
+  // Check gate if one exists for this transition
+  const nextPhase = phases[currentPhaseIndex + 1];
+  const gate = findGateForTransition(flowJson.gates, currentPhase.id, nextPhase.id);
+
+  if (gate) {
+    const gateResult = await evaluateGate(flowInstanceId, gate.id);
+    if (!gateResult.passed) {
+      return {
+        advanced: false,
+        previousPhase: currentPhase.id,
+        currentPhase: currentPhase.id,
+        flowComplete: false,
+        gateBlocked: true,
+        gateReason: gateResult.reason
+      };
+    }
+  }
+
+  // Advance to next phase
+  await supabaseAdmin
+    .from('claim_flow_instances')
+    .update({
+      current_phase_index: currentPhaseIndex + 1,
+      current_phase_id: nextPhase.id
+    })
+    .eq('id', flowInstanceId);
+
+  console.log(`[FlowEngine] Flow ${flowInstanceId}: Advanced from phase "${currentPhase.id}" to "${nextPhase.id}"`);
+
+  return {
+    advanced: true,
+    previousPhase: currentPhase.id,
+    currentPhase: nextPhase.id,
+    flowComplete: false
+  };
+}
+
+/**
+ * Check if phase should be advanced and do so if appropriate.
+ * Called after movement completion or skip.
+ */
+export async function checkPhaseAdvancement(flowInstanceId: string): Promise<{
+  phaseAdvanced: boolean;
+  flowComplete: boolean;
+  newPhaseId?: string;
+}> {
+  const { data: flowInstance, error: instanceError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (flow_json)
+    `)
+    .eq('id', flowInstanceId)
+    .single();
+
+  if (instanceError || !flowInstance) {
+    throw new Error(`Flow instance not found: ${flowInstanceId}`);
+  }
+
+  const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhaseIndex = flowInstance.current_phase_index || 0;
+  const currentPhase = phases[currentPhaseIndex];
+
+  if (!currentPhase) {
+    return { phaseAdvanced: false, flowComplete: false };
+  }
+
+  const completedMovements = new Set(flowInstance.completed_movements || []);
+
+  // Check if all required movements are complete
+  const requiredComplete = areRequiredMovementsComplete(currentPhase, completedMovements);
+  const allComplete = areAllMovementsComplete(currentPhase, completedMovements);
+
+  if (requiredComplete && allComplete) {
+    // All movements done - advance phase
+    const result = await advanceToNextPhase(flowInstanceId);
+    return {
+      phaseAdvanced: result.advanced,
+      flowComplete: result.flowComplete,
+      newPhaseId: result.currentPhase || undefined
+    };
+  }
+
+  return { phaseAdvanced: false, flowComplete: false };
+}
+
+/**
+ * Get flow instance with enriched phase status
+ */
+export async function getFlowInstanceWithPhaseStatus(flowInstanceId: string): Promise<{
+  instance: FlowInstance;
+  phaseStatus: Array<{
+    phaseId: string;
+    phaseName: string;
+    isComplete: boolean;
+    isCurrent: boolean;
+    progress: {
+      completed: number;
+      required: number;
+      total: number;
+    };
+  }>;
+} | null> {
+  const { data, error } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select(`
+      *,
+      flow_definitions (
+        id,
+        name,
+        description,
+        flow_json
+      )
+    `)
+    .eq('id', flowInstanceId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const flowDef = data.flow_definitions as any;
+  const flowJson = flowDef?.flow_json as FlowJson;
+  const phases = flowJson?.phases || [];
+  const currentPhaseIndex = data.current_phase_index || 0;
+  const completedMovements = new Set(data.completed_movements || []);
+
+  // Build phase status
+  const phaseStatus = phases.map((phase, index) => {
+    const requiredMovements = (phase.movements || []).filter(m => m.is_required !== false);
+    const totalMovements = phase.movements?.length || 0;
+
+    let completedInPhase = 0;
+    let completedRequired = 0;
+
+    (phase.movements || []).forEach(m => {
+      const key = `${phase.id}:${m.id}`;
+      if (completedMovements.has(key)) {
+        completedInPhase++;
+        if (m.is_required !== false) {
+          completedRequired++;
+        }
+      }
+    });
+
+    const isComplete = index < currentPhaseIndex ||
+      (completedRequired === requiredMovements.length && completedInPhase === totalMovements);
+
+    return {
+      phaseId: phase.id,
+      phaseName: phase.name,
+      isComplete,
+      isCurrent: index === currentPhaseIndex,
+      progress: {
+        completed: completedInPhase,
+        required: requiredMovements.length,
+        total: totalMovements
+      }
+    };
+  });
+
+  const currentPhase = phases[currentPhaseIndex];
+
+  const instance: FlowInstance = {
+    id: data.id,
+    claimId: data.claim_id,
+    flowDefinitionId: data.flow_definition_id,
+    status: data.status,
+    currentPhaseId: data.current_phase_id,
+    currentPhaseIndex,
+    startedAt: data.started_at ? new Date(data.started_at) : null,
+    completedAt: data.completed_at ? new Date(data.completed_at) : null,
+    flowName: flowDef?.name,
+    flowDescription: flowDef?.description,
+    currentPhaseName: currentPhase?.name,
+    currentPhaseDescription: currentPhase?.description,
+    completedMovements: data.completed_movements || []
+  };
+
+  return { instance, phaseStatus };
 }

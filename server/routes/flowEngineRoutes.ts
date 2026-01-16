@@ -19,12 +19,17 @@ import {
   insertCustomMovement,
   attachEvidence,
   validateEvidence,
+  validateEvidenceWithAI,
   getMovementEvidence,
   getFlowPhases,
   getPhaseMovements,
   getFlowTimeline,
   cancelFlow,
-  getFlowInstance
+  getFlowInstance,
+  advanceToNextPhase,
+  checkPhaseAdvancement,
+  getFlowInstanceWithPhaseStatus,
+  canFinalizeFlow
 } from '../services/flowEngineService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
@@ -322,11 +327,12 @@ router.post('/flows/:flowInstanceId/movements/:movementId/complete', async (req,
 /**
  * POST /api/flows/:flowInstanceId/movements/:movementId/skip
  * Skip movement with reason
+ * Supports forceSkipRequired flag to skip required movements
  */
 router.post('/flows/:flowInstanceId/movements/:movementId/skip', async (req, res) => {
   try {
     const { flowInstanceId, movementId } = req.params;
-    const { userId, reason } = req.body;
+    const { userId, reason, forceSkipRequired } = req.body;
 
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
@@ -335,12 +341,48 @@ router.post('/flows/:flowInstanceId/movements/:movementId/skip', async (req, res
       return res.status(400).json({ error: 'reason is required' });
     }
 
-    const completion = await skipMovement(flowInstanceId, movementId, reason, userId);
+    const result = await skipMovement(
+      flowInstanceId,
+      movementId,
+      reason,
+      userId,
+      forceSkipRequired === true
+    );
 
-    res.status(201).json(completion);
+    // If not skipped (required movement without force flag), return 200 with warning
+    if (!result.skipped) {
+      return res.status(200).json({
+        skipped: false,
+        wasRequired: result.wasRequired,
+        warning: result.warning,
+        message: 'Movement was not skipped. Use forceSkipRequired=true to skip required movements.'
+      });
+    }
+
+    res.status(201).json(result);
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/movements/:movementId/skip error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * GET /api/flows/:flowInstanceId/can-finalize
+ * Check if flow can be finalized (no skipped required movements)
+ */
+router.get('/flows/:flowInstanceId/can-finalize', async (req, res) => {
+  try {
+    const { flowInstanceId } = req.params;
+
+    const result = await canFinalizeFlow(flowInstanceId);
+
+    res.status(200).json(result);
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] GET /flows/:flowInstanceId/can-finalize error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });
@@ -472,36 +514,111 @@ router.post('/flows/:flowInstanceId/gates/:gateId/evaluate', async (req, res) =>
   }
 });
 
+/**
+ * POST /api/flows/:flowInstanceId/advance-phase
+ * Explicitly advance to the next phase (if all required movements complete)
+ */
+router.post('/flows/:flowInstanceId/advance-phase', async (req, res) => {
+  try {
+    const { flowInstanceId } = req.params;
+
+    const result = await advanceToNextPhase(flowInstanceId);
+
+    res.status(200).json(result);
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/advance-phase error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * GET /api/flows/:flowInstanceId/phase-status
+ * Get flow with enriched phase status information
+ */
+router.get('/flows/:flowInstanceId/phase-status', async (req, res) => {
+  try {
+    const { flowInstanceId } = req.params;
+
+    const result = await getFlowInstanceWithPhaseStatus(flowInstanceId);
+
+    if (!result) {
+      return res.status(404).json({ error: 'Flow instance not found' });
+    }
+
+    res.status(200).json(result);
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] GET /flows/:flowInstanceId/phase-status error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ============================================================================
 // 5. DYNAMIC EXPANSION
 // ============================================================================
 
 /**
  * POST /api/flows/:flowInstanceId/rooms
- * Add room-specific movements
+ * Add room-specific movements (dynamic movements)
  */
 router.post('/flows/:flowInstanceId/rooms', async (req, res) => {
   try {
     const { flowInstanceId } = req.params;
-    const { roomName, roomType } = req.body;
+    const { roomName, roomType, templateIds, movementTemplates } = req.body;
 
     if (!roomName) {
       return res.status(400).json({ error: 'roomName is required' });
     }
 
-    // roomType can be used to determine movement templates
-    const movementTemplates = req.body.movementTemplates || [];
+    // Support both templateIds (new) and movementTemplates (legacy) parameter names
+    const templates = templateIds || movementTemplates || [];
 
-    await addRoomMovements(flowInstanceId, roomName, movementTemplates);
+    const movements = await addRoomMovements(flowInstanceId, roomName, templates);
 
-    res.status(201).json({ 
-      message: `Room "${roomName}" added with ${movementTemplates.length} movements`,
+    res.status(201).json({
+      success: true,
+      message: `Room "${roomName}" added with ${movements.length} movements`,
       roomName,
-      movementCount: movementTemplates.length
+      injectedCount: movements.length,
+      movements
     });
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/rooms error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * POST /api/flows/:flowInstanceId/movements/inject
+ * Inject custom dynamic movements (alternate route for dynamic movement injection)
+ */
+router.post('/flows/:flowInstanceId/movements/inject', async (req, res) => {
+  try {
+    const { flowInstanceId } = req.params;
+    const { roomName, templateIds } = req.body;
+
+    if (!roomName) {
+      return res.status(400).json({ error: 'roomName is required' });
+    }
+
+    const movements = await addRoomMovements(flowInstanceId, roomName, templateIds || []);
+
+    res.status(201).json({
+      success: true,
+      injectedCount: movements.length,
+      movements
+    });
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/movements/inject error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });
@@ -623,17 +740,46 @@ router.post('/flows/:flowInstanceId/movements/:movementId/evidence', async (req,
 /**
  * POST /api/flows/:flowInstanceId/movements/:movementId/validate
  * Validate evidence completeness
+ *
+ * Query params:
+ * - ai=true: Use AI-powered validation for quality assessment
  */
 router.post('/flows/:flowInstanceId/movements/:movementId/validate', async (req, res) => {
   try {
     const { flowInstanceId, movementId } = req.params;
+    const useAI = req.query.ai === 'true' || req.body.useAI === true;
 
-    const validation = await validateEvidence(flowInstanceId, movementId);
+    let validation;
+    if (useAI) {
+      validation = await validateEvidenceWithAI(flowInstanceId, movementId);
+    } else {
+      validation = await validateEvidence(flowInstanceId, movementId);
+    }
 
     res.status(200).json(validation);
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/movements/:movementId/validate error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * POST /api/flows/:flowInstanceId/movements/:movementId/validate-ai
+ * Explicit AI evidence validation endpoint
+ */
+router.post('/flows/:flowInstanceId/movements/:movementId/validate-ai', async (req, res) => {
+  try {
+    const { flowInstanceId, movementId } = req.params;
+
+    const validation = await validateEvidenceWithAI(flowInstanceId, movementId);
+
+    res.status(200).json(validation);
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] POST /flows/:flowInstanceId/movements/:movementId/validate-ai error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });
