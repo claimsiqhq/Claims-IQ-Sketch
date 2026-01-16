@@ -123,11 +123,15 @@ export async function getFlowForClaim(
   propertyType: string = 'residential'
 ): Promise<FlowDefinition | null> {
   try {
+    // Use peril_type and property_type columns (not perils/property_types arrays)
+    const normalizedPeril = perilType.toLowerCase();
+    const normalizedPropertyType = propertyType.toLowerCase();
+    
     const { data, error } = await supabaseAdmin
       .from('flow_definitions')
       .select('*')
-      .filter('perils', 'cs', JSON.stringify([perilType.toLowerCase()]))
-      .filter('property_types', 'cs', JSON.stringify([propertyType.toLowerCase()]))
+      .eq('peril_type', normalizedPeril)
+      .eq('property_type', normalizedPropertyType)
       .eq('is_active', true)
       .order('version', { ascending: false })
       .limit(1)
@@ -138,14 +142,14 @@ export async function getFlowForClaim(
       const { data: genericFlow, error: genericError } = await supabaseAdmin
         .from('flow_definitions')
         .select('*')
-        .eq('flow_key', 'generic')
+        .eq('peril_type', 'generic')
         .eq('is_active', true)
         .order('version', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (genericError || !genericFlow) {
-        console.error(`[FlowEngine] No flow found for ${perilType}/${propertyType} and no generic flow found:`, error?.message);
+        console.error(`[FlowEngine] No flow found for ${normalizedPeril}/${normalizedPropertyType} and no generic flow found:`, error?.message);
         return null;
       }
       return normalizeFlowDefinition(genericFlow);
@@ -627,12 +631,13 @@ function normalizeFlowDefinition(row: any): FlowDefinition {
   
   return {
     id: row.id,
-    flowKey: row.flow_key,
+    flowKey: row.flow_key || row.name?.toLowerCase().replace(/\s+/g, '_'),
     name: row.name,
     description: row.description,
-    perils: row.perils || [],
-    propertyTypes: row.property_types || [],
-    version: row.version,
+    // Database uses singular peril_type/property_type columns, wrap in arrays for interface
+    perils: row.peril_type ? [row.peril_type] : [],
+    propertyTypes: row.property_type ? [row.property_type] : [],
+    version: row.version || 1,
     definition: flowJson,
     isActive: row.is_active
   };
