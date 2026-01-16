@@ -1,0 +1,304 @@
+# Flow Engine Service Implementation
+
+## Context
+
+The flow engine replaces the old static workflow system with dynamic, phase-based inspection flows. Each claim gets a `claim_flow_instances` record that progresses through phases → movements → evidence collection.
+
+## Database Schema (Already Exists)
+
+**Tables:**
+- `flow_definitions` - Templates (hail, water, wind, fire)
+- `claim_flow_instances` - Active flow per claim
+- `phases` - High-level inspection phases (pre-inspection, interior, exterior, etc)
+- `movements` - Specific tasks within phases
+- `gates` - Conditional logic between phases
+- `movement_completions` - Evidence that movement was completed
+- `audio_observations` - Voice notes captured during movements
+
+**Key relationships:**
+```
+claim_flow_instances
+  → phases (via flow_definition_id)
+    → movements
+      → movement_completions
+        → audio_observations
+  → gates (phase transitions)
+```
+
+## Your Task: Create `server/services/flowEngineService.ts`
+
+### 1. Flow Instance Management
+
+**`startFlowForClaim(claimId: string, perilType: string): Promise<string>`**
+
+Steps:
+1. Find matching `flow_definitions` where `peril_type = perilType` and `is_active = true`
+2. If none found, throw error: "No flow definition for peril type: {perilType}"
+3. Create `claim_flow_instances` record:
+   ```
+   {
+     claim_id: claimId,
+     flow_definition_id: foundDefinition.id,
+     status: 'active',
+     current_phase_id: null,  // Will be set when first phase starts
+     started_at: NOW()
+   }
+   ```
+4. Get first phase from `phases` table (order by `sequence_order ASC`, limit 1)
+5. Update instance: `current_phase_id = firstPhase.id`
+6. Return `claim_flow_instances.id`
+
+**`getCurrentFlow(claimId: string)`**
+
+Query with joins:
+```sql
+SELECT 
+  cfi.*,
+  fd.name as flow_name,
+  fd.description as flow_description,
+  cp.name as current_phase_name,
+  cp.description as current_phase_description
+FROM claim_flow_instances cfi
+JOIN flow_definitions fd ON cfi.flow_definition_id = fd.id
+LEFT JOIN phases cp ON cfi.current_phase_id = cp.id
+WHERE cfi.claim_id = :claimId 
+  AND cfi.status = 'active'
+```
+
+Return full flow state or null if no active flow.
+
+**`getFlowProgress(flowInstanceId: string)`**
+
+Calculate completion:
+```sql
+WITH total_movements AS (
+  SELECT COUNT(*) as total
+  FROM movements m
+  JOIN phases p ON m.phase_id = p.id
+  JOIN claim_flow_instances cfi ON p.flow_definition_id = cfi.flow_definition_id
+  WHERE cfi.id = :flowInstanceId
+),
+completed_movements AS (
+  SELECT COUNT(DISTINCT mc.movement_id) as completed
+  FROM movement_completions mc
+  WHERE mc.flow_instance_id = :flowInstanceId
+    AND mc.status = 'completed'
+)
+SELECT 
+  total,
+  completed,
+  ROUND((completed::float / NULLIF(total, 0)) * 100, 2) as percent_complete
+FROM total_movements, completed_movements
+```
+
+Return: `{ total, completed, percentComplete }`
+
+### 2. Movement Execution
+
+**`getNextMovement(flowInstanceId: string)`**
+
+Logic:
+1. Get current phase from `claim_flow_instances.current_phase_id`
+2. Get all movements for current phase (ordered by `sequence_order`)
+3. Check which are NOT in `movement_completions` for this flow instance
+4. Return first incomplete movement
+5. If all complete in phase, check if gate exists:
+   - If yes: return `{ type: 'gate', gate: gateData }`
+   - If no: advance to next phase and repeat
+
+**`completeMovement(flowInstanceId: string, movementId: string, evidence: any)`**
+
+Steps:
+1. Verify movement belongs to current phase
+2. Create `movement_completions` record:
+   ```
+   {
+     flow_instance_id: flowInstanceId,
+     movement_id: movementId,
+     claim_id: (from flow instance),
+     status: 'completed',
+     completed_at: NOW(),
+     completed_by: evidence.userId,
+     notes: evidence.notes
+   }
+   ```
+3. If evidence includes:
+   - **Photos**: Link via `movement_evidence` table (if exists) or store in evidence field
+   - **Audio**: Link `audio_observations.movement_completion_id` to created record
+4. Check if all movements in phase complete → trigger gate evaluation if exists
+5. Return movement completion record
+
+**`skipMovement(flowInstanceId: string, movementId: string, reason: string, userId: string)`**
+
+Create `movement_completions` with:
+```
+{
+  status: 'skipped',
+  notes: reason,
+  completed_by: userId,
+  completed_at: NOW()
+}
+```
+
+### 3. Gate Evaluation
+
+**`evaluateGate(flowInstanceId: string, gateId: string)`**
+
+Steps:
+1. Get gate record with `evaluation_criteria` JSONB
+2. Get flow instance context (claim data, completed movements, etc)
+3. If gate has `ai_prompt_key`:
+   - Get prompt: `getPromptByKey(gate.ai_prompt_key)`
+   - Build context object with claim + completion data
+   - Call Claude API with context
+   - Parse response for pass/fail decision
+4. Else use simple criteria evaluation (check JSONB rules)
+5. Update gate status:
+   ```
+   INSERT INTO gate_evaluations (
+     gate_id, 
+     flow_instance_id, 
+     result: 'passed' | 'failed',
+     evaluated_at: NOW()
+   )
+   ```
+6. If passed: advance to next phase
+7. Return evaluation result
+
+**`advanceToNextPhase(flowInstanceId: string)`**
+
+Steps:
+1. Get current phase
+2. Get next phase (same `flow_definition_id`, `sequence_order > current`, limit 1)
+3. If no next phase exists: 
+   - Update flow instance: `status = 'completed'`, `completed_at = NOW()`
+4. Else:
+   - Update flow instance: `current_phase_id = nextPhase.id`
+5. Return next phase or null
+
+### 4. Dynamic Expansion
+
+**`addRoom(flowInstanceId: string, roomName: string, roomType: string)`**
+
+Steps:
+1. Use AI prompt `flow.room_expansion`:
+   - Get prompt via `getPromptByKey('flow.room_expansion')`
+   - Context: `{ roomName, roomType, currentFlowDefinition }`
+   - Claude generates additional movements for this room
+2. Parse AI response to get movement list
+3. Insert new movements into current phase:
+   ```
+   {
+     phase_id: currentPhaseId,
+     name: generated name,
+     description: generated description,
+     sequence_order: MAX(sequence_order) + 1,
+     is_required: true,
+     room_specific: true,
+     room_name: roomName
+   }
+   ```
+4. Return inserted movements
+
+**`suggestAdditionalMovements(flowInstanceId: string, context: any)`**
+
+Steps:
+1. Get completed movements + evidence
+2. Use AI prompt `flow.dynamic_movement_injection`:
+   - Context: current state, observed damage, completed movements
+   - Claude suggests additional movements based on findings
+3. Return suggestions (don't auto-insert, let user approve)
+4. Store suggestions in `movement_suggestions` table (optional)
+
+### 5. Evidence Management
+
+**`attachEvidence(movementCompletionId: string, evidenceType: string, evidenceData: any)`**
+
+Evidence types:
+- `photo`: Store reference to photo record
+- `audio`: Link to `audio_observations.id`
+- `measurement`: Store measurement data
+- `note`: Store text note
+
+Create record in evidence table or update `movement_completions.evidence_data` JSONB field.
+
+**`validateEvidence(movementCompletionId: string)`**
+
+Steps:
+1. Get movement requirements from `movements.validation_requirements` JSONB
+2. Get attached evidence
+3. Use AI prompt `flow.evidence_validation`:
+   - Context: requirements + evidence
+   - Claude validates completeness and quality
+4. Return validation result:
+   ```
+   {
+     isValid: boolean,
+     missingItems: string[],
+     qualityIssues: string[],
+     confidence: number
+   }
+   ```
+
+**`getMovementEvidence(movementId: string, flowInstanceId: string)`**
+
+Query all evidence for this movement completion:
+- Photos from photo table
+- Audio observations
+- Measurements
+- Notes
+
+Return aggregated evidence object.
+
+### 6. Query Functions
+
+**`getFlowPhases(flowInstanceId: string)`**
+- Get all phases for this flow definition
+- Mark completed phases
+- Return phase list with progress
+
+**`getPhaseMovements(phaseId: string, flowInstanceId: string)`**
+- Get all movements for phase
+- Join with `movement_completions` to show status
+- Return movements with completion data
+
+**`getFlowTimeline(flowInstanceId: string)`**
+- Get chronological list of all completed movements
+- Include evidence counts
+- Return timeline array
+
+## Error Handling
+
+Every function should:
+- Validate inputs
+- Check permissions (user can access this claim)
+- Use try/catch
+- Return meaningful errors
+- Log errors for debugging
+
+## Database Client
+
+Use existing Supabase client:
+```typescript
+import { supabase } from '../db';
+```
+
+For AI calls, use existing services:
+```typescript
+import { getPromptByKey } from './promptService';
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY
+});
+```
+
+## Testing
+
+After implementation, test flow:
+1. Start flow: `startFlowForClaim(claimId, 'water')`
+2. Get next movement: `getNextMovement(flowInstanceId)`
+3. Complete movement: `completeMovement(...)`
+4. Evaluate gate (if exists)
+5. Progress to next phase
+6. Repeat until flow complete
