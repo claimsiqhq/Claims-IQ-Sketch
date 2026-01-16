@@ -125,12 +125,12 @@ export async function getFlowForClaim(
     const { data, error } = await supabaseAdmin
       .from('flow_definitions')
       .select('*')
-      .eq('peril_type', perilType.toLowerCase())
-      .eq('property_type', propertyType.toLowerCase())
+      .filter('perils', 'cs', JSON.stringify([perilType.toLowerCase()]))
+      .filter('property_types', 'cs', JSON.stringify([propertyType.toLowerCase()]))
       .eq('is_active', true)
       .order('version', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
       // If no specific match found, try to find a generic flow
