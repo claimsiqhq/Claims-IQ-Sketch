@@ -223,6 +223,7 @@ import {
   getInspectionIntelligenceForPeril,
 } from "./services/perilAwareContext";
 import { normalizePeril } from "./services/perilNormalizer";
+import { getFlowForClaim, getFlowByKey } from "./services/flowEngine";
 import {
   generateClaimBriefing,
   getClaimBriefing,
@@ -3527,6 +3528,53 @@ export async function registerRoutes(
 
     res.json(result);
   }));
+
+  // ============================================================================
+  // FLOW ENGINE (NEW) - Test Routes
+  // ============================================================================
+  
+  /**
+   * Test route: Get flow definition for a peril/property type
+   * GET /api/flow/test?peril=wind&propertyType=residential
+   */
+  app.get("/api/flow/test", async (req, res) => {
+    try {
+      const peril = (req.query.peril as string) || "wind";
+      const propertyType = (req.query.propertyType as string) || "residential";
+      
+      console.log(`[FlowEngine Test] Looking for flow: peril=${peril}, propertyType=${propertyType}`);
+      
+      const flow = await getFlowForClaim(peril, propertyType);
+      
+      if (!flow) {
+        return res.status(404).json({ 
+          error: "No flow found", 
+          peril, 
+          propertyType 
+        });
+      }
+      
+      res.json({
+        success: true,
+        flow: {
+          id: flow.id,
+          flowKey: flow.flowKey,
+          name: flow.definition?.metadata?.name || flow.flowKey,
+          perilType: flow.perilType,
+          propertyType: flow.propertyType,
+          phaseCount: flow.definition?.phases?.length || 0,
+          phases: flow.definition?.phases?.map(p => ({
+            key: p.key,
+            name: p.name,
+            movementCount: p.movements?.length || 0
+          }))
+        }
+      });
+    } catch (error) {
+      console.error("[FlowEngine Test] Error:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
 
   // ============================================
   // CLAIM CHECKLIST ROUTES
