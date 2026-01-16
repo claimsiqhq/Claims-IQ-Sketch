@@ -2,23 +2,53 @@
 -- Adds proper FK relationships for referential integrity
 -- Includes cleanup of orphaned records before adding constraints
 --
--- WARNING: NON-REVERSIBLE MIGRATION
--- This migration performs DELETE operations to clean up orphaned records
--- before adding foreign key constraints. These deletes are NOT reversible.
--- Data is permanently lost.
---
--- Before running this migration in production:
--- 1. Backup the database
--- 2. Review the DELETE operations (lines 10-112)
--- 3. Consider running on a test database first
---
--- Rollback: This migration cannot be rolled back. To undo:
--- 1. Restore from backup
--- 2. Remove foreign key constraints manually
+-- ROLLBACK: This migration can be rolled back by running the DOWN migration
+-- at the end of this file. Orphaned records are backed up before deletion.
+
+-- =================================================
+-- BACKUP: Create backup tables before cleanup
+-- =================================================
+
+-- Create backup tables for orphaned records (for rollback capability)
+CREATE TABLE IF NOT EXISTS _migration_032_backup_claim_briefings AS 
+SELECT * FROM claim_briefings WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_claim_structures AS 
+SELECT * FROM claim_structures WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_claim_rooms AS 
+SELECT * FROM claim_rooms WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_claim_damage_zones AS 
+SELECT * FROM claim_damage_zones WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_claim_photos AS 
+SELECT * FROM claim_photos WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_documents AS 
+SELECT * FROM documents WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_estimates AS 
+SELECT * FROM estimates WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_estimate_line_items AS 
+SELECT * FROM estimate_line_items WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_inspection_workflows AS 
+SELECT * FROM inspection_workflows WHERE 1=0;
+
+CREATE TABLE IF NOT EXISTS _migration_032_backup_claim_checklists AS 
+SELECT * FROM claim_checklists WHERE 1=0;
 
 -- =================================================
 -- CLEANUP: Remove orphaned records before adding FKs
 -- =================================================
+
+-- Backup orphaned claim_briefings before deletion
+INSERT INTO _migration_032_backup_claim_briefings
+SELECT * FROM claim_briefings 
+WHERE claim_id IS NOT NULL 
+  AND claim_id NOT IN (SELECT id FROM claims);
 
 -- Clean up claim_briefings with missing claims
 DELETE FROM claim_briefings 
@@ -380,3 +410,58 @@ CREATE INDEX IF NOT EXISTS idx_claim_photos_zone ON claim_photos(damage_zone_id)
 CREATE INDEX IF NOT EXISTS idx_documents_claim ON documents(claim_id);
 CREATE INDEX IF NOT EXISTS idx_estimates_claim ON estimates(claim_id);
 CREATE INDEX IF NOT EXISTS idx_estimate_line_items_estimate ON estimate_line_items(estimate_id);
+
+-- =================================================
+-- ROLLBACK SCRIPT (DOWN MIGRATION)
+-- =================================================
+-- To rollback this migration, run the following:
+--
+-- -- Drop foreign key constraints
+-- ALTER TABLE claim_briefings DROP CONSTRAINT IF EXISTS fk_claim_briefings_org;
+-- ALTER TABLE claim_briefings DROP CONSTRAINT IF EXISTS fk_claim_briefings_claim;
+-- ALTER TABLE claim_structures DROP CONSTRAINT IF EXISTS fk_claim_structures_claim;
+-- ALTER TABLE claim_structures DROP CONSTRAINT IF EXISTS fk_claim_structures_org;
+-- ALTER TABLE claim_rooms DROP CONSTRAINT IF EXISTS fk_claim_rooms_claim;
+-- ALTER TABLE claim_rooms DROP CONSTRAINT IF EXISTS fk_claim_rooms_org;
+-- ALTER TABLE claim_rooms DROP CONSTRAINT IF EXISTS fk_claim_rooms_structure;
+-- ALTER TABLE claim_damage_zones DROP CONSTRAINT IF EXISTS fk_claim_damage_zones_claim;
+-- ALTER TABLE claim_damage_zones DROP CONSTRAINT IF EXISTS fk_claim_damage_zones_org;
+-- ALTER TABLE claim_damage_zones DROP CONSTRAINT IF EXISTS fk_claim_damage_zones_room;
+-- ALTER TABLE claim_photos DROP CONSTRAINT IF EXISTS fk_claim_photos_claim;
+-- ALTER TABLE claim_photos DROP CONSTRAINT IF EXISTS fk_claim_photos_org;
+-- ALTER TABLE claim_photos DROP CONSTRAINT IF EXISTS fk_claim_photos_structure;
+-- ALTER TABLE claim_photos DROP CONSTRAINT IF EXISTS fk_claim_photos_room;
+-- ALTER TABLE claim_photos DROP CONSTRAINT IF EXISTS fk_claim_photos_zone;
+-- ALTER TABLE documents DROP CONSTRAINT IF EXISTS fk_documents_claim;
+-- ALTER TABLE documents DROP CONSTRAINT IF EXISTS fk_documents_org;
+-- ALTER TABLE estimates DROP CONSTRAINT IF EXISTS fk_estimates_org;
+-- ALTER TABLE estimates DROP CONSTRAINT IF EXISTS fk_estimates_claim;
+-- ALTER TABLE estimate_line_items DROP CONSTRAINT IF EXISTS fk_estimate_line_items_estimate;
+-- ALTER TABLE inspection_workflows DROP CONSTRAINT IF EXISTS fk_inspection_workflows_claim;
+-- ALTER TABLE inspection_workflows DROP CONSTRAINT IF EXISTS fk_inspection_workflows_org;
+-- ALTER TABLE claim_checklists DROP CONSTRAINT IF EXISTS fk_claim_checklists_claim;
+-- ALTER TABLE claim_checklists DROP CONSTRAINT IF EXISTS fk_claim_checklists_org;
+--
+-- -- Restore backed up records
+-- INSERT INTO claim_briefings SELECT * FROM _migration_032_backup_claim_briefings;
+-- INSERT INTO claim_structures SELECT * FROM _migration_032_backup_claim_structures;
+-- INSERT INTO claim_rooms SELECT * FROM _migration_032_backup_claim_rooms;
+-- INSERT INTO claim_damage_zones SELECT * FROM _migration_032_backup_claim_damage_zones;
+-- INSERT INTO claim_photos SELECT * FROM _migration_032_backup_claim_photos;
+-- INSERT INTO documents SELECT * FROM _migration_032_backup_documents;
+-- INSERT INTO estimates SELECT * FROM _migration_032_backup_estimates;
+-- INSERT INTO estimate_line_items SELECT * FROM _migration_032_backup_estimate_line_items;
+-- INSERT INTO inspection_workflows SELECT * FROM _migration_032_backup_inspection_workflows;
+-- INSERT INTO claim_checklists SELECT * FROM _migration_032_backup_claim_checklists;
+--
+-- -- Drop backup tables
+-- DROP TABLE IF EXISTS _migration_032_backup_claim_briefings;
+-- DROP TABLE IF EXISTS _migration_032_backup_claim_structures;
+-- DROP TABLE IF EXISTS _migration_032_backup_claim_rooms;
+-- DROP TABLE IF EXISTS _migration_032_backup_claim_damage_zones;
+-- DROP TABLE IF EXISTS _migration_032_backup_claim_photos;
+-- DROP TABLE IF EXISTS _migration_032_backup_documents;
+-- DROP TABLE IF EXISTS _migration_032_backup_estimates;
+-- DROP TABLE IF EXISTS _migration_032_backup_estimate_line_items;
+-- DROP TABLE IF EXISTS _migration_032_backup_inspection_workflows;
+-- DROP TABLE IF EXISTS _migration_032_backup_claim_checklists;

@@ -353,3 +353,33 @@ export async function switchOrganization(
 
   return true;
 }
+
+export async function deleteOrganization(id: string): Promise<boolean> {
+  // Check if organization has any claims
+  const { count: claimCount } = await supabaseAdmin
+    .from('claims')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', id);
+
+  if (claimCount && claimCount > 0) {
+    throw new Error(`Cannot delete organization: ${claimCount} claim(s) exist. Delete claims first or use soft delete.`);
+  }
+
+  // Delete organization memberships first (cascade will handle related records)
+  await supabaseAdmin
+    .from('organization_memberships')
+    .delete()
+    .eq('organization_id', id);
+
+  // Delete organization
+  const { error } = await supabaseAdmin
+    .from('organizations')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    throw new Error(`Failed to delete organization: ${error.message}`);
+  }
+
+  return true;
+}

@@ -1889,6 +1889,73 @@ export async function processDocument(
  * Create a claim from extracted FNOL document data
  * STRICT MAPPING - populates ONLY specified scalar columns and loss_context
  */
+/**
+ * Determine carrier ID for a claim
+ * Priority: 1. Policy info carrier, 2. Organization default carrier, 3. DEFAULT profile
+ */
+async function determineCarrierId(
+  organizationId: string,
+  policyInfo?: any
+): Promise<string | null> {
+  // 1. Check if policy info contains carrier information
+  if (policyInfo?.carrier_id) {
+    return policyInfo.carrier_id;
+  }
+  if (policyInfo?.carrier_name || policyInfo?.carrier_code) {
+    // Try to find carrier by name or code
+    const carrierName = policyInfo.carrier_name;
+    const carrierCode = policyInfo.carrier_code;
+    
+    if (carrierCode) {
+      const { data: carrier } = await supabaseAdmin
+        .from('carrier_profiles')
+        .select('id')
+        .eq('code', carrierCode)
+        .eq('is_active', true)
+        .single();
+      
+      if (carrier) {
+        return carrier.id;
+      }
+    }
+    
+    if (carrierName) {
+      const { data: carrier } = await supabaseAdmin
+        .from('carrier_profiles')
+        .select('id')
+        .ilike('name', `%${carrierName}%`)
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+      
+      if (carrier) {
+        return carrier.id;
+      }
+    }
+  }
+  
+  // 2. Check organization settings for default carrier
+  const { data: org } = await supabaseAdmin
+    .from('organizations')
+    .select('settings')
+    .eq('id', organizationId)
+    .single();
+  
+  if (org?.settings?.defaultCarrierId) {
+    return org.settings.defaultCarrierId;
+  }
+  
+  // 3. Fall back to DEFAULT carrier profile
+  const { data: defaultCarrier } = await supabaseAdmin
+    .from('carrier_profiles')
+    .select('id')
+    .eq('code', 'DEFAULT')
+    .eq('is_active', true)
+    .single();
+  
+  return defaultCarrier?.id || null;
+}
+
 export async function createClaimFromDocuments(
   organizationId: string,
   documentIds: string[],
@@ -2086,7 +2153,8 @@ export async function createClaimFromDocuments(
       loss_description: claimInfo.loss_details?.description || null,
 
       // Carrier/Region
-      carrier_id: null, // TODO: Determine from policy info or organization default
+      // Determine carrier ID: check policy info first, then organization default, then DEFAULT profile
+      carrier_id: await determineCarrierId(organizationId, policyInfo),
       region_id: regionId,
 
       // Deductibles - both base and peril-specific

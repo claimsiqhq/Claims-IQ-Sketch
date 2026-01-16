@@ -151,7 +151,8 @@ import {
   addOrganizationMember,
   removeOrganizationMember,
   getOrganizationMembers,
-  switchOrganization
+  switchOrganization,
+  deleteOrganization
 } from "./services/organizations";
 import {
   createClaim,
@@ -279,7 +280,7 @@ const log = createLogger({ module: 'routes' });
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit
+    fileSize: 50 * 1024 * 1024, // 50MB limit (matches Supabase bucket limit)
   },
   fileFilter: (req, file, cb) => {
     // Allow PDFs, images, and common document types
@@ -2901,6 +2902,14 @@ export async function registerRoutes(
   }));
 
   // Update current organization
+  app.delete('/api/organizations/:id', requireAuth, requireSuperAdmin, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
+    const deleted = await deleteOrganization(req.params.id);
+    if (!deleted) {
+      return next(errors.notFound('Organization'));
+    }
+    res.json({ success: true, message: 'Organization deleted successfully' });
+  }));
+
   app.put('/api/organizations/current', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateBody(organizationUpdateSchema), asyncHandler(async (req, res, next) => {
     const org = await updateOrganization(req.organizationId!, req.body);
     if (!org) {

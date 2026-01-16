@@ -320,8 +320,14 @@ export async function findUserById(id: string): Promise<AuthUser | null> {
  * Note: This should be done via Supabase dashboard or migration scripts in production
  */
 export async function seedAdminUser(): Promise<void> {
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@claimsiq.com';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
+  // Skip seeding if credentials not configured
+  if (!adminEmail || !adminPassword) {
+    console.log('[supabaseAuth] Admin credentials not configured, skipping admin user seed');
+    return;
+  }
 
   // Check if admin exists in our database
   const { data: existingAdmin } = await supabaseAdmin
