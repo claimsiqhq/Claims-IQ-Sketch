@@ -3811,7 +3811,7 @@ export async function registerRoutes(
     }
 
       const { uploadAndAnalyzePhoto } = await import('./services/photos');
-      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude, movementId, damageZoneId } = req.body;
+      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude, movementId, damageZoneId, flowInstanceId, capturedContext } = req.body;
 
       // Get user display name for uploadedBy field
       const user = req.user;
@@ -3825,6 +3825,20 @@ export async function registerRoutes(
           uploadedBy = user.email;
         } else if (user.username) {
           uploadedBy = user.username;
+        }
+      }
+
+      // If flowInstanceId not provided but claimId and movementId are, try to get the active flow
+      let resolvedFlowInstanceId = flowInstanceId;
+      if (!resolvedFlowInstanceId && claimId && movementId) {
+        try {
+          const { getCurrentFlow } = await import('./services/flowEngineService');
+          const flow = await getCurrentFlow(claimId);
+          if (flow) {
+            resolvedFlowInstanceId = flow.id;
+          }
+        } catch (err) {
+          log.warn({ err }, '[photos] Failed to get current flow for photo');
         }
       }
 
@@ -3846,40 +3860,38 @@ export async function registerRoutes(
         latitude: latitude ? parseFloat(latitude) : undefined,
         longitude: longitude ? parseFloat(longitude) : undefined,
         uploadedBy,
+        // Flow context - stored directly in claim_photos
+        flowInstanceId: resolvedFlowInstanceId,
+        movementId,
+        capturedContext,
       });
 
       log.info({
         photoId: photo.id,
         claimId: photo.claimId,
-        storagePath: photo.storagePath
+        storagePath: photo.storagePath,
+        flowInstanceId: resolvedFlowInstanceId,
+        movementId
       }, '[photos] Upload successful');
 
-      // Link photo to flow movement if movementId is provided
-      // Note: Old workflow step linking has been removed - use flow engine's evidence endpoints instead
-      // POST /api/flows/:flowInstanceId/movements/:movementId/evidence
-      let movementLinkResult: { movementId?: string; linked?: boolean } = {};
-      if (claimId && movementId) {
+      // Also create movement_evidence record if we have flow context
+      let movementLinkResult: { movementId?: string; linked?: boolean; flowInstanceId?: string } = {};
+      if (resolvedFlowInstanceId && movementId) {
         try {
-          const { getCurrentFlow, attachEvidence } = await import('./services/flowEngineService');
-          const flow = await getCurrentFlow(claimId);
-          if (flow) {
-            // Get movement completion for this movement
-            const { data: completion } = await supabaseAdmin
-              .from('movement_completions')
-              .select('id')
-              .eq('flow_instance_id', flow.id)
-              .eq('movement_id', movementId)
-              .maybeSingle();
-
-            if (completion) {
-              await attachEvidence(completion.id, 'photo', { photoId: photo.id, storagePath: photo.storagePath });
-              movementLinkResult = { movementId, linked: true };
-              log.debug({ movementLinkResult }, '[photos] Photo linked to flow movement');
-            }
-          }
+          const { attachEvidence } = await import('./services/flowEngineService');
+          const userId = user?.id || 'unknown';
+          await attachEvidence(resolvedFlowInstanceId, movementId, {
+            type: 'photo',
+            referenceId: photo.id,
+            data: { storagePath: photo.storagePath, publicUrl: photo.url },
+            userId
+          });
+          movementLinkResult = { movementId, linked: true, flowInstanceId: resolvedFlowInstanceId };
+          log.debug({ movementLinkResult }, '[photos] Photo linked to flow movement');
         } catch (linkError) {
-          log.warn({ linkError }, '[photos] Failed to link photo to flow movement');
-          // Don't fail the upload if linking fails
+          log.warn({ linkError }, '[photos] Failed to link photo to flow movement via evidence table');
+          // Don't fail the upload if linking fails - the photo is already saved with flow context
+          movementLinkResult = { movementId, linked: false, flowInstanceId: resolvedFlowInstanceId };
         }
       }
 

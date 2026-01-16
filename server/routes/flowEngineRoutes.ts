@@ -529,14 +529,28 @@ router.post('/flows/:flowInstanceId/movements', async (req, res) => {
 /**
  * POST /api/flows/:flowInstanceId/movements/:movementId/evidence
  * Attach evidence to movement completion
+ *
+ * Request body:
+ * - type: 'photo' | 'audio' | 'voice_note' | 'measurement' | 'note'
+ * - referenceId: string (UUID of photo or audio record)
+ * - data: any (optional additional data)
+ * - userId: string (required)
+ * - notes: string (optional notes about the evidence)
+ *
+ * Also accepts frontend format:
+ * - evidenceType: alias for type
+ * - evidenceId: alias for referenceId
  */
 router.post('/flows/:flowInstanceId/movements/:movementId/evidence', async (req, res) => {
   try {
     const { flowInstanceId, movementId } = req.params;
-    const { type, referenceId, data, userId } = req.body;
+    // Support both naming conventions (backend: type/referenceId, frontend: evidenceType/evidenceId)
+    const type = req.body.type || req.body.evidenceType;
+    const referenceId = req.body.referenceId || req.body.evidenceId;
+    const { data, userId, notes } = req.body;
 
     if (!type) {
-      return res.status(400).json({ error: 'type is required (photo, audio, measurement, note)' });
+      return res.status(400).json({ error: 'type is required (photo, audio, voice_note, measurement, note)' });
     }
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
@@ -546,10 +560,11 @@ router.post('/flows/:flowInstanceId/movements/:movementId/evidence', async (req,
       type,
       referenceId,
       data,
-      userId
+      userId,
+      notes
     });
 
-    res.status(201).json({ 
+    res.status(201).json({
       message: 'Evidence attached successfully',
       evidenceId
     });

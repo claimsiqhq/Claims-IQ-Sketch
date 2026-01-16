@@ -26,6 +26,10 @@ export interface PhotoUploadInput {
   latitude?: number;
   longitude?: number;
   uploadedBy?: string;
+  // Flow context for linking photos to flow movements
+  flowInstanceId?: string;
+  movementId?: string;
+  capturedContext?: string;
 }
 
 export interface PhotoAnalysis {
@@ -333,7 +337,7 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
   // Save to database IMMEDIATELY with pending status - don't wait for analysis
   let savedPhotoId = photoId;
   if (input.organizationId) {
-    const photoRecord: InsertClaimPhoto = {
+    const photoRecord: InsertClaimPhoto & { flow_instance_id?: string; movement_id?: string; captured_context?: string } = {
       claimId: input.claimId || null,
       organizationId: input.organizationId,
       structureId: input.structureId || null,
@@ -358,6 +362,10 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       analysisStatus: 'pending',
       analysisError: null,
       uploadedBy: input.uploadedBy ?? null,
+      // Flow context for linking to movements
+      flow_instance_id: input.flowInstanceId || null,
+      movement_id: input.movementId || null,
+      captured_context: input.capturedContext || null,
     };
 
     const saved = await storage.createClaimPhoto(photoRecord);
