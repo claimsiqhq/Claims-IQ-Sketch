@@ -53,7 +53,7 @@ async function triggerAIGenerationPipeline(claimId: string, organizationId: stri
 
     // Dynamically import to avoid circular dependencies
     const { generateClaimBriefing } = await import('./claimBriefingService');
-    const { generateInspectionWorkflow } = await import('./inspectionWorkflowService');
+    const { startFlowForClaim, getCurrentFlow } = await import('./flowEngineService');
 
     // Step 1: Generate briefing (if FNOL, policy, or endorsement was just processed)
     console.log(`[AI Pipeline] Generating briefing for claim ${claimId}...`);
@@ -62,14 +62,29 @@ async function triggerAIGenerationPipeline(claimId: string, organizationId: stri
     if (briefingResult.success) {
       console.log(`[AI Pipeline] Briefing generated successfully for claim ${claimId}`);
 
-      // Step 2: Generate inspection workflow after briefing
-      console.log(`[AI Pipeline] Generating inspection workflow for claim ${claimId}...`);
-      const workflowResult = await generateInspectionWorkflow(claimId, organizationId, undefined, false);
+      // Step 2: Start inspection flow (replaces old workflow generation)
+      // First check if flow already exists
+      const existingFlow = await getCurrentFlow(claimId);
+      if (!existingFlow) {
+        // Get claim to determine peril type
+        const { data: claim } = await supabaseAdmin
+          .from('claims')
+          .select('primary_peril')
+          .eq('id', claimId)
+          .single();
 
-      if (workflowResult.success) {
-        console.log(`[AI Pipeline] Inspection workflow generated successfully for claim ${claimId}`);
+        const perilType = claim?.primary_peril || 'general';
+        console.log(`[AI Pipeline] Starting inspection flow for claim ${claimId} with peril type: ${perilType}...`);
+
+        try {
+          const flowInstanceId = await startFlowForClaim(claimId, perilType);
+          console.log(`[AI Pipeline] Inspection flow started successfully for claim ${claimId}, flow instance: ${flowInstanceId}`);
+        } catch (flowError) {
+          // Flow may fail if no flow definition exists for this peril type - that's ok
+          console.warn(`[AI Pipeline] Flow start skipped for claim ${claimId}:`, flowError instanceof Error ? flowError.message : flowError);
+        }
       } else {
-        console.warn(`[AI Pipeline] Workflow generation failed for claim ${claimId}:`, workflowResult.error);
+        console.log(`[AI Pipeline] Flow already exists for claim ${claimId}, skipping flow creation`);
       }
     } else {
       console.warn(`[AI Pipeline] Briefing generation failed for claim ${claimId}:`, briefingResult.error);

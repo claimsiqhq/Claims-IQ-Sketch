@@ -232,10 +232,8 @@ import {
   getMergedInspectionForClaim,
   updateCarrierOverlays,
 } from "./services/carrierOverlayService";
-import {
-  expandWorkflowForRooms,
-  validateWorkflowJson,
-} from "./services/inspectionWorkflowService";
+// Old workflow service removed - using flow engine instead
+// import { expandWorkflowForRooms, validateWorkflowJson } from "./services/inspectionWorkflowService";
 import {
   createStructure,
   getStructure,
@@ -3717,211 +3715,20 @@ export async function registerRoutes(
   }));
 
   // ============================================
-  // WORKFLOW EXPANSION AND VALIDATION ROUTES
+  // OLD WORKFLOW ROUTES REMOVED
   // ============================================
-
-  /**
-   * POST /api/workflow/:id/expand-rooms
-   * Expand the workflow by adding room-specific steps for the given rooms.
-   * Uses the room template defined in the workflow JSON.
-   */
-  app.post('/api/workflow/:id/expand-rooms', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowExpandRoomsSchema), asyncHandler(async (req, res, next) => {
-    const { roomNames } = req.body;
-
-    if (!roomNames || !Array.isArray(roomNames) || roomNames.length === 0) {
-      return next(errors.badRequest('roomNames array is required'));
-    }
-
-    try {
-      const result = await expandWorkflowForRooms(
-        req.params.id,
-        roomNames,
-        req.user?.id
-      );
-
-      if (!result.success) {
-        return next(errors.badRequest(result.error || 'Failed to expand workflow'));
-      }
-
-      res.json({ success: true, addedSteps: result.addedSteps });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return next(errors.internal(message));
-    }
-  }));
-
-  /**
-   * POST /api/workflow/:id/validate
-   * Validate a workflow JSON structure.
-   */
-  app.post('/api/workflow/:id/validate', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(z.object({
-    workflowJson: z.any().refine((val) => val !== undefined && val !== null, 'workflowJson is required'),
-  })), asyncHandler(async (req, res, next) => {
-    const { workflowJson } = req.body;
-
-    if (!workflowJson) {
-      return next(errors.badRequest('workflowJson is required'));
-    }
-
-    const result = validateWorkflowJson(workflowJson);
-    res.json(result);
-  }));
-
-  // ============================================
-  // DYNAMIC WORKFLOW ROUTES (Rule-Driven)
-  // ============================================
-
-  /**
-   * POST /api/claims/:id/workflow/dynamic/generate
-   * Generate a rule-driven dynamic workflow for a claim.
-   */
-  app.post('/api/claims/:id/workflow/dynamic/generate', requireAuth, requireOrganization, aiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const { generateDynamicWorkflow } = await import('./services/dynamicWorkflowService');
-    const { forceRegenerate } = req.body;
-
-    const result = await generateDynamicWorkflow(
-      req.params.id,
-      req.organizationId!,
-      req.user?.id,
-      forceRegenerate
-    );
-
-    if (!result.success) {
-      return next(errors.badRequest(result.error || 'Failed to generate dynamic workflow'));
-    }
-
-    res.json({
-      success: true,
-      workflowId: result.workflowId,
-      version: result.version,
-      stepsGenerated: result.stepsGenerated,
-    });
-  }));
-
-  /**
-   * GET /api/workflow/:id/evidence
-   * Get workflow with full evidence status.
-   */
-  app.get('/api/workflow/:id/evidence', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const { getWorkflowWithEvidence } = await import('./services/dynamicWorkflowService');
-    const result = await getWorkflowWithEvidence(req.params.id, req.organizationId!);
-
-    if (!result) {
-      return next(errors.notFound('Workflow'));
-    }
-
-    res.json(result);
-  }));
-
-  /**
-   * POST /api/workflow/:id/steps/:stepId/evidence
-   * Attach evidence to a workflow step.
-   */
-  app.post('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), stepId: z.string().uuid() })), validateBody(workflowEvidenceSchema), asyncHandler(async (req, res, next) => {
-    const { attachEvidenceToStep } = await import('./services/dynamicWorkflowService');
-    const { requirementId, type, photoId, measurementData, noteData } = req.body;
-
-    if (!requirementId || !type) {
-      return next(errors.badRequest('requirementId and type are required'));
-    }
-
-    const result = await attachEvidenceToStep(
-      req.params.stepId,
-      requirementId,
-      { type, photoId, measurementData, noteData },
-      req.user?.id
-    );
-
-    if (!result.success) {
-      return next(errors.badRequest(result.error || 'Failed to attach evidence'));
-    }
-
-    res.json({
-      success: true,
-      evidenceId: result.evidenceId,
-      fulfilled: result.fulfilled,
-    });
-  }));
-
-  /**
-   * GET /api/workflow/:id/steps/:stepId/evidence
-   * Get evidence attached to a step.
-   */
-  app.get('/api/workflow/:id/steps/:stepId/evidence', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ id: z.string().uuid(), stepId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
-    const { getStepEvidence } = await import('./services/dynamicWorkflowService');
-    const evidence = await getStepEvidence(req.params.stepId);
-    res.json({ evidence });
-  }));
-
-  /**
-   * POST /api/workflow/:id/validate-export
-   * Validate workflow for export readiness with evidence completeness check.
-   */
-  app.post('/api/workflow/:id/validate-export', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const { validateWorkflowForExport } = await import('./services/dynamicWorkflowService');
-    const result = await validateWorkflowForExport(req.params.id, req.organizationId!);
-    res.json(result);
-  }));
-
-  /**
-   * POST /api/workflow/:id/mutation/room-added
-   * Trigger workflow mutation when a room is added.
-   */
-  app.post('/api/workflow/:id/mutation/room-added', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowMutationSchema), asyncHandler(async (req, res, next) => {
-    const { onRoomAdded } = await import('./services/dynamicWorkflowService');
-    const { roomId, roomName } = req.body;
-
-    if (!roomId || !roomName) {
-      return next(errors.badRequest('roomId and roomName are required'));
-    }
-
-    const result = await onRoomAdded(req.params.id, roomId, roomName, req.user?.id);
-    res.json({
-      success: true,
-      stepsAdded: result.stepsAdded.length,
-      stepsModified: result.stepsModified.length,
-    });
-  }));
-
-  /**
-   * POST /api/workflow/:id/mutation/damage-added
-   * Trigger workflow mutation when a damage zone is added.
-   */
-  app.post('/api/workflow/:id/mutation/damage-added', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowMutationSchema), asyncHandler(async (req, res, next) => {
-    const { onDamageZoneAdded } = await import('./services/dynamicWorkflowService');
-    const { zoneId, roomId, damageType } = req.body;
-
-    if (!zoneId || !roomId || !damageType) {
-      return next(errors.badRequest('zoneId, roomId, and damageType are required'));
-    }
-
-    const result = await onDamageZoneAdded(req.params.id, zoneId, roomId, damageType, req.user?.id);
-    res.json({
-      success: true,
-      stepsAdded: result.stepsAdded.length,
-      stepsModified: result.stepsModified.length,
-    });
-  }));
-
-  /**
-   * POST /api/workflow/:id/mutation/photo-added
-   * Trigger workflow mutation when a photo is added.
-   */
-  app.post('/api/workflow/:id/mutation/photo-added', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), validateBody(workflowMutationSchema), asyncHandler(async (req, res, next) => {
-    const { onPhotoAdded } = await import('./services/dynamicWorkflowService');
-    const { photoId, roomId, zoneId, stepId } = req.body;
-
-    if (!photoId) {
-      return next(errors.badRequest('photoId is required'));
-    }
-
-    const result = await onPhotoAdded(req.params.id, photoId, roomId, zoneId, stepId, req.user?.id);
-    res.json({
-      success: true,
-      stepsAdded: result.stepsAdded.length,
-      stepsModified: result.stepsModified.length,
-    });
-  }));
+  // The following routes have been removed as part of the migration to the new flow engine:
+  // - POST /api/workflow/:id/expand-rooms (use POST /api/flows/:id/rooms instead)
+  // - POST /api/workflow/:id/validate (validation now in flow definition builder)
+  // - POST /api/claims/:id/workflow/dynamic/generate (use POST /api/claims/:id/flows instead)
+  // - GET /api/workflow/:id/evidence (use GET /api/flows/:id/movements/:movementId/evidence)
+  // - POST /api/workflow/:id/steps/:stepId/evidence (use POST /api/flows/:id/movements/:movementId/evidence)
+  // - GET /api/workflow/:id/steps/:stepId/evidence (use GET /api/flows/:id/movements/:movementId/evidence)
+  // - POST /api/workflow/:id/validate-export (use GET /api/flows/:id/progress)
+  // - POST /api/workflow/:id/mutation/* (flow engine handles mutations automatically)
+  //
+  // New flow engine routes are registered via flowEngineRoutes at /api/claims/:claimId/flows and /api/flows/:id
+  // See server/routes/flowEngineRoutes.ts for the new API
 
   // ============================================
   // CARRIER OVERLAY ROUTES
@@ -3995,8 +3802,7 @@ export async function registerRoutes(
     }
 
       const { uploadAndAnalyzePhoto } = await import('./services/photos');
-      const { linkPhotoToWorkflowStep } = await import('./services/dynamicWorkflowService');
-      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude, workflowStepId, damageZoneId } = req.body;
+      const { claimId, structureId, roomId, subRoomId, objectId, label, hierarchyPath, latitude, longitude, movementId, damageZoneId } = req.body;
 
       // Get user display name for uploadedBy field
       const user = req.user;
@@ -4033,39 +3839,42 @@ export async function registerRoutes(
         uploadedBy,
       });
 
-      log.info({ 
-        photoId: photo.id, 
-        claimId: photo.claimId, 
-        storagePath: photo.storagePath 
+      log.info({
+        photoId: photo.id,
+        claimId: photo.claimId,
+        storagePath: photo.storagePath
       }, '[photos] Upload successful');
 
-      // Link photo to workflow step if workflowStepId is provided or try to auto-match
-      let stepLinkResult: { stepId?: string; stepProgress?: string; stepComplete?: boolean } = {};
-      if (claimId) {
+      // Link photo to flow movement if movementId is provided
+      // Note: Old workflow step linking has been removed - use flow engine's evidence endpoints instead
+      // POST /api/flows/:flowInstanceId/movements/:movementId/evidence
+      let movementLinkResult: { movementId?: string; linked?: boolean } = {};
+      if (claimId && movementId) {
         try {
-          const linkResult = await linkPhotoToWorkflowStep({
-            claimId,
-            photoId: photo.id,
-            roomId,
-            damageZoneId,
-            explicitStepId: workflowStepId,
-            organizationId: req.organizationId!
-          });
-          if (linkResult.success) {
-            stepLinkResult = {
-              stepId: linkResult.stepId,
-              stepProgress: linkResult.stepProgress,
-              stepComplete: linkResult.stepComplete
-            };
-            log.debug({ stepLinkResult }, '[photos] Photo linked to workflow step');
+          const { getCurrentFlow, attachEvidence } = await import('./services/flowEngineService');
+          const flow = await getCurrentFlow(claimId);
+          if (flow) {
+            // Get movement completion for this movement
+            const { data: completion } = await supabaseAdmin
+              .from('movement_completions')
+              .select('id')
+              .eq('flow_instance_id', flow.id)
+              .eq('movement_id', movementId)
+              .maybeSingle();
+
+            if (completion) {
+              await attachEvidence(completion.id, 'photo', { photoId: photo.id, storagePath: photo.storagePath });
+              movementLinkResult = { movementId, linked: true };
+              log.debug({ movementLinkResult }, '[photos] Photo linked to flow movement');
+            }
           }
         } catch (linkError) {
-          log.warn({ linkError }, '[photos] Failed to link photo to workflow step');
+          log.warn({ linkError }, '[photos] Failed to link photo to flow movement');
           // Don't fail the upload if linking fails
         }
       }
 
-      res.status(201).json({ ...photo, ...stepLinkResult });
+      res.status(201).json({ ...photo, ...movementLinkResult });
   }));
 
   // Get signed URL for a photo
@@ -5033,13 +4842,22 @@ export async function registerRoutes(
 
     // Import services dynamically
     const { getClaimBriefing } = await import('./services/claimBriefingService');
-    const { getClaimWorkflow } = await import('./services/inspectionWorkflowService');
+    const { getCurrentFlow, getFlowPhases, getPhaseMovements } = await import('./services/flowEngineService');
 
     // Get briefing
     const briefing = await getClaimBriefing(claimId, organizationId);
 
-    // Get workflow
-    const workflow = await getClaimWorkflow(claimId, organizationId);
+    // Get current flow (replaces old workflow)
+    let flow = null;
+    let flowPhases: any[] = [];
+    try {
+      flow = await getCurrentFlow(claimId);
+      if (flow) {
+        flowPhases = await getFlowPhases(flow.id);
+      }
+    } catch (error) {
+      log.warn({ claimId, error }, 'Error getting flow for claim');
+    }
 
     // Get claim for peril info and version numbers
     const claim = await getClaim(claimId, organizationId);
@@ -5054,7 +4872,7 @@ export async function registerRoutes(
         .eq('id', claimId)
         .eq('organization_id', organizationId)
         .single();
-      
+
       if (error && error.message?.includes('does not exist')) {
         // Columns don't exist - migration 042 needs to be run
         log.warn({ claimId }, 'Version columns do not exist. Please run migration 042_add_briefing_workflow_versions.sql');
@@ -5073,12 +4891,12 @@ export async function registerRoutes(
       }
     }
 
-    // Determine readiness status
+    // Determine readiness status - now uses flow instead of old workflow
     const hasBriefing = briefing !== null;
-    const hasWorkflow = workflow !== null;
+    const hasWorkflow = flow !== null;
     const isReady = hasBriefing && hasWorkflow;
 
-    // Build context summary
+    // Build context summary with backward-compatible structure
     const context = {
       claimId,
       claimNumber: claim?.claimNumber || 'Unknown',
@@ -5092,7 +4910,7 @@ export async function registerRoutes(
         hasWorkflow,
         message: isReady
           ? 'Ready for voice agent'
-          : `Missing: ${!hasBriefing ? 'briefing' : ''}${!hasBriefing && !hasWorkflow ? ', ' : ''}${!hasWorkflow ? 'workflow' : ''}`.trim(),
+          : `Missing: ${!hasBriefing ? 'briefing' : ''}${!hasBriefing && !hasWorkflow ? ', ' : ''}${!hasWorkflow ? 'flow' : ''}`.trim(),
       },
 
       // Version numbers for cache invalidation
@@ -5109,15 +4927,22 @@ export async function registerRoutes(
         sketchRequirements: briefing.briefingJson?.sketch_requirements || [],
         depreciationConsiderations: briefing.briefingJson?.depreciation_considerations || [],
       } : null,
-      workflow: workflow ? {
-        id: workflow.workflow?.id,
-        totalSteps: workflow.steps?.length || 0,
-        steps: workflow.steps?.slice(0, 10).map(s => ({
-          phase: s.phase,
-          title: s.title,
-          instructions: s.instructions,
-          required: s.required,
-        })) || [],
+      // Backward compatible workflow structure mapped from new flow engine
+      workflow: flow ? {
+        id: flow.id,
+        flowName: flow.flowName,
+        flowDescription: flow.flowDescription,
+        currentPhase: flow.currentPhaseName,
+        totalSteps: flowPhases.reduce((sum, p) => sum + p.movementCount, 0),
+        completedSteps: flowPhases.reduce((sum, p) => sum + p.completedMovementCount, 0),
+        phases: flowPhases.map(p => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          movementCount: p.movementCount,
+          completedMovementCount: p.completedMovementCount,
+          isCompleted: p.isCompleted,
+        })),
       } : null,
     };
 
