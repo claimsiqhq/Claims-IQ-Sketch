@@ -1,0 +1,259 @@
+# Prompt 3: Verify Database Schema and Data
+
+## Context (From Prompt #2)
+
+- Server running: [Y/N]
+- Port: [number]
+
+---
+
+## Mission
+
+Verify the database schema is correct, flow definitions exist, and the flow engine can read/write data. This is the foundation—if the database is wrong, nothing else will work.
+
+---
+
+## Tasks
+
+### 1. Verify Core Tables Exist
+
+Run this query in Supabase SQL Editor:
+
+```sql
+-- Check all required tables
+SELECT 
+  table_name,
+  (SELECT count(*) FROM information_schema.columns WHERE table_name = t.table_name) as column_count
+FROM information_schema.tables t
+WHERE table_schema = 'public' 
+AND table_name IN (
+  'claims',
+  'flow_definitions',
+  'claim_flow_instances', 
+  'flow_movements',
+  'movement_completions',
+  'audio_observations',
+  'claim_photos',
+  'ai_prompts'
+)
+ORDER BY table_name;
+```
+
+**Expected Output:**
+| table_name | column_count |
+|------------|--------------|
+| ai_prompts | ~8-12 |
+| audio_observations | ~15-20 |
+| claim_flow_instances | ~8-12 |
+| claim_photos | ~12-18 |
+| claims | ~15-25 |
+| flow_definitions | ~10-15 |
+| flow_movements | ~12-18 |
+| movement_completions | ~8-12 |
+
+If any table is MISSING, you need to run the migration. Check for:
+- `migrations/001_flow_engine_migration.sql`
+- `migrations/002_flow_engine_prompts.sql`
+
+### 2. Verify Flow Definitions
+
+```sql
+-- Check flow definitions exist
+SELECT 
+  id,
+  peril_type,
+  name,
+  jsonb_array_length(phases) as phase_count,
+  is_active,
+  created_at
+FROM flow_definitions
+ORDER BY peril_type;
+```
+
+**Expected:** At least 3 rows (water_damage, wind_hail, fire)
+
+If MISSING, insert them:
+
+```sql
+-- Example: Insert water damage flow
+INSERT INTO flow_definitions (peril_type, name, phases, is_active)
+VALUES (
+  'water_damage',
+  'Water Damage Inspection Flow',
+  '[
+    {
+      "id": "arrival",
+      "name": "Arrival & Initial Assessment",
+      "movements": [
+        {"id": "verify_address", "name": "Verify Address", "required": true},
+        {"id": "meet_policyholder", "name": "Meet Policyholder", "required": true},
+        {"id": "safety_check", "name": "Safety Assessment", "required": true}
+      ]
+    },
+    {
+      "id": "source",
+      "name": "Source Identification",
+      "movements": [
+        {"id": "identify_source", "name": "Locate Water Source", "required": true},
+        {"id": "document_source", "name": "Document Source", "required": true}
+      ]
+    },
+    {
+      "id": "damage_assessment",
+      "name": "Damage Assessment",
+      "movements": [
+        {"id": "affected_areas", "name": "Map Affected Areas", "required": true},
+        {"id": "moisture_readings", "name": "Take Moisture Readings", "required": false},
+        {"id": "document_damage", "name": "Document All Damage", "required": true}
+      ]
+    },
+    {
+      "id": "wrap_up",
+      "name": "Wrap Up",
+      "movements": [
+        {"id": "review_coverage", "name": "Review Coverage with PH", "required": true},
+        {"id": "next_steps", "name": "Explain Next Steps", "required": true}
+      ]
+    }
+  ]'::jsonb,
+  true
+);
+```
+
+### 3. Verify AI Prompts
+
+```sql
+-- Check flow-related prompts exist
+SELECT 
+  key,
+  name,
+  LEFT(system_prompt, 50) as prompt_preview,
+  is_active
+FROM ai_prompts
+WHERE key LIKE 'flow.%'
+ORDER BY key;
+```
+
+**Expected prompts:**
+- `flow.voice_note_extraction`
+- `flow.movement_guidance_tts`
+- `flow.evidence_validation`
+- `flow.phase_summary`
+- `flow.inspection_summary`
+
+### 4. Test Flow Engine Queries
+
+These queries should work with the current schema:
+
+**A. Get flow for a peril type:**
+```sql
+SELECT * FROM flow_definitions WHERE peril_type = 'water_damage' AND is_active = true;
+```
+
+**B. Create a flow instance (test):**
+```sql
+-- First, get a test claim ID
+SELECT id FROM claims LIMIT 1;
+
+-- Then create instance (replace CLAIM_ID and FLOW_DEF_ID)
+INSERT INTO claim_flow_instances (claim_id, flow_definition_id, status, current_phase_index, current_movement_index)
+VALUES ('CLAIM_ID', 'FLOW_DEF_ID', 'in_progress', 0, 0)
+RETURNING *;
+```
+
+**C. Query active flow:**
+```sql
+SELECT 
+  cfi.*,
+  fd.peril_type,
+  fd.phases
+FROM claim_flow_instances cfi
+JOIN flow_definitions fd ON cfi.flow_definition_id = fd.id
+WHERE cfi.claim_id = 'CLAIM_ID'
+AND cfi.status = 'in_progress';
+```
+
+### 5. Verify Foreign Keys
+
+```sql
+-- Check foreign key relationships exist
+SELECT
+  tc.constraint_name,
+  tc.table_name,
+  kcu.column_name,
+  ccu.table_name AS foreign_table_name,
+  ccu.column_name AS foreign_column_name
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage AS ccu
+  ON ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+AND tc.table_name IN ('claim_flow_instances', 'flow_movements', 'movement_completions', 'audio_observations');
+```
+
+### 6. Check for Schema Mismatches
+
+Compare your TypeScript types against the actual database:
+
+```bash
+# Regenerate Supabase types
+npx supabase gen types typescript --project-id YOUR_PROJECT_ID > types/database.types.ts
+```
+
+Then check if service code matches:
+- Column names match (snake_case in DB, camelCase in code?)
+- Required fields are handled
+- Nullable fields are typed correctly
+
+---
+
+## Common Issues & Fixes
+
+### Missing Table
+```sql
+-- Run the migration file
+-- Check migrations/ folder for the SQL
+```
+
+### Missing Flow Definition
+```sql
+-- Insert the definition using the SQL in Task 2
+```
+
+### Column Type Mismatch
+```sql
+-- Example: Fix column type
+ALTER TABLE movement_completions 
+ALTER COLUMN evidence_ids TYPE jsonb USING evidence_ids::jsonb;
+```
+
+### Missing Index (slow queries)
+```sql
+-- Add index for common queries
+CREATE INDEX IF NOT EXISTS idx_claim_flow_instances_claim_id 
+ON claim_flow_instances(claim_id);
+
+CREATE INDEX IF NOT EXISTS idx_flow_movements_instance_id 
+ON flow_movements(flow_instance_id);
+```
+
+---
+
+## Success Criteria
+
+✅ All 8 core tables exist
+✅ At least 3 flow definitions (water, wind/hail, fire)
+✅ AI prompts for flow operations exist
+✅ Test queries execute without errors
+✅ TypeScript types match database schema
+
+---
+
+## Handoff to Prompt #4
+
+Report:
+- Tables verified: [list]
+- Flow definitions: [count and types]
+- Schema issues found: [list or "none"]
+- Test claim ID for frontend work: [ID]
