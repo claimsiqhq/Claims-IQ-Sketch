@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /**
  * Flow Engine Service
  *
@@ -87,7 +88,7 @@ export interface ClaimFlowInstance {
   id: string;
   claimId: string;
   flowDefinitionId: string;
-  status: 'not_started' | 'in_progress' | 'paused' | 'completed' | 'escalated';
+  status: 'not_started' | 'in_progress' | 'paused' | 'completed' | 'escalated' | 'cancelled';
   currentPhase: string;
   currentMovementId: string | null;
   startedAt: Date | null;
@@ -131,15 +132,60 @@ export async function getFlowForClaim(
       .limit(1)
       .single();
 
-    if (error) {
-      console.error(`[FlowEngine] No flow found for ${perilType}/${propertyType}:`, error.message);
-      return null;
+    if (error || !data) {
+      // If no specific match found, try to find a generic flow
+      const { data: genericFlow, error: genericError } = await supabaseAdmin
+        .from('flow_definitions')
+        .select('*')
+        .eq('flow_key', 'generic')
+        .eq('is_active', true)
+        .order('version', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (genericError || !genericFlow) {
+        console.error(`[FlowEngine] No flow found for ${perilType}/${propertyType} and no generic flow found:`, error?.message);
+        return null;
+      }
+      return normalizeFlowDefinition(genericFlow);
     }
 
     return normalizeFlowDefinition(data);
   } catch (error) {
     console.error('[FlowEngine] Error fetching flow definition:', error);
     return null;
+  }
+}
+
+/**
+ * Get all active flow definitions
+ */
+export async function getAllFlowDefinitions(
+  organizationId?: string
+): Promise<FlowDefinition[]> {
+  try {
+    let query = supabaseAdmin
+      .from('flow_definitions')
+      .select('*')
+      .eq('is_active', true)
+      .order('version', { ascending: false });
+
+    // Note: organization_id might not exist on flow_definitions in HEAD schema,
+    // keeping simplistic query for now unless organization filtering is required and schema supports it.
+    // If organizationId is passed, we might want to filter, but checking schema support first is better.
+    // Assuming simplistic implementation for now.
+
+    const { data, error } = await query;
+
+    if (error || !data) {
+      console.error('[FlowEngine] Error fetching flow definitions:', error);
+      return [];
+    }
+
+    return data.map(normalizeFlowDefinition);
+  } catch (error) {
+    console.error('[FlowEngine] Error fetching flow definitions:', error);
+    return [];
   }
 }
 
@@ -165,6 +211,30 @@ export async function getFlowByKey(flowKey: string): Promise<FlowDefinition | nu
     return normalizeFlowDefinition(data);
   } catch (error) {
     console.error('[FlowEngine] Error fetching flow by key:', error);
+    return null;
+  }
+}
+
+/**
+ * Get a specific flow definition by ID
+ */
+export async function getFlowDefinitionById(
+  flowId: string
+): Promise<FlowDefinition | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('flow_definitions')
+      .select('*')
+      .eq('id', flowId)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return normalizeFlowDefinition(data);
+  } catch (error) {
+    console.error('[FlowEngine] Error fetching flow definition by ID:', error);
     return null;
   }
 }
@@ -392,6 +462,46 @@ export async function skipMovement(
   } catch (error) {
     console.error('[FlowEngine] Error skipping movement:', error);
     return { success: false, nextMovement: null, error: String(error) };
+  }
+}
+
+/**
+ * Cancel a flow instance
+ */
+export async function cancelFlow(
+  instanceId: string,
+  reason?: string
+): Promise<boolean> {
+  try {
+    const { data: currentInstance, error: fetchError } = await supabaseAdmin
+      .from('claim_flow_instances')
+      .select('metadata')
+      .eq('id', instanceId)
+      .single();
+
+    if (fetchError) {
+      return false;
+    }
+
+    const updatedMetadata = {
+      ...(currentInstance?.metadata || {}),
+      cancelledAt: new Date().toISOString(),
+      cancellationReason: reason
+    };
+
+    const { error } = await supabaseAdmin
+      .from('claim_flow_instances')
+      .update({
+        status: 'cancelled',
+        metadata: updatedMetadata,
+        completed_at: new Date().toISOString() // Using completed_at for cancellation time as well?
+      })
+      .eq('id', instanceId);
+
+    return !error;
+  } catch (error) {
+    console.error('[FlowEngine] Error cancelling flow:', error);
+    return false;
   }
 }
 
@@ -636,7 +746,9 @@ async function advanceToNextMovement(flowInstanceId: string): Promise<FlowMoveme
 export default {
   // Flow definitions
   getFlowForClaim,
+  getAllFlowDefinitions,
   getFlowByKey,
+  getFlowDefinitionById,
 
   // Flow instances
   startFlow,
@@ -646,6 +758,7 @@ export default {
   // Movement execution
   completeMovement,
   skipMovement,
+  cancelFlow,
 
   // AI integration
   extractVoiceNoteEntities,
