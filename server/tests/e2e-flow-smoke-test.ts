@@ -14,6 +14,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import * as dotenv from 'dotenv';
 
 // Load environment variables
@@ -45,7 +46,7 @@ const testResults: TestResult[] = [];
 let testClaimId: string | null = null;
 let testFlowInstanceId: string | null = null;
 let testOrganizationId: string | null = null;
-let testUserId: string = 'test-user-' + Date.now();
+let testUserId: string = randomUUID();
 
 // Helper function to log test results
 function logResult(step: number, name: string, passed: boolean, notes: string, error?: string) {
