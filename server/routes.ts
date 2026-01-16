@@ -3559,9 +3559,10 @@ export async function registerRoutes(
         flow: {
           id: flow.id,
           flowKey: flow.flowKey,
-          name: flow.definition?.metadata?.name || flow.flowKey,
-          perilType: flow.perilType,
-          propertyType: flow.propertyType,
+          name: flow.name,
+          description: flow.description,
+          perils: flow.perils,
+          propertyTypes: flow.propertyTypes,
           phaseCount: flow.definition?.phases?.length || 0,
           phases: flow.definition?.phases?.map(p => ({
             key: p.key,

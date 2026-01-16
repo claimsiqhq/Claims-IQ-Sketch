@@ -21,8 +21,10 @@ import { getPromptConfig, substituteVariables } from "../promptService";
 export interface FlowDefinition {
   id: string;
   flowKey: string;
-  perilType: string;
-  propertyType: string;
+  name: string;
+  description: string;
+  perils: string[];
+  propertyTypes: string[];
   version: number;
   definition: FlowDefinitionJson;
   isActive: boolean;
@@ -620,13 +622,18 @@ export async function generateMovementGuidance(
 // ============================================================================
 
 function normalizeFlowDefinition(row: any): FlowDefinition {
+  // flow_json is already parsed by Supabase (JSONB comes as object)
+  const flowJson = row.flow_json || {};
+  
   return {
     id: row.id,
     flowKey: row.flow_key,
-    perilType: row.peril_type,
-    propertyType: row.property_type,
+    name: row.name,
+    description: row.description,
+    perils: row.perils || [],
+    propertyTypes: row.property_types || [],
     version: row.version,
-    definition: row.definition,
+    definition: flowJson,
     isActive: row.is_active
   };
 }
