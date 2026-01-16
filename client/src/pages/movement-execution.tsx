@@ -87,7 +87,21 @@ export default function MovementExecutionPage() {
     error: flowError,
   } = useQuery({
     queryKey: ['flowInstance', flowId],
-    queryFn: () => getFlowInstance(flowId!),
+    queryFn: async () => {
+      try {
+        const flowData = await getFlowInstance(flowId!);
+        // Cache for offline access
+        await offlineStorage.cacheFlow(flowData);
+        return flowData;
+      } catch (error) {
+        // Try to load from cache if online fetch fails
+        const cached = await offlineStorage.getCachedFlow(flowId!);
+        if (cached) {
+          return cached;
+        }
+        throw error;
+      }
+    },
     enabled: !!flowId,
   });
 
@@ -119,62 +133,106 @@ export default function MovementExecutionPage() {
     mutationFn: async () => {
       if (!user?.id) throw new Error('User not authenticated');
 
-      // Upload photos first
+      const isOnline = syncManager.getIsOnline();
       const uploadedPhotoIds: string[] = [];
-      setIsUploading(true);
 
-      try {
+      // Upload photos first (if online)
+      if (isOnline) {
+        setIsUploading(true);
+        try {
+          for (const photo of capturedPhotos) {
+            const file = photo.file || await fetch(photo.dataUrl)
+              .then(r => r.blob())
+              .then(blob => new File([blob], `movement-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+
+            const result = await uploadPhoto({
+              claimId: flowInstance!.claimId,
+              file,
+              label: photo.label || movement?.name || 'Movement Photo',
+              hierarchyPath: `Flow / ${flowInstance?.flowName || 'Inspection'} / ${movement?.name || 'Movement'}`,
+            });
+
+            if (result?.photo?.id) {
+              uploadedPhotoIds.push(result.photo.id);
+
+              // Attach to movement
+              await attachMovementEvidence(flowId!, movementId!, {
+                type: 'photo',
+                referenceId: result.photo.id,
+                userId: user.id,
+              });
+            }
+          }
+        } finally {
+          setIsUploading(false);
+        }
+      } else {
+        // Offline: queue photos for later upload
         for (const photo of capturedPhotos) {
           const file = photo.file || await fetch(photo.dataUrl)
             .then(r => r.blob())
             .then(blob => new File([blob], `movement-${Date.now()}.jpg`, { type: 'image/jpeg' }));
-
-          const result = await uploadPhoto({
+          
+          await offlineStorage.queueEvidence({
+            type: 'photo',
+            fileData: file,
+            fileName: file.name,
+            flowInstanceId: flowId!,
+            movementId: movementId!,
             claimId: flowInstance!.claimId,
-            file,
-            label: photo.label || movement?.name || 'Movement Photo',
-            hierarchyPath: `Flow / ${flowInstance?.flowName || 'Inspection'} / ${movement?.name || 'Movement'}`,
+            metadata: { label: photo.label || movement?.name },
           });
-
-          if (result?.photo?.id) {
-            uploadedPhotoIds.push(result.photo.id);
-
-            // Attach to movement
-            await attachMovementEvidence(flowId!, movementId!, {
-              type: 'photo',
-              referenceId: result.photo.id,
-              userId: user.id,
-            });
-          }
         }
-      } finally {
-        setIsUploading(false);
       }
 
       // Complete the movement
-      return completeFlowMovement(flowId!, movementId!, {
-        userId: user.id,
-        notes: notes || undefined,
-        evidence: {
-          photos: uploadedPhotoIds,
-        },
-      });
+      if (isOnline) {
+        return completeFlowMovement(flowId!, movementId!, {
+          userId: user.id,
+          notes: notes || undefined,
+          evidence: {
+            photos: uploadedPhotoIds,
+          },
+        });
+      } else {
+        // Offline: queue completion
+        const queued = await offlineStorage.queueCompletion({
+          flowInstanceId: flowId!,
+          movementId: movementId!,
+          notes: notes || undefined,
+          completedAt: new Date().toISOString(),
+          evidenceIds: uploadedPhotoIds,
+        });
+        return queued as any; // Return queued item for optimistic update
+      }
     },
     onSuccess: async () => {
-      toast.success('Movement completed');
+      const isOnline = syncManager.getIsOnline();
+      if (isOnline) {
+        toast.success('Movement completed');
+      } else {
+        toast.success('Movement completed (offline - will sync when online)');
+      }
 
-      // Invalidate queries
-      queryClient.invalidateQueries({ queryKey: ['flowInstance', flowId] });
-      queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
-      queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
-      queryClient.invalidateQueries({ queryKey: ['phaseMovements', flowId] });
+      // Invalidate queries (only if online)
+      if (isOnline) {
+        queryClient.invalidateQueries({ queryKey: ['flowInstance', flowId] });
+        queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
+        queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
+        queryClient.invalidateQueries({ queryKey: ['phaseMovements', flowId] });
+      }
 
       // Navigate to next movement or back to flow progress
       try {
-        const next = await getNextMovement(flowId!);
-        if (next.type === 'movement' && next.movement) {
-          setLocation(`/flows/${flowId}/movements/${next.movement.id}`);
+        if (isOnline) {
+          const next = await getNextMovement(flowId!);
+          if (next.type === 'movement' && next.movement) {
+            setLocation(`/flows/${flowId}/movements/${next.movement.id}`);
+          } else {
+            setLocation(`/flows/${flowId}`);
+          }
         } else {
+          // Offline: optimistic navigation (may need adjustment based on cached flow state)
           setLocation(`/flows/${flowId}`);
         }
       } catch {

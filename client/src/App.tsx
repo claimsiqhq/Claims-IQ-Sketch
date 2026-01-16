@@ -20,6 +20,7 @@ import MovementExecution from "@/pages/movement-execution";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { UploadStatusBar } from "@/components/UploadStatusBar";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OfflineBanner } from "@/components/flow/OfflineBanner";
 
 function Router() {
   return (
@@ -107,6 +108,7 @@ function App() {
         <DeviceModeProvider>
           <TooltipProvider>
             <Toaster />
+            <OfflineBanner />
             <Router />
             <UploadStatusBar />
           </TooltipProvider>

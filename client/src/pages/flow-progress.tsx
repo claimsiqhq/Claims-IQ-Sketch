@@ -48,6 +48,7 @@ import {
 import { VoiceGuidedInspection } from "@/components/flow/VoiceGuidedInspection";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
+import { offlineStorage } from "@/services/offlineStorage";
 import { toast } from "sonner";
 
 export default function FlowProgressPage() {
@@ -70,7 +71,21 @@ export default function FlowProgressPage() {
     refetch: refetchFlow,
   } = useQuery({
     queryKey: ['flowInstance', flowId],
-    queryFn: () => getFlowInstance(flowId!),
+    queryFn: async () => {
+      try {
+        const flowData = await getFlowInstance(flowId!);
+        // Cache for offline access
+        await offlineStorage.cacheFlow(flowData);
+        return flowData;
+      } catch (error) {
+        // Try to load from cache if online fetch fails
+        const cached = await offlineStorage.getCachedFlow(flowId!);
+        if (cached) {
+          return cached;
+        }
+        throw error;
+      }
+    },
     enabled: !!flowId,
     staleTime: 30000,
   });

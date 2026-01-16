@@ -14,3 +14,4 @@ export { LoadingButton } from './LoadingButton';
 export { StatusBadge } from './StatusBadge';
 export { ErrorBanner } from './ErrorBanner';
 export { EmptyState } from './EmptyState';
+export { OfflineBanner } from './OfflineBanner';
