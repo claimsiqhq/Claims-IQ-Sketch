@@ -211,7 +211,7 @@ export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 
 export const claims = pgTable("claims", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  organizationId: uuid("organization_id").notNull(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: 'restrict' }),
   assignedUserId: uuid("assigned_user_id").references(() => users.id, { onDelete: 'set null' }),
 
   // Claim identifier (format: XX-XXX-XXXXXX)
