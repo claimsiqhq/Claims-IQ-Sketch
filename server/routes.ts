@@ -608,8 +608,8 @@ export async function registerRoutes(
 
     const start = startDate ? new Date(startDate) : new Date();
     start.setHours(0, 0, 0, 0);
-    const end = endDate ? new Date(endDate) : new Date();
-    end.setDate(end.getDate() + 7);
+    // Use endDate directly if provided, default to 90 days
+    const end = endDate ? new Date(endDate) : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
     end.setHours(23, 59, 59, 999);
 
     const result = await syncFromMs365(req.user!.id, req.organizationId!, start, end);
@@ -627,8 +627,8 @@ export async function registerRoutes(
     if (startDate || endDate) {
       start = startDate ? new Date(startDate) : new Date();
       start.setHours(0, 0, 0, 0);
-      end = endDate ? new Date(endDate) : new Date();
-      end.setDate(end.getDate() + 7);
+      // Use endDate directly if provided
+      end = endDate ? new Date(endDate) : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
       end.setHours(23, 59, 59, 999);
     }
 
@@ -645,12 +645,37 @@ export async function registerRoutes(
   // Full bidirectional sync
   app.post('/api/calendar/sync/full', requireAuth, requireOrganization, apiRateLimiter, validateBody(calendarSyncFullSchema), asyncHandler(async (req, res, next) => {
     const { fullSync } = await import('./services/ms365CalendarSyncService');
+    const { supabaseAdmin } = await import('./lib/supabaseAdmin');
     const { startDate, endDate } = req.body;
 
     const start = startDate ? new Date(startDate) : new Date();
     start.setHours(0, 0, 0, 0);
-    const end = endDate ? new Date(endDate) : new Date();
-    end.setDate(end.getDate() + 7);
+    
+    let end: Date;
+    if (endDate) {
+      // Use provided endDate directly
+      end = new Date(endDate);
+    } else {
+      // Get user's preference for date range, default to 90 days
+      let dateRangeDays = 90;
+      try {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('preferences')
+          .eq('id', req.user!.id)
+          .single();
+        if (user?.preferences && typeof user.preferences === 'object') {
+          const prefs = user.preferences as any;
+          if (prefs.calendarSync?.dateRangeDays && typeof prefs.calendarSync.dateRangeDays === 'number') {
+            dateRangeDays = prefs.calendarSync.dateRangeDays;
+          }
+        }
+      } catch (e) {
+        // Use default
+      }
+      end = new Date();
+      end.setDate(end.getDate() + dateRangeDays);
+    }
     end.setHours(23, 59, 59, 999);
 
     const result = await fullSync(req.user!.id, req.organizationId!, start, end);
