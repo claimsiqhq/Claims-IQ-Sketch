@@ -235,7 +235,12 @@ export async function getDamageZonesByRoomId(roomId: string): Promise<ClaimDamag
   return (data || []).map(mapRowToDamageZone);
 }
 
-export async function createRoom(room: Omit<InsertClaimRoom, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimRoom> {
+export async function createRoom(
+  room: Omit<InsertClaimRoom, 'id' | 'createdAt' | 'updatedAt'> & {
+    flowInstanceId?: string;
+    movementId?: string;
+  }
+): Promise<ClaimRoom> {
   const { data, error } = await supabaseAdmin
     .from('claim_rooms')
     .insert({
@@ -258,15 +263,45 @@ export async function createRoom(room: Omit<InsertClaimRoom, 'id' | 'createdAt' 
       features: room.features || [],
       notes: room.notes || [],
       sort_order: room.sortOrder || 0,
+      flow_instance_id: room.flowInstanceId || null,
+      movement_id: room.movementId || null,
+      created_during_inspection: !!(room.flowInstanceId && room.movementId),
     })
     .select('*')
     .single();
 
   if (error) throw error;
-  return mapRowToRoom(data);
+  
+  const createdRoom = mapRowToRoom(data);
+  
+  // If created during flow, also add to movement_evidence
+  if (room.flowInstanceId && room.movementId) {
+    await supabaseAdmin.from('movement_evidence').insert({
+      flow_instance_id: room.flowInstanceId,
+      movement_id: room.movementId,
+      evidence_type: 'sketch_zone',
+      reference_id: createdRoom.id,
+      evidence_data: {
+        name: room.name,
+        roomType: room.roomType,
+        widthFt: room.widthFt,
+        lengthFt: room.lengthFt,
+      },
+    }).catch(err => {
+      console.error('[rooms] Failed to create movement_evidence for room:', err);
+      // Don't throw - room creation succeeded
+    });
+  }
+  
+  return createdRoom;
 }
 
-export async function createDamageZone(zone: Omit<InsertClaimDamageZone, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClaimDamageZone> {
+export async function createDamageZone(
+  zone: Omit<InsertClaimDamageZone, 'id' | 'createdAt' | 'updatedAt'> & {
+    flowInstanceId?: string;
+    movementId?: string;
+  }
+): Promise<ClaimDamageZone> {
   const { data, error } = await supabaseAdmin
     .from('claim_damage_zones')
     .insert({
@@ -285,12 +320,36 @@ export async function createDamageZone(zone: Omit<InsertClaimDamageZone, 'id' | 
       is_freeform: zone.isFreeform || false,
       notes: zone.notes || null,
       sort_order: zone.sortOrder || 0,
+      flow_instance_id: zone.flowInstanceId || null,
+      movement_id: zone.movementId || null,
     })
     .select('*')
     .single();
 
   if (error) throw error;
-  return mapRowToDamageZone(data);
+  
+  const createdZone = mapRowToDamageZone(data);
+  
+  // If created during flow, also add to movement_evidence
+  if (zone.flowInstanceId && zone.movementId) {
+    await supabaseAdmin.from('movement_evidence').insert({
+      flow_instance_id: zone.flowInstanceId,
+      movement_id: zone.movementId,
+      evidence_type: 'damage_marker',
+      reference_id: createdZone.id,
+      evidence_data: {
+        damageType: zone.damageType,
+        severity: zone.severity,
+        category: zone.category,
+        affectedWalls: zone.affectedWalls,
+      },
+    }).catch(err => {
+      console.error('[rooms] Failed to create movement_evidence for damage zone:', err);
+      // Don't throw - zone creation succeeded
+    });
+  }
+  
+  return createdZone;
 }
 
 export async function updateRoom(id: string, updates: Partial<InsertClaimRoom>): Promise<ClaimRoom | null> {

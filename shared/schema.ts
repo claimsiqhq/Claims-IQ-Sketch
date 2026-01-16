@@ -777,6 +777,11 @@ export const claimRooms = pgTable("claim_rooms", {
   // Notes
   notes: jsonb("notes").default(sql`'[]'::jsonb`), // Array of {text, timestamp}
 
+  // Flow context (for linking to flow engine movements)
+  flowInstanceId: uuid("flow_instance_id").references(() => claimFlowInstances.id, { onDelete: 'set null' }),
+  movementId: text("movement_id"), // Format: "phaseId:movementId"
+  createdDuringInspection: boolean("created_during_inspection").default(false),
+
   // Sort order for display
   sortOrder: integer("sort_order").default(0),
 
@@ -786,6 +791,7 @@ export const claimRooms = pgTable("claim_rooms", {
 }, (table) => ({
   claimIdx: index("claim_rooms_claim_idx").on(table.claimId),
   orgIdx: index("claim_rooms_org_idx").on(table.organizationId),
+  flowIdx: index("claim_rooms_flow_idx").on(table.flowInstanceId, table.movementId),
 }));
 
 export const insertClaimRoomSchema = createInsertSchema(claimRooms).omit({
@@ -852,6 +858,10 @@ export const claimDamageZones = pgTable("claim_damage_zones", {
   // Notes
   notes: text("notes"),
 
+  // Flow context (for linking to flow engine movements)
+  flowInstanceId: uuid("flow_instance_id").references(() => claimFlowInstances.id, { onDelete: 'set null' }),
+  movementId: text("movement_id"), // Format: "phaseId:movementId"
+
   // Sort order for display
   sortOrder: integer("sort_order").default(0),
 
@@ -863,6 +873,7 @@ export const claimDamageZones = pgTable("claim_damage_zones", {
   roomIdx: index("claim_damage_zones_room_idx").on(table.roomId),
   orgIdx: index("claim_damage_zones_org_idx").on(table.organizationId),
   perilIdx: index("claim_damage_zones_peril_idx").on(table.associatedPeril),
+  flowIdx: index("claim_damage_zones_flow_idx").on(table.flowInstanceId, table.movementId),
 }));
 
 export const insertClaimDamageZoneSchema = createInsertSchema(claimDamageZones).omit({
