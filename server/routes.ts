@@ -1106,7 +1106,12 @@ export async function registerRoutes(
     res.json(result);
   }));
 
+  // Test endpoint - only available in development
   app.get('/api/scrape/test', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    // Gate test endpoint behind development mode
+    if (process.env.NODE_ENV === 'production') {
+      return next(errors.notFound('Endpoint'));
+    }
     const results = await testScrape();
     const data = Array.from(results.entries()).map(([sku, product]) => ({
       sku,
@@ -1551,8 +1556,12 @@ export async function registerRoutes(
     // Check if estimate is locked
     await assertEstimateNotLocked(req.params.id);
 
-    const updatedEstimate = await updateEstimate(req.params.id, req.body);
-    res.json(updatedEstimate);
+    // Get expected version from request body for optimistic locking
+    const expectedVersion = req.body.version;
+    const updatedEstimate = await updateEstimate(req.params.id, req.body, expectedVersion);
+    
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, updatedEstimate);
   }));
 
   // Add line item to estimate

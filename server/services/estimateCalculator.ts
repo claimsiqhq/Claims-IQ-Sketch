@@ -642,20 +642,34 @@ export async function getEstimate(estimateId: string, organizationId: string): P
 
 export async function updateEstimate(
   estimateId: string,
-  input: EstimateCalculationInput
+  input: EstimateCalculationInput,
+  expectedVersion?: number
 ): Promise<SavedEstimate> {
   // NOTE: This is a multi-step operation that should ideally use a database transaction
   // It deletes existing line items/coverage summaries and inserts new ones.
   // For true atomicity, consider creating a PostgreSQL function that performs all operations in a single transaction.
-  // Get current estimate to check version
+  
+  // Get current estimate to check version (optimistic locking)
   const { data: currentEstimate, error: currentError } = await supabaseAdmin
     .from('estimates')
-    .select('version')
+    .select('version, is_locked')
     .eq('id', estimateId)
     .single();
 
   if (currentError || !currentEstimate) {
     throw new Error('Estimate not found');
+  }
+
+  // Optimistic locking: check if version matches expected version
+  if (expectedVersion !== undefined && currentEstimate.version !== expectedVersion) {
+    const error: any = new Error('Estimate has been modified by another user. Please refresh and try again.');
+    error.statusCode = 409;
+    error.code = 'VERSION_CONFLICT';
+    error.details = {
+      currentVersion: currentEstimate.version,
+      expectedVersion,
+    };
+    throw error;
   }
 
   const newVersion = currentEstimate.version + 1;

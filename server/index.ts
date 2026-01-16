@@ -9,6 +9,7 @@ import { createServer } from "http";
 import { setupAuth } from "./middleware/auth";
 import { initializeStorageBucket } from "./services/documents";
 import { seedAdminUser } from "./services/auth";
+import { requestIdMiddleware } from "./middleware/requestId";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -65,6 +66,9 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Add request ID middleware (must be before other middleware that logs)
+app.use(requestIdMiddleware);
 
 // Setup authentication middleware
 setupAuth(app);

@@ -47,6 +47,7 @@ export const estimateUpdateSchema = z.object({
   carrierProfileId: z.string().uuid().optional(),
   overheadPct: z.number().min(0).max(100).optional(),
   profitPct: z.number().min(0).max(100).optional(),
+  version: z.number().int().positive().optional(), // For optimistic locking
 }).passthrough(); // Allow additional fields
 
 export const addLineItemToEstimateSchema = z.object({
