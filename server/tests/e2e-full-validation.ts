@@ -1430,7 +1430,9 @@ async function runFullValidation() {
 }
 
 // Run if executed directly
-if (require.main === module) {
+import { fileURLToPath } from 'url';
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
   runFullValidation().catch(err => {
     console.error('Fatal error:', err);
     process.exit(1);
