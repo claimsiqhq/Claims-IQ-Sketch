@@ -372,11 +372,6 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Claim Upload Wizard */}
-          <div ref={bulkUploadRef}>
-            <ClaimUploadWizard className="mb-4" onUploadComplete={loadData} />
-          </div>
-
           {/* Mobile Stats - Compact horizontal scroll */}
           <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
@@ -493,7 +488,7 @@ export default function Home() {
             ) : claims.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Building2 className="h-10 w-10 text-slate-300 mb-3" />
-                <p className="text-sm text-slate-500 mb-3">No claims yet — drop files above to get started</p>
+                <p className="text-sm text-slate-500 mb-3">No claims yet — drop files below to get started</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -502,6 +497,11 @@ export default function Home() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Claim Upload Wizard - Below claims list */}
+          <div ref={bulkUploadRef} className="mt-6">
+            <ClaimUploadWizard className="mb-4" onUploadComplete={loadData} />
           </div>
         </div>
       </Layout>
@@ -594,11 +594,6 @@ export default function Home() {
               </p>
             </div>
           </div>
-        </div>
-
-        {/* Claim Upload Wizard - Desktop */}
-        <div ref={bulkUploadRef}>
-          <ClaimUploadWizard className="mb-8" onUploadComplete={loadData} />
         </div>
 
         {/* Total Value Card */}
@@ -704,7 +699,7 @@ export default function Home() {
               <Building2 className="h-12 w-12 text-slate-300 mb-4" />
               <h3 className="text-lg font-semibold text-slate-900 mb-2">No claims yet</h3>
               <p className="text-slate-500 mb-4">
-                Drop files in the upload zone above to get started
+                Drop files in the upload zone below to get started
               </p>
             </div>
           ) : (
@@ -714,6 +709,11 @@ export default function Home() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Claim Upload Wizard - Below claims list */}
+        <div ref={bulkUploadRef} className="mt-8">
+          <ClaimUploadWizard className="mb-8" onUploadComplete={loadData} />
         </div>
       </div>
     </Layout>
