@@ -248,7 +248,7 @@ export async function classifyDocumentFromFile(
 
   // Call OpenAI Vision
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5.2',
     messages: [
       {
         role: 'system',
@@ -259,7 +259,7 @@ export async function classifyDocumentFromFile(
         content: contentParts,
       },
     ],
-    max_tokens: 500,
+    max_completion_tokens: 500,
     response_format: { type: 'json_object' },
   });
 

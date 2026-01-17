@@ -1295,7 +1295,7 @@ async function extractFromSingleImage(
         ]
       }
     ],
-    max_tokens: promptConfig.maxTokens || 4000,
+    max_completion_tokens: promptConfig.maxTokens || 4000,
     response_format: { type: 'json_object' }
   });
 
@@ -1476,7 +1476,7 @@ async function extractFromImage(
         ]
       }
     ],
-    max_tokens: 4000,
+    max_completion_tokens: 4000,
     response_format: { type: 'json_object' }
   });
 

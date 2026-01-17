@@ -1632,9 +1632,9 @@ export async function validateEvidenceWithAI(
 
   try {
     const response = await openai.chat.completions.create({
-      model: promptConfig.model || 'gpt-4o',
+      model: promptConfig.model || 'gpt-5.2',
       temperature: promptConfig.temperature || 0.3,
-      max_tokens: promptConfig.maxTokens || 1000,
+      max_completion_tokens: promptConfig.maxTokens || 1000,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: promptConfig.systemPrompt || '' },

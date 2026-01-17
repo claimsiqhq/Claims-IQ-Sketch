@@ -151,7 +151,7 @@ Look for concerns such as:
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.2',
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -172,7 +172,7 @@ Look for concerns such as:
         },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 1000,
+      max_completion_tokens: 1000,
     });
 
     const content = response.choices[0]?.message?.content;
