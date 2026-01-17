@@ -96,7 +96,7 @@ router.post('/logout', (req: Request, res: Response) => {
       if (destroyErr) {
         log.warn({ err: destroyErr }, 'Session destroy error');
       }
-      res.clearCookie('connect.sid');
+      res.clearCookie('claimsiq.sid');
       log.info({ userId }, 'User logged out');
       res.json({ message: 'Logged out successfully' });
     });

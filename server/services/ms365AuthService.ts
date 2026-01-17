@@ -215,11 +215,35 @@ export async function getUserTokens(userId: string): Promise<{
 }
 
 /**
- * Check if a user is connected to MS365
+ * Check if a user is connected to MS365 with valid tokens
+ * This verifies the tokens are not just present but actually usable
  */
 export async function isUserConnected(userId: string): Promise<boolean> {
   const tokens = await getUserTokens(userId);
-  return tokens !== null && tokens.accessToken !== null;
+  if (!tokens || !tokens.accessToken) {
+    return false;
+  }
+
+  // Check if the access token is still valid (with 5 min buffer)
+  if (tokens.expiresAt) {
+    const expiresAt = new Date(tokens.expiresAt);
+    const buffer = 5 * 60 * 1000; // 5 minutes
+    if (expiresAt.getTime() - buffer <= Date.now()) {
+      // Token is expired, check if we have a refresh token
+      if (!tokens.refreshToken) {
+        console.log('[MS365] Access token expired and no refresh token available');
+        return false;
+      }
+      // Try to refresh the token
+      const validToken = await getValidAccessToken(userId);
+      if (!validToken) {
+        console.log('[MS365] Token refresh failed - user needs to reconnect');
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -258,10 +282,27 @@ export async function refreshAccessToken(userId: string): Promise<string | null>
         expiresAt: response.expiresOn?.toISOString() || null,
         accountId: response.account?.homeAccountId || null,
       });
+      console.log('[MS365] Token refreshed successfully for user', userId);
       return response.accessToken;
     }
-  } catch (error) {
-    console.error('[MS365] Token refresh failed:', error);
+    console.error('[MS365] Token refresh returned no access token');
+  } catch (error: any) {
+    // Check for specific error types that indicate the refresh token is expired
+    const errorMessage = error?.message || String(error);
+    if (errorMessage.includes('invalid_grant') ||
+        errorMessage.includes('expired') ||
+        errorMessage.includes('revoked') ||
+        errorMessage.includes('AADSTS')) {
+      console.error('[MS365] Refresh token expired or revoked - user must reconnect:', errorMessage);
+      // Clear invalid tokens so the UI shows disconnected state
+      try {
+        await disconnectUser(userId);
+      } catch (clearError) {
+        console.error('[MS365] Failed to clear invalid tokens:', clearError);
+      }
+    } else {
+      console.error('[MS365] Token refresh failed with unexpected error:', error);
+    }
   }
 
   return null;
