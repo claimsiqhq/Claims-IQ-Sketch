@@ -4850,6 +4850,13 @@ export const movementCompletions = pgTable("movement_completions", {
     measurements?: any;
   }>(),
   
+  // Skip tracking
+  skippedRequired: boolean("skipped_required").default(false), // Track if a required step was skipped
+  
+  // AI validation tracking
+  evidenceValidated: boolean("evidence_validated").default(false), // Whether AI validation was performed
+  evidenceValidationResult: jsonb("evidence_validation_result"), // AI validation result JSON
+  
   // Audit
   completedAt: timestamp("completed_at").default(sql`NOW()`),
   completedBy: uuid("completed_by"),
@@ -4859,6 +4866,8 @@ export const movementCompletions = pgTable("movement_completions", {
   flowInstanceIdx: index("movement_completions_flow_instance_idx").on(table.flowInstanceId),
   movementIdx: index("movement_completions_movement_idx").on(table.movementId),
   claimIdx: index("movement_completions_claim_idx").on(table.claimId),
+  skippedRequiredIdx: index("movement_completions_skipped_required_idx").on(table.flowInstanceId, table.skippedRequired),
+  phaseIdx: index("movement_completions_phase_idx").on(table.flowInstanceId, table.movementPhase),
 }));
 
 export const insertMovementCompletionSchema = createInsertSchema(movementCompletions).omit({

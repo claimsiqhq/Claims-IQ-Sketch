@@ -88,6 +88,8 @@ export interface MovementCompletion {
   completedBy: string;
   notes: string | null;
   evidenceData: any;
+  phaseAdvanced?: boolean;
+  flowComplete?: boolean;
 }
 
 export interface EvidenceValidation {
@@ -474,8 +476,25 @@ export async function completeMovement(
     throw new Error('No current phase');
   }
 
-  // Find the movement
-  const movement = currentPhase.movements?.find(m => m.id === movementId);
+  // Find the movement - check both regular and dynamic movements
+  let movement = currentPhase.movements?.find(m => m.id === movementId);
+  let isDynamic = false;
+
+  // Also check dynamic movements
+  if (!movement) {
+    const dynamicMovements = (flowInstance.dynamic_movements || []) as any[];
+    const dynamicMatch = dynamicMovements.find(dm => dm.id === movementId);
+    if (dynamicMatch) {
+      movement = {
+        id: dynamicMatch.id,
+        name: dynamicMatch.name,
+        is_required: dynamicMatch.is_required,
+        evidence_requirements: dynamicMatch.evidence_requirements
+      } as FlowJsonMovement;
+      isDynamic = true;
+    }
+  }
+
   if (!movement) {
     throw new Error(`Movement ${movementId} not found in current phase`);
   }
@@ -528,6 +547,9 @@ export async function completeMovement(
     console.error('[FlowEngineService] Error recording completion:', completionError);
   }
 
+  // Check for phase advancement after movement completion
+  const advanceResult = await checkPhaseAdvancement(flowInstanceId);
+
   return {
     id: completion?.id || movementKey,
     flowInstanceId,
@@ -537,7 +559,9 @@ export async function completeMovement(
     completedAt: new Date(),
     completedBy: evidence.userId,
     notes: evidence.notes || null,
-    evidenceData: evidence
+    evidenceData: evidence,
+    phaseAdvanced: advanceResult.phaseAdvanced,
+    flowComplete: advanceResult.flowComplete
   };
 }
 
