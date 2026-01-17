@@ -332,18 +332,33 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
   if (fullscreen && selectedDoc && imageData) {
     return (
       <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
-        <div className="flex items-center justify-between p-4 text-white shrink-0">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={handlePrevPage} disabled={currentPage <= 1} className="text-white hover:bg-white/20">
+        {/* Mobile-friendly close button - always visible in top-right corner */}
+        <Button 
+          variant="ghost" 
+          size="lg"
+          onClick={() => setFullscreen(false)} 
+          className="fixed top-2 right-2 z-[60] text-white bg-black/50 hover:bg-black/70 rounded-full w-12 h-12 p-0 md:hidden"
+          data-testid="btn-close-fullscreen-mobile"
+        >
+          <X className="w-6 h-6" />
+        </Button>
+        
+        <div className="flex items-center justify-between p-2 md:p-4 text-white shrink-0">
+          {/* Page navigation - left side */}
+          <div className="flex items-center gap-1 md:gap-4">
+            <Button variant="ghost" size="sm" onClick={handlePrevPage} disabled={currentPage <= 1} className="text-white hover:bg-white/20 p-1 md:p-2">
               <ChevronLeft className="w-5 h-5" />
             </Button>
-            <span>Page {currentPage} of {imageData.pages}</span>
-            <Button variant="ghost" size="sm" onClick={handleNextPage} disabled={currentPage >= imageData.pages} className="text-white hover:bg-white/20">
+            <span className="text-xs md:text-sm whitespace-nowrap">Page {currentPage}/{imageData.pages}</span>
+            <Button variant="ghost" size="sm" onClick={handleNextPage} disabled={currentPage >= imageData.pages} className="text-white hover:bg-white/20 p-1 md:p-2">
               <ChevronRight className="w-5 h-5" />
             </Button>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
+          
+          {/* Controls - right side (hidden on mobile except for essential buttons) */}
+          <div className="flex items-center gap-1 md:gap-4">
+            {/* Zoom controls - hidden on mobile to save space */}
+            <div className="hidden md:flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={handleZoomOut} disabled={zoom <= 25} className="text-white hover:bg-white/20">
                 <ZoomOut className="w-5 h-5" />
               </Button>
@@ -355,11 +370,12 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
                 <RotateCcw className="w-5 h-5" />
               </Button>
             </div>
-            <span className="text-sm opacity-75 max-w-[200px] truncate">{selectedDoc.name}</span>
-            <Button variant="ghost" size="sm" onClick={handleDownload} className="text-white hover:bg-white/20">
+            <span className="hidden md:inline text-sm opacity-75 max-w-[200px] truncate">{selectedDoc.name}</span>
+            <Button variant="ghost" size="sm" onClick={handleDownload} className="text-white hover:bg-white/20 p-1 md:p-2">
               <Download className="w-5 h-5" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setFullscreen(false)} className="text-white hover:bg-white/20">
+            {/* Desktop close button */}
+            <Button variant="ghost" size="sm" onClick={() => setFullscreen(false)} className="hidden md:flex text-white hover:bg-white/20" data-testid="btn-close-fullscreen">
               <X className="w-5 h-5" />
             </Button>
           </div>
