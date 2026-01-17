@@ -249,7 +249,7 @@ export async function geocodeAddress(
             displayName: result.formatted_address
           };
         } else {
-          log.warn({ status: data.status, address: addressString }, '[Geocoding] Google returned non-OK status');
+          log.warn({ status: data.status, errorMessage: data.error_message, address: addressString }, '[Geocoding] Google returned non-OK status');
         }
       } else {
         log.warn({ status: response.status }, '[Geocoding] Google API failed, falling back to Nominatim');
