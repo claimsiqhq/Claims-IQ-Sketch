@@ -3943,32 +3943,46 @@ export default function ClaimDetail() {
             if (e.target === e.currentTarget) closeDocumentPreview();
           }}
         >
-          <div className="flex items-center justify-between p-4 text-white">
-            <div className="flex items-center gap-4">
+          {/* Mobile-friendly close button - large and always visible */}
+          <Button 
+            variant="ghost" 
+            size="lg"
+            onClick={closeDocumentPreview} 
+            className="fixed top-3 right-3 z-[60] text-white bg-black/60 hover:bg-black/80 rounded-full w-14 h-14 p-0 md:hidden shadow-lg border border-white/30"
+            data-testid="btn-close-preview-mobile"
+          >
+            <X className="w-7 h-7" />
+          </Button>
+          
+          <div className="flex items-center justify-between p-2 md:p-4 text-white">
+            {/* Page navigation - left side */}
+            <div className="flex items-center gap-1 md:gap-4">
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setPreviewPage(p => Math.max(1, p - 1))} 
                 disabled={previewPage <= 1} 
-                className="text-white hover:bg-white/20"
+                className="text-white hover:bg-white/20 p-1 md:p-2"
               >
                 <ChevronLeft className="w-5 h-5" />
               </Button>
-              <span>
-                Page {previewPage} of {previewImageData?.pages || 1}
+              <span className="text-xs md:text-sm whitespace-nowrap">
+                Page {previewPage}/{previewImageData?.pages || 1}
               </span>
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setPreviewPage(p => Math.min(previewImageData?.pages || 1, p + 1))} 
                 disabled={!previewImageData || previewPage >= previewImageData.pages} 
-                className="text-white hover:bg-white/20"
+                className="text-white hover:bg-white/20 p-1 md:p-2"
               >
                 <ChevronRight className="w-5 h-5" />
               </Button>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
+            {/* Controls - right side */}
+            <div className="flex items-center gap-1 md:gap-4">
+              {/* Zoom controls - hidden on mobile to save space */}
+              <div className="hidden md:flex items-center gap-2">
                 <Button 
                   variant="ghost" 
                   size="sm" 
@@ -3989,12 +4003,14 @@ export default function ClaimDetail() {
                   <ZoomIn className="w-5 h-5" />
                 </Button>
               </div>
-              <span className="text-sm opacity-75 max-w-[200px] truncate hidden sm:inline">{previewDocName}</span>
+              <span className="text-sm opacity-75 max-w-[200px] truncate hidden md:inline">{previewDocName}</span>
+              {/* Desktop close button */}
               <Button 
                 variant="default" 
                 size="sm" 
                 onClick={closeDocumentPreview} 
-                className="bg-white text-black hover:bg-gray-200 font-medium"
+                className="hidden md:flex bg-white text-black hover:bg-gray-200 font-medium"
+                data-testid="btn-close-preview"
               >
                 <X className="w-4 h-4 mr-1" />
                 Close
