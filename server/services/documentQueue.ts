@@ -194,10 +194,10 @@ async function processItemAsync(item: QueueItem): Promise<void> {
     if (needsClassification) {
       console.log(`[DocumentQueue] Classifying document ${documentId}...`);
 
-      // Get document info to find storage path
+      // Get document info to find storage path (include claim_id to preserve it during updates)
       const { data: doc, error: docError } = await supabaseAdmin
         .from('documents')
-        .select('storage_path, type')
+        .select('storage_path, type, claim_id, extracted_data')
         .eq('id', documentId)
         .single();
 
@@ -216,13 +216,13 @@ async function processItemAsync(item: QueueItem): Promise<void> {
 
       console.log(`[DocumentQueue] Document ${documentId} classified as: ${classification.documentType} (confidence: ${classification.confidence})`);
 
-      // Update document with classified type
+      // Update document with classified type (preserve claim_id!)
       const { error: classifyUpdateError } = await supabaseAdmin
         .from('documents')
         .update({
           type: classification.documentType,
           extracted_data: {
-            ...((doc as any).extracted_data || {}),
+            ...(doc.extracted_data || {}),
             _classification: {
               documentType: classification.documentType,
               confidence: classification.confidence,
@@ -232,6 +232,7 @@ async function processItemAsync(item: QueueItem): Promise<void> {
               classifiedAt: new Date().toISOString(),
             },
           },
+          claim_id: doc.claim_id, // Preserve claim association during classification
           processing_status: 'processing',
           updated_at: new Date().toISOString(),
         })
@@ -240,7 +241,7 @@ async function processItemAsync(item: QueueItem): Promise<void> {
       if (classifyUpdateError) {
         console.error(`[DocumentQueue] Failed to update document type after classification: ${classifyUpdateError.message}`);
       } else {
-        console.log(`[DocumentQueue] Successfully updated document ${documentId} type to: ${classification.documentType}`);
+        console.log(`[DocumentQueue] Successfully updated document ${documentId} type to: ${classification.documentType} (claim_id preserved: ${doc.claim_id || 'none'})`);
       }
 
       // Skip AI extraction for photos and correspondence - they don't need it
