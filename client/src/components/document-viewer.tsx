@@ -265,33 +265,33 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between p-2 border-b bg-muted/30 shrink-0">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={handlePrevPage} disabled={currentPage <= 1} data-testid="btn-prev-page">
-              <ChevronLeft className="w-4 h-4" />
+          <div className="flex items-center gap-1" role="group" aria-label="Page navigation">
+            <Button variant="ghost" size="sm" onClick={handlePrevPage} disabled={currentPage <= 1} aria-label="Previous page" data-testid="btn-prev-page">
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <span className="text-sm min-w-[80px] text-center">
+            <span className="text-sm min-w-[80px] text-center" aria-live="polite">
               Page {currentPage} of {imageData.pages}
             </span>
-            <Button variant="ghost" size="sm" onClick={handleNextPage} disabled={currentPage >= imageData.pages} data-testid="btn-next-page">
-              <ChevronRight className="w-4 h-4" />
+            <Button variant="ghost" size="sm" onClick={handleNextPage} disabled={currentPage >= imageData.pages} aria-label="Next page" data-testid="btn-next-page">
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </Button>
           </div>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={handleZoomOut} disabled={zoom <= 25} data-testid="btn-zoom-out">
-              <ZoomOut className="w-4 h-4" />
+          <div className="flex items-center gap-1" role="group" aria-label="Zoom controls">
+            <Button variant="ghost" size="sm" onClick={handleZoomOut} disabled={zoom <= 25} aria-label="Zoom out" data-testid="btn-zoom-out">
+              <ZoomOut className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <span className="text-sm w-12 text-center">{zoom}%</span>
-            <Button variant="ghost" size="sm" onClick={handleZoomIn} disabled={zoom >= 300} data-testid="btn-zoom-in">
-              <ZoomIn className="w-4 h-4" />
+            <span className="text-sm w-12 text-center" aria-live="polite">{zoom}%</span>
+            <Button variant="ghost" size="sm" onClick={handleZoomIn} disabled={zoom >= 300} aria-label="Zoom in" data-testid="btn-zoom-in">
+              <ZoomIn className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleResetZoom} title="Reset zoom" data-testid="btn-reset-zoom">
-              <RotateCcw className="w-4 h-4" />
+            <Button variant="ghost" size="sm" onClick={handleResetZoom} aria-label="Reset zoom" data-testid="btn-reset-zoom">
+              <RotateCcw className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setFullscreen(true)} data-testid="btn-fullscreen">
-              <Maximize2 className="w-4 h-4" />
+            <Button variant="ghost" size="sm" onClick={() => setFullscreen(true)} aria-label="View fullscreen" data-testid="btn-fullscreen">
+              <Maximize2 className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleDownload} data-testid="btn-download">
-              <Download className="w-4 h-4" />
+            <Button variant="ghost" size="sm" onClick={handleDownload} aria-label="Download document" data-testid="btn-download">
+              <Download className="w-4 h-4" aria-hidden="true" />
             </Button>
           </div>
         </div>

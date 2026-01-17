@@ -165,18 +165,19 @@ export function VoiceButton({
         isListening && "text-red-600",
         className
       )}
-      title={isListening ? "Stop recording" : "Start voice input"}
+      aria-label={isListening ? "Stop recording" : "Start voice input"}
+      aria-pressed={isListening}
     >
       {isListening ? (
         <>
-          <Mic className="h-4 w-4 animate-pulse" />
-          <span className="absolute -top-1 -right-1 flex h-2 w-2">
+          <Mic className="h-4 w-4 animate-pulse" aria-hidden="true" />
+          <span className="absolute -top-1 -right-1 flex h-2 w-2" aria-hidden="true">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
           </span>
         </>
       ) : (
-        <Mic className="h-4 w-4" />
+        <Mic className="h-4 w-4" aria-hidden="true" />
       )}
     </Button>
   );

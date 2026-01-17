@@ -173,7 +173,7 @@ export async function calculateBasePrice(
 ): Promise<number> {
   const { data, error } = await supabaseAdmin
     .from('line_items')
-    .select('*')
+    .select('code, description, unit, unit_price, category_id, trade_code, material_components, labor_components, equipment_components, waste_factor, minimum_charge, is_active')
     .eq('code', lineItemCode)
     .limit(1);
 
@@ -196,7 +196,7 @@ export async function calculatePrice(
 ): Promise<PriceCalculationResult> {
   const { data: lineItems, error: itemError } = await supabaseAdmin
     .from('line_items')
-    .select('*')
+    .select('code, description, unit, unit_price, category_id, trade_code, material_components, labor_components, equipment_components, waste_factor, minimum_charge, is_active')
     .eq('code', lineItemCode)
     .eq('is_active', true)
     .limit(1);
@@ -209,7 +209,7 @@ export async function calculatePrice(
 
   const { data: regions, error: regionError } = await supabaseAdmin
     .from('regions')
-    .select('*')
+    .select('id, name, state, country, zip_postal_prefixes, indices, is_active')
     .eq('id', regionId)
     .limit(1);
 
@@ -228,7 +228,7 @@ export async function calculatePrice(
   if (carrierId) {
     const { data: carriers, error: carrierError } = await supabaseAdmin
       .from('carrier_profiles')
-      .select('*')
+      .select('id, name, labor_adjustment_factor, category_adjustments, regional_adjustments, is_active')
       .eq('id', carrierId)
       .limit(1);
 
@@ -339,7 +339,7 @@ export async function getRegionByZip(zipCode: string): Promise<any> {
 
   const { data, error } = await supabaseAdmin
     .from('regions')
-    .select('*')
+    .select('id, name, state, country, zip_postal_prefixes, indices, is_active')
     .contains('zip_postal_prefixes', [prefix])
     .limit(1);
 
@@ -347,7 +347,7 @@ export async function getRegionByZip(zipCode: string): Promise<any> {
     // Fallback to US-NATIONAL
     const { data: nationalData, error: nationalError } = await supabaseAdmin
       .from('regions')
-      .select('*')
+      .select('id, name, state, country, zip_postal_prefixes, indices, is_active')
       .eq('id', 'US-NATIONAL')
       .limit(1);
 

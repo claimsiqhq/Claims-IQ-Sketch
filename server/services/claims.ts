@@ -333,7 +333,7 @@ export async function createClaim(
       assigned_adjuster_id: data.assignedAdjusterId || null,
       metadata: data.metadata || {}
     })
-    .select('*')
+    .select('id, organization_id, claim_number, carrier_id, region_id, insured_name, insured_email, insured_phone, property_address, property_city, property_state, property_zip, property_latitude, property_longitude, geocode_status, date_of_loss, loss_type, loss_description, policy_number, claim_type, dwelling_limit, peril_specific_deductibles, coverage_a, coverage_b, coverage_c, coverage_d, deductible, status, assigned_adjuster_id, total_rcv, total_acv, total_paid, metadata, primary_peril, secondary_perils, peril_confidence, peril_metadata, loss_context, created_at, updated_at, closed_at')
     .single();
 
   if (error || !claim) {
@@ -349,7 +349,7 @@ export async function getClaim(
 ): Promise<ClaimWithDocuments | null> {
   const { data: claim, error } = await supabaseAdmin
     .from('claims')
-    .select('*')
+    .select('id, organization_id, claim_number, carrier_id, region_id, insured_name, insured_email, insured_phone, property_address, property_city, property_state, property_zip, property_latitude, property_longitude, geocode_status, date_of_loss, loss_type, loss_description, policy_number, claim_type, dwelling_limit, peril_specific_deductibles, coverage_a, coverage_b, coverage_c, coverage_d, deductible, status, assigned_adjuster_id, total_rcv, total_acv, total_paid, metadata, primary_peril, secondary_perils, peril_confidence, peril_metadata, loss_context, created_at, updated_at, closed_at')
     .eq('id', id)
     .eq('organization_id', organizationId)
     .single();
@@ -373,7 +373,7 @@ export async function getClaim(
       .eq('claim_id', id),
     supabaseAdmin
       .from('policy_form_extractions')
-      .select('*')
+      .select('id, claim_id, document_id, policy_number, policy_form_code, policy_form_name, edition_date, definitions, section_i, section_ii, general_conditions, extraction_data, extraction_status, created_at, updated_at')
       .eq('claim_id', id)
       .eq('extraction_status', 'completed')
       .order('created_at', { ascending: false })
@@ -381,7 +381,7 @@ export async function getClaim(
       .maybeSingle(),
     supabaseAdmin
       .from('endorsement_extractions')
-      .select('*')
+      .select('id, claim_id, document_id, form_code, title, edition_date, endorsement_type, summary, modifications, extraction_data, extraction_status, created_at, updated_at')
       .eq('claim_id', id)
       .order('created_at', { ascending: false })
   ]);

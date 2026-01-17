@@ -147,8 +147,9 @@ export function EvidenceGrid({
                   variant="secondary"
                   className="absolute bottom-4 right-4"
                   onClick={() => window.open(previewItem.url, '_blank')}
+                  aria-label="Download evidence photo"
                 >
-                  <Download className="h-4 w-4" />
+                  <Download className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             )}

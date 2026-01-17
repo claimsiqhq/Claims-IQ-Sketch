@@ -149,7 +149,7 @@ export async function createStructure(input: CreateStructureInput): Promise<Esti
       stories: input.stories || 1,
       sort_order: sortOrder,
     })
-    .select('*')
+    .select('id, estimate_id, coverage_id, name, description, sketch_name, sketch_page, year_built, construction_type, stories, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .single();
 
   if (error) throw error;
@@ -165,7 +165,7 @@ export async function createStructure(input: CreateStructureInput): Promise<Esti
 export async function getStructure(structureId: string): Promise<EstimateStructure | null> {
   const { data, error } = await supabaseAdmin
     .from('estimate_structures')
-    .select('*')
+    .select('id, estimate_id, coverage_id, name, description, sketch_name, sketch_page, year_built, construction_type, stories, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .eq('id', structureId)
     .single();
 
@@ -212,7 +212,7 @@ export async function updateStructure(
     .from('estimate_structures')
     .update(updateData)
     .eq('id', structureId)
-    .select('*')
+    .select('id, estimate_id, coverage_id, name, description, sketch_name, sketch_page, year_built, construction_type, stories, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .single();
 
   if (error) {
@@ -259,7 +259,7 @@ export async function createArea(input: CreateAreaInput): Promise<EstimateArea> 
       area_type: input.areaType,
       sort_order: sortOrder,
     })
-    .select('*')
+    .select('id, structure_id, name, area_type, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .single();
 
   if (error) throw error;
@@ -277,7 +277,7 @@ export async function createArea(input: CreateAreaInput): Promise<EstimateArea> 
 export async function getArea(areaId: string): Promise<EstimateArea | null> {
   const { data, error } = await supabaseAdmin
     .from('estimate_areas')
-    .select('*')
+    .select('id, structure_id, name, area_type, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .eq('id', areaId)
     .single();
 
@@ -312,7 +312,7 @@ export async function updateArea(
     .from('estimate_areas')
     .update(updateData)
     .eq('id', areaId)
-    .select('*')
+    .select('id, structure_id, name, area_type, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .single();
 
   if (error) {
@@ -379,7 +379,7 @@ export async function createZone(input: CreateZoneInput): Promise<EstimateZone> 
       notes: input.notes || null,
       sort_order: sortOrder,
     })
-    .select('*')
+    .select('id, area_id, name, zone_code, zone_type, status, room_type, floor_level, length_ft, width_ft, height_ft, pitch, pitch_multiplier, dimensions, room_info, sketch_polygon, damage_type, damage_severity, water_category, water_class, affected_surfaces, photo_ids, line_item_count, rcv_total, acv_total, notes, sort_order, associated_peril, peril_confidence, created_at, updated_at')
     .single();
 
   if (error) throw error;
@@ -414,7 +414,7 @@ export async function createZone(input: CreateZoneInput): Promise<EstimateZone> 
 export async function getZone(zoneId: string): Promise<EstimateZone | null> {
   const { data, error } = await supabaseAdmin
     .from('estimate_zones')
-    .select('*')
+    .select('id, area_id, name, zone_code, zone_type, status, room_type, floor_level, length_ft, width_ft, height_ft, pitch, pitch_multiplier, dimensions, room_info, sketch_polygon, damage_type, damage_severity, water_category, water_class, affected_surfaces, photo_ids, line_item_count, rcv_total, acv_total, notes, sort_order, associated_peril, peril_confidence, created_at, updated_at')
     .eq('id', zoneId)
     .single();
 
@@ -430,7 +430,7 @@ export async function getZoneWithChildren(zoneId: string): Promise<ZoneWithChild
   // Get zone
   const { data: zoneData, error: zoneError } = await supabaseAdmin
     .from('estimate_zones')
-    .select('*')
+    .select('id, area_id, name, zone_code, zone_type, status, room_type, floor_level, length_ft, width_ft, height_ft, pitch, pitch_multiplier, dimensions, room_info, sketch_polygon, damage_type, damage_severity, water_category, water_class, affected_surfaces, photo_ids, line_item_count, rcv_total, acv_total, notes, sort_order, associated_peril, peril_confidence, created_at, updated_at')
     .eq('id', zoneId)
     .single();
 
@@ -444,7 +444,7 @@ export async function getZoneWithChildren(zoneId: string): Promise<ZoneWithChild
   // Get missing walls (now from zone_openings)
   const { data: wallsData, error: wallsError } = await supabaseAdmin
     .from('zone_openings')
-    .select('*')
+    .select('id, zone_id, opening_type, wall_index, width_ft, height_ft, sill_height_ft, notes, sort_order, created_at, updated_at')
     .eq('zone_id', zoneId)
     .order('sort_order');
 
@@ -453,7 +453,7 @@ export async function getZoneWithChildren(zoneId: string): Promise<ZoneWithChild
   // Get subrooms
   const { data: subroomsData, error: subroomsError } = await supabaseAdmin
     .from('estimate_subrooms')
-    .select('*')
+    .select('id, zone_id, name, subroom_type, length_ft, width_ft, height_ft, dimensions, is_addition, sort_order, created_at')
     .eq('zone_id', zoneId)
     .order('sort_order');
 
@@ -539,7 +539,7 @@ export async function updateZone(
     .from('estimate_zones')
     .update(updateData)
     .eq('id', zoneId)
-    .select('*')
+    .select('id, area_id, name, zone_code, zone_type, status, room_type, floor_level, length_ft, width_ft, height_ft, pitch, pitch_multiplier, dimensions, room_info, sketch_polygon, damage_type, damage_severity, water_category, water_class, affected_surfaces, photo_ids, line_item_count, rcv_total, acv_total, notes, sort_order, associated_peril, peril_confidence, created_at, updated_at')
     .single();
 
   if (error) {
@@ -734,7 +734,7 @@ export async function createMissingWall(input: CreateMissingWallInput): Promise<
         notes: input.name ? `Name: ${input.name}` : null, // Store name in notes
         sort_order: sortOrder + i,
       })
-      .select('*')
+      .select('id, zone_id, opening_type, wall_index, width_ft, height_ft, sill_height_ft, notes, sort_order, created_at, updated_at')
       .single();
 
     if (error) throw error;
@@ -752,7 +752,7 @@ export async function createMissingWall(input: CreateMissingWallInput): Promise<
 export async function getMissingWall(wallId: string): Promise<EstimateMissingWall | null> {
   const { data, error } = await supabaseAdmin
     .from('zone_openings')
-    .select('*')
+    .select('id, zone_id, opening_type, wall_index, width_ft, height_ft, sill_height_ft, notes, sort_order, created_at, updated_at')
     .eq('id', wallId)
     .single();
 
@@ -798,7 +798,7 @@ export async function updateMissingWall(
     .from('zone_openings')
     .update(updateData)
     .eq('id', wallId)
-    .select('*')
+    .select('id, zone_id, opening_type, wall_index, width_ft, height_ft, sill_height_ft, notes, sort_order, created_at, updated_at')
     .single();
 
   if (error) {
@@ -849,7 +849,7 @@ export async function createSubroom(input: CreateSubroomInput): Promise<Estimate
       is_addition: input.isAddition !== false,
       sort_order: sortOrder,
     })
-    .select('*')
+    .select('id, zone_id, name, subroom_type, length_ft, width_ft, height_ft, dimensions, is_addition, sort_order, created_at')
     .single();
 
   if (error) throw error;
@@ -860,7 +860,7 @@ export async function createSubroom(input: CreateSubroomInput): Promise<Estimate
 export async function getSubroom(subroomId: string): Promise<EstimateSubroom | null> {
   const { data, error } = await supabaseAdmin
     .from('estimate_subrooms')
-    .select('*')
+    .select('id, zone_id, name, subroom_type, length_ft, width_ft, height_ft, dimensions, is_addition, sort_order, created_at')
     .eq('id', subroomId)
     .single();
 
@@ -905,7 +905,7 @@ export async function updateSubroom(
     .from('estimate_subrooms')
     .update(updateData)
     .eq('id', subroomId)
-    .select('*')
+    .select('id, zone_id, name, subroom_type, length_ft, width_ft, height_ft, dimensions, is_addition, sort_order, created_at')
     .single();
 
   if (error) {
@@ -977,7 +977,7 @@ export async function addLineItemFromDimension(
   // Get line item definition
   const { data: lineItem, error: lineItemError } = await supabaseAdmin
     .from('line_items')
-    .select('*')
+    .select('code, description, unit, unit_price, category_id, trade_code, is_active')
     .eq('code', input.lineItemCode)
     .eq('is_active', true)
     .single();
@@ -1075,7 +1075,7 @@ export async function createCoverage(input: CreateCoverageInput): Promise<any> {
       deductible: input.deductible || 0,
       sort_order: sortOrder,
     })
-    .select('*')
+    .select('id, estimate_id, coverage_type, coverage_name, policy_limit, deductible, line_item_total, tax_total, overhead_total, profit_total, rcv_total, depreciation_total, acv_total, recoverable_depreciation, non_recoverable_depreciation, net_claim, sort_order, created_at, updated_at')
     .single();
 
   if (error) throw error;
@@ -1086,7 +1086,7 @@ export async function createCoverage(input: CreateCoverageInput): Promise<any> {
 export async function getCoverages(estimateId: string): Promise<any[]> {
   const { data, error } = await supabaseAdmin
     .from('estimate_coverages')
-    .select('*')
+    .select('id, estimate_id, coverage_type, coverage_name, policy_limit, deductible, line_item_total, tax_total, overhead_total, profit_total, rcv_total, depreciation_total, acv_total, recoverable_depreciation, non_recoverable_depreciation, net_claim, sort_order, created_at, updated_at')
     .eq('estimate_id', estimateId)
     .order('sort_order');
 
@@ -1114,7 +1114,7 @@ export async function getLineItemsByCoverage(estimateId: string): Promise<Record
   // Query line items without join (Supabase doesn't have FK relationship)
   const { data, error } = await supabaseAdmin
     .from('estimate_line_items')
-    .select('*')
+    .select('id, estimate_id, zone_id, coverage_id, line_item_code, line_item_description, category_id, quantity, unit, unit_price, subtotal, tax_amount, rcv, depreciation_pct, depreciation_amount, is_recoverable, acv, calc_ref, trade_code, notes, room_name, is_homeowner, is_credit, is_non_op, is_approved, source, sort_order, created_at, updated_at')
     .eq('estimate_id', estimateId)
     .order('sort_order');
 
@@ -1165,7 +1165,7 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
   // Get all structures
   const { data: structuresData, error: structuresError } = await supabaseAdmin
     .from('estimate_structures')
-    .select('*')
+    .select('id, estimate_id, coverage_id, name, description, sketch_name, sketch_page, year_built, construction_type, stories, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
     .eq('estimate_id', estimateId)
     .order('sort_order');
 
@@ -1179,7 +1179,7 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
     // Get areas for this structure
     const { data: areasData, error: areasError } = await supabaseAdmin
       .from('estimate_areas')
-      .select('*')
+      .select('id, structure_id, name, area_type, total_sf, rcv_total, acv_total, sort_order, created_at, updated_at')
       .eq('structure_id', structure.id)
       .order('sort_order');
 
@@ -1193,7 +1193,7 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
       // Get zones for this area
       const { data: zonesData, error: zonesError } = await supabaseAdmin
         .from('estimate_zones')
-        .select('*')
+        .select('id, area_id, name, zone_code, zone_type, status, room_type, floor_level, length_ft, width_ft, height_ft, pitch, pitch_multiplier, dimensions, room_info, sketch_polygon, damage_type, damage_severity, water_category, water_class, affected_surfaces, photo_ids, line_item_count, rcv_total, acv_total, notes, sort_order, associated_peril, peril_confidence, created_at, updated_at')
         .eq('area_id', area.id)
         .order('sort_order');
 
@@ -1207,7 +1207,7 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
         // Get missing walls (from zone_openings)
         const { data: wallsData, error: wallsError } = await supabaseAdmin
           .from('zone_openings')
-          .select('*')
+          .select('id, zone_id, opening_type, wall_index, width_ft, height_ft, sill_height_ft, notes, sort_order, created_at, updated_at')
           .eq('zone_id', zone.id)
           .order('sort_order');
 
@@ -1216,7 +1216,7 @@ export async function getEstimateHierarchy(estimateId: string): Promise<Estimate
         // Get subrooms
         const { data: subroomsData, error: subroomsError } = await supabaseAdmin
           .from('estimate_subrooms')
-          .select('*')
+          .select('id, zone_id, name, subroom_type, length_ft, width_ft, height_ft, dimensions, is_addition, sort_order, created_at')
           .eq('zone_id', zone.id)
           .order('sort_order');
 
@@ -1295,13 +1295,13 @@ export async function initializeEstimateHierarchy(
   if (estimate?.claim_id) {
     const { data: rooms } = await supabaseAdmin
       .from('claim_rooms')
-      .select('*')
+      .select('id, claim_id, structure_id, name, room_type, floor_level, length_ft, width_ft, ceiling_height_ft, notes, sort_order, created_at, updated_at')
       .eq('claim_id', estimate.claim_id)
       .order('sort_order', { ascending: true });
 
     const { data: structures } = await supabaseAdmin
       .from('claim_structures')
-      .select('*')
+      .select('id, claim_id, name, description, year_built, construction_type, stories, sort_order, created_at, updated_at')
       .eq('claim_id', estimate.claim_id)
       .order('sort_order', { ascending: true });
 
@@ -1504,7 +1504,7 @@ export async function addLineItemToZone(
   // Get line item definition
   const { data: lineItem, error: lineItemError } = await supabaseAdmin
     .from('line_items')
-    .select('*')
+    .select('code, description, unit, unit_price, category_id, trade_code, is_active')
     .eq('code', lineItemData.lineItemCode)
     .eq('is_active', true)
     .single();

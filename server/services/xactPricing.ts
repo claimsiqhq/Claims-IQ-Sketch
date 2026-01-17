@@ -56,7 +56,7 @@ async function loadComponentCache(): Promise<void> {
   
   const { data: components, error } = await supabaseAdmin
     .from('xact_components')
-    .select('*');
+    .select('code, xact_id, component_type, amount, description, unit');
     
   if (error) {
     log.error({ error: error.message }, 'Failed to load component cache');
@@ -116,7 +116,7 @@ export async function calculateXactPrice(lineItemCode: string): Promise<XactPric
   
   const { data: items, error } = await supabaseAdmin
     .from('xact_line_items')
-    .select('*')
+    .select('id, full_code, category_code, selector_code, description, unit, activities, labor_efficiency, material_dist_pct, op_eligible, taxable')
     .eq('full_code', lineItemCode.toUpperCase())
     .limit(1);
   

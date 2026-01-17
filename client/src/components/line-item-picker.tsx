@@ -155,9 +155,10 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
                   variant="ghost"
                   onClick={handleCancelSelection}
                   className="shrink-0 h-8 w-8"
+                  aria-label="Cancel selection"
                   data-testid="button-cancel-selection"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
 
@@ -169,9 +170,10 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
                     variant="outline"
                     onClick={() => adjustQuantity(-1)}
                     className="h-9 w-9"
+                    aria-label="Decrease quantity"
                     data-testid="button-quantity-minus"
                   >
-                    <Minus className="h-4 w-4" />
+                    <Minus className="h-4 w-4" aria-hidden="true" />
                   </Button>
                   <Input
                     type="text"
@@ -186,9 +188,10 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
                     variant="outline"
                     onClick={() => adjustQuantity(1)}
                     className="h-9 w-9"
+                    aria-label="Increase quantity"
                     data-testid="button-quantity-plus"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-4 w-4" aria-hidden="true" />
                   </Button>
                   <span className="text-sm text-muted-foreground ml-1">{selectedItem.unit}</span>
                 </div>
