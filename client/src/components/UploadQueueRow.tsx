@@ -160,10 +160,10 @@ export function UploadQueueRow({ item, onRetry, onRemove, variant = "full" }: Up
               size="icon"
               className="h-6 w-6"
               onClick={onRetry}
-              title="Retry upload"
+              aria-label="Retry upload"
               data-testid={`button-retry-upload-${item.id}`}
             >
-              <RefreshCw className="h-3 w-3" />
+              <RefreshCw className="h-3 w-3" aria-hidden="true" />
             </Button>
           )}
           {(item.status === "pending" || item.status === "failed" || item.status === "completed") && onRemove && (
@@ -172,10 +172,10 @@ export function UploadQueueRow({ item, onRetry, onRemove, variant = "full" }: Up
               size="icon"
               className="h-6 w-6 text-muted-foreground hover:text-destructive"
               onClick={onRemove}
-              title="Remove"
+              aria-label="Remove file from queue"
               data-testid={`button-remove-upload-${item.id}`}
             >
-              <X className="h-3 w-3" />
+              <X className="h-3 w-3" aria-hidden="true" />
             </Button>
           )}
         </div>

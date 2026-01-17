@@ -181,9 +181,11 @@ export function BulkUploadZone({ className, compact = false, onUploadComplete }:
                   size="icon"
                   className="h-7 w-7"
                   onClick={() => setIsExpanded(!isExpanded)}
+                  aria-label={isExpanded ? "Collapse upload queue" : "Expand upload queue"}
+                  aria-expanded={isExpanded}
                   data-testid="button-toggle-queue"
                 >
-                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {isExpanded ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
                 </Button>
               </>
             )}
