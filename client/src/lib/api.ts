@@ -32,7 +32,7 @@ export async function login(username: string, password: string, rememberMe: bool
   });
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Login failed');
+    throw new Error(error.message || error.error || 'Login failed');
   }
   return response.json();
 }
@@ -49,7 +49,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function checkAuth(): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE}/auth/me`, {
+  const response = await fetch(`${API_BASE}/auth/check`, {
     credentials: 'include',
   });
   if (!response.ok) {
