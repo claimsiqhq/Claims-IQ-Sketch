@@ -12,10 +12,15 @@ export class SupabaseSessionStore extends session.Store {
   private initialized = false;
   private tableExists = false;
   private fallbackSessions: Map<string, { sess: session.SessionData; expire: Date }> = new Map();
+  private initPromise: Promise<void>;
 
   constructor() {
     super();
-    this.ensureTable();
+    this.initPromise = this.ensureTable();
+  }
+
+  private async waitForInit(): Promise<void> {
+    await this.initPromise;
   }
 
   private async ensureTable(): Promise<void> {
@@ -56,6 +61,9 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
   }
 
   async get(sid: string, callback: (err: any, session?: session.SessionData | null) => void): Promise<void> {
+    // Wait for initialization to complete
+    await this.waitForInit();
+    
     // Use fallback if table doesn't exist
     if (!this.tableExists) {
       const cached = this.fallbackSessions.get(sid);
@@ -98,6 +106,9 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
   }
 
   async set(sid: string, sessionData: session.SessionData, callback?: (err?: any) => void): Promise<void> {
+    // Wait for initialization to complete
+    await this.waitForInit();
+    
     const maxAge = (sessionData.cookie?.maxAge) || 86400000;
     const expire = new Date(Date.now() + maxAge);
 
@@ -135,6 +146,9 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
   }
 
   async destroy(sid: string, callback?: (err?: any) => void): Promise<void> {
+    // Wait for initialization to complete
+    await this.waitForInit();
+    
     // Always remove from fallback
     this.fallbackSessions.delete(sid);
 
@@ -159,6 +173,9 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
   }
 
   async touch(sid: string, sessionData: session.SessionData, callback?: (err?: any) => void): Promise<void> {
+    // Wait for initialization to complete
+    await this.waitForInit();
+    
     const maxAge = (sessionData.cookie?.maxAge) || 86400000;
     const expire = new Date(Date.now() + maxAge);
 
