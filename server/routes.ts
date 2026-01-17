@@ -68,6 +68,7 @@ import {
 import { passport, requireAuth } from "./middleware/auth";
 import { validateBody, validateQuery, validateParams } from "./middleware/validation";
 import { errors, asyncHandler } from "./middleware/errorHandler";
+import { sendSuccess, sendCreated, sendSuccessMessage } from "./middleware/responseHelpers";
 import { createLogger, logError } from "./lib/logger";
 import {
   estimateCalculationInputSchema,
@@ -399,7 +400,7 @@ export async function registerRoutes(
   app.get('/api/auth/ms365/status', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getConnectionStatus } = await import('./services/ms365AuthService');
     const status = await getConnectionStatus(req.user!.id);
-    res.json(status);
+    sendSuccess(res, status);
   }));
 
   // Initiate MS365 OAuth flow - redirects directly to Microsoft
@@ -453,9 +454,9 @@ export async function registerRoutes(
   app.post('/api/auth/ms365/disconnect', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { disconnectUser } = await import('./services/ms365AuthService');
     const success = await disconnectUser(req.user!.id);
-    
+
     if (success) {
-      res.json({ success: true, message: 'Disconnected from Microsoft 365' });
+      sendSuccessMessage(res, 'Disconnected from Microsoft 365');
     } else {
       next(errors.internal('Failed to disconnect'));
     }
@@ -469,7 +470,7 @@ export async function registerRoutes(
   app.get('/api/calendar/today', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getTodayAppointments } = await import('./services/ms365CalendarService');
     const appointments = await getTodayAppointments(req.user!.id, req.organizationId!);
-    res.json({ appointments });
+    sendSuccess(res, { appointments });
   }));
 
   // Get appointments for a specific date or date range
@@ -500,11 +501,11 @@ export async function registerRoutes(
         new Map(allAppointments.map(apt => [apt.id, apt])).values()
       );
       
-      res.json({ appointments: uniqueAppointments });
+      sendSuccess(res, { appointments: uniqueAppointments });
     } else {
       const date = req.query.date ? new Date(req.query.date as string) : new Date();
       const appointments = await getAppointmentsForDate(req.user!.id, req.organizationId!, date);
-      res.json({ appointments });
+      sendSuccess(res, { appointments });
     }
   }));
 
@@ -521,15 +522,15 @@ export async function registerRoutes(
       adjusterId: req.user!.id,
       syncToMs365: isConnected && req.body.syncToMs365 !== false,
     });
-    
-    res.json({ appointment });
+
+    sendCreated(res, { appointment });
   }));
 
   // Get appointments for a claim
   app.get('/api/claims/:id/appointments', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
     const { getAppointmentsForClaim } = await import('./services/ms365CalendarService');
     const appointments = await getAppointmentsForClaim(req.params.id, req.organizationId!);
-    res.json({ appointments });
+    sendSuccess(res, { appointments });
   }));
 
   // Update an appointment
@@ -550,8 +551,8 @@ export async function registerRoutes(
     if (!appointment) {
       return next(errors.notFound('Appointment'));
     }
-    
-    res.json({ appointment });
+
+    sendSuccess(res, { appointment });
   }));
 
   // Delete an appointment
@@ -564,12 +565,12 @@ export async function registerRoutes(
       req.organizationId!,
       req.query.deleteFromMs365 !== 'false'
     );
-    
+
     if (!success) {
       return next(errors.notFound('Appointment'));
     }
-    
-    res.json({ success: true });
+
+    sendSuccessMessage(res, 'Appointment deleted successfully');
   }));
 
   // Fetch MS365 calendar events (for viewing external events)
@@ -579,19 +580,19 @@ export async function registerRoutes(
       
     const isConnected = await isUserConnected(req.user!.id);
     if (!isConnected) {
-      return res.json({ events: [], connected: false });
+      return sendSuccess(res, { events: [], connected: false });
     }
-    
+
     // Support date range or default to today
     const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date();
     const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-    
+
     if (req.query.startDate || req.query.endDate) {
       const events = await fetchCalendarEvents(req.user!.id, startDate, endDate);
-      res.json({ events, connected: true });
+      sendSuccess(res, { events, connected: true });
     } else {
       const events = await fetchTodayEvents(req.user!.id);
-      res.json({ events, connected: true });
+      sendSuccess(res, { events, connected: true });
     }
   }));
 
@@ -603,7 +604,7 @@ export async function registerRoutes(
   app.get('/api/calendar/ms365/connection-status', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getConnectionStatus } = await import('./services/ms365AuthService');
     const status = await getConnectionStatus(req.user!.id);
-    res.json(status);
+    sendSuccess(res, status);
   }));
 
   // Pull sync from MS365
@@ -618,7 +619,7 @@ export async function registerRoutes(
     end.setHours(23, 59, 59, 999);
 
     const result = await syncFromMs365(req.user!.id, req.organizationId!, start, end);
-    res.json(result);
+    sendSuccess(res, result);
   }));
 
   // Push sync to MS365
@@ -644,7 +645,7 @@ export async function registerRoutes(
       start,
       end
     );
-    res.json(result);
+    sendSuccess(res, result);
   }));
 
   // Full bidirectional sync
@@ -684,14 +685,14 @@ export async function registerRoutes(
     end.setHours(23, 59, 59, 999);
 
     const result = await fullSync(req.user!.id, req.organizationId!, start, end);
-    res.json(result);
+    sendSuccess(res, result);
   }));
 
   // Get sync status
   app.get('/api/calendar/sync/status', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
     const { getSyncStatus } = await import('./services/ms365CalendarSyncService');
     const status = await getSyncStatus(req.user!.id, req.organizationId!);
-    res.json(status);
+    sendSuccess(res, status);
   }));
 
   // Get current user endpoint (supports both session and Supabase auth)
@@ -852,7 +853,7 @@ export async function registerRoutes(
       return next(errors.internal(error));
     }
 
-    res.json({ message: 'Logout successful' });
+    sendSuccessMessage(res, 'Logout successful');
   }));
 
   // Supabase password reset request
@@ -869,7 +870,7 @@ export async function registerRoutes(
       return next(errors.badRequest(error));
     }
 
-    res.json({ message: 'Password reset email sent' });
+    sendSuccessMessage(res, 'Password reset email sent');
   }));
 
   // Supabase get current user (from token)
@@ -883,17 +884,17 @@ export async function registerRoutes(
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.json({ user: null, authenticated: false });
+        return sendSuccess(res, { user: null, authenticated: false });
       }
 
       const token = authHeader.substring(7);
       const user = await verifyToken(token);
 
       if (!user) {
-        return res.json({ user: null, authenticated: false });
+        return sendSuccess(res, { user: null, authenticated: false });
       }
 
-      res.json({
+      sendSuccess(res, {
         user: {
           id: user.id,
           username: user.username,
@@ -907,7 +908,7 @@ export async function registerRoutes(
       });
     } catch (error) {
       logError(log, error, 'Get current user error');
-      res.json({ user: null, authenticated: false });
+      sendSuccess(res, { user: null, authenticated: false });
     }
   }));
 
@@ -968,20 +969,20 @@ export async function registerRoutes(
       name: [updatedUser.firstName, updatedUser.lastName].filter(Boolean).join(' ') || updatedUser.username
     };
 
-    res.json({ user: userWithName, message: 'Profile updated successfully' });
+    sendSuccess(res, { user: userWithName }, 'Profile updated successfully');
   }));
 
   // Change user password
   app.put('/api/users/password', requireAuth, apiRateLimiter, validateBody(passwordChangeSchema), asyncHandler(async (req, res, next) => {
     const userId = req.user!.id;
     const { currentPassword, newPassword } = req.body;
-    
+
     const result = await changeUserPassword(userId, currentPassword, newPassword);
     if (!result.success) {
       return next(errors.badRequest(result.error));
     }
-    
-    res.json({ message: 'Password changed successfully' });
+
+    sendSuccessMessage(res, 'Password changed successfully');
   }));
 
   // Get user preferences
@@ -1000,7 +1001,7 @@ export async function registerRoutes(
       throw error;
     }
 
-    res.json(data.preferences || {});
+    sendSuccess(res, data.preferences || {});
   }));
 
   // Update user preferences
@@ -1036,7 +1037,7 @@ export async function registerRoutes(
 
     if (updateError) throw updateError;
 
-    res.json({ preferences: mergedPrefs, message: 'Preferences saved successfully' });
+    sendSuccess(res, { preferences: mergedPrefs }, 'Preferences saved successfully');
   }));
 
 
@@ -1195,7 +1196,7 @@ export async function registerRoutes(
 
       // Only return basic health information - no row counts or sensitive data
       // For detailed status, use authenticated endpoints
-      res.json({
+      sendSuccess(res, {
         database: {
           connected: !dbError,
           time: dbTime,
@@ -1207,7 +1208,7 @@ export async function registerRoutes(
         // Use authenticated /api/admin/system/stats for detailed metrics
       });
     } catch (error) {
-      res.json({
+      sendSuccess(res, {
         database: {
           connected: false,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -1220,7 +1221,7 @@ export async function registerRoutes(
 
   // Simple health check endpoint
   app.get('/api/health', (req, res) => {
-    res.json({
+    sendSuccess(res, {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       version: process.env.npm_package_version || '1.0.0',

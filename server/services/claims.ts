@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { PREVIEWS_BUCKET } from '../lib/supabase';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger({ module: 'claims' });
 
 /**
  * Claim interface with all canonical fields
@@ -723,7 +726,7 @@ export async function getClaimStats(organizationId: string): Promise<{
       .neq('status', 'deleted');
 
     if (claimsError) {
-      console.error('[getClaimStats] Error fetching claims:', claimsError);
+      log.error({ error: claimsError }, '[getClaimStats] Error fetching claims');
       throw claimsError;
     }
 
@@ -740,10 +743,10 @@ export async function getClaimStats(organizationId: string): Promise<{
       if (!totalDocsError) {
         totalDocs = totalDocsResult || 0;
       } else {
-        console.warn('[getClaimStats] Error fetching total documents:', totalDocsError);
+        log.warn({ error: totalDocsError }, '[getClaimStats] Error fetching total documents');
       }
     } catch (e) {
-      console.warn('[getClaimStats] Exception fetching total documents:', e);
+      log.warn({ error: e }, '[getClaimStats] Exception fetching total documents');
     }
 
     try {
@@ -756,10 +759,10 @@ export async function getClaimStats(organizationId: string): Promise<{
       if (!pendingDocsError) {
         pendingDocs = pendingDocsResult || 0;
       } else {
-        console.warn('[getClaimStats] Error fetching pending documents:', pendingDocsError);
+        log.warn({ error: pendingDocsError }, '[getClaimStats] Error fetching pending documents');
       }
     } catch (e) {
-      console.warn('[getClaimStats] Exception fetching pending documents:', e);
+      log.warn({ error: e }, '[getClaimStats] Exception fetching pending documents');
     }
 
     const byStatus: Record<string, number> = {};
@@ -789,7 +792,7 @@ export async function getClaimStats(organizationId: string): Promise<{
       pendingDocuments: pendingDocs
     };
   } catch (error) {
-    console.error('[getClaimStats] Fatal error:', error);
+    log.error({ error }, '[getClaimStats] Fatal error');
     // Return default stats instead of throwing to prevent page crashes
     return {
       total: 0,
@@ -837,13 +840,13 @@ export async function purgeAllClaims(organizationId: string): Promise<{
           .from('claim-photos')
           .remove(photoPaths);
         if (photoStorageError) {
-          console.error('[purge] Error deleting photos from storage:', photoStorageError);
+          log.error({ error: photoStorageError }, '[purge] Error deleting photos from storage');
         } else {
           storageFilesDeleted += photoPaths.length;
-          console.log(`[purge] Deleted ${photoPaths.length} photos from storage`);
+          log.info({ count: photoPaths.length }, '[purge] Deleted photos from storage');
         }
       } catch (e) {
-        console.error('[purge] Error deleting photos from storage:', e);
+        log.error({ error: e }, '[purge] Error deleting photos from storage');
       }
     }
   }
@@ -862,13 +865,13 @@ export async function purgeAllClaims(organizationId: string): Promise<{
           .from('documents')
           .remove(docPaths);
         if (docStorageError) {
-          console.error('[purge] Error deleting documents from storage:', docStorageError);
+          log.error({ error: docStorageError }, '[purge] Error deleting documents from storage');
         } else {
           storageFilesDeleted += docPaths.length;
-          console.log(`[purge] Deleted ${docPaths.length} documents from storage`);
+          log.info({ count: docPaths.length }, '[purge] Deleted documents from storage');
         }
       } catch (e) {
-        console.error('[purge] Error deleting documents from storage:', e);
+        log.error({ error: e }, '[purge] Error deleting documents from storage');
       }
     }
 
@@ -890,13 +893,13 @@ export async function purgeAllClaims(organizationId: string): Promise<{
           .from('document-previews')
           .remove(previewPaths);
         if (previewStorageError) {
-          console.error('[purge] Error deleting document previews from storage:', previewStorageError);
+          log.error({ error: previewStorageError }, '[purge] Error deleting document previews from storage');
         } else {
           storageFilesDeleted += previewPaths.length;
-          console.log(`[purge] Deleted ${previewPaths.length} document preview files from storage`);
+          log.info({ count: previewPaths.length }, '[purge] Deleted document preview files from storage');
         }
       } catch (e) {
-        console.error('[purge] Error deleting document previews from storage:', e);
+        log.error({ error: e }, '[purge] Error deleting document previews from storage');
       }
     }
   }
@@ -920,7 +923,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
       .in('claim_id', claimIds);
     workflowIds = workflows?.map(w => w.id) || [];
   } catch (e) {
-    console.log('[purge] inspection_workflows table may not exist (migrated to flow engine):', e);
+    log.debug({ error: e }, '[purge] inspection_workflows table may not exist (migrated to flow engine)');
   }
 
   // 5. Delete workflow child tables first (old system)
@@ -941,7 +944,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
           .in('workflow_id', workflowIds);
         relatedRecordsDeleted += workflowIds.length;
       } catch (e) {
-        console.log(`[purge] Could not delete from ${table}:`, e);
+        log.debug({ error: e, table }, '[purge] Could not delete from table');
       }
     }
   }
@@ -956,7 +959,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
       .in('claim_id', claimIds);
     flowInstanceIds = flowInstances?.map(f => f.id) || [];
   } catch (e) {
-    console.log('[purge] claim_flow_instances table may not exist:', e);
+    log.debug({ error: e }, '[purge] claim_flow_instances table may not exist');
   }
 
   // Delete flow-related records
@@ -975,7 +978,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
           .in('flow_instance_id', flowInstanceIds);
         relatedRecordsDeleted += flowInstanceIds.length;
       } catch (e) {
-        console.log(`[purge] Could not delete from ${table}:`, e);
+        log.debug({ error: e, table }, '[purge] Could not delete from table');
       }
     }
 
@@ -987,7 +990,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
         .in('id', flowInstanceIds);
       relatedRecordsDeleted += flowInstanceIds.length;
     } catch (e) {
-      console.log('[purge] Could not delete from claim_flow_instances:', e);
+      log.debug({ error: e }, '[purge] Could not delete from claim_flow_instances');
     }
   }
 
@@ -1034,7 +1037,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
                 .in('zone_id', zoneIds);
               relatedRecordsDeleted += zoneIds.length;
             } catch (e) {
-              console.log(`[purge] Could not delete from ${table}:`, e);
+              log.debug({ error: e, table }, '[purge] Could not delete from table');
             }
           }
         }
@@ -1074,7 +1077,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
           .in('estimate_id', estimateIds);
         relatedRecordsDeleted += estimateIds.length;
       } catch (e) {
-        console.log(`[purge] Could not delete from ${table}:`, e);
+        log.debug({ error: e, table }, '[purge] Could not delete from table');
       }
     }
 
@@ -1110,7 +1113,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
         .in('claim_id', claimIds);
       relatedRecordsDeleted += claimIds.length;
     } catch (e) {
-      console.log(`[purge] Could not delete from ${table}:`, e);
+      log.debug({ error: e, table }, '[purge] Could not delete from table');
     }
   }
 

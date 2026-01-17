@@ -9,6 +9,11 @@
  * - Electrical labor minimum: $226.58
  */
 
+import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger({ module: 'laborMinimumValidator' });
+
 export interface LaborMinimumWarning {
   triggersMinimum: boolean;
   minimumType: 'window' | 'electrical' | 'plumbing' | 'hvac';
@@ -29,6 +34,50 @@ const LABOR_MINIMUMS: Record<string, { threshold: number; amount: number }> = {
 };
 
 /**
+ * Get current scope item count for a specific trade from the database
+ */
+async function getCurrentItemCount(
+  claimId: string,
+  tradeCode: string
+): Promise<number> {
+  try {
+    // First, get the estimate ID(s) for this claim
+    const { data: estimates, error: estimateError } = await supabaseAdmin
+      .from('estimates')
+      .select('id')
+      .eq('claim_id', claimId);
+
+    if (estimateError) {
+      log.error({ error: estimateError, claimId }, 'Error fetching estimates for claim');
+      return 0;
+    }
+
+    if (!estimates || estimates.length === 0) {
+      return 0;
+    }
+
+    const estimateIds = estimates.map(e => e.id);
+
+    // Now count scope items for this trade across all estimates for the claim
+    const { count, error: countError } = await supabaseAdmin
+      .from('scope_items')
+      .select('id', { count: 'exact', head: true })
+      .in('estimate_id', estimateIds)
+      .eq('trade_code', tradeCode);
+
+    if (countError) {
+      log.error({ error: countError, claimId, tradeCode }, 'Error counting scope items');
+      return 0;
+    }
+
+    return count || 0;
+  } catch (error) {
+    log.error({ error, claimId, tradeCode }, 'Exception in getCurrentItemCount');
+    return 0;
+  }
+}
+
+/**
  * Check if adding scope items will trigger labor minimum
  */
 export async function checkLaborMinimum(
@@ -40,9 +89,8 @@ export async function checkLaborMinimum(
   const minimum = LABOR_MINIMUMS[tradeType];
   if (!minimum) return null;
 
-  // Get current scope item count for this trade
-  // This would query scope_line_items table in real implementation
-  const currentItemCount = 0; // Placeholder - would query from database
+  // Get current scope item count for this trade from the database
+  const currentItemCount = await getCurrentItemCount(claimId, tradeType);
 
   const totalItems = currentItemCount + proposedItemCount;
   const triggersMinimum = totalItems > 0 && totalItems <= minimum.threshold;
