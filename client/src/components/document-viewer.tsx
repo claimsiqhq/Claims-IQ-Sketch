@@ -332,15 +332,15 @@ export default function DocumentViewer({ documents, claimId }: DocumentViewerPro
   if (fullscreen && selectedDoc && imageData) {
     return (
       <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
-        {/* Mobile-friendly close button - always visible in top-right corner */}
+        {/* Mobile-friendly close button - positioned below the header bar */}
         <Button 
           variant="ghost" 
           size="lg"
           onClick={() => setFullscreen(false)} 
-          className="fixed top-2 right-2 z-[60] text-white bg-black/50 hover:bg-black/70 rounded-full w-12 h-12 p-0 md:hidden"
+          className="fixed top-24 right-3 z-[60] text-white bg-black/60 hover:bg-black/80 rounded-full w-14 h-14 p-0 md:hidden shadow-lg border border-white/30"
           data-testid="btn-close-fullscreen-mobile"
         >
-          <X className="w-6 h-6" />
+          <X className="w-7 h-7" />
         </Button>
         
         <div className="flex items-center justify-between p-2 md:p-4 text-white shrink-0">

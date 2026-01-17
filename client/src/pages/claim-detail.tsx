@@ -3943,12 +3943,12 @@ export default function ClaimDetail() {
             if (e.target === e.currentTarget) closeDocumentPreview();
           }}
         >
-          {/* Mobile-friendly close button - large and always visible */}
+          {/* Mobile-friendly close button - positioned below the header bar */}
           <Button 
             variant="ghost" 
             size="lg"
             onClick={closeDocumentPreview} 
-            className="fixed top-3 right-3 z-[60] text-white bg-black/60 hover:bg-black/80 rounded-full w-14 h-14 p-0 md:hidden shadow-lg border border-white/30"
+            className="fixed top-24 right-3 z-[60] text-white bg-black/60 hover:bg-black/80 rounded-full w-14 h-14 p-0 md:hidden shadow-lg border border-white/30"
             data-testid="btn-close-preview-mobile"
           >
             <X className="w-7 h-7" />
