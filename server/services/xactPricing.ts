@@ -1,4 +1,7 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { createLogger } from "../lib/logger";
+
+const log = createLogger({ module: 'xactPricing' });
 
 interface ComponentPrice {
   code: string;
@@ -56,7 +59,7 @@ async function loadComponentCache(): Promise<void> {
     .select('*');
     
   if (error) {
-    console.error('Failed to load component cache:', error.message);
+    log.error({ error: error.message }, 'Failed to load component cache');
     return;
   }
   
@@ -80,7 +83,7 @@ async function loadComponentCache(): Promise<void> {
       }
     }
   }
-  console.log(`Loaded ${componentCache.size} components, ${componentByShortId.size} short IDs into cache`);
+  log.info({ componentCount: componentCache.size, shortIdCount: componentByShortId.size }, 'Loaded components into cache');
 }
 
 function parseFormula(formula: string): Array<{ code: string; quantity: number }> {
@@ -244,7 +247,7 @@ export async function searchXactItemsWithPricing(
     .range(offset, offset + limit - 1);
   
   if (error) {
-    console.error('Error searching xact items:', error.message);
+    log.error({ error: error.message }, 'Error searching xact items');
     return { items: [], total: 0 };
   }
   

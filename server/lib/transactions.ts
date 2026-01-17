@@ -75,25 +75,6 @@ export async function executeTransactionRPC(
   return data;
 }
 
-/**
- * Helper to create a transaction-safe estimate save operation.
- * 
- * NOTE: This function is not currently used in the codebase.
- * Estimate saves are handled by individual service functions.
- * 
- * If transactional estimate saves are needed in the future, implement
- * a PostgreSQL function and use executeTransactionRPC().
- * 
- * @deprecated Not implemented - use individual estimate service functions instead
- */
-export async function saveEstimateTransaction(
-  estimateData: any,
-  lineItems: any[],
-  coverageSummaries: any[]
-): Promise<any> {
-  throw new Error(
-    'saveEstimateTransaction is not implemented. ' +
-    'Use individual estimate service functions (saveEstimate, addLineItemToZone, etc.) instead. ' +
-    'If transactional saves are required, implement a PostgreSQL function.'
-  );
-}
+// Note: saveEstimateTransaction function was removed as it was a deprecated placeholder.
+// Use individual estimate service functions (saveEstimate, addLineItemToZone, etc.) instead.
+// If transactional saves are required, implement a PostgreSQL function and use executeTransactionRPC().
