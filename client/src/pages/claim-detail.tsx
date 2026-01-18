@@ -101,7 +101,6 @@ import {
   deletePhoto,
   updatePhoto,
   reanalyzePhoto,
-  getClaimWorkflow,
   type Claim,
   type Document,
   type EndorsementExtraction,
@@ -124,7 +123,7 @@ import type { SketchPhoto } from "@/features/voice-sketch/types/geometry";
 import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceSketchController";
 import { SketchToolbar } from "@/features/voice-sketch/components/SketchToolbar";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
-import { saveClaimRooms, getClaimRooms, triggerDamageZoneAdded, triggerRoomAdded, triggerPhotoAdded, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
+import { saveClaimRooms, getClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
 import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
@@ -134,7 +133,6 @@ import { VoiceScopeController } from "@/features/voice-scope";
 import { PerilBadgeGroup, PerilAdvisoryBanner, PerilHint } from "@/components/peril-badge";
 import { InspectionTipsPanel } from "@/components/inspection-tips-panel";
 import { BriefingPanel } from "@/components/briefing-panel";
-import { WorkflowPanel } from "@/components/workflow-panel";
 import { ClaimFlowSection } from "@/components/flow";
 import { CarrierGuidancePanel } from "@/components/carrier-guidance-panel";
 import ClaimChecklistPanel from "@/components/claim-checklist";
@@ -412,27 +410,9 @@ export default function ClaimDetail() {
 
       return { previousPhotos };
     },
-    onSuccess: async (uploadedPhoto) => {
+    onSuccess: async () => {
       toast.success('Photo uploaded - AI analysis in progress');
       queryClient.invalidateQueries({ queryKey: ['claimPhotos', params?.id] });
-      
-      // Wire up workflow event: photo_added
-      try {
-        const workflow = await getClaimWorkflow(params!.id);
-        if (workflow?.workflow?.id && uploadedPhoto?.id) {
-          // Trigger workflow mutation for photo added
-          await triggerPhotoAdded(workflow.workflow.id, {
-            photoId: uploadedPhoto.id,
-            roomId: uploadedPhoto.roomId || undefined,
-            label: uploadedPhoto.label || undefined,
-            category: uploadedPhoto.category || undefined,
-          });
-          // Refresh workflow to show updated step completion
-          queryClient.invalidateQueries({ queryKey: ['workflow', params?.id] });
-        }
-      } catch (err) {
-        // Workflow may not exist yet - that's ok
-      }
     },
     onError: (error, _file, context) => {
       // Rollback optimistic update
@@ -961,40 +941,6 @@ export default function ClaimDetail() {
       toast.success('Rooms saved to claim!', {
         description: `Saved ${result.roomsSaved} room(s) and ${result.damageZonesSaved} damage zone(s).`,
       });
-
-      // Trigger workflow mutations for dynamic step generation
-      // First, check if there's an active workflow for this claim
-      try {
-        const workflowData = await getClaimWorkflow(claim.id);
-        if (workflowData?.workflow?.id) {
-          const workflowId = workflowData.workflow.id;
-
-          // Trigger room_added mutations for each new room
-          const roomMutationPromises = claimRooms.map(room =>
-            triggerRoomAdded(workflowId, {
-              roomId: room.id,
-              roomName: room.name,
-              roomType: room.roomType,
-              hasDamage: claimDamageZones.some(dz => dz.roomId === room.id),
-            }).catch(() => null) // Don't fail if mutation fails
-          );
-
-          // Trigger damage_zone_added mutations for each new damage zone
-          const damageZoneMutationPromises = claimDamageZones.map(dz =>
-            triggerDamageZoneAdded(workflowId, {
-              zoneId: dz.id,
-              roomId: dz.roomId,
-              damageType: dz.damageType,
-              severity: dz.severity,
-            }).catch(() => null) // Don't fail if mutation fails
-          );
-
-          // Wait for all mutations to complete (non-blocking on errors)
-          await Promise.allSettled([...roomMutationPromises, ...damageZoneMutationPromises]);
-        }
-      } catch {
-        // Workflow mutation is best-effort - don't fail the whole save
-      }
 
       // Reset the geometry engine
       useGeometryEngine.getState().resetSession();
@@ -2395,9 +2341,6 @@ export default function ClaimDetail() {
                       claimId={apiClaim.id}
                       perilType={apiClaim.primaryPeril || apiClaim.lossType}
                     />
-
-                    {/* Legacy Workflow Panel - Existing step-based workflow */}
-                    <WorkflowPanel claimId={apiClaim.id} />
                   </>
                 ) : (
                   <div className="text-center text-muted-foreground py-8">
@@ -3461,27 +3404,9 @@ export default function ClaimDetail() {
           isOpen={isDamageModalOpen}
           onClose={() => setIsDamageModalOpen(false)}
           roomId={selectedRoomId}
-          onSave={async (zone) => {
+          onSave={(zone) => {
             const newZone = { ...zone, id: `dz${Date.now()}`, photos: [] };
             addDamageZone(claim.id, newZone);
-            
-            // Wire up workflow event: damage_zone_added
-            try {
-              const workflow = await getClaimWorkflow(params!.id);
-              if (workflow?.workflow?.id) {
-                // Trigger workflow mutation for damage zone added
-                await triggerDamageZoneAdded(workflow.workflow.id, {
-                  zoneId: newZone.id,
-                  roomId: selectedRoomId,
-                  damageType: zone.damageType || 'unknown',
-                  severity: zone.severity,
-                });
-                // Refresh workflow to show any new steps
-                queryClient.invalidateQueries({ queryKey: ['workflow', params?.id] });
-              }
-            } catch (err) {
-              // Workflow may not exist yet - that's ok
-            }
           }}
         />
       )}
