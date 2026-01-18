@@ -1710,17 +1710,10 @@ export async function validateEvidenceWithAI(
  * Get flow instance details
  */
 export async function getFlowInstance(flowInstanceId: string): Promise<FlowInstance | null> {
+  // Use consistent query format with other working functions (getFlowPhases, getNextMovement)
   const { data, error } = await supabaseAdmin
     .from('claim_flow_instances')
-    .select(`
-      *,
-      flow_definitions (
-        id,
-        name,
-        description,
-        flow_json
-      )
-    `)
+    .select('*, flow_definitions (id, name, description, flow_json)')
     .eq('id', flowInstanceId)
     .maybeSingle();
 
