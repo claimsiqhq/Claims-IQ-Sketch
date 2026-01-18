@@ -67,7 +67,6 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
     // Use fallback if table doesn't exist
     if (!this.tableExists) {
       const cached = this.fallbackSessions.get(sid);
-      console.log(`[SessionStore] GET fallback sid=${sid.substring(0,8)}... found=${!!cached} totalSessions=${this.fallbackSessions.size}`);
       if (!cached) return callback(null, null);
       if (cached.expire < new Date()) {
         this.fallbackSessions.delete(sid);
@@ -77,7 +76,6 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
     }
 
     try {
-      console.log(`[SessionStore] GET supabase sid=${sid.substring(0,8)}...`);
       const { data, error } = await supabaseAdmin
         .from(this.tableName)
         .select('sess, expire')
@@ -85,7 +83,6 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
         .single();
 
       if (error) {
-        console.log(`[SessionStore] GET supabase sid=${sid.substring(0,8)}... error=${error.code} ${error.message}`);
         if (error.code === 'PGRST116') {
           return callback(null, null);
         }
@@ -93,22 +90,17 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
       }
 
       if (!data) {
-        console.log(`[SessionStore] GET supabase sid=${sid.substring(0,8)}... no data`);
         return callback(null, null);
       }
 
       const expire = new Date(data.expire);
       if (expire < new Date()) {
-        console.log(`[SessionStore] GET supabase sid=${sid.substring(0,8)}... expired`);
         await this.destroy(sid, () => {});
         return callback(null, null);
       }
 
-      const hasPassport = !!(data.sess as any)?.passport;
-      console.log(`[SessionStore] GET supabase sid=${sid.substring(0,8)}... found hasPassport=${hasPassport}`);
       callback(null, data.sess as session.SessionData);
     } catch (err) {
-      console.log(`[SessionStore] GET supabase sid=${sid.substring(0,8)}... exception=${err}`);
       callback(err);
     }
   }
@@ -122,14 +114,11 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
 
     // Use fallback if table doesn't exist
     if (!this.tableExists) {
-      console.log(`[SessionStore] SET fallback sid=${sid.substring(0,8)}... hasPassport=${!!(sessionData as any).passport}`);
       this.fallbackSessions.set(sid, { sess: sessionData, expire });
       return callback?.();
     }
 
     try {
-      const hasPassport = !!(sessionData as any).passport;
-      console.log(`[SessionStore] SET supabase sid=${sid.substring(0,8)}... hasPassport=${hasPassport}`);
       const { error } = await supabaseAdmin
         .from(this.tableName)
         .upsert({
@@ -141,16 +130,15 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
         });
 
       if (error) {
-        console.error(`[SessionStore] SET supabase error: ${error.message}`);
+        console.error('[SupabaseSessionStore] Set error:', error.message);
         // Fallback to memory on error
         this.fallbackSessions.set(sid, { sess: sessionData, expire });
         return callback?.();
       }
 
-      console.log(`[SessionStore] SET supabase sid=${sid.substring(0,8)}... success`);
       callback?.();
     } catch (err) {
-      console.error(`[SessionStore] SET supabase exception: ${err}`);
+      console.error('[SupabaseSessionStore] Set exception:', err);
       // Fallback to memory on error
       this.fallbackSessions.set(sid, { sess: sessionData, expire });
       callback?.();
