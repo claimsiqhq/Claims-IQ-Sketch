@@ -323,7 +323,7 @@ export default function Home() {
     loadData();
   };
 
-  const displayName = authUser?.username || user.name;
+  const displayName = authUser?.username || user?.name || 'User';
 
   // Mobile Layout
   if (isMobileLayout) {
