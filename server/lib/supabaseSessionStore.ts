@@ -67,6 +67,7 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
     // Use fallback if table doesn't exist
     if (!this.tableExists) {
       const cached = this.fallbackSessions.get(sid);
+      console.log(`[SessionStore] GET fallback sid=${sid.substring(0,8)}... found=${!!cached} totalSessions=${this.fallbackSessions.size}`);
       if (!cached) return callback(null, null);
       if (cached.expire < new Date()) {
         this.fallbackSessions.delete(sid);
@@ -114,6 +115,7 @@ CREATE INDEX sessions_expire_idx ON sessions (expire);
 
     // Use fallback if table doesn't exist
     if (!this.tableExists) {
+      console.log(`[SessionStore] SET fallback sid=${sid.substring(0,8)}... hasPassport=${!!(sessionData as any).passport}`);
       this.fallbackSessions.set(sid, { sess: sessionData, expire });
       return callback?.();
     }
