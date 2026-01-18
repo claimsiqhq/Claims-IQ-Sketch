@@ -146,18 +146,10 @@ router.get('/flows/:flowInstanceId', async (req, res) => {
   try {
     const { flowInstanceId } = req.params;
 
-    // Get flow instance with full details
-    const { data: flowInstance, error } = await supabaseAdmin
-      .from('claim_flow_instances')
-      .select(`
-        *,
-        flow_definitions (*),
-        phases:current_phase_id (*)
-      `)
-      .eq('id', flowInstanceId)
-      .single();
+    // Use the service function which handles the query correctly
+    const flowInstance = await getFlowInstance(flowInstanceId);
 
-    if (error || !flowInstance) {
+    if (!flowInstance) {
       return res.status(404).json({ error: 'Flow instance not found' });
     }
 
