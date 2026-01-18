@@ -766,7 +766,7 @@ export async function registerRoutes(
   }));
 
   // Check authentication status
-  app.get('/api/auth/check', (req, res) => {
+  app.get('/api/auth/check', asyncHandler(async (req, res) => {
     // Disable all caching for auth endpoints
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -775,10 +775,49 @@ export async function registerRoutes(
       'Content-Type': 'application/json; charset=utf-8'
     });
 
-    // Check both session and Supabase auth
-    const isAuthenticated = req.isAuthenticated() || !!(req as any).isSupabaseAuth;
-    res.status(200).send(JSON.stringify({ authenticated: isAuthenticated }));
-  });
+    // First check session-based auth (passport)
+    if (req.isAuthenticated() && req.user) {
+      const user = req.user as any;
+      res.status(200).send(JSON.stringify({
+        authenticated: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email || '',
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+        }
+      }));
+      return;
+    }
+    
+    // Check Supabase token auth - verify token directly to get user data
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        const user = await verifyToken(token);
+        if (user) {
+          res.status(200).send(JSON.stringify({
+            authenticated: true,
+            user: {
+              id: user.id,
+              username: user.username,
+              email: user.email || '',
+              firstName: user.firstName || '',
+              lastName: user.lastName || '',
+            }
+          }));
+          return;
+        }
+      } catch (error) {
+        // Token verification failed - fall through to unauthenticated response
+      }
+    }
+    
+    // Not authenticated
+    res.status(200).send(JSON.stringify({ authenticated: false, user: null }));
+  }));
 
   // ============================================
   // SUPABASE AUTH ROUTES
