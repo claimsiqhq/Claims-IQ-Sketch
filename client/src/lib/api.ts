@@ -2213,6 +2213,7 @@ export interface ClaimPhoto {
   uploadedBy: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  taxonomyPrefix: string | null;
 }
 
 export async function getClaimPhotos(

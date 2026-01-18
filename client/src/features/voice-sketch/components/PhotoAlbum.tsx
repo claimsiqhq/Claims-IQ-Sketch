@@ -1,5 +1,5 @@
 import React, { useState, memo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Camera,
   CheckCircle2,
@@ -20,6 +20,7 @@ import {
   Loader2,
   RefreshCw,
   AlertOctagon,
+  Tag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,16 +44,19 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { SketchPhoto, PhotoAIAnalysis, AnalysisStatus } from '../types/geometry';
-import { getPhoto, type ClaimPhoto } from '@/lib/api';
+import { getPhoto, getPhotoCategories, assignPhotoTaxonomy, type ClaimPhoto, type PhotoCategory } from '@/lib/api';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { toast } from 'sonner';
 
 interface Claim {
   id: string;
@@ -61,6 +65,7 @@ interface Claim {
 
 interface ExtendedSketchPhoto extends SketchPhoto {
   claimId?: string | null;
+  taxonomyPrefix?: string | null;
 }
 
 function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
@@ -76,6 +81,7 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
     geoAddress: cp.geoAddress,
     uploadedBy: cp.uploadedBy,
     claimId: cp.claimId,
+    taxonomyPrefix: cp.taxonomyPrefix,
     aiAnalysis: cp.aiAnalysis && Object.keys(cp.aiAnalysis).length > 0 ? {
       quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
       content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },
@@ -305,10 +311,34 @@ interface PhotoDetailDialogProps {
  * Memoized PhotoDetailDialog component to prevent unnecessary re-renders
  */
 const PhotoDetailDialog = memo(function PhotoDetailDialog({ photo, open, onOpenChange, onUpdate, onReanalyze, isReanalyzing, claims = [] }: PhotoDetailDialogProps) {
+  const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [editLabel, setEditLabel] = useState('');
   const [editHierarchy, setEditHierarchy] = useState('');
   const [editClaimId, setEditClaimId] = useState<string | null>(null);
+
+  // Fetch photo categories for taxonomy selector
+  const { data: photoCategories = [] } = useQuery({
+    queryKey: ['photoCategories'],
+    queryFn: () => getPhotoCategories(),
+    enabled: open,
+    staleTime: 5 * 60 * 1000, // Categories don't change often
+  });
+
+  // Mutation for assigning taxonomy
+  const assignTaxonomyMutation = useMutation({
+    mutationFn: ({ photoId, prefix }: { photoId: string; prefix: string }) =>
+      assignPhotoTaxonomy(photoId, prefix, false),
+    onSuccess: () => {
+      toast.success('Photo category updated');
+      queryClient.invalidateQueries({ queryKey: ['photo', photo?.id] });
+      queryClient.invalidateQueries({ queryKey: ['claimPhotos'] });
+      queryClient.invalidateQueries({ queryKey: ['allPhotos'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to update category: ' + (error as Error).message);
+    },
+  });
 
   // Fetch latest photo data when dialog opens
   const { data: latestPhoto, isLoading: isLoadingPhoto } = useQuery({
@@ -565,6 +595,75 @@ const PhotoDetailDialog = memo(function PhotoDetailDialog({ photo, open, onOpenC
                       </Select>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Photo Category/Taxonomy Section */}
+              {photoCategories.length > 0 && (
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <span className="text-sm text-muted-foreground font-medium">Category:</span>
+                  <div className="flex items-center gap-2 flex-1">
+                    {displayPhoto.taxonomyPrefix ? (
+                      <Badge variant="secondary" className="flex items-center gap-1">
+                        <Tag className="h-3 w-3" />
+                        {photoCategories.find(c => c.prefix === displayPhoto.taxonomyPrefix)?.name || displayPhoto.taxonomyPrefix}
+                      </Badge>
+                    ) : null}
+                    <Select
+                      value={displayPhoto.taxonomyPrefix || ''}
+                      onValueChange={(value) => {
+                        if (value && displayPhoto.id) {
+                          assignTaxonomyMutation.mutate({ photoId: displayPhoto.id, prefix: value });
+                        }
+                      }}
+                      disabled={assignTaxonomyMutation.isPending}
+                    >
+                      <SelectTrigger
+                        className="h-7 w-[200px] text-xs"
+                        data-testid="select-photo-taxonomy"
+                      >
+                        <SelectValue placeholder="Select category..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        {/* Group categories by parent */}
+                        {(() => {
+                          const topLevel = photoCategories.filter(c => !c.parentPrefix);
+                          const children = photoCategories.filter(c => c.parentPrefix);
+                          const grouped = new Map<string, PhotoCategory[]>();
+
+                          topLevel.forEach(parent => {
+                            grouped.set(parent.prefix, children.filter(c => c.parentPrefix === parent.prefix));
+                          });
+
+                          return topLevel.map(parent => {
+                            const childCategories = grouped.get(parent.prefix) || [];
+                            if (childCategories.length === 0) {
+                              return (
+                                <SelectItem key={parent.prefix} value={parent.prefix}>
+                                  {parent.name}
+                                </SelectItem>
+                              );
+                            }
+                            return (
+                              <SelectGroup key={parent.prefix}>
+                                <SelectLabel className="text-xs font-semibold text-muted-foreground px-2 py-1.5">
+                                  {parent.name}
+                                </SelectLabel>
+                                {childCategories.map(child => (
+                                  <SelectItem key={child.prefix} value={child.prefix} className="pl-4">
+                                    {child.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            );
+                          });
+                        })()}
+                      </SelectContent>
+                    </Select>
+                    {assignTaxonomyMutation.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
                 </div>
               )}
 

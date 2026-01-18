@@ -181,6 +181,7 @@ type FilterMode = 'all' | 'by-structure' | 'damage-only' | 'uncategorized';
 
 interface ExtendedSketchPhoto extends SketchPhoto {
   claimId?: string | null;
+  taxonomyPrefix?: string | null;
 }
 
 function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
@@ -196,6 +197,7 @@ function claimPhotoToSketchPhoto(cp: ClaimPhoto): ExtendedSketchPhoto {
     geoAddress: cp.geoAddress,
     uploadedBy: cp.uploadedBy,
     claimId: cp.claimId, // Include claimId for reassignment
+    taxonomyPrefix: cp.taxonomyPrefix,
     aiAnalysis: cp.aiAnalysis && Object.keys(cp.aiAnalysis).length > 0 ? {
       quality: cp.aiAnalysis.quality || { score: 5, issues: [], suggestions: [] },
       content: cp.aiAnalysis.content || { description: '', damageDetected: false, damageTypes: [], damageLocations: [], materials: [], recommendedLabel: '' },
