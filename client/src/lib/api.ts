@@ -2824,6 +2824,128 @@ export async function getCalendarSyncStatus(): Promise<CalendarSyncStatus> {
 }
 
 // ============================================
+// CALENDAR CACHE API (Offline Access & History)
+// ============================================
+
+/**
+ * Cached calendar event from local storage
+ */
+export interface CachedCalendarEvent {
+  id: string;
+  userId: string;
+  organizationId: string;
+  ms365EventId: string;
+  ms365CalendarId: string | null;
+  subject: string;
+  bodyPreview: string | null;
+  location: string | null;
+  startDatetime: string;
+  endDatetime: string;
+  isAllDay: boolean;
+  organizerEmail: string | null;
+  organizerName: string | null;
+  attendees: any[];
+  sensitivity: string;
+  showAs: string;
+  importance: string;
+  isCancelled: boolean;
+  isOnlineMeeting: boolean;
+  onlineMeetingUrl: string | null;
+  categories: string[];
+  localAppointmentId: string | null;
+  lastSyncedAt: string;
+  ms365LastModified: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Calendar cache statistics
+ */
+export interface CalendarCacheStats {
+  totalEvents: number;
+  linkedToAppointments: number;
+  lastCacheUpdate: string | null;
+  oldestEvent: string | null;
+  newestEvent: string | null;
+}
+
+/**
+ * Get cached calendar events for a date range (works offline)
+ */
+export async function getCachedCalendarEvents(
+  startDate?: string,
+  endDate?: string
+): Promise<{ events: CachedCalendarEvent[]; fromCache: boolean }> {
+  const params = new URLSearchParams();
+  if (startDate) params.append('startDate', startDate);
+  if (endDate) params.append('endDate', endDate);
+
+  const response = await fetch(`${API_BASE}/calendar/cache/events?${params.toString()}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get cached calendar events');
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+/**
+ * Get calendar history (all cached events, paginated)
+ */
+export async function getCalendarHistory(
+  limit: number = 100,
+  offset: number = 0
+): Promise<{ events: CachedCalendarEvent[]; total: number; limit: number; offset: number; fromCache: boolean }> {
+  const params = new URLSearchParams();
+  params.append('limit', String(limit));
+  params.append('offset', String(offset));
+
+  const response = await fetch(`${API_BASE}/calendar/cache/history?${params.toString()}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get calendar history');
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+/**
+ * Get cache statistics
+ */
+export async function getCalendarCacheStats(): Promise<CalendarCacheStats> {
+  const response = await fetch(`${API_BASE}/calendar/cache/stats`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get cache statistics');
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+/**
+ * Cleanup old cached events
+ */
+export async function cleanupOldCachedEvents(
+  olderThanDays: number = 180
+): Promise<{ deleted: number; message: string }> {
+  const response = await fetch(`${API_BASE}/calendar/cache/cleanup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ olderThanDays }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to cleanup old cached events');
+  }
+  const result = await response.json();
+  return result.data || result;
+}
+
+// ============================================
 // FLOW DEFINITIONS API
 // ============================================
 
