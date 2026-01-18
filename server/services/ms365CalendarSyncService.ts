@@ -43,6 +43,7 @@ export interface ConflictInfo {
 
 /**
  * Pull events from MS365 and create/update local appointments
+ * Also caches ALL events locally for offline access and history
  */
 export async function syncFromMs365(
   userId: string,
@@ -70,6 +71,15 @@ export async function syncFromMs365(
     // Fetch events from MS365
     const ms365Events = await fetchCalendarEvents(userId, startDate, endDate);
     result.pulled = ms365Events.length;
+
+    // IMPORTANT: Cache ALL events locally for offline access and history
+    // This happens regardless of whether events are linked to claims
+    const cacheResult = await cacheCalendarEvents(userId, organizationId, ms365Events);
+    if (cacheResult.errors.length > 0) {
+      console.log(`[Calendar Sync] Cache warnings: ${cacheResult.errors.length} events had issues`);
+      // Don't fail the sync for cache errors, just log them
+    }
+    console.log(`[Calendar Sync] Cached ${cacheResult.cached} events locally for offline access`);
 
     // Get existing local appointments in the date range
     // Note: getAppointmentsForDate only gets one day, so we need to query each day
@@ -604,4 +614,331 @@ async function updateLastSyncTime(
     // Silently fail - sync time tracking is not critical
     console.error('[Calendar Sync] Failed to update sync time:', err);
   }
+}
+
+// ============================================
+// LOCAL CALENDAR EVENT CACHE
+// Stores ALL MS365 events locally for offline access
+// ============================================
+
+export interface CachedCalendarEvent {
+  id: string;
+  userId: string;
+  organizationId: string;
+  ms365EventId: string;
+  ms365CalendarId: string | null;
+  subject: string;
+  bodyPreview: string | null;
+  location: string | null;
+  startDatetime: string;
+  endDatetime: string;
+  isAllDay: boolean;
+  organizerEmail: string | null;
+  organizerName: string | null;
+  attendees: any[];
+  sensitivity: string;
+  showAs: string;
+  importance: string;
+  isCancelled: boolean;
+  isOnlineMeeting: boolean;
+  onlineMeetingUrl: string | null;
+  categories: string[];
+  localAppointmentId: string | null;
+  lastSyncedAt: string;
+  ms365LastModified: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Cache all MS365 calendar events locally
+ * This stores events regardless of whether they're linked to claims
+ */
+export async function cacheCalendarEvents(
+  userId: string,
+  organizationId: string,
+  events: CalendarEvent[]
+): Promise<{ cached: number; errors: string[] }> {
+  const result = { cached: 0, errors: [] as string[] };
+
+  for (const event of events) {
+    try {
+      // Check if event already exists in cache
+      const { data: existing } = await supabaseAdmin
+        .from('calendar_event_cache')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('ms365_event_id', event.id)
+        .maybeSingle();
+
+      const eventData = {
+        user_id: userId,
+        organization_id: organizationId,
+        ms365_event_id: event.id,
+        ms365_calendar_id: (event as any).calendarId || null,
+        subject: event.subject,
+        body_preview: event.bodyPreview || null,
+        location: event.location?.displayName || null,
+        start_datetime: event.start.dateTime,
+        end_datetime: event.end.dateTime,
+        is_all_day: (event as any).isAllDay || false,
+        organizer_email: event.organizer?.emailAddress?.address || null,
+        organizer_name: event.organizer?.emailAddress?.name || null,
+        attendees: (event as any).attendees || [],
+        sensitivity: (event as any).sensitivity || 'normal',
+        show_as: (event as any).showAs || 'busy',
+        importance: (event as any).importance || 'normal',
+        is_cancelled: (event as any).isCancelled || false,
+        is_online_meeting: (event as any).isOnlineMeeting || false,
+        online_meeting_url: (event as any).onlineMeetingUrl || null,
+        categories: (event as any).categories || [],
+        last_synced_at: new Date().toISOString(),
+        ms365_last_modified: (event as any).lastModifiedDateTime || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (existing) {
+        // Update existing cache entry
+        const { error } = await supabaseAdmin
+          .from('calendar_event_cache')
+          .update(eventData)
+          .eq('id', existing.id);
+
+        if (error) {
+          result.errors.push(`Failed to update cached event "${event.subject}": ${error.message}`);
+        } else {
+          result.cached++;
+        }
+      } else {
+        // Insert new cache entry
+        const { error } = await supabaseAdmin
+          .from('calendar_event_cache')
+          .insert(eventData);
+
+        if (error) {
+          result.errors.push(`Failed to cache event "${event.subject}": ${error.message}`);
+        } else {
+          result.cached++;
+        }
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      result.errors.push(`Error caching event "${event.subject}": ${errorMsg}`);
+    }
+  }
+
+  console.log(`[Calendar Cache] Cached ${result.cached} events for user ${userId}`);
+  return result;
+}
+
+/**
+ * Get cached calendar events for a date range
+ * This works even when offline or disconnected from MS365
+ */
+export async function getCachedCalendarEvents(
+  userId: string,
+  organizationId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<CachedCalendarEvent[]> {
+  const { data, error } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .gte('start_datetime', startDate.toISOString())
+    .lte('end_datetime', endDate.toISOString())
+    .order('start_datetime', { ascending: true });
+
+  if (error) {
+    console.error('[Calendar Cache] Failed to fetch cached events:', error);
+    return [];
+  }
+
+  return (data || []).map(mapCachedEventFromDb);
+}
+
+/**
+ * Get all cached calendar events for a user (for history view)
+ */
+export async function getCalendarHistory(
+  userId: string,
+  organizationId: string,
+  limit: number = 100,
+  offset: number = 0
+): Promise<{ events: CachedCalendarEvent[]; total: number }> {
+  // Get total count
+  const { count } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId);
+
+  // Get paginated events
+  const { data, error } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .order('start_datetime', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    console.error('[Calendar Cache] Failed to fetch calendar history:', error);
+    return { events: [], total: 0 };
+  }
+
+  return {
+    events: (data || []).map(mapCachedEventFromDb),
+    total: count || 0,
+  };
+}
+
+/**
+ * Clear old cached events (e.g., events older than 6 months)
+ */
+export async function cleanupOldCachedEvents(
+  userId: string,
+  olderThanDays: number = 180
+): Promise<number> {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+  const { data, error } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .delete()
+    .eq('user_id', userId)
+    .lt('end_datetime', cutoffDate.toISOString())
+    .select('id');
+
+  if (error) {
+    console.error('[Calendar Cache] Failed to cleanup old events:', error);
+    return 0;
+  }
+
+  const deletedCount = data?.length || 0;
+  console.log(`[Calendar Cache] Cleaned up ${deletedCount} old events for user ${userId}`);
+  return deletedCount;
+}
+
+/**
+ * Link a cached event to a local appointment
+ */
+export async function linkCachedEventToAppointment(
+  userId: string,
+  ms365EventId: string,
+  localAppointmentId: string
+): Promise<boolean> {
+  const { error } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .update({ local_appointment_id: localAppointmentId })
+    .eq('user_id', userId)
+    .eq('ms365_event_id', ms365EventId);
+
+  if (error) {
+    console.error('[Calendar Cache] Failed to link event to appointment:', error);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Get cache statistics for a user
+ */
+export async function getCacheStats(
+  userId: string,
+  organizationId: string
+): Promise<{
+  totalEvents: number;
+  linkedToAppointments: number;
+  lastCacheUpdate: string | null;
+  oldestEvent: string | null;
+  newestEvent: string | null;
+}> {
+  // Total count
+  const { count: totalCount } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId);
+
+  // Linked to appointments count
+  const { count: linkedCount } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .not('local_appointment_id', 'is', null);
+
+  // Get most recent sync time
+  const { data: lastSync } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('last_synced_at')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .order('last_synced_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  // Get date range
+  const { data: oldest } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('start_datetime')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .order('start_datetime', { ascending: true })
+    .limit(1)
+    .single();
+
+  const { data: newest } = await supabaseAdmin
+    .from('calendar_event_cache')
+    .select('start_datetime')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .order('start_datetime', { ascending: false })
+    .limit(1)
+    .single();
+
+  return {
+    totalEvents: totalCount || 0,
+    linkedToAppointments: linkedCount || 0,
+    lastCacheUpdate: lastSync?.last_synced_at || null,
+    oldestEvent: oldest?.start_datetime || null,
+    newestEvent: newest?.start_datetime || null,
+  };
+}
+
+/**
+ * Map database row to CachedCalendarEvent
+ */
+function mapCachedEventFromDb(row: any): CachedCalendarEvent {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    organizationId: row.organization_id,
+    ms365EventId: row.ms365_event_id,
+    ms365CalendarId: row.ms365_calendar_id,
+    subject: row.subject,
+    bodyPreview: row.body_preview,
+    location: row.location,
+    startDatetime: row.start_datetime,
+    endDatetime: row.end_datetime,
+    isAllDay: row.is_all_day,
+    organizerEmail: row.organizer_email,
+    organizerName: row.organizer_name,
+    attendees: row.attendees || [],
+    sensitivity: row.sensitivity,
+    showAs: row.show_as,
+    importance: row.importance,
+    isCancelled: row.is_cancelled,
+    isOnlineMeeting: row.is_online_meeting,
+    onlineMeetingUrl: row.online_meeting_url,
+    categories: row.categories || [],
+    localAppointmentId: row.local_appointment_id,
+    lastSyncedAt: row.last_synced_at,
+    ms365LastModified: row.ms365_last_modified,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

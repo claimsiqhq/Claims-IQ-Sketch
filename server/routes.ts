@@ -693,6 +693,63 @@ export async function registerRoutes(
     sendSuccess(res, status);
   }));
 
+  // ============================================
+  // CALENDAR CACHE ENDPOINTS (Offline Access & History)
+  // ============================================
+
+  // Get cached calendar events for a date range (works offline)
+  app.get('/api/calendar/cache/events', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    startDate: z.string().datetime().optional(),
+    endDate: z.string().datetime().optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
+    const { getCachedCalendarEvents } = await import('./services/ms365CalendarSyncService');
+
+    // Default to today through 28 days from now
+    const startDate = req.query.startDate
+      ? new Date(req.query.startDate as string)
+      : new Date();
+    startDate.setHours(0, 0, 0, 0);
+
+    const endDate = req.query.endDate
+      ? new Date(req.query.endDate as string)
+      : new Date(Date.now() + 28 * 24 * 60 * 60 * 1000);
+    endDate.setHours(23, 59, 59, 999);
+
+    const events = await getCachedCalendarEvents(req.user!.id, req.organizationId!, startDate, endDate);
+    sendSuccess(res, { events, fromCache: true });
+  }));
+
+  // Get calendar history (all cached events, paginated)
+  app.get('/api/calendar/cache/history', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({
+    limit: z.string().regex(/^\d+$/).transform(Number).optional(),
+    offset: z.string().regex(/^\d+$/).transform(Number).optional(),
+  }).passthrough()), asyncHandler(async (req, res, next) => {
+    const { getCalendarHistory } = await import('./services/ms365CalendarSyncService');
+
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+
+    const { events, total } = await getCalendarHistory(req.user!.id, req.organizationId!, limit, offset);
+    sendSuccess(res, { events, total, limit, offset, fromCache: true });
+  }));
+
+  // Get cache statistics
+  app.get('/api/calendar/cache/stats', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const { getCacheStats } = await import('./services/ms365CalendarSyncService');
+    const stats = await getCacheStats(req.user!.id, req.organizationId!);
+    sendSuccess(res, stats);
+  }));
+
+  // Cleanup old cached events
+  app.post('/api/calendar/cache/cleanup', requireAuth, requireOrganization, apiRateLimiter, validateBody(z.object({
+    olderThanDays: z.number().min(30).max(365).optional(),
+  })), asyncHandler(async (req, res, next) => {
+    const { cleanupOldCachedEvents } = await import('./services/ms365CalendarSyncService');
+    const olderThanDays = req.body.olderThanDays || 180;
+    const deleted = await cleanupOldCachedEvents(req.user!.id, olderThanDays);
+    sendSuccess(res, { deleted, message: `Cleaned up ${deleted} events older than ${olderThanDays} days` });
+  }));
+
   // Get current user endpoint (supports both session and Supabase auth)
   app.get('/api/auth/me', asyncHandler(async (req, res, next) => {
     // Disable all caching for auth endpoints

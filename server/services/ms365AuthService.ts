@@ -364,48 +364,91 @@ export async function disconnectUser(userId: string): Promise<boolean> {
 }
 
 /**
+ * Verify that the token actually works by making a test API call to Microsoft Graph
+ * This catches cases where tokens exist but are revoked, or Azure AD config changed
+ */
+async function verifyTokenWithApi(accessToken: string): Promise<boolean> {
+  try {
+    // Make a lightweight call to verify the token works
+    const response = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response.ok) {
+      return true;
+    }
+
+    // Token was rejected by Microsoft
+    const errorData = await response.json().catch(() => ({}));
+    console.log('[MS365] Token verification failed:', response.status, errorData);
+    return false;
+  } catch (error) {
+    console.error('[MS365] Token verification request failed:', error);
+    return false;
+  }
+}
+
+/**
  * Get connection status for a user
+ * This now actually verifies the token works with Microsoft's API
  */
 export async function getConnectionStatus(userId: string): Promise<{
   connected: boolean;
   configured: boolean;
   expiresAt: string | null;
   expired: boolean;
+  lastVerified?: string;
 }> {
   const configured = isMs365Configured();
-  
+
   if (!configured) {
     return { connected: false, configured: false, expiresAt: null, expired: false };
   }
 
   const tokens = await getUserTokens(userId);
-  
+
   if (!tokens) {
     return { connected: false, configured: true, expiresAt: null, expired: false };
   }
-  
+
   // Check if token is expired
   const expiresAt = tokens.expiresAt ? new Date(tokens.expiresAt) : null;
   const isExpired = expiresAt ? expiresAt < new Date() : true;
-  
-  // If expired, try to refresh the token
+
+  // If expired or close to expiring, try to refresh the token
   if (isExpired && tokens.refreshToken) {
     try {
       const newAccessToken = await getValidAccessToken(userId);
       if (newAccessToken) {
-        // Token was successfully refreshed
-        const updatedTokens = await getUserTokens(userId);
+        // Token was successfully refreshed, verify it works
+        const verified = await verifyTokenWithApi(newAccessToken);
+        if (verified) {
+          const updatedTokens = await getUserTokens(userId);
+          return {
+            connected: true,
+            configured: true,
+            expiresAt: updatedTokens?.expiresAt || null,
+            expired: false,
+            lastVerified: new Date().toISOString(),
+          };
+        }
+        // Token refreshed but doesn't work - clear it
+        console.log('[MS365] Refreshed token failed verification, clearing tokens');
+        await disconnectUser(userId);
         return {
-          connected: true,
+          connected: false,
           configured: true,
-          expiresAt: updatedTokens?.expiresAt || null,
-          expired: false,
+          expiresAt: null,
+          expired: true,
         };
       }
     } catch (error) {
       console.error('[MS365] Token refresh failed during status check:', error);
     }
-    
+
     // Refresh failed - user needs to reconnect
     return {
       connected: false,
@@ -414,11 +457,45 @@ export async function getConnectionStatus(userId: string): Promise<{
       expired: true,
     };
   }
-  
+
+  // Token exists and isn't expired - but verify it actually works with Microsoft
+  // This catches cases where the token was revoked, or Azure AD config changed
+  const verified = await verifyTokenWithApi(tokens.accessToken);
+  if (!verified) {
+    console.log('[MS365] Existing token failed verification, attempting refresh');
+    // Try to refresh the token
+    if (tokens.refreshToken) {
+      const newAccessToken = await refreshAccessToken(userId);
+      if (newAccessToken) {
+        const reVerified = await verifyTokenWithApi(newAccessToken);
+        if (reVerified) {
+          const updatedTokens = await getUserTokens(userId);
+          return {
+            connected: true,
+            configured: true,
+            expiresAt: updatedTokens?.expiresAt || null,
+            expired: false,
+            lastVerified: new Date().toISOString(),
+          };
+        }
+      }
+    }
+    // Token is invalid and couldn't be refreshed
+    console.log('[MS365] Token verification and refresh both failed, clearing tokens');
+    await disconnectUser(userId);
+    return {
+      connected: false,
+      configured: true,
+      expiresAt: null,
+      expired: true,
+    };
+  }
+
   return {
     connected: true,
     configured: true,
     expiresAt: tokens.expiresAt || null,
     expired: false,
+    lastVerified: new Date().toISOString(),
   };
 }
