@@ -886,6 +886,56 @@ export type InsertClaimDamageZone = z.infer<typeof insertClaimDamageZoneSchema>;
 export type ClaimDamageZone = typeof claimDamageZones.$inferSelect;
 
 // ============================================
+// PHOTO TAXONOMY CATEGORIES TABLE
+// ============================================
+
+export const photoCategories = pgTable("photo_categories", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+
+  // Taxonomy prefix (e.g., 'OV', 'RF', 'RF-TSQ', 'EXT', 'WTR')
+  prefix: varchar("prefix", { length: 20 }).notNull().unique(),
+
+  // Parent category for hierarchical prefixes
+  parentPrefix: varchar("parent_prefix", { length: 20 }),
+
+  // Display info
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+
+  // Photo requirements
+  minRequired: integer("min_required").default(0),
+  maxAllowed: integer("max_allowed"),
+
+  // Peril applicability (empty array means all perils)
+  perilTypes: text("peril_types").array().default(sql`'{}'::text[]`),
+
+  // Property type applicability
+  propertyTypes: text("property_types").array().default(sql`ARRAY['residential', 'commercial']`),
+
+  // UI ordering
+  sortOrder: integer("sort_order").default(0),
+
+  // Status
+  isActive: boolean("is_active").default(true),
+
+  // Timestamps
+  createdAt: timestamp("created_at").default(sql`NOW()`),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`),
+}, (table) => ({
+  prefixIdx: index("idx_photo_categories_prefix").on(table.prefix),
+  parentIdx: index("idx_photo_categories_parent").on(table.parentPrefix),
+}));
+
+export const insertPhotoCategorySchema = createInsertSchema(photoCategories).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPhotoCategory = z.infer<typeof insertPhotoCategorySchema>;
+export type PhotoCategory = typeof photoCategories.$inferSelect;
+
+// ============================================
 // CLAIM PHOTOS TABLE
 // ============================================
 
@@ -930,6 +980,11 @@ export const claimPhotos = pgTable("claim_photos", {
   movementId: text("movement_id"), // Format: "phaseId:movementId"
   capturedContext: text("captured_context"), // Additional context about how/when photo was captured
 
+  // Taxonomy categorization
+  taxonomyPrefix: varchar("taxonomy_prefix", { length: 20 }), // e.g., 'RF-TSQ', 'WTR-SRC'
+  taxonomyCategoryId: uuid("taxonomy_category_id").references(() => photoCategories.id, { onDelete: 'set null' }),
+  autoCategorized: boolean("auto_categorized").default(false), // True if AI auto-categorized
+
   // Timestamps
   capturedAt: timestamp("captured_at").default(sql`NOW()`),
   analyzedAt: timestamp("analyzed_at"),
@@ -945,6 +1000,8 @@ export const claimPhotos = pgTable("claim_photos", {
   damageIdx: index("claim_photos_damage_idx").on(table.damageZoneId),
   flowInstanceIdx: index("claim_photos_flow_instance_idx").on(table.flowInstanceId),
   movementIdx: index("claim_photos_movement_idx").on(table.movementId),
+  taxonomyIdx: index("claim_photos_taxonomy_idx").on(table.taxonomyPrefix),
+  taxonomyCategoryIdx: index("claim_photos_taxonomy_category_idx").on(table.taxonomyCategoryId),
 }));
 
 export const insertClaimPhotoSchema = createInsertSchema(claimPhotos).omit({
