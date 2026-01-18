@@ -15,7 +15,7 @@ import path from 'path';
 import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { inferPeril, type PerilInferenceInput } from './perilNormalizer';
+import { inferPeril, normalizePerilFromFnol, type PerilInferenceInput, type NormalizedPerilContext } from './perilNormalizer';
 import { PromptKey } from '../../shared/schema';
 import { getSupabaseAdmin } from '../lib/supabase';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
@@ -2037,7 +2037,8 @@ export async function createClaimFromDocuments(
   // Parse city, state, zip from address if available
   const addressParts = parseAddressParts(propertyAddress);
 
-  // PERIL NORMALIZATION
+  // PERIL NORMALIZATION (Part 1 - Canonical Peril Context)
+  // Step 1: Infer peril from FNOL data
   const perilInput: PerilInferenceInput = {
     causeOfLoss: claimInfo.loss_details?.cause || '',
     lossDescription: claimInfo.loss_details?.description || '',
@@ -2045,10 +2046,17 @@ export async function createClaimFromDocuments(
 
   const perilInference = inferPeril(perilInput);
 
+  // Step 2: Validate and normalize to canonical peril context
+  // This is the SINGLE SOURCE OF TRUTH for peril after FNOL extraction
+  // All downstream systems MUST use primary_peril_code, NOT free-text peril strings
+  const normalizedPeril: NormalizedPerilContext = normalizePerilFromFnol(perilInference);
+
   console.log(`[Peril Normalization] Claim ${claimNumber}:`, {
-    primaryPeril: perilInference.primaryPeril,
-    secondaryPerils: perilInference.secondaryPerils,
-    confidence: perilInference.confidence,
+    primary_peril_code: normalizedPeril.primary_peril_code,
+    secondary_peril_codes: normalizedPeril.secondary_peril_codes,
+    confidence: normalizedPeril.peril_confidence,
+    is_valid: normalizedPeril.is_valid,
+    raw_primary: normalizedPeril.raw_values.primary_peril,
   });
 
   // Extract coverage limits from policy_coverage
@@ -2148,7 +2156,9 @@ export async function createClaimFromDocuments(
 
       // Loss details
       date_of_loss: parseDateString(claimInfo.date_of_loss) || null,
-      primary_peril: perilInference.primaryPeril,
+      // CANONICAL PERIL: Use normalized peril code, not raw inference
+      // All downstream systems MUST consume primary_peril (validated against Peril enum)
+      primary_peril: normalizedPeril.primary_peril_code,
       loss_type: lossType, // Legacy field for backward compatibility
       loss_description: claimInfo.loss_details?.description || null,
 
@@ -2173,10 +2183,21 @@ export async function createClaimFromDocuments(
       // Endorsements from FNOL
       endorsements_listed: endorsements || [],
 
-      // Peril inference
-      secondary_perils: perilInference.secondaryPerils,
-      peril_confidence: perilInference.confidence,
-      peril_metadata: perilInference.perilMetadata,
+      // CANONICAL PERIL CONTEXT: Use normalized values from normalizePerilFromFnol
+      // These are validated against the Peril enum - downstream systems MUST use these
+      secondary_perils: normalizedPeril.secondary_peril_codes,
+      peril_confidence: normalizedPeril.peril_confidence,
+      peril_metadata: {
+        ...perilInference.perilMetadata,
+        // Store normalization metadata for audit trail
+        _normalization: {
+          is_valid: normalizedPeril.is_valid,
+          raw_primary: normalizedPeril.raw_values.primary_peril,
+          raw_secondary: normalizedPeril.raw_values.secondary_perils,
+          inference_reasoning: normalizedPeril.inference_reasoning,
+          normalized_at: new Date().toISOString(),
+        },
+      },
 
       // LOSS CONTEXT - ALL FNOL TRUTH GOES HERE (100% of extracted data)
       loss_context: lossContext,

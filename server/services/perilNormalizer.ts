@@ -581,3 +581,365 @@ export function normalizePeril(value: string | null | undefined): Peril {
 
   return Peril.OTHER;
 }
+
+// ============================================
+// NORMALIZED PERIL CONTEXT (PART 1 - CANONICAL PERIL)
+// ============================================
+
+/**
+ * Valid peril codes from the Peril enum.
+ * This acts as the source of truth for valid peril codes.
+ * In production, this could be replaced by a database table query.
+ */
+export const VALID_PERIL_CODES: ReadonlySet<string> = new Set(Object.values(Peril));
+
+/**
+ * Canonical normalized peril context.
+ * This is the SINGLE SOURCE OF TRUTH for peril after FNOL extraction.
+ * All downstream systems MUST consume this, not free-text peril strings.
+ */
+export interface NormalizedPerilContext {
+  /** Validated primary peril code from Peril enum */
+  primary_peril_code: Peril;
+  /** Validated secondary peril codes */
+  secondary_peril_codes: Peril[];
+  /** Confidence score 0.00-1.00 from peril inference */
+  peril_confidence: number;
+  /** Conflicts detected during normalization or inspection */
+  peril_conflicts: PerilConflict[];
+  /** Whether normalization was successful (all perils validated) */
+  is_valid: boolean;
+  /** Original raw peril values before normalization (for audit trail) */
+  raw_values: {
+    primary_peril?: string;
+    secondary_perils?: string[];
+  };
+  /** Reasoning for how peril was inferred */
+  inference_reasoning?: string;
+}
+
+/**
+ * Represents a conflict in peril determination.
+ * Used when inspection findings disagree with FNOL peril.
+ */
+export interface PerilConflict {
+  /** Source of the conflicting peril */
+  source: 'fnol' | 'inspection' | 'adjuster_override' | 'ai_inference';
+  /** The conflicting peril value */
+  peril_value: string;
+  /** Timestamp when conflict was detected */
+  detected_at: string;
+  /** Human-readable description of the conflict */
+  description: string;
+  /** Whether this conflict requires human review */
+  requires_review: boolean;
+  /** Resolution status */
+  status: 'pending' | 'resolved' | 'escalated';
+}
+
+/**
+ * Result of peril code validation
+ */
+export interface PerilValidationResult {
+  /** Whether the peril code is valid */
+  is_valid: boolean;
+  /** The validated/normalized peril code */
+  peril_code: Peril;
+  /** Original value before validation */
+  original_value: string | null | undefined;
+  /** Warning message if validation had issues */
+  warning?: string;
+}
+
+/**
+ * Validate a peril code against the valid peril codes.
+ * Maps unknown perils to 'other' and logs a warning.
+ *
+ * @param perilValue - The peril value to validate
+ * @returns PerilValidationResult with validation status and normalized code
+ */
+export function validatePerilCode(perilValue: string | null | undefined): PerilValidationResult {
+  if (!perilValue) {
+    return {
+      is_valid: false,
+      peril_code: Peril.OTHER,
+      original_value: perilValue,
+      warning: 'Empty peril value, mapped to "other"',
+    };
+  }
+
+  const normalized = perilValue.toLowerCase().trim();
+
+  // Direct match against valid codes
+  if (VALID_PERIL_CODES.has(normalized)) {
+    return {
+      is_valid: true,
+      peril_code: normalized as Peril,
+      original_value: perilValue,
+    };
+  }
+
+  // Try to normalize common variations
+  const normalizedPeril = normalizePeril(perilValue);
+
+  if (normalizedPeril !== Peril.OTHER) {
+    return {
+      is_valid: true,
+      peril_code: normalizedPeril,
+      original_value: perilValue,
+      warning: `Peril "${perilValue}" normalized to "${normalizedPeril}"`,
+    };
+  }
+
+  // Unknown peril - map to 'other' but flag it
+  console.warn(`[PerilNormalizer] Unknown peril code "${perilValue}" mapped to "other"`);
+  return {
+    is_valid: false,
+    peril_code: Peril.OTHER,
+    original_value: perilValue,
+    warning: `Unknown peril code "${perilValue}" mapped to "other"`,
+  };
+}
+
+/**
+ * Normalize peril data from FNOL extraction into canonical NormalizedPerilContext.
+ * This is the PRIMARY normalization function called immediately after FNOL extraction.
+ *
+ * IMPORTANT: This function is the SINGLE POINT of peril normalization.
+ * All downstream systems MUST use the output of this function.
+ *
+ * @param fnolPerilAnalysis - The peril inference result from FNOL extraction
+ * @returns NormalizedPerilContext - The canonical peril context for the claim
+ */
+export function normalizePerilFromFnol(
+  fnolPerilAnalysis: PerilInferenceResult
+): NormalizedPerilContext {
+  const conflicts: PerilConflict[] = [];
+  const rawValues = {
+    primary_peril: fnolPerilAnalysis.primaryPeril,
+    secondary_perils: fnolPerilAnalysis.secondaryPerils.map(p => p.toString()),
+  };
+
+  // Validate primary peril
+  const primaryValidation = validatePerilCode(fnolPerilAnalysis.primaryPeril);
+  if (!primaryValidation.is_valid && primaryValidation.warning) {
+    console.warn(`[PerilNormalizer] Primary peril validation: ${primaryValidation.warning}`);
+  }
+
+  // Validate secondary perils
+  const validatedSecondary: Peril[] = [];
+  for (const secondary of fnolPerilAnalysis.secondaryPerils) {
+    const validation = validatePerilCode(secondary);
+    if (validation.is_valid || validation.peril_code !== Peril.OTHER) {
+      // Only include valid secondary perils (don't include 'other' as secondary)
+      if (validation.peril_code !== Peril.OTHER) {
+        validatedSecondary.push(validation.peril_code);
+      }
+    }
+    if (validation.warning) {
+      console.warn(`[PerilNormalizer] Secondary peril validation: ${validation.warning}`);
+    }
+  }
+
+  // Deduplicate secondary perils and remove primary if present
+  const uniqueSecondary = [...new Set(validatedSecondary)]
+    .filter(p => p !== primaryValidation.peril_code);
+
+  const context: NormalizedPerilContext = {
+    primary_peril_code: primaryValidation.peril_code,
+    secondary_peril_codes: uniqueSecondary,
+    peril_confidence: fnolPerilAnalysis.confidence,
+    peril_conflicts: conflicts,
+    is_valid: primaryValidation.is_valid,
+    raw_values: rawValues,
+    inference_reasoning: fnolPerilAnalysis.inferenceReasoning,
+  };
+
+  console.log(`[PerilNormalizer] Normalized peril context:`, {
+    primary: context.primary_peril_code,
+    secondary: context.secondary_peril_codes,
+    confidence: context.peril_confidence,
+    valid: context.is_valid,
+  });
+
+  return context;
+}
+
+// ============================================
+// GUARDRAILS (PART 3 - PREVENT PERIL RE-DERIVATION)
+// ============================================
+
+/**
+ * Guard against re-deriving peril from narrative text.
+ *
+ * IMPORTANT: After FNOL extraction, the canonical peril is stored in the claims table.
+ * Downstream systems MUST NOT re-derive peril from description/narrative text.
+ *
+ * This function should be called when any code attempts to infer peril from text
+ * when a canonical peril already exists.
+ *
+ * @param existingPeril - The existing canonical peril from the claim
+ * @param attemptedSource - Description of where re-derivation was attempted
+ * @param claimId - Optional claim ID for logging
+ * @returns The existing peril (never overrides)
+ */
+export function guardAgainstPerilRederivation(
+  existingPeril: Peril | string | null | undefined,
+  attemptedSource: string,
+  claimId?: string
+): { peril: Peril; conflict?: PerilConflict } {
+  if (!existingPeril) {
+    // No existing peril - this is the initial derivation, allow it
+    return { peril: Peril.OTHER };
+  }
+
+  const normalizedExisting = validatePerilCode(existingPeril);
+
+  console.warn(
+    `[PerilGuardrail] Blocked peril re-derivation attempt from "${attemptedSource}"` +
+    (claimId ? ` for claim ${claimId}` : '') +
+    `. Using existing peril: ${normalizedExisting.peril_code}`
+  );
+
+  const conflict: PerilConflict = {
+    source: 'ai_inference',
+    peril_value: attemptedSource,
+    detected_at: new Date().toISOString(),
+    description: `Attempted to re-derive peril from ${attemptedSource} when canonical peril already exists`,
+    requires_review: false,
+    status: 'resolved',
+  };
+
+  return {
+    peril: normalizedExisting.peril_code,
+    conflict,
+  };
+}
+
+// ============================================
+// INSPECTION CONFLICT HANDLING (PART 4)
+// ============================================
+
+/**
+ * Result of checking for peril conflicts between FNOL and inspection
+ */
+export interface InspectionPerilConflictResult {
+  /** Whether a conflict was detected */
+  has_conflict: boolean;
+  /** The FNOL peril (canonical, never changes) */
+  fnol_peril: Peril;
+  /** The inspection-derived peril (if different) */
+  inspection_peril?: Peril;
+  /** Conflict record if detected */
+  conflict?: PerilConflict;
+  /** Recommended action */
+  action: 'none' | 'flag_for_review' | 'escalate';
+}
+
+/**
+ * Check if inspection findings indicate a different peril than FNOL.
+ *
+ * CRITICAL: This function does NOT change the primary_peril_code.
+ * It only flags a conflict for human review.
+ *
+ * Per requirements:
+ * - Do NOT change primary_peril_code based on inspection
+ * - Flag a peril_conflict
+ * - Require human review or escalation
+ *
+ * @param fnolPeril - The canonical peril from FNOL
+ * @param inspectionFindings - Description of what was found during inspection
+ * @param inferredInspectionPeril - What peril the inspection suggests
+ * @param claimId - Claim ID for logging
+ * @returns InspectionPerilConflictResult with conflict details
+ */
+export function checkInspectionPerilConflict(
+  fnolPeril: Peril | string,
+  inferredInspectionPeril: Peril | string,
+  inspectionFindings: string,
+  claimId: string
+): InspectionPerilConflictResult {
+  const normalizedFnol = validatePerilCode(fnolPeril);
+  const normalizedInspection = validatePerilCode(inferredInspectionPeril);
+
+  // No conflict if perils match
+  if (normalizedFnol.peril_code === normalizedInspection.peril_code) {
+    return {
+      has_conflict: false,
+      fnol_peril: normalizedFnol.peril_code,
+      action: 'none',
+    };
+  }
+
+  // Conflict detected - log and flag for review
+  console.warn(
+    `[PerilConflict] Claim ${claimId}: Inspection suggests "${normalizedInspection.peril_code}" ` +
+    `but FNOL peril is "${normalizedFnol.peril_code}". Flagging for human review.`
+  );
+
+  const conflict: PerilConflict = {
+    source: 'inspection',
+    peril_value: normalizedInspection.peril_code,
+    detected_at: new Date().toISOString(),
+    description: `Inspection findings suggest ${normalizedInspection.peril_code}: "${inspectionFindings}". ` +
+      `FNOL reported ${normalizedFnol.peril_code}. Human review required.`,
+    requires_review: true,
+    status: 'pending',
+  };
+
+  // Determine if escalation is needed (significant peril change)
+  const requiresEscalation = isSignificantPerilChange(
+    normalizedFnol.peril_code,
+    normalizedInspection.peril_code
+  );
+
+  return {
+    has_conflict: true,
+    fnol_peril: normalizedFnol.peril_code,
+    inspection_peril: normalizedInspection.peril_code,
+    conflict,
+    action: requiresEscalation ? 'escalate' : 'flag_for_review',
+  };
+}
+
+/**
+ * Determine if a peril change is significant enough to require escalation.
+ * Significant changes typically involve coverage implications.
+ */
+function isSignificantPerilChange(fnolPeril: Peril, inspectionPeril: Peril): boolean {
+  // Flood is often excluded from standard HO policies
+  if (inspectionPeril === Peril.FLOOD && fnolPeril !== Peril.FLOOD) {
+    return true;
+  }
+  if (fnolPeril === Peril.FLOOD && inspectionPeril !== Peril.FLOOD) {
+    return true;
+  }
+
+  // Fire vs non-fire is significant
+  if (fnolPeril === Peril.FIRE && inspectionPeril !== Peril.FIRE) {
+    return true;
+  }
+  if (inspectionPeril === Peril.FIRE && fnolPeril !== Peril.FIRE) {
+    return true;
+  }
+
+  // Mold often has coverage limitations
+  if (inspectionPeril === Peril.MOLD && fnolPeril !== Peril.MOLD) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Get the canonical peril code for a claim.
+ * This is a convenience function that ensures we always return
+ * a validated peril code, never a raw string.
+ *
+ * @param claimPeril - The peril value from the claims table
+ * @returns Validated Peril enum value
+ */
+export function getCanonicalPerilCode(claimPeril: string | null | undefined): Peril {
+  const validation = validatePerilCode(claimPeril);
+  return validation.peril_code;
+}
