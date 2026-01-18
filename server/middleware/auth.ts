@@ -137,7 +137,15 @@ export function setupAuth(app: Express): void {
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (req.isAuthenticated()) {
+  const sessionId = req.sessionID;
+  const hasSession = !!req.session;
+  const hasPassport = !!(req.session as any)?.passport;
+  const isAuth = req.isAuthenticated();
+  const cookieHeader = req.headers.cookie;
+  
+  console.log(`[requireAuth] path=${req.path} sessionId=${sessionId?.substring(0,8)}... hasSession=${hasSession} hasPassport=${hasPassport} isAuth=${isAuth} hasCookie=${!!cookieHeader}`);
+  
+  if (isAuth) {
     return next();
   }
 
