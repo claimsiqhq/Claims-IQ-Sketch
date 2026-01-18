@@ -79,7 +79,7 @@ export default function MobileLayout({ children, hideNav = false }: MobileLayout
     if (authUser?.firstName) {
       return authUser.firstName;
     }
-    return authUser?.username || user.name;
+    return authUser?.username || user?.name || 'User';
   })();
   const displayAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`;
 
