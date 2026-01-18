@@ -393,17 +393,33 @@ router.get('/users/preferences', requireAuth, async (req: Request, res: Response
 
 /**
  * PUT /api/users/preferences
- * Update current user's preferences
+ * Update current user's preferences (merges with existing preferences)
  */
 router.put('/users/preferences', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = (req.user as any).id;
-    const preferences = req.body;
+    const newPreferences = req.body;
+
+    // First, fetch existing preferences to merge with
+    const { data: existingData, error: fetchError } = await supabaseAdmin
+      .from('users')
+      .select('preferences')
+      .eq('id', userId)
+      .single();
+
+    if (fetchError) {
+      log.error({ err: fetchError }, 'Fetch preferences error');
+      return res.status(500).json({ message: 'Failed to fetch existing preferences' });
+    }
+
+    // Merge existing preferences with new ones (new values override existing)
+    const existingPrefs = existingData?.preferences || {};
+    const mergedPrefs = { ...existingPrefs, ...newPreferences };
 
     const { data, error } = await supabaseAdmin
       .from('users')
-      .update({ 
-        preferences,
+      .update({
+        preferences: mergedPrefs,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId)

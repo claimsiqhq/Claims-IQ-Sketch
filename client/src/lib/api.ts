@@ -152,7 +152,14 @@ export async function updateUserProfile(data: UpdateProfileData): Promise<Update
       throw new Error('Session expired. Please refresh the page and log in again.');
     }
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Failed to update profile');
+    // Handle validation errors with field-specific messages
+    if (error.errors && Array.isArray(error.errors)) {
+      const messages = error.errors.map((e: { path: string; message: string }) =>
+        `${e.path}: ${e.message}`
+      ).join(', ');
+      throw new Error(messages || error.message || 'Validation failed');
+    }
+    throw new Error(error.message || error.error || 'Failed to update profile');
   }
   return response.json();
 }

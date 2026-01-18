@@ -920,7 +920,11 @@ export async function registerRoutes(
     displayName: z.string().optional(),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
-    email: z.string().email().optional(),
+    // Allow empty string (treated as clearing email) or valid email format
+    email: z.preprocess(
+      (val) => (val === '' ? undefined : val),
+      z.string().email().optional()
+    ),
   })), asyncHandler(async (req, res, next) => {
     const userId = req.user!.id;
     const { name, displayName, firstName, lastName, email } = req.body;
