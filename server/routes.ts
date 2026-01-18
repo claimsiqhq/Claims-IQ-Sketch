@@ -234,8 +234,6 @@ import {
   getMergedInspectionForClaim,
   updateCarrierOverlays,
 } from "./services/carrierOverlayService";
-// Old workflow service removed - using flow engine instead
-// import { expandWorkflowForRooms, validateWorkflowJson } from "./services/inspectionWorkflowService";
 import {
   createStructure,
   getStructure,
@@ -3794,22 +3792,6 @@ export async function registerRoutes(
 
     res.json({ success: true, item: result.item });
   }));
-
-  // ============================================
-  // OLD WORKFLOW ROUTES REMOVED
-  // ============================================
-  // The following routes have been removed as part of the migration to the new flow engine:
-  // - POST /api/workflow/:id/expand-rooms (use POST /api/flows/:id/rooms instead)
-  // - POST /api/workflow/:id/validate (validation now in flow definition builder)
-  // - POST /api/claims/:id/workflow/dynamic/generate (use POST /api/claims/:id/flows instead)
-  // - GET /api/workflow/:id/evidence (use GET /api/flows/:id/movements/:movementId/evidence)
-  // - POST /api/workflow/:id/steps/:stepId/evidence (use POST /api/flows/:id/movements/:movementId/evidence)
-  // - GET /api/workflow/:id/steps/:stepId/evidence (use GET /api/flows/:id/movements/:movementId/evidence)
-  // - POST /api/workflow/:id/validate-export (use GET /api/flows/:id/progress)
-  // - POST /api/workflow/:id/mutation/* (flow engine handles mutations automatically)
-  //
-  // New flow engine routes are registered via flowEngineRoutes at /api/claims/:claimId/flows and /api/flows/:id
-  // See server/routes/flowEngineRoutes.ts for the new API
 
   // ============================================
   // CARRIER OVERLAY ROUTES
