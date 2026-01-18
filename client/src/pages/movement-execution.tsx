@@ -51,6 +51,7 @@ import {
 } from "@/lib/api";
 import { EvidenceGrid, LoadingButton, ErrorBanner, EmptyState } from "@/components/flow";
 import { useStore } from "@/lib/store";
+import { offlineStorage } from "@/services/offlineStorage";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 

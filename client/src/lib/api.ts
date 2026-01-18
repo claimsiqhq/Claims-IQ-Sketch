@@ -3677,3 +3677,259 @@ export async function insertCustomMovement(
   }
   return response.json();
 }
+
+// ============================================
+// VOICE INSPECTION API
+// ============================================
+
+export interface VoiceSessionResponse {
+  sessionId: string;
+  systemContext: string;
+  currentMovement: string;
+  wsEndpoint: string;
+}
+
+export interface VoiceCommandResponse {
+  action: string;
+  response: string;
+  data?: Record<string, any>;
+}
+
+/**
+ * Start a voice-guided inspection session
+ */
+export async function startVoiceSession(flowInstanceId: string): Promise<VoiceSessionResponse> {
+  const response = await fetch(`${API_BASE}/voice-inspection/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ flowInstanceId }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to start voice session');
+  }
+  return response.json();
+}
+
+/**
+ * Process a voice command
+ */
+export async function processVoiceCommand(
+  sessionId: string,
+  command: string
+): Promise<VoiceCommandResponse> {
+  const response = await fetch(`${API_BASE}/voice-inspection/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ sessionId, command }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to process voice command');
+  }
+  return response.json();
+}
+
+/**
+ * End a voice session
+ */
+export async function endVoiceSession(sessionId: string): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/voice-inspection/end`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to end voice session');
+  }
+  return response.json();
+}
+
+// ============================================
+// PHOTO TAXONOMY API
+// ============================================
+
+export interface PhotoCategory {
+  id: string;
+  prefix: string;
+  parentPrefix?: string;
+  name: string;
+  description?: string;
+  minRequired?: number;
+  maxAllowed?: number;
+  perilTypes?: string[];
+  propertyTypes?: string[];
+  sortOrder?: number;
+  isActive?: boolean;
+  children?: PhotoCategory[];
+}
+
+export interface PhotoCompletenessResult {
+  isComplete: boolean;
+  totalRequired: number;
+  totalCaptured: number;
+  missing: Array<{
+    prefix: string;
+    name: string;
+    required: number;
+    have: number;
+    shortfall: number;
+  }>;
+  categories: Array<{
+    prefix: string;
+    name: string;
+    required: number;
+    captured: number;
+    isComplete: boolean;
+  }>;
+}
+
+export interface TaxonomySuggestion {
+  prefix: string;
+  name: string;
+  confidence: number;
+  reason: string;
+}
+
+/**
+ * Get all photo categories
+ */
+export async function getPhotoCategories(options?: {
+  peril?: string;
+  topLevelOnly?: boolean;
+}): Promise<PhotoCategory[]> {
+  const params = new URLSearchParams();
+  if (options?.peril) params.set('peril', options.peril);
+  if (options?.topLevelOnly) params.set('topLevelOnly', 'true');
+
+  const url = `${API_BASE}/photo-categories${params.toString() ? `?${params}` : ''}`;
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch photo categories');
+  }
+  return response.json();
+}
+
+/**
+ * Get a specific category by prefix
+ */
+export async function getPhotoCategoryByPrefix(prefix: string): Promise<PhotoCategory> {
+  const response = await fetch(`${API_BASE}/photo-categories/${prefix}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Category not found');
+  }
+  return response.json();
+}
+
+/**
+ * Get child categories for a parent prefix
+ */
+export async function getChildCategories(parentPrefix: string): Promise<PhotoCategory[]> {
+  const response = await fetch(`${API_BASE}/photo-categories/${parentPrefix}/children`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch child categories');
+  }
+  return response.json();
+}
+
+/**
+ * Assign taxonomy to a photo
+ */
+export async function assignPhotoTaxonomy(
+  photoId: string,
+  prefix: string,
+  autoCategorized: boolean = false
+): Promise<any> {
+  const response = await fetch(`${API_BASE}/photos/${photoId}/taxonomy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ prefix, autoCategorized }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to assign taxonomy');
+  }
+  return response.json();
+}
+
+/**
+ * Get taxonomy suggestions for a photo
+ */
+export async function getPhotoTaxonomySuggestions(
+  photoId: string,
+  perilType?: string
+): Promise<{ suggestions: TaxonomySuggestion[] }> {
+  const response = await fetch(`${API_BASE}/photos/${photoId}/suggest-taxonomy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ perilType }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to get taxonomy suggestions');
+  }
+  return response.json();
+}
+
+/**
+ * Check photo completeness for a claim
+ */
+export async function checkPhotoCompleteness(
+  claimId: string,
+  perilType?: string
+): Promise<PhotoCompletenessResult> {
+  const params = perilType ? `?perilType=${encodeURIComponent(perilType)}` : '';
+  const response = await fetch(`${API_BASE}/claims/${claimId}/photo-completeness${params}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to check photo completeness');
+  }
+  return response.json();
+}
+
+/**
+ * Get photos grouped by taxonomy
+ */
+export async function getPhotosByTaxonomy(
+  claimId: string,
+  prefix?: string
+): Promise<Record<string, number> | any[]> {
+  const params = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
+  const response = await fetch(`${API_BASE}/claims/${claimId}/photos/by-taxonomy${params}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch photos by taxonomy');
+  }
+  return response.json();
+}
+
+/**
+ * Get uncategorized photos for a claim
+ */
+export async function getUncategorizedPhotos(claimId: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/photos/uncategorized`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch uncategorized photos');
+  }
+  return response.json();
+}

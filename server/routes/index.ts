@@ -21,6 +21,8 @@ import scopeRoutes from './scopeRoutes';
 import audioObservationsRoutes, { claimAudioObservationsRouter } from './audioObservations';
 import flowDefinitionRoutes from './flowDefinitionRoutes';
 import flowEngineRoutes from './flowEngineRoutes';
+import photoTaxonomyRoutes from './photoTaxonomyRoutes';
+import voiceInspectionRoutes from './voiceInspectionRoutes';
 
 const log = createLogger({ module: 'routes' });
 
@@ -161,6 +163,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Flow Engine routes (replaces legacy workflow endpoints)
   app.use('/api', flowEngineRoutes);
 
+  // Photo Taxonomy routes
+  app.use('/api', photoTaxonomyRoutes);
+
+  // Voice Inspection routes (voice-guided flow navigation)
+  app.use('/api/voice-inspection', voiceInspectionRoutes);
+
   // =================================================
   // Health Check
   // =================================================
@@ -209,4 +217,5 @@ export {
   audioObservationsRoutes,
   flowDefinitionRoutes,
   flowEngineRoutes,
+  voiceInspectionRoutes,
 };

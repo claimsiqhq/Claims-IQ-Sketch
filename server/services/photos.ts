@@ -30,6 +30,8 @@ export interface PhotoUploadInput {
   flowInstanceId?: string;
   movementId?: string;
   capturedContext?: string;
+  // Taxonomy categorization
+  taxonomyPrefix?: string; // e.g., 'RF-TSQ', 'WTR-SRC'
 }
 
 export interface PhotoAnalysis {
@@ -337,7 +339,7 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
   // Save to database IMMEDIATELY with pending status - don't wait for analysis
   let savedPhotoId = photoId;
   if (input.organizationId) {
-    const photoRecord: InsertClaimPhoto & { flow_instance_id?: string; movement_id?: string; captured_context?: string } = {
+    const photoRecord: InsertClaimPhoto & { flow_instance_id?: string; movement_id?: string; captured_context?: string; taxonomy_prefix?: string; auto_categorized?: boolean } = {
       claimId: input.claimId || null,
       organizationId: input.organizationId,
       structureId: input.structureId || null,
@@ -366,6 +368,9 @@ export async function uploadAndAnalyzePhoto(input: PhotoUploadInput): Promise<Up
       flow_instance_id: input.flowInstanceId || null,
       movement_id: input.movementId || null,
       captured_context: input.capturedContext || null,
+      // Taxonomy categorization
+      taxonomy_prefix: input.taxonomyPrefix?.toUpperCase() || null,
+      auto_categorized: false,
     };
 
     const saved = await storage.createClaimPhoto(photoRecord);
