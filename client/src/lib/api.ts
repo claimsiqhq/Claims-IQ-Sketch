@@ -3392,17 +3392,60 @@ export interface FlowTimelineEvent {
 }
 
 /**
+ * Flow auto-selection preview result
+ */
+export interface FlowAutoSelectionPreview {
+  selectedFlow: {
+    id: string;
+    name: string;
+    description: string | null;
+    perilType: string;
+  } | null;
+  availableFlows: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    perilType: string;
+  }>;
+  claimPerilType: string | null;
+  requiresSelection: boolean;
+  message: string;
+}
+
+/**
+ * Preview which flow would be auto-selected for a claim without starting it
+ */
+export async function previewFlowSelectionForClaim(
+  claimId: string
+): Promise<FlowAutoSelectionPreview> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/flows/preview`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to preview flow selection');
+  }
+  return response.json();
+}
+
+/**
  * Start a new flow for a claim
+ * If perilType is not provided, auto-selects based on claim's primaryPeril
  */
 export async function startFlowForClaim(
   claimId: string,
-  perilType: string
-): Promise<{ flowInstanceId: string; message: string }> {
+  perilType?: string
+): Promise<{ flowInstanceId: string; message: string; autoSelected?: boolean }> {
+  const body: Record<string, string> = {};
+  if (perilType) {
+    body.perilType = perilType;
+  }
+
   const response = await fetch(`${API_BASE}/claims/${claimId}/flows`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ perilType }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

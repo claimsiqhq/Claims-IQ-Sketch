@@ -143,6 +143,181 @@ async function loadFlowDefinition(flowDefinitionId: string): Promise<FlowDefinit
 // ============================================================================
 
 /**
+ * Find flow definitions that match a given peril type
+ * Returns matching active flow definitions sorted by version (newest first)
+ */
+export async function findMatchingFlowDefinitions(
+  perilType: string
+): Promise<FlowDefinitionWithJson[]> {
+  const { data: flowDefs, error: flowDefError } = await supabaseAdmin
+    .from('flow_definitions')
+    .select('*')
+    .eq('is_active', true)
+    .order('version', { ascending: false });
+
+  if (flowDefError) {
+    console.error('[FlowEngineService] Error finding flow definitions:', flowDefError);
+    throw new Error(`Database error finding flow definitions: ${flowDefError.message}`);
+  }
+
+  if (!flowDefs || flowDefs.length === 0) {
+    return [];
+  }
+
+  // Normalize peril type for matching
+  const normalizedPeril = perilType.toLowerCase().replace(/[\s-]/g, '_');
+
+  // Find all flows that match the peril type
+  const matchingFlows = flowDefs.filter(fd => {
+    // Check peril_type column
+    if (fd.peril_type?.toLowerCase().replace(/[\s-]/g, '_') === normalizedPeril) return true;
+    // Also check flow_json metadata
+    const flowJson = fd.flow_json as FlowJson;
+    if (flowJson?.metadata?.primary_peril?.toLowerCase().replace(/[\s-]/g, '_') === normalizedPeril) return true;
+    if (flowJson?.metadata?.secondary_perils?.some((p: string) =>
+      p.toLowerCase().replace(/[\s-]/g, '_') === normalizedPeril
+    )) return true;
+    return false;
+  });
+
+  return matchingFlows.map(fd => ({
+    id: fd.id,
+    name: fd.name,
+    description: fd.description,
+    peril_type: fd.peril_type,
+    property_type: fd.property_type,
+    flow_json: fd.flow_json as FlowJson,
+    is_active: fd.is_active
+  }));
+}
+
+/**
+ * Find a general/fallback flow definition when no peril-specific flow exists
+ */
+export async function findGeneralFlowDefinition(): Promise<FlowDefinitionWithJson | null> {
+  const { data: flowDefs, error: flowDefError } = await supabaseAdmin
+    .from('flow_definitions')
+    .select('*')
+    .eq('is_active', true)
+    .or('peril_type.eq.general,peril_type.eq.other,peril_type.ilike.%general%')
+    .order('version', { ascending: false })
+    .limit(1);
+
+  if (flowDefError) {
+    console.error('[FlowEngineService] Error finding general flow definition:', flowDefError);
+    return null;
+  }
+
+  if (!flowDefs || flowDefs.length === 0) {
+    return null;
+  }
+
+  const fd = flowDefs[0];
+  return {
+    id: fd.id,
+    name: fd.name,
+    description: fd.description,
+    peril_type: fd.peril_type,
+    property_type: fd.property_type,
+    flow_json: fd.flow_json as FlowJson,
+    is_active: fd.is_active
+  };
+}
+
+/**
+ * Auto-select the best flow definition for a claim
+ * Returns the selected flow, available options, or error info
+ */
+export async function autoSelectFlowForClaim(
+  claimId: string
+): Promise<{
+  selectedFlow: FlowDefinitionWithJson | null;
+  availableFlows: FlowDefinitionWithJson[];
+  perilType: string | null;
+  requiresSelection: boolean;
+  message: string;
+}> {
+  // Get the claim to read its primaryPeril
+  const { data: claim, error: claimError } = await supabaseAdmin
+    .from('claims')
+    .select('id, primary_peril, loss_type')
+    .eq('id', claimId)
+    .single();
+
+  if (claimError || !claim) {
+    throw new Error(`Claim not found: ${claimId}`);
+  }
+
+  // Use primaryPeril, fall back to lossType for legacy claims
+  const perilType = claim.primary_peril || claim.loss_type;
+
+  if (!perilType) {
+    // No peril type on claim - check for general flow
+    const generalFlow = await findGeneralFlowDefinition();
+    if (generalFlow) {
+      return {
+        selectedFlow: generalFlow,
+        availableFlows: [generalFlow],
+        perilType: null,
+        requiresSelection: false,
+        message: 'Using general inspection flow (no peril type specified on claim)'
+      };
+    }
+    return {
+      selectedFlow: null,
+      availableFlows: [],
+      perilType: null,
+      requiresSelection: true,
+      message: 'No peril type specified on claim and no general flow available'
+    };
+  }
+
+  // Find matching flows for this peril
+  const matchingFlows = await findMatchingFlowDefinitions(perilType);
+
+  if (matchingFlows.length === 0) {
+    // No matching flow - try fallback to general
+    const generalFlow = await findGeneralFlowDefinition();
+    if (generalFlow) {
+      return {
+        selectedFlow: generalFlow,
+        availableFlows: [generalFlow],
+        perilType,
+        requiresSelection: false,
+        message: `No inspection flow configured for "${perilType}" claims. Using general flow.`
+      };
+    }
+    return {
+      selectedFlow: null,
+      availableFlows: [],
+      perilType,
+      requiresSelection: true,
+      message: `No inspection flow configured for "${perilType}" claims`
+    };
+  }
+
+  if (matchingFlows.length === 1) {
+    // Exactly one match - auto-select it
+    return {
+      selectedFlow: matchingFlows[0],
+      availableFlows: matchingFlows,
+      perilType,
+      requiresSelection: false,
+      message: `Auto-selected "${matchingFlows[0].name}" for ${perilType} claim`
+    };
+  }
+
+  // Multiple matches - select the newest version but indicate options are available
+  return {
+    selectedFlow: matchingFlows[0], // Already sorted by version desc
+    availableFlows: matchingFlows,
+    perilType,
+    requiresSelection: false, // Auto-select newest, but client can override
+    message: `Auto-selected "${matchingFlows[0].name}" (${matchingFlows.length} flows available for ${perilType})`
+  };
+}
+
+/**
  * Start a flow for a claim based on peril type
  * If an active flow already exists, cancels it and creates a new one
  */
