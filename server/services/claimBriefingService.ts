@@ -493,6 +493,8 @@ export async function generateClaimBriefing(
     }
 
     // Step 2: Generate source hash for caching
+    // NOTE: Only include stable, content-based fields that indicate actual claim data changes.
+    // EXCLUDED: builtAt (timestamp), completenessScore (fluctuates with async enrichment)
     const hashInput = {
       claimId: context.claimId,
       peril: context.peril.primary,
@@ -500,8 +502,6 @@ export async function generateClaimBriefing(
       roofAge: context.property.roof.ageAtLoss,
       endorsementCount: context.endorsements.extracted.length,
       alertCount: context.alerts.length,
-      completeness: context.meta.dataCompleteness.completenessScore,
-      builtAt: context.meta.builtAt,
     };
     const sourceHash = crypto.createHash('sha256').update(JSON.stringify(hashInput)).digest('hex');
 
@@ -732,6 +732,7 @@ export async function isBriefingStale(
   }
 
   // Generate hash using the same logic as generateClaimBriefing
+  // NOTE: Only include stable, content-based fields - NOT timestamps or volatile scores
   const hashInput = {
     claimId: context.claimId,
     peril: context.peril.primary,
@@ -739,18 +740,25 @@ export async function isBriefingStale(
     roofAge: context.property.roof.ageAtLoss,
     endorsementCount: context.endorsements.extracted.length,
     alertCount: context.alerts.length,
-    completeness: context.meta.dataCompleteness.completenessScore,
-    builtAt: context.meta.builtAt,
   };
   const currentHash = crypto.createHash('sha256').update(JSON.stringify(hashInput)).digest('hex');
 
   const briefing = await getClaimBriefing(claimId, organizationId);
 
   if (!briefing) {
+    console.log('[Briefing Staleness] No briefing exists');
     return true; // No briefing exists
   }
 
-  return briefing.sourceHash !== currentHash;
+  const isStale = briefing.sourceHash !== currentHash;
+  console.log('[Briefing Staleness] Hash comparison:', {
+    storedHash: briefing.sourceHash,
+    currentHash,
+    hashInput,
+    isStale
+  });
+
+  return isStale;
 }
 
 /**

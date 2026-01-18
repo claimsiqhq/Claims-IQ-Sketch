@@ -58,7 +58,10 @@ interface BriefingPanelProps {
 export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
   const [briefing, setBriefing] = useState<StoredBriefing | null>(null);
   const [status, setStatus] = useState<BriefingStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Start with loading = true to prevent autostart race condition
+  // The autostart effect checks !loading, so starting with true prevents
+  // it from triggering before fetchBriefing completes
+  const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
