@@ -1389,8 +1389,9 @@ function MS365IntegrationCard() {
       // Use the existing endpoint
       const response = await fetch('/api/auth/ms365/status', { credentials: 'include' });
       if (response.ok) {
-        const data = await response.json();
-        setStatus(data);
+        const result = await response.json();
+        // API returns { success, data } wrapper - extract the data
+        setStatus(result.data || result);
       } else {
         setStatus({ connected: false, configured: false, expiresAt: null });
       }
