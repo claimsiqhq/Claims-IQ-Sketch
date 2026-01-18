@@ -147,7 +147,7 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
                   </div>
                   <p className="text-sm font-medium mt-1">{selectedItem.description}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    ${selectedItem.basePrice.toFixed(2)} / {selectedItem.unit}
+                    ${(selectedItem.basePrice ?? 0).toFixed(2)} / {selectedItem.unit}
                   </p>
                 </div>
                 <Button
@@ -201,7 +201,7 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
                 <div className="text-sm">
                   <span className="text-muted-foreground">Line Total: </span>
                   <span className="font-semibold">
-                    ${((parseFloat(quantity) || 0) * selectedItem.basePrice).toFixed(2)}
+                    ${((parseFloat(quantity) || 0) * (selectedItem.basePrice ?? 0)).toFixed(2)}
                   </span>
                 </div>
                 <Button onClick={handleConfirmAdd} className="gap-2" data-testid="button-confirm-add">
@@ -283,7 +283,7 @@ export default function LineItemPicker({ isOpen, onClose, onSelect }: LineItemPi
                         <span className="text-xs text-muted-foreground">{item.categoryName}</span>
                       </div>
                       <p className="text-sm font-medium mt-1 truncate">{item.description}</p>
-                      <p className="text-xs text-muted-foreground">Price: ${item.basePrice.toFixed(2)} / {item.unit}</p>
+                      <p className="text-xs text-muted-foreground">Price: ${(item.basePrice ?? 0).toFixed(2)} / {item.unit}</p>
                     </div>
                     <Button size="sm" variant="ghost" className="shrink-0 min-tap-target pointer-events-none">
                       <Plus className="h-4 w-4" />
