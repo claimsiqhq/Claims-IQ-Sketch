@@ -144,11 +144,38 @@ async function loadFlowDefinition(flowDefinitionId: string): Promise<FlowDefinit
 
 /**
  * Start a flow for a claim based on peril type
+ * If an active flow already exists, cancels it and creates a new one
  */
 export async function startFlowForClaim(
   claimId: string,
   perilType: string
 ): Promise<string> {
+  // Step 0: Check for and cancel any existing active flows for this claim
+  const { data: existingFlows, error: existingError } = await supabaseAdmin
+    .from('claim_flow_instances')
+    .select('id')
+    .eq('claim_id', claimId)
+    .eq('status', 'active');
+
+  if (existingError) {
+    console.error('[FlowEngineService] Error checking existing flows:', existingError);
+  } else if (existingFlows && existingFlows.length > 0) {
+    console.log(`[FlowEngineService] Found ${existingFlows.length} existing active flow(s) for claim ${claimId}, cancelling them`);
+    // Cancel all existing active flows
+    const { error: cancelError } = await supabaseAdmin
+      .from('claim_flow_instances')
+      .update({
+        status: 'cancelled',
+        completed_at: new Date().toISOString()
+      })
+      .eq('claim_id', claimId)
+      .eq('status', 'active');
+
+    if (cancelError) {
+      console.error('[FlowEngineService] Error cancelling existing flows:', cancelError);
+    }
+  }
+
   // Step 1: Find matching flow_definitions by checking flow_json metadata
   const { data: flowDefs, error: flowDefError } = await supabaseAdmin
     .from('flow_definitions')
@@ -205,6 +232,7 @@ export async function startFlowForClaim(
 
 /**
  * Get current flow for a claim
+ * Returns the most recent active flow if multiple exist
  */
 export async function getCurrentFlow(claimId: string): Promise<FlowInstance | null> {
   const { data, error } = await supabaseAdmin
@@ -220,6 +248,8 @@ export async function getCurrentFlow(claimId: string): Promise<FlowInstance | nu
     `)
     .eq('claim_id', claimId)
     .eq('status', 'active')
+    .order('started_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {
