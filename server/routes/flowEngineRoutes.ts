@@ -29,7 +29,9 @@ import {
   advanceToNextPhase,
   checkPhaseAdvancement,
   getFlowInstanceWithPhaseStatus,
-  canFinalizeFlow
+  canFinalizeFlow,
+  autoSelectFlowForClaim,
+  findMatchingFlowDefinitions
 } from '../services/flowEngineService';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
@@ -42,34 +44,105 @@ const router = express.Router();
 /**
  * POST /api/claims/:claimId/flows
  * Start new flow for claim
+ *
+ * If perilType is provided, uses that to find matching flow.
+ * If perilType is not provided, auto-selects based on claim's primaryPeril.
+ *
+ * Request body:
+ * - perilType (optional): Override peril type for flow selection
+ * - flowDefinitionId (optional): Directly specify which flow definition to use
  */
 router.post('/claims/:claimId/flows', async (req, res) => {
   try {
     const { claimId } = req.params;
-    const { perilType } = req.body;
-
-    if (!perilType) {
-      return res.status(400).json({ error: 'perilType is required' });
-    }
+    const { perilType, flowDefinitionId } = req.body;
 
     // Check if flow already active for claim
     const existingFlow = await getCurrentFlow(claimId);
     if (existingFlow) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         error: 'Active flow already exists for this claim',
         flowInstanceId: existingFlow.id
       });
     }
 
-    const flowInstanceId = await startFlowForClaim(claimId, perilType);
+    let selectedPerilType = perilType;
+
+    // If no perilType provided, auto-select based on claim
+    if (!selectedPerilType && !flowDefinitionId) {
+      const autoSelection = await autoSelectFlowForClaim(claimId);
+
+      if (!autoSelection.selectedFlow) {
+        return res.status(400).json({
+          error: autoSelection.message,
+          requiresSelection: true,
+          availableFlows: autoSelection.availableFlows.map(f => ({
+            id: f.id,
+            name: f.name,
+            description: f.description,
+            perilType: f.peril_type
+          }))
+        });
+      }
+
+      selectedPerilType = autoSelection.selectedFlow.peril_type;
+
+      console.log(`[FlowEngineRoutes] Auto-selected flow: ${autoSelection.selectedFlow.name} for claim ${claimId}`);
+    }
+
+    if (!selectedPerilType && !flowDefinitionId) {
+      return res.status(400).json({
+        error: 'Could not determine peril type. Please provide perilType or flowDefinitionId.',
+        requiresSelection: true
+      });
+    }
+
+    const flowInstanceId = await startFlowForClaim(claimId, selectedPerilType || 'general');
 
     res.status(201).json({
       flowInstanceId,
-      message: 'Flow started successfully'
+      message: 'Flow started successfully',
+      autoSelected: !perilType && !flowDefinitionId
     });
 
   } catch (error) {
     console.error('[FlowEngineRoutes] POST /claims/:claimId/flows error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * GET /api/claims/:claimId/flows/preview
+ * Preview which flow would be auto-selected for this claim without starting it
+ */
+router.get('/claims/:claimId/flows/preview', async (req, res) => {
+  try {
+    const { claimId } = req.params;
+
+    const autoSelection = await autoSelectFlowForClaim(claimId);
+
+    res.status(200).json({
+      selectedFlow: autoSelection.selectedFlow ? {
+        id: autoSelection.selectedFlow.id,
+        name: autoSelection.selectedFlow.name,
+        description: autoSelection.selectedFlow.description,
+        perilType: autoSelection.selectedFlow.peril_type
+      } : null,
+      availableFlows: autoSelection.availableFlows.map(f => ({
+        id: f.id,
+        name: f.name,
+        description: f.description,
+        perilType: f.peril_type
+      })),
+      claimPerilType: autoSelection.perilType,
+      requiresSelection: autoSelection.requiresSelection,
+      message: autoSelection.message
+    });
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] GET /claims/:claimId/flows/preview error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });
