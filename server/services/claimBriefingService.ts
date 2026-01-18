@@ -39,6 +39,7 @@ export interface ClaimBriefingResult {
   cached?: boolean;
   error?: string;
   model?: string;
+  updatedAt?: string;
   tokenUsage?: {
     promptTokens: number;
     completionTokens: number;
@@ -525,6 +526,7 @@ export async function generateClaimBriefing(
           sourceHash: cached.source_hash,
           cached: true,
           model: cached.model,
+          updatedAt: cached.updated_at,
         };
       }
     }
@@ -604,8 +606,9 @@ export async function generateClaimBriefing(
 
       const briefingContent = JSON.parse(responseContent) as ClaimBriefingContent;
 
-      // Update record
-      await supabaseAdmin
+      // Update record with error handling
+      const updatedAt = new Date().toISOString();
+      const { error: updateError } = await supabaseAdmin
         .from('claim_briefings')
         .update({
           briefing_json: briefingContent,
@@ -614,9 +617,14 @@ export async function generateClaimBriefing(
           prompt_tokens: completion.usage?.prompt_tokens,
           completion_tokens: completion.usage?.completion_tokens,
           total_tokens: completion.usage?.total_tokens,
-          updated_at: new Date().toISOString(),
+          updated_at: updatedAt,
         })
         .eq('id', briefingId);
+
+      if (updateError) {
+        console.error('[ClaimBriefing] Failed to update briefing record:', updateError);
+        throw new Error(`Failed to save briefing: ${updateError.message}`);
+      }
 
       // Increment claim's briefing_version for cache invalidation
       // This allows voice agents to detect when the briefing has been updated
@@ -655,6 +663,7 @@ export async function generateClaimBriefing(
         sourceHash,
         cached: false,
         model: promptConfig.model,
+        updatedAt,
         tokenUsage: {
           promptTokens: completion.usage?.prompt_tokens || 0,
           completionTokens: completion.usage?.completion_tokens || 0,

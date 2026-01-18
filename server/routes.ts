@@ -3564,6 +3564,7 @@ export async function registerRoutes(
       sourceHash: result.sourceHash,
       cached: result.cached,
       model: result.model,
+      updatedAt: result.updatedAt,
       tokenUsage: result.tokenUsage,
     });
   }));

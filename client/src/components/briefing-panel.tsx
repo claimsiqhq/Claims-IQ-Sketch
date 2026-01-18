@@ -115,6 +115,8 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
 
     try {
       const result = await generateClaimBriefing(claimId, force);
+      // Use the timestamp from the API response (actual DB value) with fallback
+      const timestamp = result.updatedAt || new Date().toISOString();
       setBriefing({
         id: result.briefingId,
         claimId,
@@ -126,13 +128,13 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
         promptTokens: result.tokenUsage?.promptTokens || null,
         completionTokens: result.tokenUsage?.completionTokens || null,
         totalTokens: result.tokenUsage?.totalTokens || null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: timestamp,
+        updatedAt: timestamp,
       });
       setStatus({
         hasBriefing: true,
         isStale: false,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: timestamp,
         model: result.model || null,
       });
       toast.success(result.cached ? 'Briefing loaded from cache' : 'Briefing generated successfully');
