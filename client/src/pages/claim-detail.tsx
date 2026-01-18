@@ -17,6 +17,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Home,
   PenTool,
   ClipboardList,
@@ -89,6 +96,8 @@ import {
   updateClaim,
   submitEstimate,
   downloadEstimatePdf,
+  downloadEstimateExport,
+  type EsxExportFormat,
   getEstimateLockStatus,
   getScopeItems,
   addScopeItem,
@@ -515,6 +524,7 @@ export default function ClaimDetail() {
   // Estimate finalization state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isExporting, setIsExporting] = useState<EsxExportFormat | null>(null);
   const [estimateLockStatus, setEstimateLockStatus] = useState<EstimateLockStatus | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationIssue[]>([]);
   const [validationWarnings, setValidationWarnings] = useState<ValidationIssue[]>([]);
@@ -648,6 +658,28 @@ export default function ClaimDetail() {
       console.error('Download PDF error:', err);
     } finally {
       setIsDownloadingPdf(false);
+    }
+  };
+
+  // Handle ESX/CSV export
+  const handleExport = async (format: EsxExportFormat, includePhotos?: boolean) => {
+    if (!params?.id || isExporting) return;
+
+    setIsExporting(format);
+    try {
+      await downloadEstimateExport(params.id, format, { includePhotos });
+      const formatLabels: Record<EsxExportFormat, string> = {
+        'esx-zip': 'ESX',
+        'esx-xml': 'ESX (XML)',
+        'csv': 'CSV'
+      };
+      toast.success(`${formatLabels[format]} exported successfully`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : `Failed to export ${format}`;
+      toast.error(errorMessage);
+      console.error('Export error:', err);
+    } finally {
+      setIsExporting(null);
     }
   };
 
@@ -3227,20 +3259,55 @@ export default function ClaimDetail() {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* Download PDF button - always visible */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleDownloadPdf}
-                      disabled={isDownloadingPdf}
-                    >
-                      {isDownloadingPdf ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <FileDown className="h-4 w-4 mr-2" />
-                      )}
-                      Download PDF
-                    </Button>
+                    {/* Export dropdown - always visible */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isDownloadingPdf || !!isExporting}
+                        >
+                          {(isDownloadingPdf || isExporting) ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-2" />
+                          )}
+                          Export
+                          <ChevronDown className="h-4 w-4 ml-2" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => handleExport('esx-zip', true)}
+                          disabled={isExporting === 'esx-zip'}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Export ESX (with photos)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleExport('esx-xml')}
+                          disabled={isExporting === 'esx-xml'}
+                        >
+                          <File className="h-4 w-4 mr-2" />
+                          Export ESX (XML only)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleExport('csv')}
+                          disabled={isExporting === 'csv'}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          Export CSV
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={handleDownloadPdf}
+                          disabled={isDownloadingPdf}
+                        >
+                          <FileDown className="h-4 w-4 mr-2" />
+                          Download PDF
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
 
                     {/* Finalize button - only if not locked */}
                     {!isEstimateLocked && (

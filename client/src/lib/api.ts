@@ -501,6 +501,57 @@ export async function downloadEstimatePdf(estimateId: string): Promise<void> {
   window.URL.revokeObjectURL(downloadUrl);
 }
 
+// ESX Export functions
+export type EsxExportFormat = 'esx-zip' | 'esx-xml' | 'csv';
+
+export async function downloadEstimateExport(
+  estimateId: string,
+  format: EsxExportFormat,
+  options?: { includePhotos?: boolean }
+): Promise<void> {
+  let url: string;
+  let filename: string;
+
+  switch (format) {
+    case 'esx-zip':
+      const params = new URLSearchParams();
+      params.set('includeSketch', 'true');
+      if (options?.includePhotos) {
+        params.set('includePhotos', 'true');
+      }
+      url = `${API_BASE}/estimates/${estimateId}/export/esx-zip?${params}`;
+      filename = `estimate-${estimateId}.esx`;
+      break;
+    case 'esx-xml':
+      url = `${API_BASE}/estimates/${estimateId}/export/esx-xml`;
+      filename = `estimate-${estimateId}.esx`;
+      break;
+    case 'csv':
+      url = `${API_BASE}/estimates/${estimateId}/export/csv`;
+      filename = `estimate-${estimateId}.csv`;
+      break;
+    default:
+      throw new Error(`Unknown export format: ${format}`);
+  }
+
+  const response = await fetch(url, { credentials: 'include' });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Failed to export ${format}`);
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
 export async function listEstimates(params?: {
   status?: string;
   claimId?: string;
