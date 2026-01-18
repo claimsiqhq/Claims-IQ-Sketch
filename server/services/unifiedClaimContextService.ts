@@ -46,7 +46,11 @@ import {
   ThirdPartyInterest,
   DwellingSettlementRules,
 } from '../../shared/schema';
-import { inferPeril } from './perilNormalizer';
+import {
+  inferPeril,
+  getCanonicalPerilCode,
+  guardAgainstPerilRederivation,
+} from './perilNormalizer';
 import { PERIL_INSPECTION_RULES } from '../config/perilInspectionRules';
 
 // ============================================
@@ -144,9 +148,23 @@ function parseAddressComponents(address: string | undefined): { city?: string; s
 }
 
 /**
- * Normalize peril string to Peril enum
+ * @deprecated LEGACY FALLBACK ONLY - Use getCanonicalPerilCode() for new code
+ *
+ * Normalize peril string to Peril enum from cause-of-loss text.
+ * This function exists ONLY for backward compatibility.
+ *
+ * IMPORTANT: Per peril normalization requirements:
+ * - All downstream systems MUST use primary_peril_code from claims table
+ * - Free-text peril strings MUST NOT be used for logic
+ * - New claims should have canonical peril set via normalizePerilFromFnol()
  */
-function normalizePeril(cause: string | undefined): Peril {
+function normalizePerilFromCause(cause: string | undefined): Peril {
+  // GUARDRAIL: Log warning when re-deriving peril from text
+  console.warn(
+    `[DEPRECATED] normalizePerilFromCause called with cause: "${cause}". ` +
+    `Downstream systems should use getCanonicalPerilCode() with claim.primary_peril instead.`
+  );
+
   if (!cause) return Peril.OTHER;
 
   const lower = cause.toLowerCase();
@@ -708,14 +726,27 @@ function buildLossSettlementRules(
 
 /**
  * Build peril analysis
+ * @param fnol - FNOL extraction data
+ * @param deductibles - Deductible structure
+ * @param exclusions - List of exclusions
+ * @param claimPeril - CANONICAL: The validated primary_peril from the claim. If provided, this is used instead of re-deriving from FNOL.
  */
 function buildPerilAnalysis(
   fnol: FNOLExtractionRaw | null,
   deductibles: DeductibleStructure,
-  exclusions: string[]
+  exclusions: string[],
+  claimPeril?: string | null  // CANONICAL PERIL from claims table
 ): PerilAnalysis {
+  // CANONICAL PERIL: Use claimPeril if provided (from claim.primary_peril)
+  // Only fall back to deprecated FNOL parsing for legacy claims
+  let primary: Peril;
+  if (claimPeril) {
+    primary = getCanonicalPerilCode(claimPeril);
+  } else {
+    const cause = fnol?.claim_information_report?.loss_details?.cause;
+    primary = normalizePerilFromCause(cause);
+  }
   const cause = fnol?.claim_information_report?.loss_details?.cause;
-  const primary = normalizePeril(cause);
   const primaryDisplay = PERIL_LABELS[primary] || cause || 'Unknown';
 
   // Get peril-specific rules
@@ -1243,7 +1274,11 @@ export async function buildUnifiedClaimContext(
     const property = buildPropertyDetails(fnolData, dateOfLoss, coverages);
 
     // Build deductibles
-    const primaryPeril = normalizePeril(fnolData?.claim_information_report?.loss_details?.cause);
+    // CANONICAL PERIL: Use primary_peril from claim (normalized at FNOL ingestion)
+    // Fallback to deprecated FNOL cause parsing only for legacy claims
+    const primaryPeril = claim.primary_peril
+      ? getCanonicalPerilCode(claim.primary_peril)
+      : normalizePerilFromCause(fnolData?.claim_information_report?.loss_details?.cause);
     const deductibles = buildDeductibles(fnolData, primaryPeril);
 
     // Build loss settlement rules
@@ -1284,8 +1319,8 @@ export async function buildUnifiedClaimContext(
       }
     }
 
-    // Build peril analysis
-    const perilAnalysis = buildPerilAnalysis(fnolData, deductibles, generalExclusions);
+    // Build peril analysis - pass canonical peril from claim
+    const perilAnalysis = buildPerilAnalysis(fnolData, deductibles, generalExclusions, claim.primary_peril);
 
     // Build definitions from policy
     const definitions = policyData?.agreement_and_definitions?.key_definitions || {};

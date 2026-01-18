@@ -37,6 +37,10 @@ import {
   SketchRequirement,
   DepreciationGuidance,
 } from '../config/perilInspectionRules';
+import {
+  getCanonicalPerilCode,
+  guardAgainstPerilRederivation,
+} from './perilNormalizer';
 
 // ============================================
 // AI CONTEXT INTERFACES
@@ -417,8 +421,27 @@ export async function buildPerilAwareClaimContext(
     ...claimDamageZoneResult.rows
   ];
 
-  // Normalize peril data
-  const primaryPeril = claim.primaryPeril || inferPerilFromLegacy(claim.causeOfLoss);
+  // CANONICAL PERIL: Use primary_peril_code from claim, NEVER re-derive from text
+  // If primaryPeril is missing, use guardrail to log warning and fallback safely
+  let primaryPeril: Peril;
+  if (claim.primaryPeril) {
+    // Use canonical peril code - this is the validated value from FNOL normalization
+    primaryPeril = getCanonicalPerilCode(claim.primaryPeril);
+  } else {
+    // GUARDRAIL: Legacy fallback - log warning and use safe default
+    // This should only happen for claims created before peril normalization was added
+    const guardResult = guardAgainstPerilRederivation(
+      null, // No existing peril
+      `legacy causeOfLoss field: "${claim.causeOfLoss}"`,
+      claim.id
+    );
+    primaryPeril = inferPerilFromLegacy(claim.causeOfLoss);
+    console.warn(
+      `[PerilAwareContext] Claim ${claim.id} missing primary_peril, ` +
+      `falling back to legacy inference: ${primaryPeril}. ` +
+      `This claim should be re-processed through FNOL normalization.`
+    );
+  }
   const secondaryPerils = claim.secondaryPerils || SECONDARY_PERIL_MAP[primaryPeril as Peril] || [];
   const perilMetadata = claim.perilMetadata || {};
 
@@ -500,9 +523,28 @@ export async function buildPerilAwareClaimContext(
 }
 
 /**
- * Infer peril from legacy causeOfLoss field
+ * @deprecated LEGACY FALLBACK ONLY - Do not use for new claims
+ *
+ * Infer peril from legacy causeOfLoss field.
+ * This function exists ONLY for backward compatibility with claims created
+ * before the peril normalization system was implemented.
+ *
+ * IMPORTANT: New claims should ALWAYS have primary_peril set via normalizePerilFromFnol().
+ * If you find yourself calling this function, the claim should be re-processed.
+ *
+ * Per peril normalization requirements:
+ * - All downstream systems MUST use primary_peril_code from the claims table
+ * - Free-text peril strings MUST NOT be used for logic
+ * - This function logs a warning when called
  */
 function inferPerilFromLegacy(causeOfLoss: string | null): Peril {
+  // Log deprecation warning
+  console.warn(
+    `[DEPRECATED] inferPerilFromLegacy called with causeOfLoss: "${causeOfLoss}". ` +
+    `This function should only be used for legacy claims. ` +
+    `New claims must use normalizePerilFromFnol() for canonical peril.`
+  );
+
   if (!causeOfLoss) return Peril.OTHER;
 
   const lower = causeOfLoss.toLowerCase();
