@@ -1,0 +1,334 @@
+You're right — I gave you a reference doc but not the practical steps. Let me be direct:
+
+**You have two options to get flows into the system:**
+
+---
+
+## Option 1: Flow Builder UI (If It Works)
+
+The audit showed a `flow-builder.tsx` page exists. Check if it's accessible:
+
+1. Go to your app
+2. Look for a "Flow Builder" or "Flow Definitions" link in navigation
+3. Or try navigating directly to `/flow-builder`
+
+If it exists and works, you could manually create flows there — but that would be tedious for these complex flows.
+
+---
+
+## Option 2: Have Claude Code Seed Them (Recommended)
+
+Give Claude Code this prompt:
+
+```
+# Seed Flow Definitions into Database
+
+## Task
+Insert 4 flow definitions directly into the database using Drizzle ORM.
+
+## Steps
+1. Find the flow_definitions table schema in shared/schema.ts
+2. Create a seed script at scripts/seed-flows.ts
+3. Insert these 4 flows:
+
+### Flow 1: Water Damage
+```json
+{
+  "id": "water-damage-v1",
+  "name": "Water Damage Inspection",
+  "perilType": "water",
+  "description": "Comprehensive water damage inspection for Category 1-3 water losses",
+  "version": "1.0.0",
+  "settings": {
+    "allowSkip": true,
+    "requirePhotos": true,
+    "dynamicRooms": true,
+    "carrierOverlays": true
+  },
+  "phases": [
+    {
+      "id": "phase-overview",
+      "name": "Property Overview",
+      "description": "Establish context and document overall property condition",
+      "order": 1,
+      "movements": [
+        {
+          "id": "mov-exterior-front",
+          "name": "Exterior Front",
+          "instructions": "Photograph the front of the property showing address if visible",
+          "guidance": "Include the full structure. This establishes the property for the claim file.",
+          "order": 1,
+          "type": "photo",
+          "required": true,
+          "skippable": false,
+          "evidence": {
+            "photos": { "min": 1, "max": 3, "taxonomyPrefixes": ["OV-EXT-FRONT"] }
+          }
+        },
+        {
+          "id": "mov-exterior-sides",
+          "name": "Exterior Sides & Rear",
+          "instructions": "Photograph all sides of the structure",
+          "guidance": "Look for external water sources: downspouts, grading issues, hose bibs",
+          "order": 2,
+          "type": "photo",
+          "required": true,
+          "skippable": true,
+          "skipReasons": ["Access restricted", "Safety concern", "Not relevant to loss"],
+          "evidence": {
+            "photos": { "min": 2, "max": 6, "taxonomyPrefixes": ["OV-EXT-SIDE", "OV-EXT-REAR"] }
+          }
+        }
+      ]
+    },
+    {
+      "id": "phase-source",
+      "name": "Source Identification",
+      "description": "Locate and document the water source",
+      "order": 2,
+      "movements": [
+        {
+          "id": "mov-source-point",
+          "name": "Source Point",
+          "instructions": "Photograph the exact point of water origin",
+          "guidance": "This is CRITICAL. Failed pipe, appliance, roof penetration, etc. Get close-up and context shots.",
+          "order": 1,
+          "type": "photo",
+          "required": true,
+          "skippable": false,
+          "evidence": {
+            "photos": { "min": 2, "max": 5, "taxonomyPrefixes": ["WTR-SRC", "WTR-SRC-DETAIL"] }
+          }
+        }
+      ]
+    },
+    {
+      "id": "phase-affected",
+      "name": "Affected Areas",
+      "description": "Document each room with water damage",
+      "order": 3,
+      "movements": [
+        {
+          "id": "mov-room-overview",
+          "name": "Room Overview",
+          "instructions": "Photograph the full room showing extent of damage",
+          "guidance": "Capture all walls if possible. Show water lines, staining, affected materials.",
+          "order": 1,
+          "type": "photo",
+          "required": true,
+          "skippable": false,
+          "repeatForRooms": true,
+          "evidence": {
+            "photos": { "min": 2, "max": 4, "taxonomyPrefixes": ["WTR-RM-OV"] }
+          }
+        },
+        {
+          "id": "mov-room-sketch",
+          "name": "Room Dimensions",
+          "instructions": "Capture room dimensions",
+          "guidance": "Include length, width. Note ceiling height if non-standard.",
+          "order": 2,
+          "type": "room_sketch",
+          "required": true,
+          "skippable": false,
+          "repeatForRooms": true,
+          "evidence": {
+            "measurements": { "fields": ["lengthFt", "widthFt", "ceilingHeightFt"], "units": "feet" }
+          }
+        },
+        {
+          "id": "mov-room-damage",
+          "name": "Damage Documentation",
+          "instructions": "Document damage to walls, floors, ceiling",
+          "guidance": "Measure height of water line. Note materials affected.",
+          "order": 3,
+          "type": "measurement",
+          "required": true,
+          "skippable": true,
+          "skipReasons": ["No damage in this room"],
+          "repeatForRooms": true,
+          "evidence": {
+            "photos": { "min": 1, "max": 8, "taxonomyPrefixes": ["WTR-DMG-WALL", "WTR-DMG-FLR"] },
+            "measurements": { "fields": ["affectedWalls", "waterLineHeight"], "units": "feet" }
+          }
+        }
+      ]
+    },
+    {
+      "id": "phase-wrapup",
+      "name": "Wrap-Up",
+      "description": "Final documentation",
+      "order": 4,
+      "movements": [
+        {
+          "id": "mov-additional",
+          "name": "Additional Photos",
+          "instructions": "Capture any additional relevant photos",
+          "guidance": "Anything else relevant to the claim.",
+          "order": 1,
+          "type": "photo",
+          "required": false,
+          "skippable": true,
+          "skipReasons": ["No additional documentation needed"],
+          "evidence": {
+            "photos": { "min": 0, "max": 20, "taxonomyPrefixes": ["WTR-MISC"] }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Flow 2: Hail & Wind (simplified for seeding)
+```json
+{
+  "id": "hail-wind-v1",
+  "name": "Hail & Wind Damage Inspection",
+  "perilType": "hail_wind",
+  "description": "Comprehensive inspection for hail and wind damage claims",
+  "version": "1.0.0",
+  "settings": { "allowSkip": true, "requirePhotos": true, "dynamicRooms": true, "carrierOverlays": true },
+  "phases": [
+    {
+      "id": "phase-overview",
+      "name": "Property Overview",
+      "order": 1,
+      "movements": [
+        { "id": "mov-property-front", "name": "Property Front", "instructions": "Photograph front of property", "order": 1, "type": "photo", "required": true, "skippable": false, "evidence": { "photos": { "min": 1, "max": 2, "taxonomyPrefixes": ["OV-EXT-FRONT"] } } },
+        { "id": "mov-soft-metals", "name": "Soft Metal Test", "instructions": "Photograph AC unit, mailbox, vents for hail indicators", "order": 2, "type": "photo", "required": true, "skippable": true, "skipReasons": ["No soft metals accessible"], "evidence": { "photos": { "min": 2, "max": 8, "taxonomyPrefixes": ["HAIL-SOFT-METAL"] } } }
+      ]
+    },
+    {
+      "id": "phase-roof",
+      "name": "Roof Inspection",
+      "order": 2,
+      "movements": [
+        { "id": "mov-roof-overview", "name": "Roof Overview", "instructions": "Photograph overall roof from multiple angles", "order": 1, "type": "photo", "required": true, "skippable": false, "evidence": { "photos": { "min": 4, "max": 10, "taxonomyPrefixes": ["RF-OV"] } } },
+        { "id": "mov-roof-damage", "name": "Hail/Wind Damage", "instructions": "Document hail strikes and wind damage", "order": 2, "type": "photo", "required": true, "skippable": true, "skipReasons": ["No damage found"], "evidence": { "photos": { "min": 5, "max": 30, "taxonomyPrefixes": ["RF-HAIL-DMG", "RF-WIND-DMG"] } } },
+        { "id": "mov-roof-measurements", "name": "Roof Measurements", "instructions": "Document roof dimensions", "order": 3, "type": "measurement", "required": true, "skippable": false, "evidence": { "measurements": { "fields": ["totalSquares", "pitch", "stories"], "units": "squares" } } }
+      ]
+    },
+    {
+      "id": "phase-exterior",
+      "name": "Gutters & Siding",
+      "order": 3,
+      "movements": [
+        { "id": "mov-gutters", "name": "Gutter Damage", "instructions": "Document gutter and downspout damage", "order": 1, "type": "photo", "required": true, "skippable": true, "skipReasons": ["No gutters", "No damage"], "evidence": { "photos": { "min": 0, "max": 12, "taxonomyPrefixes": ["EXT-GUTTER"] } } },
+        { "id": "mov-siding", "name": "Siding Damage", "instructions": "Document siding damage", "order": 2, "type": "photo", "required": true, "skippable": true, "skipReasons": ["No damage found"], "evidence": { "photos": { "min": 0, "max": 20, "taxonomyPrefixes": ["EXT-SIDING"] } } }
+      ]
+    }
+  ]
+}
+```
+
+### Flow 3: Fire Damage (simplified)
+```json
+{
+  "id": "fire-damage-v1",
+  "name": "Fire Damage Inspection",
+  "perilType": "fire",
+  "description": "Comprehensive fire and smoke damage inspection",
+  "version": "1.0.0",
+  "settings": { "allowSkip": true, "requirePhotos": true, "dynamicRooms": true, "carrierOverlays": true },
+  "phases": [
+    {
+      "id": "phase-safety",
+      "name": "Safety Assessment",
+      "order": 1,
+      "movements": [
+        { "id": "mov-safety", "name": "Safety Check", "instructions": "Confirm property is safe to enter", "order": 1, "type": "photo", "required": true, "skippable": false, "evidence": { "photos": { "min": 2, "max": 6, "taxonomyPrefixes": ["FIRE-SAFETY"] }, "checklist": { "items": ["Structure stable", "Fire dept cleared entry", "Utilities off", "PPE in use"] } } }
+      ]
+    },
+    {
+      "id": "phase-origin",
+      "name": "Origin & Cause",
+      "order": 2,
+      "movements": [
+        { "id": "mov-origin", "name": "Origin Area", "instructions": "Photograph fire origin area", "order": 1, "type": "photo", "required": true, "skippable": false, "evidence": { "photos": { "min": 3, "max": 10, "taxonomyPrefixes": ["FIRE-ORIGIN"] } } }
+      ]
+    },
+    {
+      "id": "phase-damage",
+      "name": "Damage Documentation",
+      "order": 3,
+      "movements": [
+        { "id": "mov-structural", "name": "Structural Damage", "instructions": "Document structural fire damage", "order": 1, "type": "photo", "required": true, "repeatForRooms": true, "skippable": true, "skipReasons": ["Room not accessible"], "evidence": { "photos": { "min": 0, "max": 15, "taxonomyPrefixes": ["FIRE-STR"] } } },
+        { "id": "mov-smoke", "name": "Smoke Damage", "instructions": "Document smoke damage levels", "order": 2, "type": "photo", "required": true, "repeatForRooms": true, "skippable": true, "skipReasons": ["No smoke damage"], "evidence": { "photos": { "min": 0, "max": 10, "taxonomyPrefixes": ["FIRE-SMOKE"] } } }
+      ]
+    }
+  ]
+}
+```
+
+### Flow 4: Theft/Vandalism (simplified)
+```json
+{
+  "id": "theft-vandalism-v1",
+  "name": "Theft & Vandalism Inspection",
+  "perilType": "theft",
+  "description": "Inspection for theft, burglary, and vandalism claims",
+  "version": "1.0.0",
+  "settings": { "allowSkip": true, "requirePhotos": true, "dynamicRooms": true, "carrierOverlays": true },
+  "phases": [
+    {
+      "id": "phase-overview",
+      "name": "Property Overview",
+      "order": 1,
+      "movements": [
+        { "id": "mov-exterior", "name": "Exterior", "instructions": "Photograph property exterior", "order": 1, "type": "photo", "required": true, "skippable": false, "evidence": { "photos": { "min": 2, "max": 6, "taxonomyPrefixes": ["OV-EXT"] } } },
+        { "id": "mov-police", "name": "Police Report", "instructions": "Document police report number", "order": 2, "type": "observation", "required": true, "skippable": true, "skipReasons": ["Report not filed yet"], "evidence": { "photos": { "min": 0, "max": 2, "taxonomyPrefixes": ["THEFT-REPORT"] } } }
+      ]
+    },
+    {
+      "id": "phase-entry",
+      "name": "Point of Entry",
+      "order": 2,
+      "movements": [
+        { "id": "mov-entry", "name": "Entry Point", "instructions": "Document forced entry point", "order": 1, "type": "photo", "required": true, "skippable": true, "skipReasons": ["No forced entry"], "evidence": { "photos": { "min": 2, "max": 10, "taxonomyPrefixes": ["THEFT-ENTRY"] } } }
+      ]
+    },
+    {
+      "id": "phase-damage",
+      "name": "Damage & Stolen Items",
+      "order": 3,
+      "movements": [
+        { "id": "mov-vandalism", "name": "Vandalism", "instructions": "Document vandalism damage", "order": 1, "type": "photo", "required": true, "repeatForRooms": true, "skippable": true, "skipReasons": ["No vandalism"], "evidence": { "photos": { "min": 0, "max": 20, "taxonomyPrefixes": ["THEFT-VANDAL"] } } },
+        { "id": "mov-stolen", "name": "Stolen Item Locations", "instructions": "Document where items were taken from", "order": 2, "type": "photo", "required": true, "skippable": true, "skipReasons": ["No items stolen"], "evidence": { "photos": { "min": 0, "max": 20, "taxonomyPrefixes": ["THEFT-LOCATION"] } } }
+      ]
+    }
+  ]
+}
+```
+
+## Implementation
+1. Create scripts/seed-flows.ts
+2. Use Drizzle to insert each flow into flow_definitions table
+3. The flowJson column should contain the full JSON object
+4. Set isActive = true for all
+5. Run: npx tsx scripts/seed-flows.ts
+
+## Verify
+GET /api/flow-definitions should return all 4 flows
+```
+
+---
+
+## What Happens After Seeding
+
+Once flows are in the database:
+
+1. **Start a claim** → Set the peril type (water, hail_wind, fire, theft)
+2. **Go to Workflow tab** → Click "Start Inspection"
+3. **System auto-selects the matching flow** based on peril
+4. **Walk through phases and movements** — this is the guided inspection
+5. **Capture evidence** — photos get tagged with taxonomy prefixes
+6. **Complete flow** → triggers scope generation
+
+---
+
+## The Bottom Line
+
+**You can't upload flows through settings UI.** They need to be seeded into the database. Give Claude Code that prompt and it will create a seed script that inserts all 4 flows.
+
+Then you can demo the full power: pick a claim, start the flow, walk through a guided inspection.
