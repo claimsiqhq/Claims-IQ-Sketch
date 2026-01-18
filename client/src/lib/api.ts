@@ -1911,6 +1911,7 @@ export interface GenerateBriefingResponse {
   sourceHash: string;
   cached: boolean;
   model?: string;
+  updatedAt?: string;
   tokenUsage?: {
     promptTokens: number;
     completionTokens: number;
