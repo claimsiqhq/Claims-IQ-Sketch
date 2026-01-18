@@ -3284,7 +3284,7 @@ export default function ClaimDetail() {
                   <div>
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Insured</h3>
                     <p className="font-medium">{apiClaim?.insuredName || claim?.policyholder || 'Unknown'}</p>
-                    <p>{apiClaim?.propertyAddress ? `${apiClaim.propertyAddress}, ${apiClaim.propertyCity}, ${apiClaim.propertyState} ${apiClaim.propertyZip}` : (claim?.riskLocation || 'Address not provided')}</p>
+                    <p>{apiClaim?.propertyAddress ? `${apiClaim.propertyAddress}, ${apiClaim.propertyCity || ''}, ${apiClaim.propertyState || ''} ${apiClaim.propertyZip || ''}`.replace(/,\s*,/g, ',').trim() : (claim?.riskLocation || 'Address not provided')}</p>
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold uppercase text-slate-500 mb-2">Claim Info</h3>

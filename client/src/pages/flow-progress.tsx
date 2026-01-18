@@ -25,7 +25,8 @@ import {
   ChevronRight,
   Loader2,
   Home,
-  RefreshCw
+  RefreshCw,
+  Mic
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -121,18 +122,17 @@ export default function FlowProgressPage() {
     try {
       const movements = await getPhaseMovements(flowId!, phaseId);
       setPhaseMovements(prev => ({ ...prev, [phaseId]: movements }));
-      } catch (err) {
-        console.error('Failed to load phase movements:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load movements');
-        toast.error('Failed to load movements');
-      } finally {
-        setLoadingPhases(prev => {
-          const next = new Set(prev);
-          next.delete(phaseId);
-          return next;
-        });
-      }
-    };
+    } catch (err) {
+      console.error('Failed to load phase movements:', err);
+      toast.error('Failed to load movements');
+    } finally {
+      setLoadingPhases(prev => {
+        const next = new Set(prev);
+        next.delete(phaseId);
+        return next;
+      });
+    }
+  };
 
   // Auto-load movements for current phase
   useEffect(() => {
@@ -172,7 +172,6 @@ export default function FlowProgressPage() {
   };
 
   const handleRefetch = () => {
-    setError(null);
     refetchFlow();
     queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
     queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });

@@ -1022,21 +1022,21 @@ export default function Settings() {
                 {systemStatus && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3">
-                      {systemStatus.database.connected ? (
+                      {systemStatus.database?.connected ? (
                         <CheckCircle className="h-5 w-5 text-green-600" />
                       ) : (
                         <XCircle className="h-5 w-5 text-red-600" />
                       )}
                       <div>
                         <div className="font-medium">
-                          {systemStatus.database.connected ? 'Connected' : 'Disconnected'}
+                          {systemStatus.database?.connected ? 'Connected' : 'Disconnected'}
                         </div>
-                        {systemStatus.database.version && (
+                        {systemStatus.database?.version && (
                           <div className="text-sm text-muted-foreground">
                             {systemStatus.database.version}
                           </div>
                         )}
-                        {systemStatus.database.error && (
+                        {systemStatus.database?.error && (
                           <div className="text-sm text-red-600">
                             {systemStatus.database.error}
                           </div>
@@ -1134,7 +1134,7 @@ export default function Settings() {
                       <Database className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium">PostgreSQL</span>
                     </div>
-                    {systemStatus?.database.connected ? (
+                    {systemStatus?.database?.connected ? (
                       <Badge className="bg-green-100 text-green-800">Connected</Badge>
                     ) : (
                       <Badge variant="destructive">Disconnected</Badge>
