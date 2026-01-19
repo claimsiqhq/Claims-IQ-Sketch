@@ -6,7 +6,9 @@ import { storage } from '../storage';
 import type { ClaimPhoto, InsertClaimPhoto } from '@shared/schema';
 import { reverseGeocode } from './geocoding';
 
-const openai = new OpenAI();
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export interface PhotoUploadInput {
   file: {
