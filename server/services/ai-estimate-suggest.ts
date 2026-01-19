@@ -3,7 +3,7 @@
 
 import OpenAI from 'openai';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { PromptKey } from '../../shared/schema';
+import { Peril, PromptKey } from '../../shared/schema';
 import { getPromptWithFallback, substituteVariables } from './promptService';
 
 // ============================================
@@ -14,7 +14,7 @@ export interface DamageZoneInput {
   id: string;
   roomName: string;
   roomType?: string;
-  damageType: string; // water, fire, smoke, mold, wind, impact
+  damageType: string; // Use canonical Peril enum values: water, fire, smoke, mold, wind_hail, impact, flood, other
   damageSeverity?: string; // minor, moderate, severe, total_loss
   waterCategory?: number; // 1, 2, or 3 for water damage
   waterClass?: number; // 1, 2, 3, or 4
@@ -54,14 +54,21 @@ export interface AISuggestionResult {
 // ============================================
 // LINE ITEM CATEGORIES FOR DIFFERENT DAMAGE TYPES
 // ============================================
+// NOTE: This mapping uses canonical Peril enum values as keys.
+// The damageType field on DamageZoneInput should correspond to these codes.
+// This aligns with the peril normalization system - see perilNormalizer.ts
 
 const DAMAGE_TYPE_CATEGORIES: Record<string, string[]> = {
-  water: ['WTR', 'DEM', 'DRY', 'FLR', 'DRW', 'PLM', 'CLN', 'ANT'],
-  fire: ['FIR', 'DEM', 'CLN', 'DRW', 'PNT', 'ELE', 'INS'],
-  smoke: ['SMK', 'CLN', 'DRW', 'PNT', 'SEA', 'ODR'],
-  mold: ['MLD', 'DEM', 'ANT', 'CLN', 'DRW', 'SEA'],
-  wind: ['WND', 'DEM', 'ROF', 'EXT', 'WIN', 'SID'],
-  impact: ['DEM', 'DRW', 'PNT', 'GEN'],
+  [Peril.WATER]: ['WTR', 'DEM', 'DRY', 'FLR', 'DRW', 'PLM', 'CLN', 'ANT'],
+  [Peril.FIRE]: ['FIR', 'DEM', 'CLN', 'DRW', 'PNT', 'ELE', 'INS'],
+  [Peril.SMOKE]: ['SMK', 'CLN', 'DRW', 'PNT', 'SEA', 'ODR'],
+  [Peril.MOLD]: ['MLD', 'DEM', 'ANT', 'CLN', 'DRW', 'SEA'],
+  [Peril.WIND_HAIL]: ['WND', 'DEM', 'ROF', 'EXT', 'WIN', 'SID'],
+  [Peril.IMPACT]: ['DEM', 'DRW', 'PNT', 'GEN'],
+  [Peril.FLOOD]: ['WTR', 'DEM', 'DRY', 'FLR', 'DRW', 'CLN', 'ANT'], // Similar to water
+  [Peril.OTHER]: ['GEN', 'DEM', 'DRW', 'PNT'], // General categories for unknown perils
+  // Legacy compatibility aliases - these should be phased out
+  'wind': ['WND', 'DEM', 'ROF', 'EXT', 'WIN', 'SID'], // Maps to wind_hail
 };
 
 // ============================================

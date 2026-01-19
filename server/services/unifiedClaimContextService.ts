@@ -157,6 +157,9 @@ function parseAddressComponents(address: string | undefined): { city?: string; s
  * - All downstream systems MUST use primary_peril_code from claims table
  * - Free-text peril strings MUST NOT be used for logic
  * - New claims should have canonical peril set via normalizePerilFromFnol()
+ *
+ * NOTE: This function delegates to getCanonicalPerilCode for consistency.
+ * The single source of truth for peril normalization is perilNormalizer.ts
  */
 function normalizePerilFromCause(cause: string | undefined): Peril {
   // GUARDRAIL: Log warning when re-deriving peril from text
@@ -165,19 +168,9 @@ function normalizePerilFromCause(cause: string | undefined): Peril {
     `Downstream systems should use getCanonicalPerilCode() with claim.primary_peril instead.`
   );
 
-  if (!cause) return Peril.OTHER;
-
-  const lower = cause.toLowerCase();
-
-  if (lower.includes('hail') || lower.includes('wind')) return Peril.WIND_HAIL;
-  if (lower.includes('fire')) return Peril.FIRE;
-  if (lower.includes('flood')) return Peril.FLOOD;
-  if (lower.includes('water') || lower.includes('pipe') || lower.includes('plumbing')) return Peril.WATER;
-  if (lower.includes('smoke')) return Peril.SMOKE;
-  if (lower.includes('mold') || lower.includes('fungi')) return Peril.MOLD;
-  if (lower.includes('impact') || lower.includes('tree') || lower.includes('vehicle')) return Peril.IMPACT;
-
-  return Peril.OTHER;
+  // Delegate to centralized normalization to avoid duplicate logic
+  // getCanonicalPerilCode handles null/undefined and applies consistent normalization
+  return getCanonicalPerilCode(cause);
 }
 
 /**

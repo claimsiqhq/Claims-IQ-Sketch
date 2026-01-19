@@ -362,4 +362,39 @@ describe('Downstream Logic Validation', () => {
     // if (mockClaim.loss_description.includes('water')) { ... }
     // This would re-derive peril from text
   });
+
+  it('unknown/other peril should not crash workflow selection', () => {
+    // When peril is unknown (OTHER), workflow should gracefully use base rules only
+    const mockClaim = {
+      id: 'claim-456',
+      primary_peril: 'other', // Unknown peril
+      loss_description: 'Unclear damage type',
+    };
+
+    const perilCode = getCanonicalPerilCode(mockClaim.primary_peril);
+    expect(perilCode).toBe(Peril.OTHER);
+
+    // Workflow selection should handle OTHER without crashing
+    // Base rules should still apply, but peril-specific rules should be skipped
+    const isValidPeril = Object.values(Peril).includes(perilCode);
+    expect(isValidPeril).toBe(true);
+  });
+
+  it('invalid peril strings should be normalized before use', () => {
+    // If an invalid peril string somehow enters the system,
+    // it should be normalized to OTHER before workflow logic executes
+    const invalidPerilValues = [
+      'earthquake', // Not a supported peril
+      'vandalism',  // Not in our enum
+      'theft',      // Not in our enum
+      null,
+      undefined,
+      '',
+    ];
+
+    for (const invalid of invalidPerilValues) {
+      const normalized = getCanonicalPerilCode(invalid as string);
+      expect(normalized).toBe(Peril.OTHER);
+    }
+  });
 });

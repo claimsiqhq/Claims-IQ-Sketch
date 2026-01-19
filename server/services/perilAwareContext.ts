@@ -536,6 +536,9 @@ export async function buildPerilAwareClaimContext(
  * - All downstream systems MUST use primary_peril_code from the claims table
  * - Free-text peril strings MUST NOT be used for logic
  * - This function logs a warning when called
+ *
+ * NOTE: This function delegates to getCanonicalPerilCode for consistency.
+ * The single source of truth for peril normalization is perilNormalizer.ts
  */
 function inferPerilFromLegacy(causeOfLoss: string | null): Peril {
   // Log deprecation warning
@@ -545,27 +548,9 @@ function inferPerilFromLegacy(causeOfLoss: string | null): Peril {
     `New claims must use normalizePerilFromFnol() for canonical peril.`
   );
 
-  if (!causeOfLoss) return Peril.OTHER;
-
-  const lower = causeOfLoss.toLowerCase();
-
-  if (lower.includes('hail') || lower.includes('wind')) {
-    return Peril.WIND_HAIL;
-  } else if (lower.includes('fire')) {
-    return Peril.FIRE;
-  } else if (lower.includes('flood')) {
-    return Peril.FLOOD;
-  } else if (lower.includes('water')) {
-    return Peril.WATER;
-  } else if (lower.includes('smoke')) {
-    return Peril.SMOKE;
-  } else if (lower.includes('mold')) {
-    return Peril.MOLD;
-  } else if (lower.includes('impact') || lower.includes('tree') || lower.includes('vehicle')) {
-    return Peril.IMPACT;
-  }
-
-  return Peril.OTHER;
+  // Delegate to centralized normalization to avoid duplicate logic
+  // getCanonicalPerilCode handles null/undefined and applies consistent normalization
+  return getCanonicalPerilCode(causeOfLoss);
 }
 
 /**
