@@ -209,56 +209,54 @@ The `/api/flow-definitions` endpoint is fully implemented in `server/routes/flow
 | Issue | Action | File | Result |
 |-------|--------|------|--------|
 | Dead `generateSourceHash()` with volatile `updatedAt` | Removed function | `claimBriefingService.ts` | Function removed |
+| Dead functions using `PerilAwareClaimContext` | Removed 4 functions + 3 fallback generators | `claimBriefingService.ts` | ~360 lines of dead code removed |
+| Unused imports | Removed `getInspectionRulesForPeril`, `getMergedInspectionGuidance` | `claimBriefingService.ts` | Imports cleaned up |
+| Inconsistent OpenAI client initialization | Standardized to explicit config | `photos.ts` | Added `{ apiKey: process.env.OPENAI_API_KEY }` |
+| Deprecated myDayAnalysis.ts | Deleted file | `server/services/myDayAnalysis.ts` | File removed (~509 lines) |
 
-### Code Diff
-```diff
-- function generateSourceHash(context: PerilAwareClaimContext): string {
--   const hashInput = {
--     claimId: context.claimId,
--     primaryPeril: context.primaryPeril,
--     secondaryPerils: context.secondaryPerils,
--     perilMetadata: context.perilMetadata,
--     lossDescription: context.lossDescription,
--     dateOfLoss: context.dateOfLoss,
--     endorsements: context.endorsements.map(e => ({
--       id: e.id,
--       formNumber: e.formNumber,
--       keyChanges: e.keyChanges,
--     })),
--     policyContext: context.policyContext,
--     damageZones: context.damageZones.map(z => ({
--       id: z.id,
--       damageType: z.damageType,
--       associatedPeril: z.associatedPeril,
--     })),
--     updatedAt: context.updatedAt,  // <-- VOLATILE FIELD REMOVED
--   };
--   return crypto.createHash('sha256').update(JSON.stringify(hashInput)).digest('hex');
-- }
+### Dead Code Removed from claimBriefingService.ts
+
+The following functions were removed as they referenced `PerilAwareClaimContext` (not imported) and were never called:
+
+1. `buildFnolFactsSection()` - FNOL facts builder for old context type
+2. `buildBasicPolicyContext()` - Policy context builder for old context type
+3. `buildBriefingPrompt()` - Prompt builder for old context type
+4. `buildBriefingPromptWithTemplate()` - Template prompt builder for old context type
+5. `generateFallbackPerilRisks()` - Never called fallback
+6. `generateFallbackPhotoRequirements()` - Never called fallback
+7. `generateFallbackEndorsementWatchouts()` - Never called fallback
+
+### OpenAI Client Standardization
+
+**Before (photos.ts):**
+```typescript
+const openai = new OpenAI();
 ```
+
+**After (photos.ts):**
+```typescript
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+```
+
+This ensures consistent explicit configuration across all services.
 
 ---
 
 ## 7. REMAINING ACTION ITEMS
 
-### HIGH Priority (None)
-All critical issues have been resolved or clarified.
+### ALL ITEMS COMPLETED
 
-### MEDIUM Priority
+All issues have been resolved:
 
-1. **Remove remaining dead code in claimBriefingService.ts**
-   - Functions: `buildFnolFactsSection`, `buildBasicPolicyContext`, `buildBriefingPrompt`, `buildBriefingPromptWithTemplate`
-   - Estimated effort: 15 minutes
+- Dead code removed from `claimBriefingService.ts` (~360 lines)
+- OpenAI client standardized in `photos.ts`
+- Deprecated `myDayAnalysis.ts` removed (~509 lines)
+- Unused imports cleaned up
+- Documentation updated
 
-### LOW Priority
-
-2. **Standardize OpenAI client initialization**
-   - Update `photos.ts` to use explicit `apiKey` configuration
-   - Estimated effort: 5 minutes
-
-3. **Remove deprecated myDayAnalysis.ts** (optional)
-   - Safe to delete if feature will not be re-enabled
-   - Estimated effort: 10 minutes
+**Total lines of dead code removed:** ~870 lines
 
 ---
 
@@ -291,11 +289,21 @@ The analysis in workflow_analysis_025.md contained some inaccuracies:
 2. **The flow definitions endpoint** was incorrectly reported as missing - it fully exists
 3. **The active hash calculation** was already correct and using stable fields
 
-The actual repairs made:
-- Removed the dead `generateSourceHash()` function to clean up confusing dead code
-- Documented the true state of the codebase for future reference
+### All Repairs Completed
 
-**Estimated remaining effort:** 30 minutes for cleanup items (optional)
+| Category | Items Removed | Lines Saved |
+|----------|---------------|-------------|
+| Dead functions (claimBriefingService.ts) | 8 functions | ~360 |
+| Unused imports (claimBriefingService.ts) | 2 imports | ~4 |
+| Deprecated file (myDayAnalysis.ts) | 1 file | ~509 |
+| **Total** | **11 items** | **~870 lines** |
+
+### Code Quality Improvements
+- Standardized OpenAI client initialization pattern in `photos.ts`
+- Removed type errors (functions referencing non-imported `PerilAwareClaimContext`)
+- Cleaned up technical debt from old implementation
+
+**Status:** ALL REPAIRS COMPLETE - No remaining action items.
 
 ---
 
