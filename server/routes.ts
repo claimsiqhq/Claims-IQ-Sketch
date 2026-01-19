@@ -3795,7 +3795,7 @@ export async function registerRoutes(
     // Use Supabase consistently with the rest of the codebase
     const { data: claim, error: claimError } = await supabaseAdmin
       .from('claims')
-      .select('id, primary_peril, metadata')
+      .select('id, primary_peril, total_rcv, metadata')
       .eq('id', claimId)
       .eq('organization_id', organizationId)
       .single();
@@ -3813,10 +3813,12 @@ export async function registerRoutes(
 
     const peril = overridePeril ? normalizePeril(overridePeril) : normalizePeril(claim.primary_peril);
     const severity = (overrideSeverity as ClaimSeverity) || inferSeverityFromClaim({
-      reserveAmount: null,
+      reserveAmount: claim.total_rcv ? parseFloat(claim.total_rcv) : null,
       metadata: claim.metadata as Record<string, any> | null,
     });
 
+    log.debug({ claimId, peril, severity }, '[Checklist] Regenerating checklist');
+    
     const result = await generateChecklistForClaim(
       claimId,
       organizationId,
@@ -3826,10 +3828,13 @@ export async function registerRoutes(
     );
 
     if (!result.success) {
+      log.error({ claimId, peril, severity, error: result.error }, '[Checklist] Generation failed');
       return next(errors.internal(result.error || 'Failed to generate checklist'));
     }
 
     const { checklist, items } = await getChecklistForClaim(claimId);
+    log.debug({ claimId, checklistId: checklist?.id, itemCount: items.length }, '[Checklist] Regeneration complete');
+    
     res.json({ checklist, items, regenerated: true });
   }));
 

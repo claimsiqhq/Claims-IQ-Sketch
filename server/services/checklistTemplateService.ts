@@ -491,6 +491,7 @@ export async function generateChecklistForClaim(
   }
 ): Promise<{ success: boolean; checklist?: ClaimChecklist; error?: string }> {
   try {
+    console.log(`[Checklist] Generating checklist for claim ${claimId}, peril=${peril}, severity=${severity}`);
     const { data: existingChecklists } = await supabaseAdmin
       .from('claim_checklists')
       .select('*')
@@ -499,10 +500,29 @@ export async function generateChecklistForClaim(
       .limit(1);
 
     if (existingChecklists && existingChecklists.length > 0) {
-      return { success: true, checklist: mapChecklistFromDb(existingChecklists[0]) };
+      const existing = existingChecklists[0];
+      // Check if checklist has items - if not, regenerate
+      const { data: existingItems } = await supabaseAdmin
+        .from('claim_checklist_items')
+        .select('id')
+        .eq('checklist_id', existing.id)
+        .limit(1);
+      
+      if (existingItems && existingItems.length > 0) {
+        return { success: true, checklist: mapChecklistFromDb(existing) };
+      } else {
+        // Checklist exists but has no items - archive it and regenerate
+        console.warn(`[Checklist] Found checklist ${existing.id} with 0 items, archiving and regenerating`);
+        await supabaseAdmin
+          .from('claim_checklists')
+          .update({ status: 'archived', updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      }
     }
 
     const applicableItems = getApplicableTemplateItems(peril, severity);
+    console.log(`[Checklist] Found ${applicableItems.length} applicable items for peril=${peril}, severity=${severity}`);
+    
     const perilLabel = peril.charAt(0).toUpperCase() + peril.slice(1).replace('_', ' ');
     const severityLabel = severity.charAt(0).toUpperCase() + severity.slice(1);
 
@@ -554,7 +574,22 @@ export async function generateChecklistForClaim(
       status: 'pending',
     }));
 
-    await supabaseAdmin.from('claim_checklist_items').insert(itemsToInsert);
+    if (itemsToInsert.length === 0) {
+      console.warn(`[Checklist] No applicable items for peril=${peril}, severity=${severity}, claimId=${claimId}`);
+      return { 
+        success: false, 
+        error: `No checklist items match peril "${peril}" and severity "${severity}". Please ensure the claim has a valid primary_peril set.` 
+      };
+    }
+
+    const { error: insertItemsError } = await supabaseAdmin
+      .from('claim_checklist_items')
+      .insert(itemsToInsert);
+
+    if (insertItemsError) {
+      console.error(`[Checklist] Failed to insert items for checklist ${checklist.id}:`, insertItemsError);
+      return { success: false, error: `Failed to create checklist items: ${insertItemsError.message}` };
+    }
 
     return { success: true, checklist: mapChecklistFromDb(checklist) };
   } catch (error: any) {
