@@ -198,7 +198,7 @@ export async function generateClaimBriefing(
           { role: 'user', content: userPrompt },
         ],
         temperature: promptConfig.temperature,
-        max_completion_tokens: promptConfig.maxTokens || 3000,
+        max_tokens: promptConfig.maxTokens || 3000,
         response_format: { type: 'json_object' },
       });
 
