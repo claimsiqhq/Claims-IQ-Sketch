@@ -1,0 +1,330 @@
+{
+  "timestamp": "2026-01-19T02:47:15.757Z",
+  "summary": {
+    "total": 40,
+    "critical": 9,
+    "high": 0,
+    "medium": 30,
+    "low": 1
+  },
+  "issues": [
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/services/checklistTemplateService.ts",
+      "line": 588,
+      "message": "Insert into claim_checklist_items missing organization_id",
+      "recommendation": "Add organization_id to insert statement (required for multi-tenant tables)"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/services/checklistTemplateService.ts",
+      "line": 565,
+      "message": "References non-existent column: item_code",
+      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/services/checklistTemplateService.ts",
+      "line": 737,
+      "message": "References non-existent column: item_code",
+      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/services/checklistTemplateService.ts",
+      "line": 565,
+      "message": "References non-existent column: item_name",
+      "recommendation": "Remove item_name - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/services/checklistTemplateService.ts",
+      "line": 737,
+      "message": "References non-existent column: item_name",
+      "recommendation": "Remove item_name - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/routes.ts",
+      "line": 1170,
+      "message": "References non-existent column: item_code",
+      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/routes.ts",
+      "line": 1175,
+      "message": "References non-existent column: item_code",
+      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/routes.ts",
+      "line": 1179,
+      "message": "References non-existent column: item_code",
+      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "critical",
+      "category": "schema",
+      "file": "server/routes.ts",
+      "line": 4949,
+      "message": "References non-existent column: item_code",
+      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
+    },
+    {
+      "severity": "medium",
+      "category": "api",
+      "file": "server/routes.ts",
+      "message": "Mixed response formats: 72 direct res.json() calls vs 37 sendSuccess() calls",
+      "recommendation": "Standardize on sendSuccess/sendError helpers for consistent API responses"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/checklistTemplateService.ts",
+      "line": 618,
+      "message": "Function getChecklistForClaim has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 149,
+      "message": "Function findMatchingFlowDefinitions has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 197,
+      "message": "Function findGeneralFlowDefinition has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 324,
+      "message": "Function startFlowForClaim has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 412,
+      "message": "Function getCurrentFlow has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 464,
+      "message": "Function cancelFlow has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 481,
+      "message": "Function getFlowProgress has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1180,
+      "message": "Function getFlowPhases has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1232,
+      "message": "Function getPhaseMovements has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1280,
+      "message": "Function getFlowTimeline has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1390,
+      "message": "Function addRoomMovements has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1525,
+      "message": "Function insertCustomMovement has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1575,
+      "message": "Function attachEvidence has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1650,
+      "message": "Function validateEvidence has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1887,
+      "message": "Function getFlowInstance has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1927,
+      "message": "Function getCurrentMovement has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 1979,
+      "message": "Function getCurrentPhase has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 2008,
+      "message": "Function peekNextMovement has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 2088,
+      "message": "Function getPreviousMovement has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 2169,
+      "message": "Function goToMovement has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 626,
+      "message": "Database update operation without error handling",
+      "recommendation": "Check for error in response and handle appropriately"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/flowEngineService.ts",
+      "line": 639,
+      "message": "Database update operation without error handling",
+      "recommendation": "Check for error in response and handle appropriately"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/scopeEngine.ts",
+      "line": 203,
+      "message": "Function evaluateZoneScope has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/scopeEngine.ts",
+      "line": 266,
+      "message": "Function evaluateEstimateScope has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/scopeEngine.ts",
+      "line": 729,
+      "message": "Function getCatalogItemsWithV2Fields has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/estimateCalculator.ts",
+      "line": 803,
+      "message": "Function addLineItemToEstimate has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/estimateCalculator.ts",
+      "line": 860,
+      "message": "Function removeLineItemFromEstimate has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/estimateCalculator.ts",
+      "line": 907,
+      "message": "Function getEstimateTemplates has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "medium",
+      "category": "service",
+      "file": "server/services/estimateCalculator.ts",
+      "line": 930,
+      "message": "Function createEstimateFromTemplate has await but no try/catch",
+      "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
+    },
+    {
+      "severity": "low",
+      "category": "migration",
+      "file": "db/migrations",
+      "message": "Inconsistent migration naming: add_peril_specific_column.sql",
+      "recommendation": "Use format: XXX_description.sql"
+    }
+  ]
+}
