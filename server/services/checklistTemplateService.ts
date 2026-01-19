@@ -561,6 +561,7 @@ export async function generateChecklistForClaim(
 
     const itemsToInsert = applicableItems.map((item, index) => ({
       checklist_id: checklist.id,
+      organization_id: organizationId, // Required field - was missing!
       // Note: item_code and item_name don't exist in schema - removed
       title: item.title,
       description: item.description || null,
@@ -581,15 +582,33 @@ export async function generateChecklistForClaim(
       };
     }
 
-    const { error: insertItemsError } = await supabaseAdmin
+    console.log(`[Checklist] Inserting ${itemsToInsert.length} items for checklist ${checklist.id}`);
+    const { data: insertedItems, error: insertItemsError } = await supabaseAdmin
       .from('claim_checklist_items')
-      .insert(itemsToInsert);
+      .insert(itemsToInsert)
+      .select('id');
 
     if (insertItemsError) {
       console.error(`[Checklist] Failed to insert items for checklist ${checklist.id}:`, insertItemsError);
+      // Archive the checklist since items failed to insert
+      await supabaseAdmin
+        .from('claim_checklists')
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .eq('id', checklist.id);
       return { success: false, error: `Failed to create checklist items: ${insertItemsError.message}` };
     }
 
+    // Verify insert succeeded - check actual count
+    const actualItemCount = insertedItems?.length || 0;
+    if (actualItemCount !== itemsToInsert.length) {
+      console.error(`[Checklist] Item count mismatch: expected ${itemsToInsert.length}, got ${actualItemCount}`);
+      return { 
+        success: false, 
+        error: `Item insertion incomplete: expected ${itemsToInsert.length} items, but only ${actualItemCount} were inserted` 
+      };
+    }
+
+    console.log(`[Checklist] Successfully inserted ${actualItemCount} items for checklist ${checklist.id}`);
     return { success: true, checklist: mapChecklistFromDb(checklist) };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -695,6 +714,17 @@ export async function addCustomChecklistItem(
   }
 ): Promise<{ success: boolean; item?: ClaimChecklistItem; error?: string }> {
   try {
+    // First, get the checklist to retrieve organization_id
+    const { data: checklist, error: checklistError } = await supabaseAdmin
+      .from('claim_checklists')
+      .select('organization_id')
+      .eq('id', checklistId)
+      .single();
+
+    if (checklistError || !checklist) {
+      return { success: false, error: checklistError?.message || 'Checklist not found' };
+    }
+
     const { data: maxOrderResult } = await supabaseAdmin
       .from('claim_checklist_items')
       .select('sort_order')
@@ -709,6 +739,7 @@ export async function addCustomChecklistItem(
       .from('claim_checklist_items')
       .insert({
         checklist_id: checklistId,
+        organization_id: checklist.organization_id, // Required field - was missing!
         title,
         description: options?.description || null,
         category,
