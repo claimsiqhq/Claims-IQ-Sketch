@@ -132,11 +132,14 @@ export async function generateClaimBriefing(
     }
 
     // Step 4: Generate new briefing
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
       return { success: false, error: 'OpenAI API key not configured' };
     }
+
+    const openai = new OpenAI({
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
 
     // Create record
     const { data: insertResult, error: insertError } = await supabaseAdmin
