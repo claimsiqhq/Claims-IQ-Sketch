@@ -49,7 +49,8 @@ import {
   type FlowMovement,
   type MovementEvidence,
 } from "@/lib/api";
-import { EvidenceGrid, LoadingButton, ErrorBanner, EmptyState } from "@/components/flow";
+import { EvidenceGrid, LoadingButton, ErrorBanner, EmptyState, FlowSketchCapture } from "@/components/flow";
+import { syncManager } from "@/services/syncManager";
 import { useStore } from "@/lib/store";
 import { offlineStorage } from "@/services/offlineStorage";
 import { toast } from "sonner";
