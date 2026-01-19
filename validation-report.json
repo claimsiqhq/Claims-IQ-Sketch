@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-01-19T02:47:15.757Z",
+  "timestamp": "2026-01-19T02:47:53.991Z",
   "summary": {
-    "total": 40,
-    "critical": 9,
+    "total": 32,
+    "critical": 1,
     "high": 0,
     "medium": 30,
     "low": 1
@@ -15,70 +15,6 @@
       "line": 588,
       "message": "Insert into claim_checklist_items missing organization_id",
       "recommendation": "Add organization_id to insert statement (required for multi-tenant tables)"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/services/checklistTemplateService.ts",
-      "line": 565,
-      "message": "References non-existent column: item_code",
-      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/services/checklistTemplateService.ts",
-      "line": 737,
-      "message": "References non-existent column: item_code",
-      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/services/checklistTemplateService.ts",
-      "line": 565,
-      "message": "References non-existent column: item_name",
-      "recommendation": "Remove item_name - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/services/checklistTemplateService.ts",
-      "line": 737,
-      "message": "References non-existent column: item_name",
-      "recommendation": "Remove item_name - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/routes.ts",
-      "line": 1170,
-      "message": "References non-existent column: item_code",
-      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/routes.ts",
-      "line": 1175,
-      "message": "References non-existent column: item_code",
-      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/routes.ts",
-      "line": 1179,
-      "message": "References non-existent column: item_code",
-      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
-    },
-    {
-      "severity": "critical",
-      "category": "schema",
-      "file": "server/routes.ts",
-      "line": 4949,
-      "message": "References non-existent column: item_code",
-      "recommendation": "Remove item_code - this column does not exist in claim_checklist_items table"
     },
     {
       "severity": "medium",

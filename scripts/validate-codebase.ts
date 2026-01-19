@@ -78,32 +78,39 @@ function validateSchemaConsistency() {
         }
       }
       
-      // Check for non-existent columns
-      if (content.includes('item_code') || content.includes('item_name')) {
-        const itemCodeMatches = content.matchAll(/item_code/g);
-        for (const match of itemCodeMatches) {
-          const lineNum = content.substring(0, match.index).split('\n').length;
+      // Check for non-existent columns (only in context of claim_checklist_items)
+      // Note: line_item_code is valid in other tables, so we check context
+      const itemCodePattern = /(?:claim_checklist_items|checklist.*item).*?item_code[^_]/g;
+      const itemCodeMatches = content.matchAll(itemCodePattern);
+      for (const match of itemCodeMatches) {
+        const lineNum = content.substring(0, match.index).split('\n').length;
+        // Check if it's actually line_item_code (valid) vs item_code (invalid)
+        const context = content.substring(Math.max(0, match.index - 50), match.index + 50);
+        if (!context.includes('line_item_code') && context.includes('claim_checklist')) {
           issues.push({
             severity: 'critical',
             category: 'schema',
             file: filePath,
             line: lineNum,
-            message: 'References non-existent column: item_code',
+            message: 'References non-existent column: item_code in claim_checklist_items context',
             recommendation: 'Remove item_code - this column does not exist in claim_checklist_items table',
           });
         }
       }
       
-      if (content.includes('item_name')) {
-        const itemNameMatches = content.matchAll(/item_name/g);
-        for (const match of itemNameMatches) {
-          const lineNum = content.substring(0, match.index).split('\n').length;
+      // Check for item_name in checklist context
+      const itemNamePattern = /(?:claim_checklist_items|checklist.*item).*?item_name/g;
+      const itemNameMatches = content.matchAll(itemNamePattern);
+      for (const match of itemNameMatches) {
+        const lineNum = content.substring(0, match.index).split('\n').length;
+        const context = content.substring(Math.max(0, match.index - 50), match.index + 50);
+        if (context.includes('claim_checklist')) {
           issues.push({
             severity: 'critical',
             category: 'schema',
             file: filePath,
             line: lineNum,
-            message: 'References non-existent column: item_name',
+            message: 'References non-existent column: item_name in claim_checklist_items context',
             recommendation: 'Remove item_name - this column does not exist in claim_checklist_items table',
           });
         }
