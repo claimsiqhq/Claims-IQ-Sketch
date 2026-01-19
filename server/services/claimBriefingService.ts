@@ -67,37 +67,6 @@ export interface StoredBriefing {
 // ============================================
 
 /**
- * Generate a hash of the claim context for cache invalidation
- */
-function generateSourceHash(context: PerilAwareClaimContext): string {
-  const hashInput = {
-    claimId: context.claimId,
-    primaryPeril: context.primaryPeril,
-    secondaryPerils: context.secondaryPerils,
-    perilMetadata: context.perilMetadata,
-    lossDescription: context.lossDescription,
-    dateOfLoss: context.dateOfLoss,
-    endorsements: context.endorsements.map(e => ({
-      id: e.id,
-      formNumber: e.formNumber,
-      keyChanges: e.keyChanges,
-    })),
-    policyContext: context.policyContext,
-    damageZones: context.damageZones.map(z => ({
-      id: z.id,
-      damageType: z.damageType,
-      associatedPeril: z.associatedPeril,
-    })),
-    updatedAt: context.updatedAt,
-  };
-
-  return crypto
-    .createHash('sha256')
-    .update(JSON.stringify(hashInput))
-    .digest('hex');
-}
-
-/**
  * Build FNOL facts section from loss_context
  */
 function buildFnolFactsSection(context: PerilAwareClaimContext): string {
