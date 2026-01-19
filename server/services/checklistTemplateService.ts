@@ -561,8 +561,7 @@ export async function generateChecklistForClaim(
 
     const itemsToInsert = applicableItems.map((item, index) => ({
       checklist_id: checklist.id,
-      item_code: item.id,
-      item_name: item.title,
+      // Note: item_code and item_name don't exist in schema - removed
       title: item.title,
       description: item.description || null,
       category: item.category,
@@ -705,13 +704,11 @@ export async function addCustomChecklistItem(
 
     const nextOrder = ((maxOrderResult?.[0] as any)?.sort_order || 0) + 1;
 
-    const itemCode = `custom-${Date.now()}`;
+    // Note: item_code and item_name don't exist in schema - removed
     const { data: inserted, error: insertError } = await supabaseAdmin
       .from('claim_checklist_items')
       .insert({
         checklist_id: checklistId,
-        item_code: itemCode,
-        item_name: title,
         title,
         description: options?.description || null,
         category,
