@@ -730,39 +730,55 @@ export async function getClaimStats(organizationId: string): Promise<{
       throw claimsError;
     }
 
-    // Get document counts (with error handling)
+    // Get claim IDs for non-deleted claims to filter documents properly
+    const claimIds = claims?.map(c => (c as any).id).filter(Boolean) || [];
+    
+    // Get document counts only for documents belonging to non-deleted claims
     let totalDocs = 0;
     let pendingDocs = 0;
 
-    try {
-      const { count: totalDocsResult, error: totalDocsError } = await supabaseAdmin
-        .from('documents')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', organizationId);
+    // First, get all claim IDs (we need to re-query with id included)
+    const { data: claimsWithIds } = await supabaseAdmin
+      .from('claims')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .neq('status', 'deleted');
+    
+    const activeClaimIds = claimsWithIds?.map(c => c.id) || [];
 
-      if (!totalDocsError) {
-        totalDocs = totalDocsResult || 0;
-      } else {
-        log.warn({ error: totalDocsError }, '[getClaimStats] Error fetching total documents');
+    if (activeClaimIds.length > 0) {
+      try {
+        const { count: totalDocsResult, error: totalDocsError } = await supabaseAdmin
+          .from('documents')
+          .select('*', { count: 'exact', head: true })
+          .eq('organization_id', organizationId)
+          .in('claim_id', activeClaimIds);
+
+        if (!totalDocsError) {
+          totalDocs = totalDocsResult || 0;
+        } else {
+          log.warn({ error: totalDocsError }, '[getClaimStats] Error fetching total documents');
+        }
+      } catch (e) {
+        log.warn({ error: e }, '[getClaimStats] Exception fetching total documents');
       }
-    } catch (e) {
-      log.warn({ error: e }, '[getClaimStats] Exception fetching total documents');
-    }
 
-    try {
-      const { count: pendingDocsResult, error: pendingDocsError } = await supabaseAdmin
-        .from('documents')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', organizationId)
-        .in('processing_status', ['pending', 'processing']);
+      try {
+        const { count: pendingDocsResult, error: pendingDocsError } = await supabaseAdmin
+          .from('documents')
+          .select('*', { count: 'exact', head: true })
+          .eq('organization_id', organizationId)
+          .in('claim_id', activeClaimIds)
+          .in('processing_status', ['pending', 'processing']);
 
-      if (!pendingDocsError) {
-        pendingDocs = pendingDocsResult || 0;
-      } else {
-        log.warn({ error: pendingDocsError }, '[getClaimStats] Error fetching pending documents');
+        if (!pendingDocsError) {
+          pendingDocs = pendingDocsResult || 0;
+        } else {
+          log.warn({ error: pendingDocsError }, '[getClaimStats] Error fetching pending documents');
+        }
+      } catch (e) {
+        log.warn({ error: e }, '[getClaimStats] Exception fetching pending documents');
       }
-    } catch (e) {
-      log.warn({ error: e }, '[getClaimStats] Exception fetching pending documents');
     }
 
     const byStatus: Record<string, number> = {};
