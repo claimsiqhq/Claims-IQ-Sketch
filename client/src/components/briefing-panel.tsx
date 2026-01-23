@@ -65,15 +65,15 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Collapsible states
+  // Collapsible states - all expanded by default
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     summary: true,
     strategy: true,
     risks: true,
     endorsements: true,
-    photos: false,
-    sketches: false,
-    depreciation: false,
+    photos: true,
+    sketches: true,
+    depreciation: true,
     questions: true,
   });
 
@@ -261,17 +261,20 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               onToggle={() => toggleSection('summary')}
             >
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="default">{content.claim_summary.primary_peril}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="default" className="text-sm">{content.claim_summary.primary_peril}</Badge>
                   {(content.claim_summary.secondary_perils || []).map((p, i) => (
-                    <Badge key={i} variant="secondary">{p}</Badge>
+                    <Badge key={i} variant="secondary" className="text-sm">{p}</Badge>
                   ))}
                 </div>
-                <ul className="list-disc list-inside space-y-1 text-sm">
+                <div className="space-y-2">
                   {(content.claim_summary.overview || []).map((item, i) => (
-                    <li key={i}>{item}</li>
+                    <div key={i} className="flex items-start gap-2 text-sm leading-relaxed">
+                      <span className="text-primary mt-1.5 flex-shrink-0">•</span>
+                      <span className="text-foreground">{item}</span>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             </CollapsibleSection>
 
