@@ -24,6 +24,55 @@ import { getPromptWithFallback } from './promptService';
 import { buildUnifiedClaimContext } from './unifiedClaimContextService';
 
 // ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Helper function to determine if a model is GPT-5.x (which requires max_completion_tokens)
+ */
+function isGpt5Model(model: string | undefined | null): boolean {
+  if (!model) return false;
+  return model.startsWith('gpt-5') || model.includes('gpt-5');
+}
+
+/**
+ * Helper function to build OpenAI chat completion parameters with correct token limit parameter
+ * GPT-5.x models require max_completion_tokens, GPT-4.x and older use max_tokens
+ */
+function buildOpenAIParams(
+  model: string | undefined | null,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  options: {
+    temperature?: number;
+    maxTokens?: number;
+    responseFormat?: { type: 'json_object' };
+  }
+): OpenAI.Chat.Completions.ChatCompletionCreateParams {
+  const params: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
+    model: model || 'gpt-4o',
+    messages,
+  };
+
+  if (options.temperature !== undefined) {
+    params.temperature = options.temperature;
+  }
+
+  if (options.responseFormat) {
+    params.response_format = options.responseFormat;
+  }
+
+  // Use max_completion_tokens for GPT-5.x, max_tokens for GPT-4.x and older
+  const tokenLimit = options.maxTokens || 3000;
+  if (isGpt5Model(model)) {
+    params.max_completion_tokens = tokenLimit;
+  } else {
+    params.max_tokens = tokenLimit;
+  }
+
+  return params;
+}
+
+// ============================================
 // TYPE DEFINITIONS
 // ============================================
 
