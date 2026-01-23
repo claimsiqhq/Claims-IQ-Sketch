@@ -4166,6 +4166,75 @@ export async function registerRoutes(
   }));
 
   // ============================================
+  // AUDIO OBSERVATION ROUTES (Voice Notes)
+  // ============================================
+
+  // Audio upload body schema
+  const audioUploadBodySchema = z.object({
+    claimId: z.string().uuid().optional(),
+    flowInstanceId: z.string().uuid().optional(),
+    movementId: z.string().uuid().optional(),
+    roomId: z.string().uuid().optional(),
+    structureId: z.string().uuid().optional(),
+  });
+
+  // Upload audio observation (voice note)
+  app.post('/api/audio/upload', requireAuth, requireOrganization, uploadRateLimiter, upload.single('audio'), asyncHandler(async (req, res, next) => {
+    if (!req.file) {
+      return next(errors.badRequest('No audio file uploaded'));
+    }
+
+    // Validate request body
+    const parseResult = audioUploadBodySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return next(errors.badRequest('Invalid request body: ' + parseResult.error.message));
+    }
+
+    const { claimId, flowInstanceId, movementId, roomId, structureId } = parseResult.data;
+
+    const { createAudioObservation } = await import('./services/audioObservationService');
+
+    const audioObservationId = await createAudioObservation({
+      audioBuffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      originalFilename: req.file.originalname,
+      organizationId: req.organizationId!,
+      claimId: claimId || undefined,
+      flowInstanceId: flowInstanceId || undefined,
+      movementCompletionId: movementId || undefined,
+      roomId: roomId || undefined,
+      structureId: structureId || undefined,
+      recordedBy: req.user!.id,
+    });
+
+    res.json({ id: audioObservationId, success: true });
+  }));
+
+  // Get audio observation by ID
+  app.get('/api/audio/:id', requireAuth, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
+    const { getAudioObservation } = await import('./services/audioObservationService');
+    const observation = await getAudioObservation(req.params.id);
+    if (!observation) {
+      return next(errors.notFound('Audio observation'));
+    }
+    res.json(observation);
+  }));
+
+  // List audio observations for a claim
+  app.get('/api/claims/:claimId/audio', requireAuth, requireOrganization, apiRateLimiter, validateParams(z.object({ claimId: z.string().uuid() })), asyncHandler(async (req, res, next) => {
+    const { getClaimAudioObservations } = await import('./services/audioObservationService');
+    const observations = await getClaimAudioObservations(req.params.claimId);
+    res.json(observations);
+  }));
+
+  // Retry processing for a failed audio observation
+  app.post('/api/audio/:id/retry', requireAuth, requireOrganization, apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
+    const { retryAudioProcessing } = await import('./services/audioObservationService');
+    await retryAudioProcessing(req.params.id);
+    res.json({ success: true, message: 'Processing retry initiated' });
+  }));
+
+  // ============================================
   // DOCUMENT ROUTES
   // ============================================
 

@@ -140,6 +140,16 @@ app.use((req, res, next) => {
     // Continue startup - photos will fail at runtime if not configured
   }
 
+  // Initialize audio observations bucket
+  try {
+    const { initializeAudioBucket } = await import('./services/audioObservationService');
+    await initializeAudioBucket();
+    log('Audio observations storage bucket initialized', 'supabase');
+  } catch (error) {
+    log(`Warning: Could not initialize audio storage bucket: ${error}`, 'supabase');
+    // Continue startup - audio will fail at runtime if not configured
+  }
+
   // Seed admin user for development/testing
   try {
     await seedAdminUser();

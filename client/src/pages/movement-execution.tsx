@@ -45,6 +45,7 @@ import {
   attachMovementEvidence,
   getMovementEvidence,
   uploadPhoto,
+  uploadAudio,
   type FlowInstance,
   type FlowMovement,
   type MovementEvidence,
@@ -79,6 +80,16 @@ export default function MovementExecutionPage() {
   const [showSkipDialog, setShowSkipDialog] = useState(false);
   const [skipReason, setSkipReason] = useState('');
   const [showSketch, setShowSketch] = useState(false);
+  
+  // Voice recording state
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [savedVoiceNotes, setSavedVoiceNotes] = useState<{ id: string; timestamp: string }[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -311,6 +322,131 @@ export default function MovementExecutionPage() {
     setCapturedPhotos(prev => prev.filter(p => p.id !== id));
   };
 
+  // Voice recording handlers
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start(1000);
+      setIsRecording(true);
+      setRecordingTime(0);
+      setShowVoiceRecorder(true);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      toast.error('Could not access microphone');
+      console.error('Microphone access error:', err);
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+    }
+  }, [isRecording]);
+
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setAudioBlob(null);
+    setRecordingTime(0);
+    setShowVoiceRecorder(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  const saveVoiceNote = useCallback(async () => {
+    if (!audioBlob || !flowInstance?.claimId) {
+      toast.error('No recording to save');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const result = await uploadAudio({
+        file: audioBlob,
+        claimId: flowInstance.claimId,
+        flowInstanceId: flowId,
+        movementId: movementId,
+      });
+      
+      // Track saved voice note for display
+      setSavedVoiceNotes(prev => [...prev, { 
+        id: result.id, 
+        timestamp: new Date().toLocaleTimeString() 
+      }]);
+      
+      // Attach to movement evidence if we have a movement
+      if (flowId && movementId) {
+        try {
+          await attachMovementEvidence(flowId, movementId, {
+            evidenceType: 'audio',
+            referenceId: result.id,
+            metadata: { type: 'voice_note' }
+          });
+        } catch (attachErr) {
+          console.warn('Could not attach audio to movement evidence:', attachErr);
+        }
+      }
+      
+      toast.success('Voice note saved');
+      setAudioBlob(null);
+      setRecordingTime(0);
+      setShowVoiceRecorder(false);
+      
+      // Refresh evidence
+      queryClient.invalidateQueries({ queryKey: ['movementEvidence', flowId, movementId] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save voice note');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [audioBlob, flowInstance?.claimId, flowId, movementId, queryClient]);
+
+  const formatRecordingTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, [isRecording]);
+
   // Loading state
   if (isLoadingFlow || isLoadingMovements) {
     return (
@@ -352,7 +488,7 @@ export default function MovementExecutionPage() {
   }
 
   const isSubmitting = completeMutation.isPending || isUploading;
-  const hasEvidence = capturedPhotos.length > 0 || (existingEvidence && existingEvidence.length > 0);
+  const hasEvidence = capturedPhotos.length > 0 || savedVoiceNotes.length > 0 || (existingEvidence && existingEvidence.length > 0);
 
   // Convert existing evidence to grid format
   const existingEvidenceItems = existingEvidence?.map(e => ({
@@ -454,8 +590,13 @@ export default function MovementExecutionPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    className="flex-1 min-w-[120px]"
-                    disabled // Voice note feature placeholder
+                    className={cn(
+                      "flex-1 min-w-[120px]",
+                      showVoiceRecorder && "ring-2 ring-red-500"
+                    )}
+                    onClick={startRecording}
+                    disabled={isRecording || showVoiceRecorder}
+                    data-testid="button-voice-note"
                   >
                     <Mic className="h-4 w-4 mr-2" />
                     Voice Note
@@ -469,6 +610,104 @@ export default function MovementExecutionPage() {
                     Sketch
                   </Button>
                 </div>
+
+                {/* Voice Recording Panel */}
+                {showVoiceRecorder && (
+                  <div className="p-4 bg-muted rounded-lg border" data-testid="voice-recorder-panel">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "w-3 h-3 rounded-full",
+                          isRecording ? "bg-red-500 animate-pulse" : "bg-gray-400"
+                        )} />
+                        <span className="font-mono text-lg">
+                          {formatRecordingTime(recordingTime)}
+                        </span>
+                        {isRecording && (
+                          <span className="text-sm text-muted-foreground">Recording...</span>
+                        )}
+                        {!isRecording && audioBlob && (
+                          <span className="text-sm text-green-600">Ready to save</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {isRecording ? (
+                        <Button
+                          variant="destructive"
+                          onClick={stopRecording}
+                          className="flex-1"
+                          data-testid="button-stop-recording"
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Stop
+                        </Button>
+                      ) : audioBlob ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={cancelRecording}
+                            className="flex-1"
+                            disabled={isUploading}
+                            data-testid="button-discard-recording"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Discard
+                          </Button>
+                          <Button
+                            onClick={saveVoiceNote}
+                            className="flex-1"
+                            disabled={isUploading}
+                            data-testid="button-save-recording"
+                          >
+                            {isUploading ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4 mr-2" />
+                            )}
+                            Save
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          onClick={cancelRecording}
+                          className="flex-1"
+                          data-testid="button-cancel-recording"
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Cancel
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Saved Voice Notes Display */}
+                {savedVoiceNotes.length > 0 && (
+                  <div className="space-y-2" data-testid="saved-voice-notes">
+                    <Label className="text-sm">Voice Notes ({savedVoiceNotes.length})</Label>
+                    <div className="space-y-2">
+                      {savedVoiceNotes.map((note) => (
+                        <div 
+                          key={note.id} 
+                          className="flex items-center gap-3 p-3 bg-muted rounded-lg"
+                        >
+                          <div className="h-8 w-8 bg-primary/10 rounded-full flex items-center justify-center">
+                            <Mic className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">Voice Note</p>
+                            <p className="text-xs text-muted-foreground">Saved at {note.timestamp}</p>
+                          </div>
+                          <Badge variant="secondary" className="text-xs">
+                            Transcribing...
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Captured Photos Preview */}
                 {capturedPhotos.length > 0 && (
@@ -514,7 +753,7 @@ export default function MovementExecutionPage() {
                 )}
 
                 {/* Empty State */}
-                {capturedPhotos.length === 0 && existingEvidenceItems.length === 0 && (
+                {capturedPhotos.length === 0 && savedVoiceNotes.length === 0 && existingEvidenceItems.length === 0 && (
                   <EmptyState
                     icon={<Camera className="h-8 w-8 mx-auto opacity-50" />}
                     title="No evidence captured yet"

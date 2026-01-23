@@ -2164,6 +2164,71 @@ export async function uploadPhoto(params: PhotoUploadParams): Promise<UploadedPh
   return response.json();
 }
 
+// Audio upload parameters
+export interface AudioUploadParams {
+  file: Blob;
+  claimId?: string;
+  flowInstanceId?: string;
+  movementId?: string;
+  roomId?: string;
+  structureId?: string;
+}
+
+// Audio observation response
+export interface AudioObservation {
+  id: string;
+  audioUrl: string | null;
+  transcription: string | null;
+  transcriptionStatus: 'pending' | 'processing' | 'completed' | 'failed';
+  extractedEntities: Record<string, unknown> | null;
+  extractionStatus: 'pending' | 'processing' | 'completed' | 'failed';
+  durationSeconds: number | null;
+  createdAt: string;
+}
+
+export async function uploadAudio(params: AudioUploadParams): Promise<{ id: string; success: boolean }> {
+  const formData = new FormData();
+  formData.append('audio', params.file, 'voice-note.webm');
+  if (params.claimId) formData.append('claimId', params.claimId);
+  if (params.flowInstanceId) formData.append('flowInstanceId', params.flowInstanceId);
+  if (params.movementId) formData.append('movementId', params.movementId);
+  if (params.roomId) formData.append('roomId', params.roomId);
+  if (params.structureId) formData.append('structureId', params.structureId);
+
+  const response = await fetch(`${API_BASE}/audio/upload`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(error.error || 'Failed to upload audio');
+  }
+
+  return response.json();
+}
+
+export async function getAudioObservation(id: string): Promise<AudioObservation> {
+  const response = await fetch(`${API_BASE}/audio/${id}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get audio observation');
+  }
+  return response.json();
+}
+
+export async function getClaimAudioObservations(claimId: string): Promise<AudioObservation[]> {
+  const response = await fetch(`${API_BASE}/claims/${claimId}/audio`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to get audio observations');
+  }
+  return response.json();
+}
+
 export async function getPhotoSignedUrl(storagePath: string): Promise<string> {
   const response = await fetch(`${API_BASE}/photos/${encodeURIComponent(storagePath)}/url`, {
     credentials: 'include',

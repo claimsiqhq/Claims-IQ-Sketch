@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date, index, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, integer, boolean, timestamp, jsonb, uuid, date, index, doublePrecision, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -5011,6 +5011,61 @@ export interface ExportValidationResult {
   };
   warnings: string[];
 }
+
+// ============================================
+// AUDIO OBSERVATIONS TABLE
+// ============================================
+
+/**
+ * Stores voice note recordings captured during inspections.
+ * Supports transcription via Whisper and entity extraction via Claude.
+ */
+export const audioObservations = pgTable("audio_observations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  claimId: uuid("claim_id").references(() => claims.id, { onDelete: "set null" }),
+  flowInstanceId: uuid("flow_instance_id").references(() => claimFlowInstances.id, { onDelete: "set null" }),
+  movementCompletionId: uuid("movement_completion_id").references(() => movementCompletions.id, { onDelete: "set null" }),
+  roomId: uuid("room_id").references(() => claimRooms.id, { onDelete: "set null" }),
+  structureId: uuid("structure_id").references(() => claimStructures.id, { onDelete: "set null" }),
+  
+  // Audio file storage
+  audioStoragePath: varchar("audio_storage_path", { length: 500 }).notNull(),
+  audioUrl: text("audio_url"),
+  durationSeconds: real("duration_seconds"),
+  
+  // Transcription (Whisper)
+  transcription: text("transcription"),
+  transcriptionStatus: varchar("transcription_status", { length: 30 }).default("pending").notNull(), // pending, processing, completed, failed
+  transcriptionError: text("transcription_error"),
+  transcribedAt: timestamp("transcribed_at"),
+  
+  // Entity extraction (Claude)
+  extractedEntities: jsonb("extracted_entities"),
+  extractionStatus: varchar("extraction_status", { length: 30 }).default("pending").notNull(), // pending, processing, completed, failed
+  extractionError: text("extraction_error"),
+  extractionPromptKey: varchar("extraction_prompt_key", { length: 100 }),
+  extractedAt: timestamp("extracted_at"),
+  
+  // Audit
+  recordedBy: uuid("recorded_by").references(() => users.id),
+  createdAt: timestamp("created_at").default(sql`NOW()`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`NOW()`).notNull(),
+}, (table) => ({
+  orgIdx: index("audio_observations_org_idx").on(table.organizationId),
+  claimIdx: index("audio_observations_claim_idx").on(table.claimId),
+  flowInstanceIdx: index("audio_observations_flow_instance_idx").on(table.flowInstanceId),
+  roomIdx: index("audio_observations_room_idx").on(table.roomId),
+}));
+
+export const insertAudioObservationSchema = createInsertSchema(audioObservations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAudioObservation = z.infer<typeof insertAudioObservationSchema>;
+export type AudioObservation = typeof audioObservations.$inferSelect;
 
 // ============================================
 // SESSIONS TABLE (for Passport.js session storage)
