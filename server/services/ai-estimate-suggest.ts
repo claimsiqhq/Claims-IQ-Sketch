@@ -143,7 +143,9 @@ ${lineItemList}
 Generate a comprehensive estimate with appropriate quantities. Be thorough but realistic.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    // GPT-5.x models require max_completion_tokens instead of max_tokens
+    const isGpt5Model = promptConfig.model?.startsWith('gpt-5') || promptConfig.model?.includes('gpt-5');
+    const requestParams: Record<string, unknown> = {
       model: promptConfig.model,
       messages: [
         { role: 'system', content: promptConfig.systemPrompt },
@@ -151,7 +153,16 @@ Generate a comprehensive estimate with appropriate quantities. Be thorough but r
       ],
       response_format: { type: 'json_object' },
       temperature: promptConfig.temperature,
-    });
+    };
+
+    // Use max_completion_tokens for GPT-5.x, max_tokens for GPT-4.x and older
+    if (isGpt5Model && promptConfig.maxTokens) {
+      requestParams.max_completion_tokens = promptConfig.maxTokens;
+    } else if (!isGpt5Model && promptConfig.maxTokens) {
+      requestParams.max_tokens = promptConfig.maxTokens;
+    }
+
+    const response = await openai.chat.completions.create(requestParams);
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
@@ -248,7 +259,9 @@ export async function quickSuggestLineItems(
 Available items:
 ${lineItemList}`;
 
-  const response = await openai.chat.completions.create({
+  // GPT-5.x models require max_completion_tokens instead of max_tokens
+  const isGpt5Model = promptConfig.model?.startsWith('gpt-5') || promptConfig.model?.includes('gpt-5');
+  const requestParams: Record<string, unknown> = {
     model: promptConfig.model,
     messages: [
       { role: 'system', content: promptConfig.systemPrompt },
@@ -256,7 +269,16 @@ ${lineItemList}`;
     ],
     response_format: { type: 'json_object' },
     temperature: promptConfig.temperature,
-  });
+  };
+
+  // Use max_completion_tokens for GPT-5.x, max_tokens for GPT-4.x and older
+  if (isGpt5Model && promptConfig.maxTokens) {
+    requestParams.max_completion_tokens = promptConfig.maxTokens;
+  } else if (!isGpt5Model && promptConfig.maxTokens) {
+    requestParams.max_tokens = promptConfig.maxTokens;
+  }
+
+  const response = await openai.chat.completions.create(requestParams);
 
   const content = response.choices[0]?.message?.content;
   if (!content) return [];

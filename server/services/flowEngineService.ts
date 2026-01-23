@@ -1836,16 +1836,28 @@ export async function validateEvidenceWithAI(
   });
 
   try {
-    const response = await openai.chat.completions.create({
-      model: promptConfig.model || 'gpt-5.2',
+    // GPT-5.x models require max_completion_tokens instead of max_tokens
+    const model = promptConfig.model || 'gpt-5.2';
+    const isGpt5Model = model.startsWith('gpt-5') || model.includes('gpt-5');
+    const requestParams: Record<string, unknown> = {
+      model,
       temperature: promptConfig.temperature || 0.3,
-      max_completion_tokens: promptConfig.maxTokens || 1000,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: promptConfig.systemPrompt || '' },
         { role: 'user', content: userPrompt }
       ]
-    });
+    };
+
+    // Use max_completion_tokens for GPT-5.x, max_tokens for GPT-4.x and older
+    const tokenLimit = promptConfig.maxTokens || 1000;
+    if (isGpt5Model) {
+      requestParams.max_completion_tokens = tokenLimit;
+    } else {
+      requestParams.max_tokens = tokenLimit;
+    }
+
+    const response = await openai.chat.completions.create(requestParams);
 
     const content = response.choices[0]?.message?.content;
     if (!content) {

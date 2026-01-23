@@ -1271,7 +1271,9 @@ async function extractFromSingleImage(
       })
     : `This is page ${pageNum} of ${totalPages} of a ${documentType} document. Extract all relevant information. Return ONLY valid JSON.`;
 
-  const response = await openai.chat.completions.create({
+  // GPT-5.x models require max_completion_tokens instead of max_tokens
+  const isGpt5Model = promptConfig.model?.startsWith('gpt-5') || promptConfig.model?.includes('gpt-5');
+  const requestParams: Record<string, unknown> = {
     model: promptConfig.model,
     messages: [
       {
@@ -1295,9 +1297,18 @@ async function extractFromSingleImage(
         ]
       }
     ],
-    max_completion_tokens: promptConfig.maxTokens || 4000,
     response_format: { type: 'json_object' }
-  });
+  };
+
+  // Use max_completion_tokens for GPT-5.x, max_tokens for GPT-4.x and older
+  const tokenLimit = promptConfig.maxTokens || 4000;
+  if (isGpt5Model) {
+    requestParams.max_completion_tokens = tokenLimit;
+  } else {
+    requestParams.max_tokens = tokenLimit;
+  }
+
+  const response = await openai.chat.completions.create(requestParams);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -1452,7 +1463,9 @@ async function extractFromImage(
   const promptKey = getPromptKeyForDocumentType(documentType);
   const promptConfig = await getPromptWithFallback(promptKey);
 
-  const response = await openai.chat.completions.create({
+  // GPT-5.x models require max_completion_tokens instead of max_tokens
+  const isGpt5Model = promptConfig.model?.startsWith('gpt-5') || promptConfig.model?.includes('gpt-5');
+  const requestParams: Record<string, unknown> = {
     model: promptConfig.model,
     messages: [
       {
@@ -1476,9 +1489,18 @@ async function extractFromImage(
         ]
       }
     ],
-    max_completion_tokens: 4000,
     response_format: { type: 'json_object' }
-  });
+  };
+
+  // Use max_completion_tokens for GPT-5.x, max_tokens for GPT-4.x and older
+  const tokenLimit = promptConfig.maxTokens || 4000;
+  if (isGpt5Model) {
+    requestParams.max_completion_tokens = tokenLimit;
+  } else {
+    requestParams.max_tokens = tokenLimit;
+  }
+
+  const response = await openai.chat.completions.create(requestParams);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {

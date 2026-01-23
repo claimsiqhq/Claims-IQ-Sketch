@@ -191,16 +191,20 @@ export async function generateClaimBriefing(
         }
       }, null, 2));
 
-      const completion = await openai.chat.completions.create({
-        model: promptConfig.model,
-        messages: [
-          { role: 'system', content: promptConfig.systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: promptConfig.temperature,
-        max_tokens: promptConfig.maxTokens || 3000,
-        response_format: { type: 'json_object' },
-      });
+      const completion = await openai.chat.completions.create(
+        buildOpenAIParams(
+          promptConfig.model,
+          [
+            { role: 'system', content: promptConfig.systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          {
+            temperature: promptConfig.temperature,
+            maxTokens: promptConfig.maxTokens || 3000,
+            responseFormat: { type: 'json_object' },
+          }
+        )
+      );
 
       const responseContent = completion.choices[0]?.message?.content;
       if (!responseContent) {
