@@ -716,6 +716,7 @@ export async function getClaimStats(organizationId: string): Promise<{
   totalAcv: number;
   totalDocuments: number;
   pendingDocuments: number;
+  totalPhotos: number;
 }> {
   try {
     // Get claims data
@@ -745,6 +746,8 @@ export async function getClaimStats(organizationId: string): Promise<{
       .neq('status', 'deleted');
     
     const activeClaimIds = claimsWithIds?.map(c => c.id) || [];
+
+    let totalPhotos = 0;
 
     if (activeClaimIds.length > 0) {
       try {
@@ -779,6 +782,22 @@ export async function getClaimStats(organizationId: string): Promise<{
       } catch (e) {
         log.warn({ error: e }, '[getClaimStats] Exception fetching pending documents');
       }
+
+      try {
+        const { count: totalPhotosResult, error: totalPhotosError } = await supabaseAdmin
+          .from('claim_photos')
+          .select('*', { count: 'exact', head: true })
+          .eq('organization_id', organizationId)
+          .in('claim_id', activeClaimIds);
+
+        if (!totalPhotosError) {
+          totalPhotos = totalPhotosResult || 0;
+        } else {
+          log.warn({ error: totalPhotosError }, '[getClaimStats] Error fetching total photos');
+        }
+      } catch (e) {
+        log.warn({ error: e }, '[getClaimStats] Exception fetching total photos');
+      }
     }
 
     const byStatus: Record<string, number> = {};
@@ -805,7 +824,8 @@ export async function getClaimStats(organizationId: string): Promise<{
       totalRcv,
       totalAcv,
       totalDocuments: totalDocs,
-      pendingDocuments: pendingDocs
+      pendingDocuments: pendingDocs,
+      totalPhotos
     };
   } catch (error) {
     log.error({ error }, '[getClaimStats] Fatal error');
@@ -817,7 +837,8 @@ export async function getClaimStats(organizationId: string): Promise<{
       totalRcv: 0,
       totalAcv: 0,
       totalDocuments: 0,
-      pendingDocuments: 0
+      pendingDocuments: 0,
+      totalPhotos: 0
     };
   }
 }

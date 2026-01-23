@@ -25,6 +25,7 @@ import {
   MapPin,
   Calendar,
   DollarSign,
+  Camera,
   Loader2,
   AlertCircle,
   Building2,
@@ -308,6 +309,7 @@ export default function Home() {
           totalAcv: 0,
           totalDocuments: 0,
           pendingDocuments: 0,
+          totalPhotos: 0,
         });
       }
     } catch (err) {
@@ -403,11 +405,11 @@ export default function Home() {
             </div>
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-                <DollarSign className="h-4 w-4" />
+                <Camera className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Total RCV</p>
-                <p className="text-lg font-bold">${((stats?.totalRcv || 0) / 1000).toFixed(0)}k</p>
+                <p className="text-xs text-muted-foreground">Photos</p>
+                <p className="text-lg font-bold">{stats?.totalPhotos || 0}</p>
               </div>
             </div>
           </div>
@@ -585,12 +587,12 @@ export default function Home() {
 
           <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
             <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-              <DollarSign className="h-6 w-6" />
+              <Camera className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Total RCV</p>
+              <p className="text-sm font-medium text-muted-foreground">Photos</p>
               <p className="text-3xl font-display font-bold text-slate-900">
-                ${((stats?.totalRcv || 0) / 1000).toFixed(0)}k
+                {stats?.totalPhotos || 0}
               </p>
             </div>
           </div>

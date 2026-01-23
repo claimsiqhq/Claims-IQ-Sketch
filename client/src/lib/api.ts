@@ -917,6 +917,7 @@ export interface ClaimStats {
   totalAcv: number;
   totalDocuments: number;
   pendingDocuments: number;
+  totalPhotos: number;
 }
 
 export async function createClaim(data: Partial<Claim>): Promise<Claim> {
