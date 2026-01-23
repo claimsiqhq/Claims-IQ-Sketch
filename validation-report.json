@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-19T02:47:53.991Z",
+  "timestamp": "2026-01-23T19:22:06.306Z",
   "summary": {
     "total": 32,
     "critical": 1,
@@ -139,7 +139,7 @@
       "severity": "medium",
       "category": "service",
       "file": "server/services/flowEngineService.ts",
-      "line": 1887,
+      "line": 1899,
       "message": "Function getFlowInstance has await but no try/catch",
       "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
     },
@@ -147,7 +147,7 @@
       "severity": "medium",
       "category": "service",
       "file": "server/services/flowEngineService.ts",
-      "line": 1927,
+      "line": 1939,
       "message": "Function getCurrentMovement has await but no try/catch",
       "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
     },
@@ -155,7 +155,7 @@
       "severity": "medium",
       "category": "service",
       "file": "server/services/flowEngineService.ts",
-      "line": 1979,
+      "line": 1991,
       "message": "Function getCurrentPhase has await but no try/catch",
       "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
     },
@@ -163,7 +163,7 @@
       "severity": "medium",
       "category": "service",
       "file": "server/services/flowEngineService.ts",
-      "line": 2008,
+      "line": 2020,
       "message": "Function peekNextMovement has await but no try/catch",
       "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
     },
@@ -171,7 +171,7 @@
       "severity": "medium",
       "category": "service",
       "file": "server/services/flowEngineService.ts",
-      "line": 2088,
+      "line": 2100,
       "message": "Function getPreviousMovement has await but no try/catch",
       "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
     },
@@ -179,7 +179,7 @@
       "severity": "medium",
       "category": "service",
       "file": "server/services/flowEngineService.ts",
-      "line": 2169,
+      "line": 2181,
       "message": "Function goToMovement has await but no try/catch",
       "recommendation": "Add try/catch error handling to prevent unhandled promise rejections"
     },
