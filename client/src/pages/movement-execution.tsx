@@ -496,8 +496,10 @@ export default function MovementExecutionPage() {
   const existingEvidenceItems = existingEvidence?.map(e => ({
     id: e.id,
     type: e.type,
-    url: e.referenceId, // Assuming this is the photo URL or can be resolved
-    label: e.type === 'note' ? 'Note' : undefined,
+    url: e.type === 'audio' 
+      ? (e.data?.audioUrl || e.data?.publicUrl) 
+      : (e.data?.publicUrl || e.referenceId),
+    label: e.type === 'note' ? 'Note' : e.type === 'audio' ? 'Voice Note' : undefined,
     data: e.data,
     createdAt: e.createdAt,
   })) || [];
@@ -693,18 +695,25 @@ export default function MovementExecutionPage() {
                       {savedVoiceNotes.map((note) => (
                         <div 
                           key={note.id} 
-                          className="flex items-center gap-3 p-3 bg-muted rounded-lg"
+                          className="flex flex-col gap-2 p-3 bg-muted rounded-lg"
                         >
-                          <div className="h-8 w-8 bg-primary/10 rounded-full flex items-center justify-center">
-                            <Mic className="h-4 w-4 text-primary" />
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 bg-primary/10 rounded-full flex items-center justify-center">
+                              <Mic className="h-4 w-4 text-primary" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">Voice Note</p>
+                              <p className="text-xs text-muted-foreground">Saved at {note.timestamp}</p>
+                            </div>
+                            <Badge variant="secondary" className="text-xs">
+                              Transcribing...
+                            </Badge>
                           </div>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">Voice Note</p>
-                            <p className="text-xs text-muted-foreground">Saved at {note.timestamp}</p>
-                          </div>
-                          <Badge variant="secondary" className="text-xs">
-                            Transcribing...
-                          </Badge>
+                          {note.audioUrl && (
+                            <audio controls className="w-full h-8">
+                              <source src={note.audioUrl} />
+                            </audio>
+                          )}
                         </div>
                       ))}
                     </div>
