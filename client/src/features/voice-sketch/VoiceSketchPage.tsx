@@ -44,12 +44,17 @@ import { generatePolygon } from './utils/polygon-math';
 
 export default function VoiceSketchPage() {
   const params = useParams();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const claimId = params.claimId;
   const authUser = useStore((state) => state.authUser);
 
-  const { rooms, currentRoom, structures, resetSession, loadRooms, resetAndLoadForClaim, loadedForClaimId } = useGeometryEngine();
+  // Read flow context from URL query parameters
+  const searchParams = new URLSearchParams(location.split('?')[1] || '');
+  const flowInstanceId = searchParams.get('flowInstanceId') || null;
+  const movementId = searchParams.get('movementId') || null;
+
+  const { rooms, currentRoom, structures, resetSession, loadRooms, resetAndLoadForClaim, loadedForClaimId, setClaimId, setFlowContext } = useGeometryEngine();
   const [isSaving, setIsSaving] = useState(false);
   const [isClaimSelectorOpen, setIsClaimSelectorOpen] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState<string>('');
@@ -73,6 +78,16 @@ export default function VoiceSketchPage() {
     staleTime: 30000,
   });
   
+  // Set flow context if provided in URL
+  useEffect(() => {
+    if (claimId) {
+      setClaimId(claimId);
+    }
+    if (flowInstanceId && movementId) {
+      setFlowContext(flowInstanceId, movementId);
+    }
+  }, [claimId, flowInstanceId, movementId, setClaimId, setFlowContext]);
+
   // Track if we've initiated loading for the current claim to prevent multiple calls
   const isLoadingRef = useRef(false);
   const lastLoadedClaimRef = useRef<string | null>(null);

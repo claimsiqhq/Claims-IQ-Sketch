@@ -59,7 +59,7 @@ export interface WallMoveConstraints {
   parallelWalls: string[]; // IDs of walls to potentially align with
 }
 export type OpeningType = 'door' | 'window' | 'archway' | 'sliding_door' | 'french_door';
-export type FeatureType = 'closet' | 'alcove' | 'bump_out' | 'island' | 'peninsula' | 'fireplace' | 'built_in';
+export type FeatureType = 'closet' | 'alcove' | 'pantry' | 'bump_out' | 'island' | 'peninsula' | 'fireplace' | 'built_in';
 export type ObjectType = 'appliance' | 'fixture' | 'cabinet' | 'counter' | 'furniture' | 'equipment' | 'other';
 export type DamageType = 'water' | 'fire' | 'smoke' | 'mold' | 'wind' | 'impact';
 export type WaterDamageCategory = '1' | '2' | '3'; // IICRC S500 categories
@@ -103,6 +103,8 @@ export interface Opening {
   position: PositionType;
   position_from?: PositionFromType; // 'start' = from north/west corner, 'end' = from south/east corner
   sill_height_ft?: number; // For windows
+  // Angled wall support (for non-90-degree walls)
+  wall_angle?: number; // Angle in degrees relative to cardinal direction (0 = north/south, 90 = east/west)
 }
 
 export interface Feature {
@@ -117,6 +119,9 @@ export interface Feature {
   y_offset_ft?: number; // For freestanding features: distance from south wall (bottom edge)
 }
 
+export type DamageSeverity = 'minor' | 'moderate' | 'severe' | 'total';
+export type DamageSurface = 'ceiling' | 'wall' | 'floor' | 'floor_ceiling' | 'wall_floor' | 'wall_ceiling' | 'all';
+
 export interface VoiceDamageZone {
   id: string;
   type: DamageType;
@@ -125,12 +130,17 @@ export interface VoiceDamageZone {
   floor_affected: boolean;
   ceiling_affected: boolean;
   extent_ft: number;
+  severity?: DamageSeverity; // minor, moderate, severe, total
+  surface?: DamageSurface; // ceiling, wall, floor, or combination
   source?: string;
   notes?: string;
   // Optional polygon for precise damage zone boundaries (overrides wall-extent calculation)
   polygon?: Point[];
   // For irregular damage zones that don't follow walls
   is_freeform?: boolean;
+  // Flow context (for linking to inspection flows) - stored in metadata, saved to DB
+  flowInstanceId?: string;
+  movementId?: string;
 }
 
 // Object within a room (appliances, fixtures, furniture, etc.)
@@ -173,6 +183,10 @@ export interface SketchPhoto {
   capturedAt: string;
   uploadedAt?: string;
   analyzedAt?: string;
+  // Flow context (for linking to inspection flows)
+  flowInstanceId?: string;
+  movementId?: string;
+  claimId?: string;
   // GPS coordinates
   latitude?: number | null;
   longitude?: number | null;
@@ -265,6 +279,9 @@ export interface RoomGeometry {
   objects: SketchObject[];
   // Photos of this room
   photos: SketchPhoto[];
+  // Flow context (for linking to inspection flows) - stored in metadata, saved to DB
+  flowInstanceId?: string;
+  movementId?: string;
 }
 
 export interface RoomNote {
@@ -413,6 +430,8 @@ export interface MarkDamageParams {
   floor_affected?: boolean;
   ceiling_affected?: boolean;
   extent_ft: number;
+  severity?: DamageSeverity; // minor, moderate, severe, total
+  surface?: DamageSurface; // ceiling, wall, floor, or combination
   source?: string;
   // Optional polygon for precise damage zone boundaries
   polygon?: Point[];
@@ -480,6 +499,8 @@ export interface EditDamageZoneParams {
   new_floor_affected?: boolean;
   new_ceiling_affected?: boolean;
   new_extent_ft?: number;
+  new_severity?: DamageSeverity; // minor, moderate, severe, total
+  new_surface?: DamageSurface; // ceiling, wall, floor, or combination
   new_source?: string;
   // Optional polygon for precise damage zone boundaries
   new_polygon?: Point[];

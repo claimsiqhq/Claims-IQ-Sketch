@@ -157,7 +157,7 @@ ${context.workflow.steps?.map((s: any) => `- [${s.phase}] ${s.title}: ${s.instru
 // Tool: Add a line item
 const addLineItemTool = tool({
   name: 'add_line_item',
-  description: 'Add a line item to the estimate. Use this when the adjuster specifies a work item to add.',
+  description: 'Add a line item to the estimate. Use this when the adjuster specifies a work item to add. Depreciation will be applied automatically if item age or condition is known from claim context.',
   parameters: z.object({
     code: z.string().describe('Line item code (e.g., DEM-DRW-REM for drywall demolition)'),
     description: z.string().describe('Human readable description of the work'),
@@ -166,9 +166,33 @@ const addLineItemTool = tool({
     unitPrice: z.number().optional().describe('Price per unit if known'),
     roomName: z.string().optional().describe('Which room this is for'),
     notes: z.string().optional().describe('Additional notes'),
+    itemAge: z.number().optional().describe('Age of item in years (for depreciation calculation)'),
+    condition: z.enum(['good', 'fair', 'poor']).optional().describe('Condition of item (affects depreciation)'),
   }),
   execute: async (params) => {
-    return scopeEngine.getState().addLineItem(params);
+    const result = scopeEngine.getState().addLineItem(params);
+    
+    // Apply depreciation if age or condition provided
+    if (params.itemAge !== undefined || params.condition !== undefined) {
+      const items = scopeEngine.getState().getLineItems();
+      const newItem = items[items.length - 1];
+      
+      if (newItem && params.itemAge !== undefined) {
+        // Simple straight-line depreciation: assume 20-year useful life
+        // In future, this should fetch from depreciation_schedules table
+        const usefulLifeYears = 20;
+        const depreciationPercent = Math.min((params.itemAge / usefulLifeYears) * 100, 80);
+        
+        scopeEngine.getState().applyDepreciation(
+          newItem.id,
+          depreciationPercent,
+          params.itemAge,
+          params.condition
+        );
+      }
+    }
+    
+    return result;
   },
 });
 
@@ -273,22 +297,34 @@ const searchLineItemsTool = tool({
 // Tool: Get current estimate summary
 const getEstimateSummaryTool = tool({
   name: 'get_estimate_summary',
-  description: 'Get a summary of the current estimate including item count and subtotal.',
+  description: 'Get a summary of the current estimate including item count, RCV, ACV, and depreciation.',
   parameters: z.object({}),
   execute: async () => {
     const state = scopeEngine.getState();
     const items = state.lineItems;
-    const subtotal = state.getSubtotal();
+    const rcv = state.getTotalRCV();
+    const acv = state.getTotalACV();
+    const depreciation = state.getTotalDepreciation();
 
     if (items.length === 0) {
       return 'The estimate is currently empty.';
     }
 
-    const summary = items.map(item =>
-      `${item.description}: ${item.quantity} ${item.unit}`
-    ).join(', ');
+    const summary = items.map(item => {
+      let itemDesc = `${item.description}: ${item.quantity} ${item.unit}`;
+      if (item.depreciationAmount) {
+        itemDesc += ` (ACV: $${item.acv?.toFixed(2) || '0.00'})`;
+      }
+      return itemDesc;
+    }).join(', ');
 
-    return `Current estimate has ${items.length} items totaling $${subtotal.toFixed(2)}. Items: ${summary}`;
+    let result = `Current estimate has ${items.length} items. RCV: $${rcv.toFixed(2)}`;
+    if (depreciation > 0) {
+      result += `, ACV: $${acv.toFixed(2)}, Depreciation: $${depreciation.toFixed(2)}`;
+    }
+    result += `. Items: ${summary}`;
+
+    return result;
   },
 });
 

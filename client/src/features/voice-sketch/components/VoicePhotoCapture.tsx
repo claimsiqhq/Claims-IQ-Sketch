@@ -6,6 +6,7 @@ import { Camera, X, Mic, Check, AlertTriangle, RotateCcw, Loader2 } from 'lucide
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { PhotoCaptureConfig } from '../services/geometry-engine';
+import { FramingGuidanceOverlay } from './FramingGuidanceOverlay';
 
 export interface PhotoCaptureResult {
   status: 'captured' | 'cancelled' | 'error';
@@ -185,6 +186,17 @@ export function VoicePhotoCapture({
         muted
         className="absolute inset-0 w-full h-full object-cover"
       />
+
+      {/* Visual Framing Guidance Overlay */}
+      {phase === 'preview' && !error && (
+        <FramingGuidanceOverlay
+          targetType={config.targetType}
+          framingGuidance={framingGuidance}
+          perilType={undefined} // TODO: Fetch from claim context
+          showGrid={true}
+          showHorizon={true}
+        />
+      )}
 
       {/* Overlay UI */}
       <div className="absolute inset-0 flex flex-col">

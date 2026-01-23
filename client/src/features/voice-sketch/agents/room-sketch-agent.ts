@@ -190,7 +190,7 @@ For T-SHAPED rooms (shape='t_shape'):
 // Tool: Add door, window, or archway
 const addOpeningTool = tool({
   name: 'add_opening',
-  description: 'Add a door, window, or archway to a wall. Standard door width is 3ft, standard window width is 3ft.',
+  description: 'Add a door, window, or archway to a wall. Standard door width is 3ft, standard window width is 3ft. Supports angled walls (non-90-degree).',
   parameters: z.object({
     type: z.enum(['door', 'window', 'archway', 'sliding_door', 'french_door']).describe('Type of opening'),
     wall: z.enum(['north', 'south', 'east', 'west']).describe('Which wall - north is the wall adjuster is facing when entering'),
@@ -202,13 +202,14 @@ const addOpeningTool = tool({
     ]).describe('Position on the wall - left, center, right, or specific feet measurement'),
     position_from: z.enum(['start', 'end']).default('start').describe('Where to measure position from. "start" = beginning of wall (north/west corner), "end" = end of wall (south/east corner). CRITICAL: Use "end" when adjuster says "X feet from south wall" on east/west walls, or "X feet from east wall" on north/south walls.'),
     sill_height_ft: z.number().optional().describe('For windows, height from floor to bottom of window. Default 3ft'),
+    wall_angle: z.number().optional().describe('Angle of wall in degrees relative to cardinal direction (0 = north/south aligned, 45 = diagonal, etc.). Only needed for non-90-degree walls.'),
   }),
   execute: async (params) => {
     return geometryEngine.addOpening(params);
   },
 });
 
-// Tool: Add closet, alcove, bump-out, or built-in
+// Tool: Add closet, alcove, bump-out, pantry, or built-in
 const addFeatureTool = tool({
   name: 'add_feature',
   description: `Add architectural features to the room.
@@ -219,6 +220,7 @@ WALL-EMBEDDED features (closet, alcove, pantry, bump_out, fireplace, built_in):
 - width_ft = opening width along the wall
 - depth_ft = how deep the feature extends OUTWARD from the wall (AWAY from room interior)
 - Example: A closet on the east wall extends EAST, beyond the room's east boundary
+- Pantries are typically 2-3 feet deep, alcoves are usually 1-2 feet deep
 
 FREESTANDING features (island, peninsula):
 - These sit on the floor, not attached to walls
@@ -229,7 +231,7 @@ FREESTANDING features (island, peninsula):
   - y_offset_ft = distance from south wall (bottom edge of room)
 - If no offsets provided, defaults to centered`,
   parameters: z.object({
-    type: z.enum(['closet', 'alcove', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).describe('Type of feature. Use "closet" for pantries.'),
+    type: z.enum(['closet', 'alcove', 'pantry', 'bump_out', 'island', 'peninsula', 'fireplace', 'built_in']).describe('Type of feature. Use "pantry" for walk-in pantries, "alcove" for small recessed areas.'),
     wall: z.enum(['north', 'south', 'east', 'west', 'freestanding']).describe('Which wall the feature opening is on (feature extends OUTWARD from this wall), or "freestanding" for islands/peninsulas'),
     width_ft: z.number().describe('Width in feet (along the wall for wall features, or footprint width for islands)'),
     depth_ft: z.number().describe('Depth in feet. For wall features: how far the feature extends OUTWARD/BEYOND the wall (away from room interior). For islands: footprint depth.'),
@@ -259,7 +261,12 @@ For FREEFORM damage (irregular shapes not following walls):
 - Set is_freeform=true
 - Provide polygon as array of points [{x: feet, y: feet}, ...]
 - Polygon coordinates are in room-relative feet (0,0 is northwest corner)
-- Can still specify affected_walls for reference but polygon takes precedence`,
+- Can still specify affected_walls for reference but polygon takes precedence
+
+SEVERITY and SURFACE:
+- severity: minor, moderate, severe, or total (optional)
+- surface: ceiling, wall, floor, or combination like floor_ceiling (optional)
+- If surface is specified, floor_affected and ceiling_affected will be inferred automatically`,
   parameters: z.object({
     type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).describe('Type of damage'),
     category: z.enum(['1', '2', '3']).optional().describe('IICRC category for water damage: 1=clean water, 2=gray water, 3=black water'),
@@ -267,6 +274,8 @@ For FREEFORM damage (irregular shapes not following walls):
     floor_affected: z.boolean().default(true).describe('Is the floor affected?'),
     ceiling_affected: z.boolean().default(false).describe('Is the ceiling affected?'),
     extent_ft: z.number().default(2).describe('How far the damage extends from the wall in feet. Default 2 feet if not specified by user.'),
+    severity: z.enum(['minor', 'moderate', 'severe', 'total']).optional().describe('Damage severity: minor, moderate, severe, or total'),
+    surface: z.enum(['ceiling', 'wall', 'floor', 'floor_ceiling', 'wall_floor', 'wall_ceiling', 'all']).optional().describe('Affected surface: ceiling, wall, floor, or combination'),
     source: z.string().optional().describe('Source of damage, e.g., "burst pipe under sink", "roof leak", "adjacent bathroom"'),
     polygon: z.array(z.object({
       x: z.number().describe('X coordinate in feet from west wall'),
@@ -406,7 +415,7 @@ const deleteFeatureTool = tool({
 // Tool: Edit damage zone properties
 const editDamageZoneTool = tool({
   name: 'edit_damage_zone',
-  description: 'Edit properties of a damage zone. Use when adjuster needs to correct damage category, extent, source, affected areas, or polygon boundary.',
+  description: 'Edit properties of a damage zone. Use when adjuster needs to correct damage category, extent, severity, surface, source, affected areas, or polygon boundary.',
   parameters: z.object({
     damage_index: z.number().optional().describe('Index of the damage zone to edit (0-based). If room has only one damage zone, not needed.'),
     new_type: z.enum(['water', 'fire', 'smoke', 'mold', 'wind', 'impact']).optional().describe('New damage type'),
@@ -415,6 +424,8 @@ const editDamageZoneTool = tool({
     new_floor_affected: z.boolean().optional().describe('Whether floor is affected'),
     new_ceiling_affected: z.boolean().optional().describe('Whether ceiling is affected'),
     new_extent_ft: z.number().optional().describe('New extent in feet'),
+    new_severity: z.enum(['minor', 'moderate', 'severe', 'total']).optional().describe('New severity level: minor, moderate, severe, or total'),
+    new_surface: z.enum(['ceiling', 'wall', 'floor', 'floor_ceiling', 'wall_floor', 'wall_ceiling', 'all']).optional().describe('New affected surface: ceiling, wall, floor, or combination'),
     new_source: z.string().optional().describe('New source description'),
     new_polygon: z.array(z.object({
       x: z.number().describe('X coordinate in feet from west wall'),
@@ -1242,6 +1253,14 @@ const agentTools = [
   modifyDimensionTool,
   addNoteTool,
   undoTool,
+  confirmUndoTool,
+  redoTool,
+  confirmRedoTool,
+  listRoomsTool,
+  selectRoomTool,
+  listStructuresTool,
+  toggleFloorPlanViewTool,
+  setFloorPlanOrientationTool,
   confirmRoomTool,
   deleteRoomTool,
   editRoomTool,
@@ -1308,6 +1327,14 @@ export const tools = {
   modifyDimension: modifyDimensionTool,
   addNote: addNoteTool,
   undo: undoTool,
+  confirmUndo: confirmUndoTool,
+  redo: redoTool,
+  confirmRedo: confirmRedoTool,
+  listRooms: listRoomsTool,
+  selectRoom: selectRoomTool,
+  listStructures: listStructuresTool,
+  toggleFloorPlanView: toggleFloorPlanViewTool,
+  setFloorPlanOrientation: setFloorPlanOrientationTool,
   confirmRoom: confirmRoomTool,
   deleteRoom: deleteRoomTool,
   editRoom: editRoomTool,

@@ -162,6 +162,19 @@ interface GeometryEngineState {
   modifyDimension: (params: ModifyDimensionParams) => string;
   addNote: (params: AddNoteParams) => string;
   undo: (steps: number) => string;
+  pendingUndo: { steps: number; timestamp: number } | null;
+  confirmUndo: (confirmed: boolean) => string;
+  redo: (steps: number) => string;
+  pendingRedo: { steps: number; timestamp: number } | null;
+  confirmRedo: (confirmed: boolean) => string;
+  listRooms: () => string;
+  selectRoom: (roomName: string) => string;
+  listStructures: () => string;
+  pendingUndo: { steps: number; timestamp: number } | null;
+  confirmUndo: (confirmed: boolean) => string;
+  redo: (steps: number) => string;
+  pendingRedo: { steps: number; timestamp: number } | null;
+  confirmRedo: (confirmed: boolean) => string;
   confirmRoom: (params: ConfirmRoomParams) => string;
   deleteRoom: (params: DeleteRoomParams) => string;
   editRoom: (params: EditRoomParams) => string;
@@ -221,12 +234,25 @@ interface GeometryEngineState {
 
   // Workflow integration methods
   claimId: string | null;
+  flowInstanceId: string | null;
+  movementId: string | null;
   setClaimId: (claimId: string) => void;
+  setFlowContext: (flowInstanceId: string, movementId: string) => void;
   getCurrentWorkflowStep: (phase?: string) => Promise<string>;
   getStepPhotoRequirements: (roomId?: string, stepId?: string) => Promise<string>;
   completeWorkflowStep: (stepId: string, notes?: string) => Promise<string>;
   capturePhotoForStep: (stepId: string, config?: { targetType?: string; suggestedLabel?: string; framingGuidance?: string }) => Promise<string>;
   getWorkflowStatus: () => Promise<string>;
+  
+  // Floor plan visualization
+  floorPlanViewMode: boolean;
+  floorPlanOrientation: number; // degrees, 0 = north-up
+  toggleFloorPlanView: () => string;
+  setFloorPlanOrientation: (degrees: number) => string;
+  
+  // Redo stack for full undo/redo
+  redoStack: RoomGeometry[];
+  checkBlockingSteps: () => Promise<string>;
 }
 
 const initialSessionState: VoiceSessionState = {
@@ -251,6 +277,11 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   pendingPhotoCapture: null,
   lastCapturedPhotoId: null,
   claimId: null,
+  flowInstanceId: null,
+  movementId: null,
+  floorPlanViewMode: false,
+  floorPlanOrientation: 0,
+  redoStack: [],
 
   // Structure actions
   createStructure: (params) => {
@@ -370,6 +401,28 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   createRoom: (params) => {
     const { currentRoom } = get();
 
+    // Validate dimensions before creating room
+    try {
+      const { validateRoomDimensions, formatValidationResult } = require('../utils/geometry-validation');
+      const dimensionValidation = validateRoomDimensions(
+        params.width_ft,
+        params.length_ft,
+        params.ceiling_height_ft
+      );
+
+      if (!dimensionValidation.valid) {
+        return formatValidationResult(dimensionValidation);
+      }
+
+      // Log warnings if any
+      if (dimensionValidation.warnings.length > 0) {
+        logger.warn('[GeometryEngine] Room dimension warnings:', dimensionValidation.warnings);
+      }
+    } catch (error) {
+      // If validation module not available, continue without validation
+      logger.debug('[GeometryEngine] Validation module not available, skipping validation');
+    }
+
     // Save current room to undo stack if exists
     if (currentRoom) {
       set((state) => ({
@@ -387,7 +440,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     );
     const roomName = normalizeRoomName(params.name);
 
-    const { currentStructure } = get();
+    const { currentStructure, flowInstanceId, movementId } = get();
     const hierarchyLevel: HierarchyLevel = params.is_subroom ? 'subroom' : 'room';
     
     const newRoom: RoomGeometry = {
@@ -414,6 +467,9 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       subRooms: [],
       objects: [],
       photos: [],
+      // Flow context (will be saved to DB with flowInstanceId/movementId when room is saved)
+      flowInstanceId: flowInstanceId || undefined,
+      movementId: movementId || undefined,
     };
 
     const command: GeometryCommand = {
@@ -438,6 +494,27 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   addOpening: (params) => {
     const { currentRoom } = get();
     if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Validate wall placement before adding opening
+    try {
+      const { validateWallPlacement, formatValidationResult } = require('../utils/geometry-validation');
+      const wallValidation = validateWallPlacement(
+        currentRoom,
+        params.wall,
+        params.position,
+        params.width_ft
+      );
+
+      if (!wallValidation.valid) {
+        return formatValidationResult(wallValidation);
+      }
+
+      if (wallValidation.warnings.length > 0) {
+        logger.warn('[GeometryEngine] Wall placement warnings:', wallValidation.warnings);
+      }
+    } catch (error) {
+      logger.debug('[GeometryEngine] Validation module not available, skipping validation');
+    }
 
     // Save current room state to undo stack
     set((state) => ({
@@ -495,6 +572,19 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   addFeature: (params) => {
     const { currentRoom } = get();
     if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Validate feature dimensions
+    if (params.width_ft <= 0 || params.depth_ft <= 0) {
+      return `Feature dimensions must be greater than zero. You specified ${params.width_ft} × ${params.depth_ft} feet.`;
+    }
+
+    // Validate feature fits in room (for wall-embedded features)
+    if (params.wall !== 'freestanding') {
+      const wallLength = getWallLength(params.wall, currentRoom.width_ft, currentRoom.length_ft);
+      if (params.width_ft > wallLength) {
+        return `The ${params.wall} wall is only ${wallLength} feet long, but you specified a feature ${params.width_ft} feet wide.`;
+      }
+    }
 
     // Save current room state to undo stack
     set((state) => ({
@@ -554,7 +644,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   markDamage: (params) => {
-    const { currentRoom } = get();
+    const { currentRoom, flowInstanceId, movementId } = get();
     if (!currentRoom) return 'Error: No room started. Please create a room first.';
 
     // Save current room state to undo stack
@@ -570,9 +660,14 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       floor_affected: params.floor_affected ?? true,
       ceiling_affected: params.ceiling_affected ?? false,
       extent_ft: params.extent_ft,
+      severity: params.severity,
+      surface: params.surface,
       source: params.source,
       polygon: params.polygon,
       is_freeform: params.is_freeform,
+      // Flow context stored in damage zone metadata (will be saved to DB with flowInstanceId/movementId)
+      flowInstanceId: flowInstanceId || undefined,
+      movementId: movementId || undefined,
     };
 
     const categoryStr = params.category ? `Category ${params.category} ` : '';
@@ -608,6 +703,11 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   modifyDimension: (params) => {
     const { currentRoom } = get();
     if (!currentRoom) return 'Error: No room started. Please create a room first.';
+
+    // Validate new dimension value
+    if (params.new_value_ft <= 0) {
+      return `Dimension must be greater than zero. You specified ${params.new_value_ft} feet.`;
+    }
 
     // Save current room state to undo stack
     set((state) => ({
@@ -718,13 +818,40 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   undo: (steps = 1) => {
-    const { undoStack, currentRoom } = get();
+    const { undoStack } = get();
 
     if (undoStack.length === 0) {
-      return 'Nothing to undo';
+      return 'Nothing to undo.';
     }
 
+    // Set pending undo state - requires confirmation
+    set({
+      pendingUndo: { steps, timestamp: Date.now() },
+    });
+
     const actualSteps = Math.min(steps, undoStack.length);
+    return `Are you sure you want to undo the last ${actualSteps} action${actualSteps > 1 ? 's' : ''}? Say "yes" or "confirm" to proceed, or "no" to cancel.`;
+  },
+
+  confirmUndo: (confirmed: boolean) => {
+    const { pendingUndo, undoStack, currentRoom } = get();
+
+    if (!pendingUndo) {
+      return 'No undo pending. Use the undo command first.';
+    }
+
+    // Clear pending state
+    set({ pendingUndo: null });
+
+    if (!confirmed) {
+      return 'Undo cancelled.';
+    }
+
+    if (undoStack.length === 0) {
+      return 'Nothing to undo.';
+    }
+
+    const actualSteps = Math.min(pendingUndo.steps, undoStack.length);
     const newUndoStack = undoStack.slice(0, undoStack.length - actualSteps);
     const restoredRoom = undoStack[undoStack.length - actualSteps] || null;
 
@@ -742,7 +869,71 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       commandHistory: [...state.commandHistory, command],
     }));
 
-    return command.result;
+    return `Okay, I've undone ${actualSteps} action${actualSteps > 1 ? 's' : ''}.`;
+  },
+
+  redo: (steps = 1) => {
+    const { commandHistory, currentRoom } = get();
+
+    // Check if there's anything to redo (simplified - in a full implementation, we'd track redo stack)
+    // For now, we'll use commandHistory to determine if redo is possible
+    if (commandHistory.length === 0) {
+      return 'Nothing to redo.';
+    }
+
+    // Set pending redo state - requires confirmation
+    set({
+      pendingRedo: { steps, timestamp: Date.now() },
+    });
+
+    return `Are you sure you want to redo ${steps} action${steps > 1 ? 's' : ''}? Say "yes" or "confirm" to proceed, or "no" to cancel.`;
+  },
+
+  confirmRedo: (confirmed: boolean) => {
+    const { pendingRedo, redoStack, currentRoom } = get();
+
+    if (!pendingRedo) {
+      return 'No redo pending. Use the redo command first.';
+    }
+
+    // Clear pending state
+    set({ pendingRedo: null });
+
+    if (!confirmed) {
+      return 'Redo cancelled.';
+    }
+
+    if (redoStack.length === 0) {
+      return 'Nothing to redo.';
+    }
+
+    const actualSteps = Math.min(pendingRedo.steps, redoStack.length);
+    
+    // Save current state to undo stack before redoing
+    if (currentRoom) {
+      set((state) => ({
+        undoStack: [...state.undoStack, currentRoom],
+      }));
+    }
+
+    const newRedoStack = redoStack.slice(0, redoStack.length - actualSteps);
+    const restoredRoom = redoStack[redoStack.length - actualSteps] || null;
+
+    const command: GeometryCommand = {
+      id: generateId(),
+      type: 'redo',
+      params: { steps: actualSteps },
+      timestamp: new Date().toISOString(),
+      result: `Redid ${actualSteps} action(s)`,
+    };
+
+    set((state) => ({
+      currentRoom: restoredRoom,
+      redoStack: newRedoStack,
+      commandHistory: [...state.commandHistory, command],
+    }));
+
+    return `Redo complete. The previous ${actualSteps} action${actualSteps > 1 ? 's are' : ' is'} restored.`;
   },
 
   confirmRoom: (params) => {
@@ -797,6 +988,82 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     emitStateChange('room_confirmed', { room: confirmedRoom });
 
     return command.result;
+  },
+
+  listRooms: () => {
+    const { rooms, structures, currentStructure } = get();
+    
+    // Get rooms from current structure if one is selected, otherwise all rooms
+    const roomsToShow = currentStructure 
+      ? rooms.filter(r => r.structureId === currentStructure.id)
+      : rooms;
+
+    if (roomsToShow.length === 0) {
+      return 'No rooms created yet. Create a room using create_room.';
+    }
+
+    const roomNames = roomsToShow.map(r => formatRoomName(r.name));
+    
+    if (roomNames.length === 1) {
+      return `I have one room: ${roomNames[0]}.`;
+    } else if (roomNames.length <= 3) {
+      return `So far, I have ${roomNames.length} rooms: ${roomNames.join(', ')}.`;
+    } else {
+      const firstFew = roomNames.slice(0, 2);
+      const remaining = roomNames.length - 2;
+      return `So far, I have ${roomNames.length} rooms: ${firstFew.join(', ')}, and ${remaining} others: ${roomNames.slice(2).join(', ')}.`;
+    }
+  },
+
+  selectRoom: (roomName: string) => {
+    const { rooms, currentStructure } = get();
+    
+    // Normalize room name for matching
+    const normalizedName = normalizeRoomName(roomName);
+    
+    // Find room by name (case-insensitive)
+    const room = rooms.find(r => 
+      r.name.toLowerCase() === normalizedName.toLowerCase() ||
+      formatRoomName(r.name).toLowerCase() === roomName.toLowerCase()
+    );
+
+    if (!room) {
+      // List available rooms for helpful error message
+      const availableRooms = currentStructure
+        ? rooms.filter(r => r.structureId === currentStructure.id).map(r => formatRoomName(r.name))
+        : rooms.map(r => formatRoomName(r.name));
+      
+      if (availableRooms.length === 0) {
+        return `Room "${roomName}" not found. No rooms have been created yet.`;
+      }
+      
+      return `Room "${roomName}" not found. Available rooms: ${availableRooms.join(', ')}.`;
+    }
+
+    // Check if room belongs to current structure (if one is selected)
+    if (currentStructure && room.structureId !== currentStructure.id) {
+      return `Room "${formatRoomName(room.name)}" belongs to a different structure. Switch structures first or specify the structure name.`;
+    }
+
+    set({ currentRoom: room });
+    
+    return `Okay, now editing ${formatRoomName(room.name)}.`;
+  },
+
+  listStructures: () => {
+    const { structures } = get();
+    
+    if (structures.length === 0) {
+      return 'No structures created yet. Create a structure using create_structure.';
+    }
+
+    const structureNames = structures.map(s => s.name);
+    
+    if (structureNames.length === 1) {
+      return `I have one structure: ${structureNames[0]}.`;
+    } else {
+      return `I have ${structureNames.length} structures: ${structureNames.join(', ')}.`;
+    }
   },
 
   deleteRoom: (params) => {
@@ -1244,6 +1511,26 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     if (params.new_is_freeform !== undefined) {
       changes.push(`freeform to ${params.new_is_freeform}`);
       updatedDamageZone.is_freeform = params.new_is_freeform;
+    }
+
+    if (params.new_severity) {
+      changes.push(`severity to ${params.new_severity}`);
+      updatedDamageZone.severity = params.new_severity;
+    }
+
+    if (params.new_surface) {
+      changes.push(`surface to ${params.new_surface}`);
+      updatedDamageZone.surface = params.new_surface;
+      // Also update floor_affected and ceiling_affected based on surface
+      if (params.new_surface.includes('floor')) {
+        updatedDamageZone.floor_affected = true;
+      }
+      if (params.new_surface.includes('ceiling')) {
+        updatedDamageZone.ceiling_affected = true;
+      }
+      if (params.new_surface === 'wall' || params.new_surface === 'ceiling') {
+        updatedDamageZone.floor_affected = false;
+      }
     }
 
     if (changes.length === 0) {
@@ -1807,7 +2094,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
 
   // Photo actions
   capturePhoto: async (params, file) => {
-    const { currentStructure, currentRoom } = get();
+    const { currentStructure, currentRoom, flowInstanceId, movementId, claimId } = get();
     const now = new Date().toISOString();
 
     // Build hierarchy path
@@ -1826,7 +2113,12 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       hierarchyPath,
       structureId: currentStructure?.id,
       roomId: currentRoom?.id,
+      damageZoneId: params.damageZoneId,
       capturedAt: now,
+      // Flow context for workflow binding
+      flowInstanceId: flowInstanceId || undefined,
+      movementId: movementId || undefined,
+      claimId: claimId || undefined,
     };
 
     // Add to photos array
@@ -2135,44 +2427,82 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   getCurrentWorkflowStep: async (phase?: string) => {
-    const { claimId } = get();
+    const { claimId, flowInstanceId } = get();
     if (!claimId) {
       return 'No claim ID set. Cannot retrieve workflow steps.';
     }
 
     try {
-      const params = new URLSearchParams();
-      if (phase) params.set('phase', phase);
-      params.set('status', 'pending');
-
-      const response = await fetch(`/api/claims/${claimId}/workflow?${params.toString()}`, {
+      // Use new flow engine endpoint
+      const flowId = flowInstanceId;
+      if (!flowId) {
+        // Try to get current flow for claim
+        const flowResponse = await fetch(`/api/claims/${claimId}/flows`, {
+          credentials: 'include'
+        });
+        
+        if (!flowResponse.ok) {
+          return 'No active flow found for this claim.';
+        }
+        
+        const flowData = await flowResponse.json();
+        const activeFlowId = flowData.id;
+        
+        if (!activeFlowId) {
+          return 'No active flow found for this claim.';
+        }
+        
+        // Use the active flow ID
+        const progressResponse = await fetch(`/api/flows/${activeFlowId}/progress`, {
+          credentials: 'include'
+        });
+        
+        if (!progressResponse.ok) {
+          return 'Failed to retrieve flow progress.';
+        }
+        
+        const progress = await progressResponse.json();
+        const nextMovement = progress.nextMovement;
+        
+        if (!nextMovement) {
+          return 'All workflow movements are complete.';
+        }
+        
+        return JSON.stringify({
+          movement_id: nextMovement.id,
+          title: nextMovement.title,
+          instructions: nextMovement.instruction,
+          movement_type: nextMovement.type,
+          phase: nextMovement.phase,
+          blocking: nextMovement.blocking || false,
+          required_evidence: nextMovement.requiredEvidence || [],
+        });
+      }
+      
+      // Use provided flowInstanceId
+      const progressResponse = await fetch(`/api/flows/${flowId}/progress`, {
         credentials: 'include'
       });
-
-      if (!response.ok) {
-        return 'Failed to retrieve workflow steps.';
+      
+      if (!progressResponse.ok) {
+        return 'Failed to retrieve flow progress.';
       }
-
-      const data = await response.json();
-      const steps = data.steps || [];
-      const pendingSteps = steps.filter((s: { status: string }) => s.status === 'pending' || s.status === 'in_progress');
-
-      if (pendingSteps.length === 0) {
-        return phase
-          ? `All ${phase} steps are complete.`
-          : 'All workflow steps are complete.';
+      
+      const progress = await progressResponse.json();
+      const nextMovement = progress.nextMovement;
+      
+      if (!nextMovement) {
+        return 'All workflow movements are complete.';
       }
-
-      const nextStep = pendingSteps[0];
+      
       return JSON.stringify({
-        step_id: nextStep.id,
-        title: nextStep.title,
-        instructions: nextStep.instructions,
-        step_type: nextStep.stepType,
-        phase: nextStep.phase,
-        blocking: nextStep.required,
-        required_evidence: nextStep.evidenceRequirements,
-        related_room: nextStep.roomName
+        movement_id: nextMovement.id,
+        title: nextMovement.title,
+        instructions: nextMovement.instruction,
+        movement_type: nextMovement.type,
+        phase: nextMovement.phase,
+        blocking: nextMovement.blocking || false,
+        required_evidence: nextMovement.requiredEvidence || [],
       });
     } catch (error) {
       logger.error('[GeometryEngine] Failed to get workflow step', error);
@@ -2181,7 +2511,7 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   getStepPhotoRequirements: async (roomId?: string, stepId?: string) => {
-    const { claimId, currentRoom } = get();
+    const { claimId, currentRoom, flowInstanceId } = get();
     if (!claimId) {
       return 'No claim ID set.';
     }
@@ -2189,16 +2519,31 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
     const targetRoomId = roomId || currentRoom?.id;
 
     try {
-      const response = await fetch(`/api/claims/${claimId}/workflow`, {
+      // Use new flow engine endpoint
+      let flowId = flowInstanceId;
+      if (!flowId) {
+        const flowResponse = await fetch(`/api/claims/${claimId}/flows`, {
+          credentials: 'include'
+        });
+        
+        if (!flowResponse.ok) {
+          return 'No active flow found.';
+        }
+        
+        const flowData = await flowResponse.json();
+        flowId = flowData.id;
+      }
+      
+      const response = await fetch(`/api/flows/${flowId}/progress`, {
         credentials: 'include'
       });
 
       if (!response.ok) {
-        return 'Failed to retrieve workflow.';
+        return 'Failed to retrieve flow progress.';
       }
 
-      const data = await response.json();
-      const steps = data.steps || [];
+      const progress = await response.json();
+      const movements = progress.movements || [];
 
       // Filter to photo steps, optionally by room or step ID
       let photoSteps = steps.filter((s: { stepType: string; evidenceRequirements?: unknown[] }) =>
@@ -2248,7 +2593,8 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
       return JSON.stringify({
         room_id: targetRoomId,
         photo_requirements: requirements,
-        total_needed: totalNeeded
+        total_needed: totalNeeded,
+        flow_instance_id: flowId
       });
     } catch (error) {
       logger.error('[GeometryEngine] Failed to get photo requirements', error);
@@ -2257,52 +2603,57 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   completeWorkflowStep: async (stepId: string, notes?: string) => {
-    const { claimId } = get();
+    const { claimId, flowInstanceId } = get();
     if (!claimId) {
       return 'No claim ID set.';
     }
 
     try {
-      // First get the workflow ID
-      const workflowResponse = await fetch(`/api/claims/${claimId}/workflow`, {
-        credentials: 'include'
-      });
-
-      if (!workflowResponse.ok) {
-        return 'Failed to retrieve workflow.';
+      // Use new flow engine endpoint - stepId is actually movementId
+      let flowId = flowInstanceId;
+      if (!flowId) {
+        const flowResponse = await fetch(`/api/claims/${claimId}/flows`, {
+          credentials: 'include'
+        });
+        
+        if (!flowResponse.ok) {
+          return 'No active flow found for this claim.';
+        }
+        
+        const flowData = await flowResponse.json();
+        flowId = flowData.id;
       }
 
-      const workflowData = await workflowResponse.json();
-      const workflowId = workflowData.workflow?.id;
-
-      if (!workflowId) {
-        return 'No active workflow found.';
+      // Check for blocking steps before completing
+      const blockingCheck = await get().checkBlockingSteps();
+      if (blockingCheck.includes('blocking step')) {
+        return `Cannot complete step. ${blockingCheck}`;
       }
 
-      // Update the step status
-      const updateResponse = await fetch(`/api/workflow/${workflowId}/steps/${stepId}`, {
-        method: 'PATCH',
+      // Complete the movement using new flow engine endpoint
+      const completeResponse = await fetch(`/api/flows/${flowId}/movements/${stepId}/complete`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          status: 'completed',
-          notes
+          data: notes ? { notes } : {},
+          evidence: [] // Evidence should already be attached via photo capture
         })
       });
 
-      if (!updateResponse.ok) {
-        const errorData = await updateResponse.json();
-        if (errorData.details) {
+      if (!completeResponse.ok) {
+        const errorData = await completeResponse.json();
+        if (errorData.details || errorData.missing) {
           return JSON.stringify({
             status: 'blocked',
-            message: errorData.error,
-            missing: errorData.details
+            message: errorData.error || 'Cannot complete movement',
+            missing: errorData.details || errorData.missing
           });
         }
-        return `Failed to complete step: ${errorData.error}`;
+        return `Failed to complete movement: ${errorData.error || 'Unknown error'}`;
       }
 
-      return JSON.stringify({ status: 'completed', step_id: stepId });
+      return JSON.stringify({ status: 'completed', movement_id: stepId });
     } catch (error) {
       logger.error('[GeometryEngine] Failed to complete step', error);
       return 'Error completing step.';
@@ -2310,48 +2661,58 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   capturePhotoForStep: async (stepId: string, config?: { targetType?: string; suggestedLabel?: string; framingGuidance?: string }) => {
-    const { claimId, triggerPhotoCapture } = get();
+    const { claimId, flowInstanceId, triggerPhotoCapture } = get();
     if (!claimId) {
       return 'No claim ID set.';
     }
 
     try {
-      // Get step details for context
-      const workflowResponse = await fetch(`/api/claims/${claimId}/workflow`, {
+      // Use new flow engine endpoint - stepId is actually movementId
+      let flowId = flowInstanceId;
+      if (!flowId) {
+        const flowResponse = await fetch(`/api/claims/${claimId}/flows`, {
+          credentials: 'include'
+        });
+        
+        if (!flowResponse.ok) {
+          return 'No active flow found.';
+        }
+        
+        const flowData = await flowResponse.json();
+        flowId = flowData.id;
+      }
+      
+      // Get movement details for context
+      const movementResponse = await fetch(`/api/flows/${flowId}/movements/${stepId}`, {
         credentials: 'include'
       });
 
-      if (!workflowResponse.ok) {
-        return 'Failed to retrieve workflow.';
+      if (!movementResponse.ok) {
+        return 'Failed to retrieve movement details.';
       }
 
-      const workflowData = await workflowResponse.json();
-      const steps = workflowData.steps || [];
-      const step = steps.find((s: { id: string }) => s.id === stepId);
+      const movement = await movementResponse.json();
 
-      if (!step) {
-        return 'Step not found.';
+      if (!movement) {
+        return `Movement ${stepId} not found.`;
       }
 
-      // Trigger photo capture with step context
+      // Trigger photo capture with movement context
       const captureConfig: PhotoCaptureConfig = {
-        targetType: (config?.targetType || 'room_overview') as PhotoCaptureConfig['targetType'],
-        roomId: step.roomId,
-        damageZoneId: step.geometryBinding?.zoneId,
-        suggestedLabel: config?.suggestedLabel || step.title,
-        framingGuidance: config?.framingGuidance || step.instructions,
+        targetType: config?.targetType || (movement.type === 'photo' ? 'room_overview' : 'damage_detail'),
+        roomId: movement.roomId,
+        damageZoneId: movement.damageZoneId,
+        suggestedLabel: config?.suggestedLabel || movement.title,
+        framingGuidance: config?.framingGuidance || movement.instruction,
       };
-
-      // Store step ID for when photo is captured
-      // This will be passed to the photo upload API
-      (window as unknown as { __pendingWorkflowStepId?: string }).__pendingWorkflowStepId = stepId;
 
       triggerPhotoCapture(captureConfig);
 
       return JSON.stringify({
         status: 'awaiting_capture',
-        step_id: stepId,
-        step_title: step.title
+        movement_id: stepId,
+        movement_title: movement.title,
+        flow_instance_id: flowId
       });
     } catch (error) {
       logger.error('[GeometryEngine] Failed to capture photo for step', error);
@@ -2360,13 +2721,28 @@ export const useGeometryEngine = create<GeometryEngineState>((set, get) => ({
   },
 
   getWorkflowStatus: async () => {
-    const { claimId } = get();
+    const { claimId, flowInstanceId } = get();
     if (!claimId) {
       return 'No claim ID set.';
     }
 
     try {
-      const response = await fetch(`/api/claims/${claimId}/workflow`, {
+      // Use new flow engine endpoint
+      let flowId = flowInstanceId;
+      if (!flowId) {
+        const flowResponse = await fetch(`/api/claims/${claimId}/flows`, {
+          credentials: 'include'
+        });
+        
+        if (!flowResponse.ok) {
+          return 'No active flow found for this claim.';
+        }
+        
+        const flowData = await flowResponse.json();
+        flowId = flowData.id;
+      }
+      
+      const response = await fetch(`/api/flows/${flowId}/progress`, {
         credentials: 'include'
       });
 
@@ -2420,6 +2796,12 @@ export const geometryEngine = {
   modifyDimension: (params: ModifyDimensionParams) => useGeometryEngine.getState().modifyDimension(params),
   addNote: (params: AddNoteParams) => useGeometryEngine.getState().addNote(params),
   undo: (steps: number) => useGeometryEngine.getState().undo(steps),
+  confirmUndo: (confirmed: boolean) => useGeometryEngine.getState().confirmUndo(confirmed),
+  redo: (steps: number) => useGeometryEngine.getState().redo(steps),
+  confirmRedo: (confirmed: boolean) => useGeometryEngine.getState().confirmRedo(confirmed),
+  listRooms: () => useGeometryEngine.getState().listRooms(),
+  selectRoom: (roomName: string) => useGeometryEngine.getState().selectRoom(roomName),
+  listStructures: () => useGeometryEngine.getState().listStructures(),
   confirmRoom: (params: ConfirmRoomParams) => useGeometryEngine.getState().confirmRoom(params),
   deleteRoom: (params: DeleteRoomParams) => useGeometryEngine.getState().deleteRoom(params),
   editRoom: (params: EditRoomParams) => useGeometryEngine.getState().editRoom(params),
@@ -2457,10 +2839,14 @@ export const geometryEngine = {
   resetSession: () => useGeometryEngine.getState().resetSession(),
   // Workflow integration methods
   setClaimId: (claimId: string) => useGeometryEngine.getState().setClaimId(claimId),
+  setFlowContext: (flowInstanceId: string, movementId: string) => useGeometryEngine.getState().setFlowContext(flowInstanceId, movementId),
   getCurrentWorkflowStep: (phase?: string) => useGeometryEngine.getState().getCurrentWorkflowStep(phase),
   getStepPhotoRequirements: (roomId?: string, stepId?: string) => useGeometryEngine.getState().getStepPhotoRequirements(roomId, stepId),
   completeWorkflowStep: (stepId: string, notes?: string) => useGeometryEngine.getState().completeWorkflowStep(stepId, notes),
   capturePhotoForStep: (stepId: string, config?: { targetType?: string; suggestedLabel?: string; framingGuidance?: string }) =>
     useGeometryEngine.getState().capturePhotoForStep(stepId, config),
   getWorkflowStatus: () => useGeometryEngine.getState().getWorkflowStatus(),
+  checkBlockingSteps: () => useGeometryEngine.getState().checkBlockingSteps(),
+  toggleFloorPlanView: () => useGeometryEngine.getState().toggleFloorPlanView(),
+  setFloorPlanOrientation: (degrees: number) => useGeometryEngine.getState().setFloorPlanOrientation(degrees),
 };

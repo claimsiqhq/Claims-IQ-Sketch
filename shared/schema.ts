@@ -846,7 +846,8 @@ export const claimDamageZones = pgTable("claim_damage_zones", {
 
   // Extent of damage
   extentFt: decimal("extent_ft", { precision: 6, scale: 2 }).default("0"), // How far from wall the damage extends
-  severity: varchar("severity", { length: 20 }), // minor, moderate, severe
+  severity: varchar("severity", { length: 20 }), // minor, moderate, severe, total
+  surface: varchar("surface", { length: 50 }), // ceiling, wall, floor, or combination
 
   // Source information
   source: varchar("source", { length: 255 }), // e.g., "burst pipe under sink"

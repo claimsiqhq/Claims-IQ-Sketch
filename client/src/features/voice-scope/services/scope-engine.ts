@@ -21,6 +21,12 @@ export interface ScopeLineItem {
   notes?: string;
   source: 'voice' | 'manual' | 'ai_suggested';
   addedAt: Date;
+  // Depreciation fields
+  depreciationAmount?: number;
+  depreciationPercent?: number;
+  acv?: number; // Actual Cash Value (RCV - depreciation)
+  itemAge?: number; // Age of item in years for depreciation calculation
+  condition?: 'good' | 'fair' | 'poor'; // Condition affects depreciation
 }
 
 export interface ScopeCommand {
@@ -77,6 +83,13 @@ interface ScopeEngineState {
   // Getters
   getLineItems: () => ScopeLineItem[];
   getSubtotal: () => number;
+  getTotalRCV: () => number; // Replacement Cost Value
+  getTotalACV: () => number; // Actual Cash Value (RCV - depreciation)
+  getTotalDepreciation: () => number;
+  
+  // Depreciation
+  applyDepreciation: (itemId: string, depreciationPercent: number, itemAge?: number, condition?: 'good' | 'fair' | 'poor') => string;
+  fetchDepreciationContext: () => Promise<void>;
 }
 
 // ============================================
@@ -488,6 +501,94 @@ export const useScopeEngine = create<ScopeEngineState>((set, get) => ({
 
   getSubtotal: () => {
     return get().lineItems.reduce((sum, item) => sum + (item.total || 0), 0);
+  },
+
+  getTotalRCV: () => {
+    // Replacement Cost Value - sum of all line item totals
+    return get().lineItems.reduce((sum, item) => sum + (item.total || 0), 0);
+  },
+
+  getTotalACV: () => {
+    // Actual Cash Value - RCV minus depreciation
+    return get().lineItems.reduce((sum, item) => {
+      const rcv = item.total || 0;
+      const depreciation = item.depreciationAmount || 0;
+      return sum + (rcv - depreciation);
+    }, 0);
+  },
+
+  getTotalDepreciation: () => {
+    return get().lineItems.reduce((sum, item) => sum + (item.depreciationAmount || 0), 0);
+  },
+
+  // Apply depreciation to a line item
+  // Using straight-line depreciation for now; in future, tie to claim's calculated depreciation
+  applyDepreciation: (itemId: string, depreciationPercent: number, itemAge?: number, condition?: 'good' | 'fair' | 'poor') => {
+    const state = get();
+    const itemIndex = state.lineItems.findIndex(li => li.id === itemId);
+    
+    if (itemIndex < 0) {
+      return `Line item not found.`;
+    }
+
+    const item = state.lineItems[itemIndex];
+    const rcv = item.total || 0;
+    
+    // Apply condition adjustment if provided
+    let adjustedPercent = depreciationPercent;
+    if (condition === 'good') {
+      adjustedPercent = depreciationPercent * 0.85; // Less depreciation for good condition
+    } else if (condition === 'poor') {
+      adjustedPercent = depreciationPercent * 1.15; // More depreciation for poor condition
+    }
+    
+    // Cap depreciation at 80% (maxDepreciationPct from depreciation_schedules table)
+    adjustedPercent = Math.min(adjustedPercent, 80);
+    
+    const depreciationAmount = rcv * (adjustedPercent / 100);
+    const acv = rcv - depreciationAmount;
+
+    const updatedItems = [...state.lineItems];
+    updatedItems[itemIndex] = {
+      ...item,
+      depreciationPercent: adjustedPercent,
+      depreciationAmount,
+      acv,
+      itemAge,
+      condition,
+    };
+
+    set({ lineItems: updatedItems });
+
+    return `Applied ${adjustedPercent.toFixed(1)}% depreciation to ${item.description}. RCV: $${rcv.toFixed(2)}, ACV: $${acv.toFixed(2)}.`;
+  },
+
+  // Fetch depreciation context from claim/policy
+  fetchDepreciationContext: async () => {
+    const { claimId } = get();
+    if (!claimId) {
+      logger.warn('[ScopeEngine] No claim ID set, cannot fetch depreciation context');
+      return;
+    }
+
+    try {
+      // Fetch claim context which may include building age, item ages, depreciation settings
+      const response = await fetch(`/api/claims/${claimId}/scope-context`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        logger.warn('[ScopeEngine] Failed to fetch depreciation context');
+        return;
+      }
+
+      const context = await response.json();
+      // Store depreciation context for use in applyDepreciation
+      // This could include building age, roof age, etc. from claim/policy
+      logger.debug('[ScopeEngine] Depreciation context fetched', context);
+    } catch (error) {
+      logger.error('[ScopeEngine] Error fetching depreciation context', error);
+    }
   },
 }));
 
