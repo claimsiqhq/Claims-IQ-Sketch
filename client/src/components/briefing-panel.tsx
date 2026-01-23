@@ -287,33 +287,42 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
             >
               <div className="space-y-4">
                 {content.inspection_strategy?.where_to_start?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-medium mb-2 text-blue-600">Where to Start</h5>
-                    <ul className="list-disc list-inside space-y-1 text-sm">
+                  <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-100 dark:border-blue-900">
+                    <h5 className="text-sm font-semibold mb-2 text-blue-700 dark:text-blue-400 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Where to Start
+                    </h5>
+                    <div className="space-y-1.5 ml-4">
                       {content.inspection_strategy.where_to_start.map((item, i) => (
-                        <li key={i}>{item}</li>
+                        <p key={i} className="text-sm leading-relaxed text-blue-900 dark:text-blue-100">{item}</p>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
                 {content.inspection_strategy?.what_to_prioritize?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-medium mb-2 text-green-600">What to Prioritize</h5>
-                    <ul className="list-disc list-inside space-y-1 text-sm">
+                  <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 border border-green-100 dark:border-green-900">
+                    <h5 className="text-sm font-semibold mb-2 text-green-700 dark:text-green-400 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                      What to Prioritize
+                    </h5>
+                    <div className="space-y-1.5 ml-4">
                       {content.inspection_strategy.what_to_prioritize.map((item, i) => (
-                        <li key={i}>{item}</li>
+                        <p key={i} className="text-sm leading-relaxed text-green-900 dark:text-green-100">{item}</p>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
                 {content.inspection_strategy?.common_misses?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-medium mb-2 text-amber-600">Common Misses</h5>
-                    <ul className="list-disc list-inside space-y-1 text-sm">
+                  <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 border border-amber-100 dark:border-amber-900">
+                    <h5 className="text-sm font-semibold mb-2 text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      Common Misses
+                    </h5>
+                    <div className="space-y-1.5 ml-4">
                       {content.inspection_strategy.common_misses.map((item, i) => (
-                        <li key={i}>{item}</li>
+                        <p key={i} className="text-sm leading-relaxed text-amber-900 dark:text-amber-100">{item}</p>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
               </div>
@@ -327,11 +336,14 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               onToggle={() => toggleSection('risks')}
               badgeCount={content.peril_specific_risks.length}
             >
-              <ul className="list-disc list-inside space-y-1 text-sm">
+              <div className="space-y-2">
                 {content.peril_specific_risks.map((risk, i) => (
-                  <li key={i} className="text-amber-700">{risk}</li>
+                  <div key={i} className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded border border-amber-200 dark:border-amber-800">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <span className="text-sm leading-relaxed text-amber-800 dark:text-amber-200">{risk}</span>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </CollapsibleSection>
 
             {/* Endorsement Watchouts */}
@@ -380,17 +392,25 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
               <div className="space-y-3">
                 {content.photo_requirements.map((req: any, i: number) => {
                   if (typeof req === 'string') {
-                    return <li key={i} className="text-sm list-disc list-inside">{req}</li>;
+                    return (
+                      <div key={i} className="flex items-start gap-2 text-sm">
+                        <Camera className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <span>{req}</span>
+                      </div>
+                    );
                   }
                   return (
-                    <div key={i}>
-                      <h5 className="text-sm font-medium mb-1">{req.category}</h5>
+                    <div key={i} className="bg-muted/40 rounded-lg p-3">
+                      <h5 className="text-sm font-semibold mb-2 text-foreground">{req.category}</h5>
                       {Array.isArray(req.items) && (
-                        <ul className="list-disc list-inside text-sm text-muted-foreground">
+                        <div className="space-y-1.5 ml-2">
                           {req.items.map((item: string, j: number) => (
-                            <li key={j}>{item}</li>
+                            <div key={j} className="flex items-start gap-2 text-sm">
+                              <span className="text-muted-foreground mt-1">○</span>
+                              <span className="text-muted-foreground leading-relaxed">{item}</span>
+                            </div>
                           ))}
-                        </ul>
+                        </div>
                       )}
                     </div>
                   );
@@ -406,11 +426,14 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
                 isOpen={openSections.sketches}
                 onToggle={() => toggleSection('sketches')}
               >
-                <ul className="list-disc list-inside space-y-1 text-sm">
+                <div className="space-y-2">
                   {content.sketch_requirements.map((req, i) => (
-                    <li key={i}>{req}</li>
+                    <div key={i} className="flex items-start gap-2 text-sm p-2 bg-muted/40 rounded">
+                      <Ruler className="h-3.5 w-3.5 text-primary mt-0.5 flex-shrink-0" />
+                      <span className="leading-relaxed">{req}</span>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </CollapsibleSection>
             )}
 
@@ -422,20 +445,28 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
                 isOpen={openSections.depreciation}
                 onToggle={() => toggleSection('depreciation')}
               >
-                <div className="space-y-3 text-sm">
+                <div className="space-y-3">
                   {content.depreciation_considerations.map((consideration: any, i: number) => {
                     if (typeof consideration === 'string') {
-                      return <p key={i}>{consideration}</p>;
+                      return (
+                        <div key={i} className="flex items-start gap-2 text-sm p-2 bg-muted/40 rounded">
+                          <DollarSign className="h-3.5 w-3.5 text-green-600 mt-0.5 flex-shrink-0" />
+                          <span className="leading-relaxed">{consideration}</span>
+                        </div>
+                      );
                     }
                     return (
-                      <div key={i} className="space-y-1">
-                        <p className="font-medium">{consideration.item}</p>
+                      <div key={i} className="bg-muted/40 rounded-lg p-3">
+                        <p className="text-sm font-semibold text-foreground mb-2">{consideration.item}</p>
                         {consideration.factors && consideration.factors.length > 0 && (
-                          <ul className="list-disc list-inside pl-2 text-muted-foreground">
+                          <div className="space-y-1.5 ml-2">
                             {consideration.factors.map((factor: string, j: number) => (
-                              <li key={j}>{factor}</li>
+                              <div key={j} className="flex items-start gap-2 text-sm">
+                                <span className="text-muted-foreground mt-1">→</span>
+                                <span className="text-muted-foreground leading-relaxed">{factor}</span>
+                              </div>
                             ))}
-                          </ul>
+                          </div>
                         )}
                       </div>
                     );
@@ -454,14 +485,14 @@ export function BriefingPanel({ claimId, className }: BriefingPanelProps) {
                 badgeCount={content.open_questions_for_adjuster?.length || 0}
                 badgeVariant="destructive"
               >
-                <ul className="space-y-2">
+                <div className="space-y-2">
                   {content.open_questions_for_adjuster?.map((question, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className="text-red-500 font-bold">?</span>
-                      <span>{question}</span>
-                    </li>
+                    <div key={i} className="flex items-start gap-2 p-2 bg-red-50 dark:bg-red-950/30 rounded border border-red-200 dark:border-red-800">
+                      <HelpCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                      <span className="text-sm leading-relaxed text-red-800 dark:text-red-200">{question}</span>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </CollapsibleSection>
             )}
 
