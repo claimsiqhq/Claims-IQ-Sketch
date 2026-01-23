@@ -4194,7 +4194,7 @@ export async function registerRoutes(
 
     const { createAudioObservation } = await import('./services/audioObservationService');
 
-    const audioObservationId = await createAudioObservation({
+    const result = await createAudioObservation({
       audioBuffer: req.file.buffer,
       mimeType: req.file.mimetype,
       originalFilename: req.file.originalname,
@@ -4207,7 +4207,7 @@ export async function registerRoutes(
       recordedBy: req.user!.id,
     });
 
-    res.json({ id: audioObservationId, success: true });
+    res.json({ id: result.id, audioUrl: result.audioUrl, success: true });
   }));
 
   // Get audio observation by ID

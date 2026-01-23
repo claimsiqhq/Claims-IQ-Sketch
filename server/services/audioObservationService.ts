@@ -148,7 +148,7 @@ export async function initializeAudioBucket(): Promise<void> {
  * - Inserts record with pending statuses
  * - Triggers async processing (non-blocking)
  */
-export async function createAudioObservation(input: CreateAudioObservationInput): Promise<string> {
+export async function createAudioObservation(input: CreateAudioObservationInput): Promise<{ id: string; audioUrl: string | null }> {
   const {
     audioBuffer,
     mimeType,
@@ -225,7 +225,7 @@ export async function createAudioObservation(input: CreateAudioObservationInput)
     log.error({ err, audioObservationId }, 'Background audio processing failed');
   });
 
-  return audioObservationId;
+  return { id: audioObservationId, audioUrl };
 }
 
 /**

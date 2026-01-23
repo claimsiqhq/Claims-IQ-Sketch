@@ -2186,7 +2186,7 @@ export interface AudioObservation {
   createdAt: string;
 }
 
-export async function uploadAudio(params: AudioUploadParams): Promise<{ id: string; success: boolean }> {
+export async function uploadAudio(params: AudioUploadParams): Promise<{ id: string; audioUrl: string | null; success: boolean }> {
   const formData = new FormData();
   formData.append('audio', params.file, 'voice-note.webm');
   if (params.claimId) formData.append('claimId', params.claimId);

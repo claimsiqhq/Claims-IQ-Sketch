@@ -86,7 +86,7 @@ export default function MovementExecutionPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [savedVoiceNotes, setSavedVoiceNotes] = useState<{ id: string; timestamp: string }[]>([]);
+  const [savedVoiceNotes, setSavedVoiceNotes] = useState<{ id: string; timestamp: string; audioUrl?: string }[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -396,19 +396,21 @@ export default function MovementExecutionPage() {
         movementId: movementId,
       });
       
-      // Track saved voice note for display
+      // Track saved voice note for display with audio URL for playback
       setSavedVoiceNotes(prev => [...prev, { 
         id: result.id, 
-        timestamp: new Date().toLocaleTimeString() 
+        timestamp: new Date().toLocaleTimeString(),
+        audioUrl: result.audioUrl || undefined
       }]);
       
       // Attach to movement evidence if we have a movement
-      if (flowId && movementId) {
+      if (flowId && movementId && user?.id) {
         try {
           await attachMovementEvidence(flowId, movementId, {
-            evidenceType: 'audio',
+            type: 'audio',
             referenceId: result.id,
-            metadata: { type: 'voice_note' }
+            data: { audioUrl: result.audioUrl, type: 'voice_note' },
+            userId: user.id
           });
         } catch (attachErr) {
           console.warn('Could not attach audio to movement evidence:', attachErr);
