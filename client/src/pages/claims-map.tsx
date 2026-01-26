@@ -400,6 +400,33 @@ export default function ClaimsMap() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {/* Weather in Header */}
+              {weatherLoading ? (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+                  <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
+                </div>
+              ) : weather && (
+                <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-lg px-3 py-1.5 flex items-center gap-2" data-testid="weather-widget">
+                  {(() => {
+                    const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                    return <WeatherIcon className={cn("text-sky-500", isMobile ? "h-5 w-5" : "h-6 w-6")} />;
+                  })()}
+                  <div className="flex flex-col">
+                    <div className="flex items-baseline gap-1">
+                      <span className={cn("font-bold text-foreground", isMobile ? "text-sm" : "text-lg")}>{Math.round(weather.temp)}°F</span>
+                      {!isMobile && <span className="text-xs text-muted-foreground">{weather.conditions}</span>}
+                    </div>
+                    {currentLocation && (currentLocation.city || currentLocation.state) && (
+                      <div className="flex items-center gap-1 text-xs text-sky-600">
+                        <MapPinned className="h-3 w-3" />
+                        <span className="truncate max-w-[120px]">
+                          {currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -425,86 +452,6 @@ export default function ClaimsMap() {
           )}
           
           <div ref={mapRef} className="w-full h-full" />
-
-          {/* Weather Widget */}
-          {(weather || weatherLoading) && (
-            <Card className={cn(
-              "absolute z-20 shadow-lg bg-gradient-to-br from-sky-50 to-white border-sky-200",
-              isMobile ? "top-2 left-2 right-2" : "top-4 right-4 w-72"
-            )} data-testid="weather-widget">
-              <CardContent className="p-4">
-                {weatherLoading ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
-                    <span className="ml-2 text-sm text-sky-600">Loading weather...</span>
-                  </div>
-                ) : weather && (
-                  <div className="space-y-3">
-                    {/* Location Header */}
-                    <div className="flex items-center gap-2">
-                      <MapPinned className="h-4 w-4 text-sky-600" />
-                      <span className="font-medium text-foreground">
-                        {currentLocation ? (
-                          currentLocation.city && currentLocation.state 
-                            ? `${currentLocation.city}, ${currentLocation.state}`
-                            : currentLocation.city || 'Your Location'
-                        ) : 'Your Location'}
-                      </span>
-                    </div>
-
-                    {/* Main Weather Display */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {(() => {
-                          const WeatherIcon = getWeatherIconComponent(weather.conditions);
-                          return <WeatherIcon className="h-10 w-10 text-sky-500" />;
-                        })()}
-                        <div>
-                          <div className="text-3xl font-bold text-foreground">{Math.round(weather.temp)}°F</div>
-                          <div className="text-sm text-muted-foreground">{weather.conditions}</div>
-                        </div>
-                      </div>
-                      {weather.high !== undefined && weather.low !== undefined && (
-                        <div className="text-right">
-                          <div className="text-sm font-medium text-foreground">
-                            H: {Math.round(weather.high)}°
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            L: {Math.round(weather.low)}°
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Additional Details */}
-                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-sky-100">
-                      {weather.feelsLike !== undefined && (
-                        <div className="flex flex-col items-center">
-                          <Thermometer className="h-4 w-4 text-sky-500 mb-1" />
-                          <span className="text-xs text-muted-foreground">Feels like</span>
-                          <span className="text-sm font-medium">{Math.round(weather.feelsLike)}°</span>
-                        </div>
-                      )}
-                      {weather.humidity !== undefined && (
-                        <div className="flex flex-col items-center">
-                          <Droplets className="h-4 w-4 text-sky-500 mb-1" />
-                          <span className="text-xs text-muted-foreground">Humidity</span>
-                          <span className="text-sm font-medium">{weather.humidity}%</span>
-                        </div>
-                      )}
-                      {weather.windSpeed !== undefined && (
-                        <div className="flex flex-col items-center">
-                          <Wind className="h-4 w-4 text-sky-500 mb-1" />
-                          <span className="text-xs text-muted-foreground">Wind</span>
-                          <span className="text-sm font-medium">{Math.round(weather.windSpeed)} mph</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           {selectedClaim && (
             <Card className={cn(
