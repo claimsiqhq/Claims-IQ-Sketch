@@ -71,7 +71,14 @@ import {
   Shield,
   Clock,
   Calendar,
-  CalendarPlus
+  CalendarPlus,
+  CloudRain,
+  CloudSnow,
+  Cloud,
+  Sun,
+  Wind,
+  Thermometer,
+  Droplets
 } from "lucide-react";
 import {
   useEstimateBuilder,
@@ -1539,6 +1546,72 @@ export default function ClaimDetail() {
                           )}
                         </div>
                       </div>
+                      
+                      {/* Historical Weather at Date of Loss */}
+                      {apiClaim?.dolWeather?.summary && (
+                        <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+                          <Label className="text-xs text-sky-600 uppercase flex items-center gap-1">
+                            <Cloud className="w-3 h-3" />
+                            Weather at Date of Loss
+                          </Label>
+                          <div className="mt-2 flex flex-wrap items-center gap-3">
+                            {/* Temperature */}
+                            {apiClaim.dolWeather.temperature !== null && apiClaim.dolWeather.temperature !== undefined && (
+                              <div className="flex items-center gap-1">
+                                <Thermometer className="w-4 h-4 text-sky-600" />
+                                <span className="font-semibold text-sky-900">
+                                  {apiClaim.dolWeather.temperature}°F
+                                </span>
+                                {apiClaim.dolWeather.temperatureMin !== null && apiClaim.dolWeather.temperatureMax !== null && (
+                                  <span className="text-xs text-sky-600">
+                                    ({apiClaim.dolWeather.temperatureMin}° / {apiClaim.dolWeather.temperatureMax}°)
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* Conditions */}
+                            {apiClaim.dolWeather.conditions && (
+                              <div className="flex items-center gap-1">
+                                {apiClaim.dolWeather.precipType === 'snow' && <CloudSnow className="w-4 h-4 text-sky-600" />}
+                                {apiClaim.dolWeather.precipType === 'rain' && <CloudRain className="w-4 h-4 text-sky-600" />}
+                                {apiClaim.dolWeather.precipType === 'hail' && <CloudRain className="w-4 h-4 text-amber-600" />}
+                                {!apiClaim.dolWeather.precipType && <Sun className="w-4 h-4 text-amber-500" />}
+                                <span className="text-sm text-sky-800">{apiClaim.dolWeather.conditions}</span>
+                              </div>
+                            )}
+                            
+                            {/* Hail Size */}
+                            {apiClaim.dolWeather.hailSize && (
+                              <Badge variant="outline" className="bg-amber-100 border-amber-300 text-amber-800">
+                                <Droplets className="w-3 h-3 mr-1" />
+                                Hail {apiClaim.dolWeather.hailSize}"
+                              </Badge>
+                            )}
+                            
+                            {/* Wind */}
+                            {(apiClaim.dolWeather.windGust && apiClaim.dolWeather.windGust > 25) && (
+                              <div className="flex items-center gap-1">
+                                <Wind className="w-4 h-4 text-sky-600" />
+                                <span className="text-sm text-sky-800">
+                                  {apiClaim.dolWeather.windGust} mph gusts
+                                </span>
+                              </div>
+                            )}
+                            
+                            {/* Precipitation */}
+                            {apiClaim.dolWeather.precipAmount && apiClaim.dolWeather.precipAmount > 0 && (
+                              <div className="flex items-center gap-1">
+                                <Droplets className="w-4 h-4 text-sky-600" />
+                                <span className="text-sm text-sky-800">
+                                  {apiClaim.dolWeather.precipAmount}" precip
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
                       <Separator />
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground uppercase">Loss Description</Label>

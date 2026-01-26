@@ -165,6 +165,23 @@ export interface ClaimWithDocuments {
     generalConditions?: any[];
     extractionData?: Record<string, any>;
   };
+
+  // Historical weather at date of loss
+  dolWeather?: {
+    temperature?: number | null;
+    temperatureMin?: number | null;
+    temperatureMax?: number | null;
+    conditions?: string | null;
+    precipType?: string | null;
+    precipAmount?: number | null;
+    windSpeed?: number | null;
+    windGust?: number | null;
+    hailSize?: number | null;
+    humidity?: number | null;
+    summary?: string | null;
+    fetchedAt?: string | null;
+    source?: string | null;
+  };
 }
 
 /**
@@ -264,6 +281,23 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
 
     // Canonical FNOL truth
     lossContext: row.loss_context,
+
+    // Historical weather at date of loss
+    dolWeather: row.dol_weather_fetched_at ? {
+      temperature: row.dol_weather_temp,
+      temperatureMin: row.dol_weather_temp_min,
+      temperatureMax: row.dol_weather_temp_max,
+      conditions: row.dol_weather_conditions,
+      precipType: row.dol_weather_precip_type,
+      precipAmount: row.dol_weather_precip_amount,
+      windSpeed: row.dol_weather_wind_speed,
+      windGust: row.dol_weather_wind_gust,
+      hailSize: row.dol_weather_hail_size,
+      humidity: row.dol_weather_humidity,
+      summary: row.dol_weather_summary,
+      fetchedAt: row.dol_weather_fetched_at,
+      source: row.dol_weather_source,
+    } : undefined,
   };
 }
 
