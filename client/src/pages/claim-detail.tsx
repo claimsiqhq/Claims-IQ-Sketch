@@ -538,6 +538,7 @@ export default function ClaimDetail() {
   const [validationErrors, setValidationErrors] = useState<ValidationIssue[]>([]);
   const [validationWarnings, setValidationWarnings] = useState<ValidationIssue[]>([]);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
 
   // Derived lock state
   const isEstimateLocked = estimateLockStatus?.isLocked || false;
@@ -596,6 +597,14 @@ export default function ClaimDetail() {
   useEffect(() => {
     loadApiData();
   }, [loadApiData]);
+
+  // Initialize estimate settings from claim data when claim loads
+  useEffect(() => {
+    if (apiClaim?.regionId && regions.length > 0 && !estimateSettings.regionId) {
+      // Set region from claim if available and settings don't have a region yet
+      setEstimateSettings({ regionId: apiClaim.regionId });
+    }
+  }, [apiClaim?.regionId, regions, estimateSettings.regionId, setEstimateSettings]);
 
   // Load estimate lock status
   const loadLockStatus = useCallback(async () => {
@@ -1554,7 +1563,16 @@ export default function ClaimDetail() {
                           <p className="text-sm text-amber-900">{apiClaim?.lossDescription || 'No description provided'}</p>
                           
                           {/* Historical Weather at Date of Loss - inline with loss description */}
-                          {apiClaim?.dolWeather && (apiClaim.dolWeather.summary || apiClaim.dolWeather.temperature !== null || apiClaim.dolWeather.conditions) && (
+                          {apiClaim?.dolWeather && (
+                            apiClaim.dolWeather.summary || 
+                            apiClaim.dolWeather.temperature != null || 
+                            apiClaim.dolWeather.conditions ||
+                            apiClaim.dolWeather.windSpeed != null ||
+                            apiClaim.dolWeather.windGust != null ||
+                            apiClaim.dolWeather.precipAmount != null ||
+                            apiClaim.dolWeather.hailSize != null ||
+                            apiClaim.dolWeather.humidity != null
+                          ) && (
                             <div className="border-t border-amber-200 pt-2 mt-2">
                               <div className="flex items-center gap-1 text-xs text-amber-700 mb-1">
                                 <Cloud className="w-3 h-3" />
@@ -4220,6 +4238,126 @@ export default function ClaimDetail() {
                   Schedule
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Estimate Settings Dialog */}
+      <Dialog open={isEstimateSettingsOpen} onOpenChange={setIsEstimateSettingsOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="h-5 w-5 text-primary" />
+              Estimate Settings
+            </DialogTitle>
+            <DialogDescription>
+              Configure region, carrier profile, overhead, and profit percentages for estimate calculations.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {/* Region Selection */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="estimate-region" className="text-right">
+                Region
+              </Label>
+              <Select
+                value={estimateSettings.regionId || ''}
+                onValueChange={(value) => setEstimateSettings({ regionId: value })}
+              >
+                <SelectTrigger className="col-span-3" id="estimate-region">
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  {regions.map((region) => (
+                    <SelectItem key={region.id} value={region.id}>
+                      {region.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Carrier Profile Selection */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="estimate-carrier" className="text-right">
+                Carrier
+              </Label>
+              <Select
+                value={estimateSettings.carrierProfileId || ''}
+                onValueChange={(value) => setEstimateSettings({ carrierProfileId: value || null })}
+              >
+                <SelectTrigger className="col-span-3" id="estimate-carrier">
+                  <SelectValue placeholder="Select carrier (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {carriers.map((carrier) => (
+                    <SelectItem key={carrier.id} value={carrier.id}>
+                      {carrier.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Overhead Percentage */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="estimate-overhead" className="text-right">
+                Overhead %
+              </Label>
+              <div className="col-span-3 flex items-center gap-2">
+                <Input
+                  id="estimate-overhead"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={estimateSettings.overheadPct}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value) || 0;
+                    setEstimateSettings({ overheadPct: value });
+                  }}
+                  className="flex-1"
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+
+            {/* Profit Percentage */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="estimate-profit" className="text-right">
+                Profit %
+              </Label>
+              <div className="col-span-3 flex items-center gap-2">
+                <Input
+                  id="estimate-profit"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={estimateSettings.profitPct}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value) || 0;
+                    setEstimateSettings({ profitPct: value });
+                  }}
+                  className="flex-1"
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEstimateSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setIsEstimateSettingsOpen(false);
+                toast.success('Estimate settings saved');
+              }}
+            >
+              Save Settings
             </Button>
           </DialogFooter>
         </DialogContent>

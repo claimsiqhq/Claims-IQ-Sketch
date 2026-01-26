@@ -283,7 +283,14 @@ function mapRowToClaim(row: any): ClaimWithDocuments {
     lossContext: row.loss_context,
 
     // Historical weather at date of loss
-    dolWeather: row.dol_weather_fetched_at ? {
+    // Include weather data if any weather field exists (not just fetched_at)
+    dolWeather: (row.dol_weather_fetched_at || 
+                 row.dol_weather_temp != null || 
+                 row.dol_weather_conditions || 
+                 row.dol_weather_summary || 
+                 row.dol_weather_wind_speed != null ||
+                 row.dol_weather_precip_amount != null || 
+                 row.dol_weather_hail_size != null) ? {
       temperature: row.dol_weather_temp,
       temperatureMin: row.dol_weather_temp_min,
       temperatureMax: row.dol_weather_temp_max,
