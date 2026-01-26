@@ -983,7 +983,8 @@ export async function getClaim(id: string): Promise<Claim> {
   if (!response.ok) {
     throw new Error('Failed to fetch claim');
   }
-  return response.json();
+  const data = await response.json();
+  return data.claim;
 }
 
 export async function updateClaim(id: string, data: Partial<Claim>): Promise<Claim> {
