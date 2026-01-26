@@ -13,8 +13,45 @@ import {
   Loader2,
   ChevronRight,
   RefreshCw,
+  Sun,
+  Cloud,
+  CloudRain,
+  CloudSnow,
+  CloudLightning,
+  Wind,
+  Thermometer,
+  Droplets,
+  MapPinned,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface CurrentWeather {
+  temp: number;
+  feelsLike?: number;
+  humidity?: number;
+  windSpeed?: number;
+  conditions: string;
+  icon: string;
+  high?: number;
+  low?: number;
+}
+
+interface CurrentLocation {
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+}
+
+function getWeatherIconComponent(conditions: string) {
+  const c = conditions.toLowerCase();
+  if (c.includes('thunder') || c.includes('lightning')) return CloudLightning;
+  if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) return CloudRain;
+  if (c.includes('snow') || c.includes('sleet') || c.includes('ice')) return CloudSnow;
+  if (c.includes('wind')) return Wind;
+  if (c.includes('cloud') || c.includes('overcast')) return Cloud;
+  return Sun;
+}
 
 interface ClaimLocation {
   id: string;
@@ -52,6 +89,9 @@ export default function ClaimsMap() {
   const [error, setError] = useState<string | null>(null);
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
   const [keyLoaded, setKeyLoaded] = useState(false);
+  const [weather, setWeather] = useState<CurrentWeather | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<CurrentLocation | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
 
   // Fetch Google Maps API key from backend
   useEffect(() => {
@@ -70,6 +110,80 @@ export default function ClaimsMap() {
     }
     fetchMapsConfig();
   }, []);
+
+  // Fetch weather and location for current position
+  useEffect(() => {
+    async function fetchWeatherAndLocation(lat: number, lng: number) {
+      try {
+        // Fetch weather
+        const weatherResponse = await fetch('/api/weather/locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            locations: [{ lat, lng, stopId: 'current' }],
+          }),
+        });
+        if (weatherResponse.ok) {
+          const data = await weatherResponse.json();
+          if (data.weather && data.weather.length > 0) {
+            const w = data.weather[0];
+            setWeather({
+              temp: w.current?.temp || 0,
+              feelsLike: w.current?.feelsLike,
+              humidity: w.current?.humidity,
+              windSpeed: w.current?.windSpeed,
+              conditions: w.current?.conditions?.[0]?.main || 'Clear',
+              icon: w.current?.conditions?.[0]?.icon || '01d',
+              high: w.forecast?.[0]?.high,
+              low: w.forecast?.[0]?.low,
+            });
+          }
+        }
+
+        // Reverse geocode location using Google Maps
+        if (window.google?.maps) {
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === 'OK' && results && results[0]) {
+              const addressComponents = results[0].address_components;
+              let city = '';
+              let state = '';
+              for (const component of addressComponents) {
+                if (component.types.includes('locality')) {
+                  city = component.long_name;
+                }
+                if (component.types.includes('administrative_area_level_1')) {
+                  state = component.short_name;
+                }
+              }
+              setCurrentLocation({ city, state, lat, lng });
+            }
+          });
+        } else {
+          // Fallback if Google Maps not loaded yet - just set coordinates
+          setCurrentLocation({ city: 'Current Location', state: '', lat, lng });
+        }
+      } catch (err) {
+        console.error('Error fetching weather:', err);
+      } finally {
+        setWeatherLoading(false);
+      }
+    }
+
+    const defaultLat = 30.2672;
+    const defaultLng = -97.7431;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude),
+        () => fetchWeatherAndLocation(defaultLat, defaultLng),
+        { timeout: 5000, maximumAge: 300000 }
+      );
+    } else {
+      fetchWeatherAndLocation(defaultLat, defaultLng);
+    }
+  }, [mapLoaded]);
 
   const fetchClaims = async (isRefresh = false) => {
     try {
@@ -311,6 +425,86 @@ export default function ClaimsMap() {
           )}
           
           <div ref={mapRef} className="w-full h-full" />
+
+          {/* Weather Widget */}
+          {(weather || weatherLoading) && (
+            <Card className={cn(
+              "absolute z-20 shadow-lg bg-gradient-to-br from-sky-50 to-white border-sky-200",
+              isMobile ? "top-2 left-2 right-2" : "top-4 right-4 w-72"
+            )} data-testid="weather-widget">
+              <CardContent className="p-4">
+                {weatherLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
+                    <span className="ml-2 text-sm text-sky-600">Loading weather...</span>
+                  </div>
+                ) : weather && (
+                  <div className="space-y-3">
+                    {/* Location Header */}
+                    <div className="flex items-center gap-2">
+                      <MapPinned className="h-4 w-4 text-sky-600" />
+                      <span className="font-medium text-foreground">
+                        {currentLocation ? (
+                          currentLocation.city && currentLocation.state 
+                            ? `${currentLocation.city}, ${currentLocation.state}`
+                            : currentLocation.city || 'Your Location'
+                        ) : 'Your Location'}
+                      </span>
+                    </div>
+
+                    {/* Main Weather Display */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {(() => {
+                          const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                          return <WeatherIcon className="h-10 w-10 text-sky-500" />;
+                        })()}
+                        <div>
+                          <div className="text-3xl font-bold text-foreground">{Math.round(weather.temp)}°F</div>
+                          <div className="text-sm text-muted-foreground">{weather.conditions}</div>
+                        </div>
+                      </div>
+                      {weather.high !== undefined && weather.low !== undefined && (
+                        <div className="text-right">
+                          <div className="text-sm font-medium text-foreground">
+                            H: {Math.round(weather.high)}°
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            L: {Math.round(weather.low)}°
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Additional Details */}
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-sky-100">
+                      {weather.feelsLike !== undefined && (
+                        <div className="flex flex-col items-center">
+                          <Thermometer className="h-4 w-4 text-sky-500 mb-1" />
+                          <span className="text-xs text-muted-foreground">Feels like</span>
+                          <span className="text-sm font-medium">{Math.round(weather.feelsLike)}°</span>
+                        </div>
+                      )}
+                      {weather.humidity !== undefined && (
+                        <div className="flex flex-col items-center">
+                          <Droplets className="h-4 w-4 text-sky-500 mb-1" />
+                          <span className="text-xs text-muted-foreground">Humidity</span>
+                          <span className="text-sm font-medium">{weather.humidity}%</span>
+                        </div>
+                      )}
+                      {weather.windSpeed !== undefined && (
+                        <div className="flex flex-col items-center">
+                          <Wind className="h-4 w-4 text-sky-500 mb-1" />
+                          <span className="text-xs text-muted-foreground">Wind</span>
+                          <span className="text-sm font-medium">{Math.round(weather.windSpeed)} mph</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {selectedClaim && (
             <Card className={cn(
