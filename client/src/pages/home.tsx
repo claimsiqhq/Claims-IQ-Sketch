@@ -58,27 +58,44 @@ function ClaimCard({ claim }: { claim: Claim }) {
     closed: "bg-slate-100 text-slate-700",
   };
 
-  const lossTypeIcons: Record<string, string> = {
-    Water: "💧",
-    Fire: "🔥",
-    "Wind/Hail": "💨",
-    Impact: "💥",
-    Other: "📋",
+  // Peril-based border and accent colors
+  const perilStyles: Record<string, { border: string; bg: string; icon: string }> = {
+    wind_hail: { border: "border-l-cyan-500", bg: "bg-gradient-to-r from-cyan-50 to-white", icon: "💨" },
+    fire: { border: "border-l-orange-500", bg: "bg-gradient-to-r from-orange-50 to-white", icon: "🔥" },
+    water: { border: "border-l-blue-500", bg: "bg-gradient-to-r from-blue-50 to-white", icon: "💧" },
+    flood: { border: "border-l-indigo-500", bg: "bg-gradient-to-r from-indigo-50 to-white", icon: "🌊" },
+    smoke: { border: "border-l-gray-500", bg: "bg-gradient-to-r from-gray-50 to-white", icon: "💨" },
+    mold: { border: "border-l-emerald-500", bg: "bg-gradient-to-r from-emerald-50 to-white", icon: "🍄" },
+    impact: { border: "border-l-red-500", bg: "bg-gradient-to-r from-red-50 to-white", icon: "💥" },
+    other: { border: "border-l-slate-400", bg: "bg-gradient-to-r from-slate-50 to-white", icon: "📋" },
   };
+
+  // Legacy lossType to peril mapping
+  const legacyToPeril: Record<string, string> = {
+    "Wind/Hail": "wind_hail",
+    "Hail": "wind_hail",
+    "Wind": "wind_hail",
+    "Fire": "fire",
+    "Water": "water",
+    "Flood": "flood",
+  };
+
+  const perilKey = claim.primaryPeril || legacyToPeril[claim.lossType || ""] || "other";
+  const perilStyle = perilStyles[perilKey] || perilStyles.other;
 
   return (
     <Link href={`/claim/${claim.id}`}>
-      <Card className="hover:shadow-md transition-shadow cursor-pointer">
+      <Card className={`hover:shadow-lg transition-all cursor-pointer border-l-4 ${perilStyle.border} ${perilStyle.bg} hover:scale-[1.01]`}>
         <CardContent className="p-4">
           <div className="flex items-start justify-between mb-3">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-lg">{lossTypeIcons[claim.lossType || "Other"] || "📋"}</span>
+                <span className="text-xl">{perilStyle.icon}</span>
                 <span className="font-semibold text-slate-900">{claim.claimNumber}</span>
               </div>
-              <p className="text-sm text-slate-600">{claim.insuredName || "Unknown Insured"}</p>
+              <p className="text-sm text-slate-600 font-medium">{claim.insuredName || "Unknown Insured"}</p>
             </div>
-            <Badge className={statusColors[claim.status] || statusColors.fnol}>
+            <Badge className={`${statusColors[claim.status] || statusColors.fnol} shadow-sm`}>
               {claim.status.replace("_", " ").toUpperCase()}
             </Badge>
           </div>
@@ -116,13 +133,27 @@ function ClaimCard({ claim }: { claim: Claim }) {
             )}
           </div>
 
-          <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs text-slate-400">
-            <span>
-              {claim.documentCount || 0} docs • {claim.estimateCount || 0} estimates
-            </span>
-            <span>
+          <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs">
+            <div className="flex items-center gap-3">
+              {(claim.documentCount && claim.documentCount > 0) && (
+                <span className="flex items-center gap-1 text-blue-600">
+                  <FileText className="w-3 h-3" />
+                  {claim.documentCount} docs
+                </span>
+              )}
+              {(claim.estimateCount && claim.estimateCount > 0) && (
+                <span className="flex items-center gap-1 text-green-600">
+                  <DollarSign className="w-3 h-3" />
+                  {claim.estimateCount} estimates
+                </span>
+              )}
+              {(!claim.documentCount && !claim.estimateCount) && (
+                <span className="text-slate-400">New claim</span>
+              )}
+            </div>
+            <span className="text-slate-400">
               {claim.createdAt && !isNaN(new Date(claim.createdAt).getTime())
-                ? `Received: ${new Date(claim.createdAt).toLocaleDateString()}`
+                ? formatDistanceToNow(new Date(claim.createdAt), { addSuffix: true })
                 : "—"}
             </span>
           </div>
