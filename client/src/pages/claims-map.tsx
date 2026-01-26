@@ -38,8 +38,6 @@ declare global {
   }
 }
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
 export default function ClaimsMap() {
   const { isMobile } = useDeviceMode();
   const mapRef = useRef<HTMLDivElement>(null);
@@ -51,6 +49,26 @@ export default function ClaimsMap() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<ClaimLocation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
+  const [keyLoaded, setKeyLoaded] = useState(false);
+
+  // Fetch Google Maps API key from backend
+  useEffect(() => {
+    async function fetchMapsConfig() {
+      try {
+        const response = await fetch('/api/maps/config', { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          setGoogleMapsApiKey(data.googleMapsApiKey || '');
+        }
+      } catch (err) {
+        console.error('Error fetching maps config:', err);
+      } finally {
+        setKeyLoaded(true);
+      }
+    }
+    fetchMapsConfig();
+  }, []);
 
   useEffect(() => {
     async function fetchClaims() {
@@ -88,8 +106,11 @@ export default function ClaimsMap() {
   }, []);
 
   useEffect(() => {
-    if (!GOOGLE_MAPS_API_KEY) {
-      setError('Google Maps API key not configured. Please add VITE_GOOGLE_MAPS_API_KEY to your environment.');
+    // Wait for key to be loaded from backend
+    if (!keyLoaded) return;
+    
+    if (!googleMapsApiKey) {
+      setError('Google Maps API key not configured. Please contact your administrator.');
       setLoading(false);
       return;
     }
@@ -100,7 +121,7 @@ export default function ClaimsMap() {
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=initGoogleMaps`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&callback=initGoogleMaps`;
     script.async = true;
     script.defer = true;
     
@@ -120,7 +141,7 @@ export default function ClaimsMap() {
         document.head.removeChild(script);
       }
     };
-  }, []);
+  }, [keyLoaded, googleMapsApiKey]);
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current || !window.google?.maps) return;
@@ -233,17 +254,14 @@ export default function ClaimsMap() {
     window.open(url, '_blank');
   };
 
-  if (error && !GOOGLE_MAPS_API_KEY) {
+  if (error && keyLoaded && !googleMapsApiKey) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 text-center">
           <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
           <h2 className="text-xl font-semibold mb-2">Google Maps API Key Required</h2>
           <p className="text-muted-foreground max-w-md mb-4">
-            To use the Claims Map feature, you need to add a Google Maps API key to your environment variables.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Add <code className="bg-muted px-1 py-0.5 rounded">VITE_GOOGLE_MAPS_API_KEY</code> to your secrets.
+            To use the Claims Map feature, please contact your administrator to configure the Google Maps API key.
           </p>
         </div>
       </Layout>

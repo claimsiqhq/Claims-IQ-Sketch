@@ -1528,6 +1528,15 @@ export async function registerRoutes(
     });
   }));
 
+  // Maps config endpoint - serves Google Maps API key to authenticated users
+  app.get('/api/maps/config', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const googleMapsApiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
+    res.json({
+      googleMapsApiKey: googleMapsApiKey,
+      hasKey: !!googleMapsApiKey
+    });
+  }));
+
   // ============================================
   // AI ESTIMATE SUGGESTION ROUTES
   // ============================================
