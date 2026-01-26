@@ -984,6 +984,10 @@ export async function getClaim(id: string): Promise<Claim> {
     throw new Error('Failed to fetch claim');
   }
   const data = await response.json();
+  // API returns { claim: {...} }, extract the claim object
+  if (!data.claim) {
+    throw new Error('Invalid response: claim not found in response');
+  }
   return data.claim;
 }
 
