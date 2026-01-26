@@ -176,8 +176,20 @@ function MobileClaimCard({ claim }: { claim: Claim }) {
 // Weather data interface for current location
 interface CurrentWeather {
   temp: number;
+  feelsLike?: number;
+  humidity?: number;
+  windSpeed?: number;
   conditions: string;
   icon: string;
+  high?: number;
+  low?: number;
+}
+
+interface CurrentLocation {
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
 }
 
 // Get weather icon component based on condition
@@ -202,6 +214,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [weather, setWeather] = useState<CurrentWeather | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<CurrentLocation | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
 
   // Filters
@@ -218,8 +231,9 @@ export default function Home() {
 
   // Fetch weather for current location
   useEffect(() => {
-    async function fetchWeather(lat: number, lng: number) {
+    async function fetchWeatherAndLocation(lat: number, lng: number) {
       try {
+        // Fetch weather
         const response = await fetch('/api/weather/locations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -234,10 +248,36 @@ export default function Home() {
             const w = data.weather[0];
             setWeather({
               temp: w.current?.temp || 0,
+              feelsLike: w.current?.feelsLike,
+              humidity: w.current?.humidity,
+              windSpeed: w.current?.windSpeed,
               conditions: w.current?.conditions?.[0]?.main || 'Clear',
               icon: w.current?.conditions?.[0]?.icon || '01d',
+              high: w.forecast?.[0]?.high,
+              low: w.forecast?.[0]?.low,
             });
           }
+        }
+
+        // Reverse geocode to get city/state using our backend
+        try {
+          const geoResponse = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`, {
+            credentials: 'include',
+          });
+          if (geoResponse.ok) {
+            const geoData = await geoResponse.json();
+            if (geoData.city || geoData.state) {
+              setCurrentLocation({
+                city: geoData.city || '',
+                state: geoData.state || '',
+                lat,
+                lng,
+              });
+            }
+          }
+        } catch {
+          // Fallback - just use coordinates
+          setCurrentLocation({ city: 'Your Location', state: '', lat, lng });
         }
       } catch (err) {
         // Weather fetch failed - continue without weather data
@@ -252,12 +292,12 @@ export default function Home() {
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => fetchWeather(position.coords.latitude, position.coords.longitude),
-        () => fetchWeather(defaultLat, defaultLng), // Fallback on error
+        (position) => fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude),
+        () => fetchWeatherAndLocation(defaultLat, defaultLng),
         { timeout: 5000, maximumAge: 300000 }
       );
     } else {
-      fetchWeather(defaultLat, defaultLng);
+      fetchWeatherAndLocation(defaultLat, defaultLng);
     }
   }, []);
 
@@ -347,12 +387,23 @@ export default function Home() {
                 <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
               </div>
             ) : weather && (
-              <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 rounded-lg px-2 py-1.5" data-testid="weather-badge-home">
-                {(() => {
-                  const WeatherIcon = getWeatherIconComponent(weather.conditions);
-                  return <WeatherIcon className="h-4 w-4 text-sky-600" />;
-                })()}
-                <span className="text-sm font-medium text-sky-700">{Math.round(weather.temp)}°F</span>
+              <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-xl px-3 py-2" data-testid="weather-badge-home">
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                    return <WeatherIcon className="h-8 w-8 text-sky-500" />;
+                  })()}
+                  <div>
+                    <div className="text-lg font-bold text-foreground">{Math.round(weather.temp)}°F</div>
+                    <div className="text-xs text-muted-foreground">{weather.conditions}</div>
+                  </div>
+                </div>
+                {currentLocation && (currentLocation.city || currentLocation.state) && (
+                  <div className="flex items-center gap-1 mt-1 text-xs text-sky-600">
+                    <MapPin className="h-3 w-3" />
+                    <span>{currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -525,18 +576,34 @@ export default function Home() {
               </p>
             </div>
             {weatherLoading ? (
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
                 <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
+                <span className="text-sm text-slate-500">Loading weather...</span>
               </div>
             ) : weather && (
-              <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2" data-testid="weather-badge-desktop">
-                {(() => {
-                  const WeatherIcon = getWeatherIconComponent(weather.conditions);
-                  return <WeatherIcon className="h-5 w-5 text-sky-600" />;
-                })()}
-                <div>
-                  <span className="text-lg font-semibold text-sky-700">{Math.round(weather.temp)}°F</span>
-                  <p className="text-xs text-sky-600">{weather.conditions}</p>
+              <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-xl px-4 py-3 shadow-sm" data-testid="weather-badge-desktop">
+                <div className="flex items-center gap-3">
+                  {(() => {
+                    const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                    return <WeatherIcon className="h-10 w-10 text-sky-500" />;
+                  })()}
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold text-foreground">{Math.round(weather.temp)}°F</span>
+                      {weather.high !== undefined && weather.low !== undefined && (
+                        <span className="text-xs text-muted-foreground">
+                          H:{Math.round(weather.high)}° L:{Math.round(weather.low)}°
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{weather.conditions}</p>
+                    {currentLocation && (currentLocation.city || currentLocation.state) && (
+                      <div className="flex items-center gap-1 text-xs text-sky-600 mt-0.5">
+                        <MapPin className="h-3 w-3" />
+                        <span>{currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

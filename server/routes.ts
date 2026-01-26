@@ -1537,6 +1537,52 @@ export async function registerRoutes(
     });
   }));
 
+  // Reverse geocode endpoint - get city/state from coordinates
+  app.get('/api/geocode/reverse', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const lat = parseFloat(req.query.lat as string);
+    const lng = parseFloat(req.query.lng as string);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'Valid lat and lng query parameters required' });
+    }
+
+    const apiKey = process.env.GOOGLE_API_KEY || '';
+    if (!apiKey) {
+      return res.json({ city: '', state: '' });
+    }
+
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        return res.json({ city: '', state: '' });
+      }
+
+      const data = await response.json();
+      
+      if (data.status !== 'OK' || !data.results?.length) {
+        return res.json({ city: '', state: '' });
+      }
+
+      let city = '';
+      let state = '';
+      
+      for (const component of data.results[0].address_components || []) {
+        if (component.types.includes('locality')) {
+          city = component.long_name;
+        }
+        if (component.types.includes('administrative_area_level_1')) {
+          state = component.short_name;
+        }
+      }
+
+      res.json({ city, state, formattedAddress: data.results[0].formatted_address });
+    } catch (error) {
+      res.json({ city: '', state: '' });
+    }
+  }));
+
   // ============================================
   // AI ESTIMATE SUGGESTION ROUTES
   // ============================================
