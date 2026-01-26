@@ -25,6 +25,20 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface HourlyForecast {
+  time: string;
+  temp: number;
+  pop: number;
+  conditions: { main: string }[];
+  windSpeed: number;
+}
+
+interface WeatherAlert {
+  event: string;
+  severity: string;
+  headline: string;
+}
+
 interface CurrentWeather {
   temp: number;
   feelsLike?: number;
@@ -32,8 +46,8 @@ interface CurrentWeather {
   windSpeed?: number;
   conditions: string;
   icon: string;
-  high?: number;
-  low?: number;
+  forecast?: HourlyForecast[];
+  alerts?: WeatherAlert[];
 }
 
 interface CurrentLocation {
@@ -135,8 +149,8 @@ export default function ClaimsMap() {
               windSpeed: w.current?.windSpeed,
               conditions: w.current?.conditions?.[0]?.main || 'Clear',
               icon: w.current?.conditions?.[0]?.icon || '01d',
-              high: w.forecast?.[0]?.high,
-              low: w.forecast?.[0]?.low,
+              forecast: w.forecast || [],
+              alerts: w.alerts || [],
             });
           }
         }
@@ -406,15 +420,15 @@ export default function ClaimsMap() {
                   <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
                 </div>
               ) : weather && (
-                <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-lg px-3 py-1.5 flex items-center gap-2" data-testid="weather-widget">
+                <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-lg px-3 py-2 flex items-center gap-3" data-testid="weather-widget">
                   {(() => {
                     const WeatherIcon = getWeatherIconComponent(weather.conditions);
-                    return <WeatherIcon className={cn("text-sky-500", isMobile ? "h-5 w-5" : "h-6 w-6")} />;
+                    return <WeatherIcon className={cn("text-sky-500", isMobile ? "h-6 w-6" : "h-8 w-8")} />;
                   })()}
                   <div className="flex flex-col">
                     <div className="flex items-baseline gap-1">
-                      <span className={cn("font-bold text-foreground", isMobile ? "text-sm" : "text-lg")}>{Math.round(weather.temp)}°F</span>
-                      {!isMobile && <span className="text-xs text-muted-foreground">{weather.conditions}</span>}
+                      <span className={cn("font-bold text-foreground", isMobile ? "text-base" : "text-xl")}>{Math.round(weather.temp)}°F</span>
+                      <span className="text-xs text-muted-foreground">{weather.conditions}</span>
                     </div>
                     {currentLocation && (currentLocation.city || currentLocation.state) && (
                       <div className="flex items-center gap-1 text-xs text-sky-600">
@@ -425,6 +439,49 @@ export default function ClaimsMap() {
                       </div>
                     )}
                   </div>
+                  {!isMobile && (
+                    <>
+                      <div className="border-l border-sky-200 pl-3 flex gap-3 text-xs">
+                        {weather.feelsLike !== undefined && (
+                          <div className="flex items-center gap-1">
+                            <Thermometer className="h-3 w-3 text-sky-500" />
+                            <span className="text-muted-foreground">Feels</span>
+                            <span className="font-medium">{Math.round(weather.feelsLike)}°</span>
+                          </div>
+                        )}
+                        {weather.humidity !== undefined && (
+                          <div className="flex items-center gap-1">
+                            <Droplets className="h-3 w-3 text-sky-500" />
+                            <span className="font-medium">{weather.humidity}%</span>
+                          </div>
+                        )}
+                        {weather.windSpeed !== undefined && (
+                          <div className="flex items-center gap-1">
+                            <Wind className="h-3 w-3 text-sky-500" />
+                            <span className="font-medium">{Math.round(weather.windSpeed)} mph</span>
+                          </div>
+                        )}
+                      </div>
+                      {weather.forecast && weather.forecast.length > 0 && (
+                        <div className="border-l border-sky-200 pl-3 flex gap-2">
+                          {weather.forecast.slice(0, 3).map((hour, idx) => (
+                            <div key={idx} className="text-center">
+                              <p className="text-[10px] text-muted-foreground">
+                                {new Date(hour.time).toLocaleTimeString([], { hour: 'numeric' })}
+                              </p>
+                              <p className="text-xs font-medium">{Math.round(hour.temp)}°</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {weather.alerts && weather.alerts.length > 0 && (
+                    <div className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                      <AlertTriangle className="h-3 w-3" />
+                      <span className="text-xs font-medium truncate max-w-[100px]">{weather.alerts[0].event}</span>
+                    </div>
+                  )}
                 </div>
               )}
               <Button

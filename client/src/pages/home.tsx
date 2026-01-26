@@ -40,6 +40,8 @@ import {
   CloudLightning,
   Wind,
   Thermometer,
+  Droplets,
+  AlertTriangle,
 } from "lucide-react";
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
@@ -181,8 +183,22 @@ interface CurrentWeather {
   windSpeed?: number;
   conditions: string;
   icon: string;
-  high?: number;
-  low?: number;
+  forecast?: HourlyForecast[];
+  alerts?: WeatherAlert[];
+}
+
+interface HourlyForecast {
+  time: string;
+  temp: number;
+  pop: number;
+  conditions: { main: string }[];
+  windSpeed: number;
+}
+
+interface WeatherAlert {
+  event: string;
+  severity: string;
+  headline: string;
 }
 
 interface CurrentLocation {
@@ -253,8 +269,8 @@ export default function Home() {
               windSpeed: w.current?.windSpeed,
               conditions: w.current?.conditions?.[0]?.main || 'Clear',
               icon: w.current?.conditions?.[0]?.icon || '01d',
-              high: w.forecast?.[0]?.high,
-              low: w.forecast?.[0]?.low,
+              forecast: w.forecast || [],
+              alerts: w.alerts || [],
             });
           }
         }
@@ -397,11 +413,31 @@ export default function Home() {
                     <div className="text-lg font-bold text-foreground">{Math.round(weather.temp)}°F</div>
                     <div className="text-xs text-muted-foreground">{weather.conditions}</div>
                   </div>
+                  <div className="border-l border-sky-200 pl-2 ml-1 space-y-0.5">
+                    {weather.feelsLike !== undefined && (
+                      <div className="flex items-center gap-1 text-xs">
+                        <Thermometer className="h-3 w-3 text-sky-500" />
+                        <span>{Math.round(weather.feelsLike)}°</span>
+                      </div>
+                    )}
+                    {weather.humidity !== undefined && (
+                      <div className="flex items-center gap-1 text-xs">
+                        <Droplets className="h-3 w-3 text-sky-500" />
+                        <span>{weather.humidity}%</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {currentLocation && (currentLocation.city || currentLocation.state) && (
                   <div className="flex items-center gap-1 mt-1 text-xs text-sky-600">
                     <MapPin className="h-3 w-3" />
                     <span>{currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}</span>
+                  </div>
+                )}
+                {weather.alerts && weather.alerts.length > 0 && (
+                  <div className="flex items-center gap-1 mt-1 text-xs text-amber-600">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span className="truncate">{weather.alerts[0].event}</span>
                   </div>
                 )}
               </div>
@@ -582,29 +618,73 @@ export default function Home() {
               </div>
             ) : weather && (
               <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-xl px-4 py-3 shadow-sm" data-testid="weather-badge-desktop">
-                <div className="flex items-center gap-3">
-                  {(() => {
-                    const WeatherIcon = getWeatherIconComponent(weather.conditions);
-                    return <WeatherIcon className="h-10 w-10 text-sky-500" />;
-                  })()}
-                  <div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-bold text-foreground">{Math.round(weather.temp)}°F</span>
-                      {weather.high !== undefined && weather.low !== undefined && (
-                        <span className="text-xs text-muted-foreground">
-                          H:{Math.round(weather.high)}° L:{Math.round(weather.low)}°
-                        </span>
+                <div className="flex items-start gap-4">
+                  <div className="flex items-center gap-3">
+                    {(() => {
+                      const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                      return <WeatherIcon className="h-12 w-12 text-sky-500" />;
+                    })()}
+                    <div>
+                      <div className="text-3xl font-bold text-foreground">{Math.round(weather.temp)}°F</div>
+                      <p className="text-sm text-muted-foreground">{weather.conditions}</p>
+                      {currentLocation && (currentLocation.city || currentLocation.state) && (
+                        <div className="flex items-center gap-1 text-xs text-sky-600 mt-0.5">
+                          <MapPin className="h-3 w-3" />
+                          <span>{currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}</span>
+                        </div>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground">{weather.conditions}</p>
-                    {currentLocation && (currentLocation.city || currentLocation.state) && (
-                      <div className="flex items-center gap-1 text-xs text-sky-600 mt-0.5">
-                        <MapPin className="h-3 w-3" />
-                        <span>{currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}</span>
+                  </div>
+                  <div className="border-l border-sky-200 pl-4 space-y-1">
+                    {weather.feelsLike !== undefined && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Thermometer className="h-4 w-4 text-sky-500" />
+                        <span className="text-muted-foreground">Feels</span>
+                        <span className="font-medium">{Math.round(weather.feelsLike)}°</span>
+                      </div>
+                    )}
+                    {weather.humidity !== undefined && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Droplets className="h-4 w-4 text-sky-500" />
+                        <span className="text-muted-foreground">Humidity</span>
+                        <span className="font-medium">{weather.humidity}%</span>
+                      </div>
+                    )}
+                    {weather.windSpeed !== undefined && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Wind className="h-4 w-4 text-sky-500" />
+                        <span className="text-muted-foreground">Wind</span>
+                        <span className="font-medium">{Math.round(weather.windSpeed)} mph</span>
                       </div>
                     )}
                   </div>
+                  {weather.forecast && weather.forecast.length > 0 && (
+                    <div className="border-l border-sky-200 pl-4">
+                      <p className="text-xs text-muted-foreground mb-1">Next Hours</p>
+                      <div className="flex gap-3">
+                        {weather.forecast.slice(0, 3).map((hour, idx) => (
+                          <div key={idx} className="text-center">
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(hour.time).toLocaleTimeString([], { hour: 'numeric' })}
+                            </p>
+                            <p className="text-sm font-medium">{Math.round(hour.temp)}°</p>
+                            {hour.pop > 0 && (
+                              <p className="text-xs text-sky-600">{hour.pop}%</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
+                {weather.alerts && weather.alerts.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-amber-200 bg-amber-50 -mx-4 -mb-3 px-4 pb-2 rounded-b-xl">
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-sm font-medium">{weather.alerts[0].event}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
