@@ -20,6 +20,7 @@ import { getClaimRoomsAndZones } from '../services/rooms';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createLogger } from '../lib/logger';
 import { checkSublimitStatus, getAllSublimitAlerts } from '../services/sublimitTracker';
+import { fetchAndStoreClaimWeather, backfillMissingWeather } from '../services/historicalWeatherService';
 
 const router = Router();
 const log = createLogger({ module: 'claims-routes' });
@@ -398,6 +399,48 @@ router.post('/:id/check-sublimits', requireAuth, requireOrganization, async (req
   } catch (error) {
     log.error({ err: error }, 'Check sublimits error');
     res.status(500).json({ message: 'Failed to check sublimits' });
+  }
+});
+
+/**
+ * POST /api/claims/:id/weather
+ * Fetch and store historical weather for a specific claim
+ */
+router.post('/:id/weather', requireAuth, requireOrganization, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const result = await fetchAndStoreClaimWeather(id);
+    
+    if (result) {
+      res.json({ success: true, message: 'Weather data fetched and stored' });
+    } else {
+      res.status(400).json({ success: false, message: 'Failed to fetch weather data (missing location or date of loss)' });
+    }
+  } catch (error) {
+    log.error({ err: error, claimId: req.params.id }, 'Fetch claim weather error');
+    res.status(500).json({ message: 'Failed to fetch weather data' });
+  }
+});
+
+/**
+ * POST /api/claims/weather/backfill
+ * Backfill missing weather data for existing claims
+ */
+router.post('/weather/backfill', requireAuth, requireOrganization, async (req: Request, res: Response) => {
+  try {
+    const limit = req.body.limit || 50;
+    const result = await backfillMissingWeather(limit);
+    
+    log.info({ result }, 'Weather backfill completed');
+    res.json({
+      message: 'Weather backfill completed',
+      processed: result.processed,
+      success: result.success,
+      failed: result.failed,
+    });
+  } catch (error) {
+    log.error({ err: error }, 'Weather backfill error');
+    res.status(500).json({ message: 'Failed to backfill weather data' });
   }
 });
 

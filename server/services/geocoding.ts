@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { createLogger } from '../lib/logger';
+import { fetchAndStoreClaimWeather } from './historicalWeatherService';
 
 const log = createLogger({ module: 'geocoding' });
 
@@ -330,6 +331,12 @@ export async function geocodeClaimAddress(claimId: string): Promise<boolean> {
         return false;
       }
       log.info({ claimId, latitude: result.latitude, longitude: result.longitude }, '[Geocoding] Successfully geocoded claim');
+      
+      // Fetch historical weather data for the claim (non-blocking)
+      fetchAndStoreClaimWeather(claimId).catch((err) => {
+        log.warn({ claimId, error: err }, '[Geocoding] Failed to fetch historical weather');
+      });
+      
       return true;
     } else {
       log.warn({ claimId, address: addressString }, '[Geocoding] Geocoding failed for claim');
