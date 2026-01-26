@@ -538,7 +538,6 @@ export default function ClaimDetail() {
   const [validationErrors, setValidationErrors] = useState<ValidationIssue[]>([]);
   const [validationWarnings, setValidationWarnings] = useState<ValidationIssue[]>([]);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
-  const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
 
   // Derived lock state
   const isEstimateLocked = estimateLockStatus?.isLocked || false;
