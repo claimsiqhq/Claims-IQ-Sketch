@@ -46,6 +46,7 @@ export default function ClaimsMap() {
   
   const [claims, setClaims] = useState<ClaimLocation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<ClaimLocation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,38 +71,41 @@ export default function ClaimsMap() {
     fetchMapsConfig();
   }, []);
 
-  useEffect(() => {
-    async function fetchClaims() {
-      try {
-        const response = await fetch('/api/claims', { credentials: 'include' });
-        if (!response.ok) throw new Error('Failed to load claims');
-        const data = await response.json();
-        
-        const claimsWithCoords = (data.claims || [])
-          .filter((c: any) => c.propertyLatitude && c.propertyLongitude)
-          .map((c: any) => ({
-            id: c.id,
-            claimNumber: c.claimNumber,
-            insuredName: c.insuredName || c.policyholder || 'Unknown',
-            address: c.propertyAddress || '',
-            city: c.propertyCity || '',
-            state: c.propertyState || '',
-            zip: c.propertyZip || '',
-            lat: parseFloat(c.propertyLatitude),
-            lng: parseFloat(c.propertyLongitude),
-            status: c.status,
-            lossType: c.lossType || c.primaryPeril || 'Unknown',
-            dateOfLoss: c.dateOfLoss,
-          }));
-        
-        setClaims(claimsWithCoords);
-      } catch (err) {
-        console.error('Error loading claims:', err);
-        setError('Failed to load claims');
-      } finally {
-        setLoading(false);
-      }
+  const fetchClaims = async (isRefresh = false) => {
+    try {
+      if (isRefresh) setRefreshing(true);
+      const response = await fetch('/api/claims', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to load claims');
+      const data = await response.json();
+      
+      const claimsWithCoords = (data.claims || [])
+        .filter((c: any) => c.propertyLatitude && c.propertyLongitude)
+        .map((c: any) => ({
+          id: c.id,
+          claimNumber: c.claimNumber,
+          insuredName: c.insuredName || c.policyholder || 'Unknown',
+          address: c.propertyAddress || '',
+          city: c.propertyCity || '',
+          state: c.propertyState || '',
+          zip: c.propertyZip || '',
+          lat: parseFloat(c.propertyLatitude),
+          lng: parseFloat(c.propertyLongitude),
+          status: c.status,
+          lossType: c.lossType || c.primaryPeril || 'Unknown',
+          dateOfLoss: c.dateOfLoss,
+        }));
+      
+      setClaims(claimsWithCoords);
+    } catch (err) {
+      console.error('Error loading claims:', err);
+      setError('Failed to load claims');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  useEffect(() => {
     fetchClaims();
   }, []);
 
@@ -285,11 +289,12 @@ export default function ClaimsMap() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.location.reload()}
+                onClick={() => fetchClaims(true)}
+                disabled={refreshing}
                 data-testid="button-refresh"
               >
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Refresh
+                <RefreshCw className={cn("h-4 w-4 mr-1", refreshing && "animate-spin")} />
+                {refreshing ? 'Refreshing...' : 'Refresh'}
               </Button>
             </div>
           </div>
