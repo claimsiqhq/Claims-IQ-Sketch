@@ -296,6 +296,23 @@ export const claims = pgTable("claims", {
   briefingVersion: integer("briefing_version").notNull().default(0),
   workflowVersion: integer("workflow_version").notNull().default(0),
 
+  // Historical Weather at Date of Loss
+  // Full conditions from weather service at property location on dateOfLoss
+  dolWeatherTemp: real("dol_weather_temp"), // Temperature in Fahrenheit (e.g., -3)
+  dolWeatherTempMin: real("dol_weather_temp_min"), // Daily minimum temp
+  dolWeatherTempMax: real("dol_weather_temp_max"), // Daily maximum temp
+  dolWeatherConditions: text("dol_weather_conditions"), // Human-readable conditions (e.g., "Hail, Heavy Rain")
+  dolWeatherPrecipType: varchar("dol_weather_precip_type", { length: 50 }), // rain, snow, sleet, hail, freezing_rain
+  dolWeatherPrecipAmount: real("dol_weather_precip_amount"), // Precipitation in inches
+  dolWeatherWindSpeed: real("dol_weather_wind_speed"), // Wind speed in mph
+  dolWeatherWindGust: real("dol_weather_wind_gust"), // Wind gusts in mph
+  dolWeatherHailSize: real("dol_weather_hail_size"), // Hail size in inches (if applicable)
+  dolWeatherHumidity: real("dol_weather_humidity"), // Humidity percentage
+  dolWeatherSummary: text("dol_weather_summary"), // Full formatted summary (e.g., "-3°F, Hail 1.5in, 50 mph wind gusts")
+  dolWeatherRaw: jsonb("dol_weather_raw"), // Raw API response for debugging
+  dolWeatherFetchedAt: timestamp("dol_weather_fetched_at"), // When weather was fetched
+  dolWeatherSource: varchar("dol_weather_source", { length: 50 }), // API source (open-meteo, visual-crossing, etc.)
+
   // Timestamps
   createdAt: timestamp("created_at").default(sql`NOW()`),
   updatedAt: timestamp("updated_at").default(sql`NOW()`),

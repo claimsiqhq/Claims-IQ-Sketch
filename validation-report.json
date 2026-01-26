@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-23T19:22:06.306Z",
+  "timestamp": "2026-01-26T14:56:48.192Z",
   "summary": {
     "total": 32,
     "critical": 1,
@@ -20,7 +20,7 @@
       "severity": "medium",
       "category": "api",
       "file": "server/routes.ts",
-      "message": "Mixed response formats: 72 direct res.json() calls vs 37 sendSuccess() calls",
+      "message": "Mixed response formats: 80 direct res.json() calls vs 37 sendSuccess() calls",
       "recommendation": "Standardize on sendSuccess/sendError helpers for consistent API responses"
     },
     {
