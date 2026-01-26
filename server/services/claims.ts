@@ -383,7 +383,7 @@ export async function getClaim(
 ): Promise<ClaimWithDocuments | null> {
   const { data: claim, error } = await supabaseAdmin
     .from('claims')
-    .select('id, organization_id, claim_number, carrier_id, region_id, insured_name, insured_email, insured_phone, property_address, property_city, property_state, property_zip, property_latitude, property_longitude, geocode_status, date_of_loss, loss_type, loss_description, policy_number, claim_type, dwelling_limit, peril_specific_deductibles, coverage_a, coverage_b, coverage_c, coverage_d, deductible, status, assigned_adjuster_id, total_rcv, total_acv, total_paid, metadata, primary_peril, secondary_perils, peril_confidence, peril_metadata, loss_context, created_at, updated_at, closed_at')
+    .select('id, organization_id, claim_number, carrier_id, region_id, insured_name, insured_email, insured_phone, property_address, property_city, property_state, property_zip, property_latitude, property_longitude, geocode_status, date_of_loss, loss_type, loss_description, policy_number, claim_type, dwelling_limit, peril_specific_deductibles, coverage_a, coverage_b, coverage_c, coverage_d, deductible, status, assigned_adjuster_id, total_rcv, total_acv, total_paid, metadata, primary_peril, secondary_perils, peril_confidence, peril_metadata, loss_context, created_at, updated_at, closed_at, dol_weather_temp, dol_weather_temp_min, dol_weather_temp_max, dol_weather_conditions, dol_weather_precip_type, dol_weather_precip_amount, dol_weather_wind_speed, dol_weather_wind_gust, dol_weather_hail_size, dol_weather_humidity, dol_weather_summary, dol_weather_fetched_at, dol_weather_source')
     .eq('id', id)
     .eq('organization_id', organizationId)
     .single();
