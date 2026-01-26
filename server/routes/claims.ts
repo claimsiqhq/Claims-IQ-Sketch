@@ -424,11 +424,11 @@ router.post('/:id/weather', requireAuth, requireOrganization, async (req: Reques
 
 /**
  * POST /api/claims/weather/backfill
- * Backfill missing weather data for existing claims
+ * Backfill missing weather data for existing claims (admin only)
  */
-router.post('/weather/backfill', requireAuth, requireOrganization, async (req: Request, res: Response) => {
+router.post('/weather/backfill', requireAuth, requireOrganization, requireOrgRole('admin'), async (req: Request, res: Response) => {
   try {
-    const limit = req.body.limit || 50;
+    const limit = Math.min(req.body.limit || 50, 100); // Cap at 100 to prevent abuse
     const result = await backfillMissingWeather(limit);
     
     log.info({ result }, 'Weather backfill completed');

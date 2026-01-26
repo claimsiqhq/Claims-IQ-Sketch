@@ -1548,7 +1548,7 @@ export default function ClaimDetail() {
                       </div>
                       
                       {/* Historical Weather at Date of Loss */}
-                      {apiClaim?.dolWeather?.summary && (
+                      {apiClaim?.dolWeather && (apiClaim.dolWeather.summary || apiClaim.dolWeather.temperature !== null || apiClaim.dolWeather.conditions) && (
                         <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
                           <Label className="text-xs text-sky-600 uppercase flex items-center gap-1">
                             <Cloud className="w-3 h-3" />

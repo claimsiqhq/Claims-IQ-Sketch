@@ -907,6 +907,23 @@ export interface Claim {
     generalConditions?: any[];
     extractionData?: Record<string, any>;
   };
+
+  // Historical weather at date of loss
+  dolWeather?: {
+    temperature?: number | null;
+    temperatureMin?: number | null;
+    temperatureMax?: number | null;
+    conditions?: string | null;
+    precipType?: string | null;
+    precipAmount?: number | null;
+    windSpeed?: number | null;
+    windGust?: number | null;
+    hailSize?: number | null;
+    humidity?: number | null;
+    summary?: string | null;
+    fetchedAt?: string | null;
+    source?: string | null;
+  };
 }
 
 export interface ClaimStats {
