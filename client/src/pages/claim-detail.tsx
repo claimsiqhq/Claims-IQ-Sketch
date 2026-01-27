@@ -602,11 +602,23 @@ export default function ClaimDetail() {
 
   // Initialize estimate settings from claim data when claim loads
   useEffect(() => {
-    if (apiClaim?.regionId && regions.length > 0 && !estimateSettings.regionId) {
-      // Set region from claim if available and settings don't have a region yet
-      setEstimateSettings({ regionId: apiClaim.regionId });
+    const updates: Partial<typeof estimateSettings> = {};
+    
+    // Sync region from claim
+    if (apiClaim?.regionId && regions.length > 0) {
+      updates.regionId = apiClaim.regionId;
     }
-  }, [apiClaim?.regionId, regions, estimateSettings.regionId, setEstimateSettings]);
+    
+    // Sync carrier from claim
+    if (apiClaim?.carrierId && carriers.length > 0) {
+      updates.carrierProfileId = apiClaim.carrierId;
+    }
+    
+    // Only update if there are changes and the claim has saved settings
+    if (Object.keys(updates).length > 0 && (apiClaim?.regionId || apiClaim?.carrierId)) {
+      setEstimateSettings(updates);
+    }
+  }, [apiClaim?.regionId, apiClaim?.carrierId, regions.length, carriers.length, setEstimateSettings]);
 
   // Load estimate lock status
   const loadLockStatus = useCallback(async () => {

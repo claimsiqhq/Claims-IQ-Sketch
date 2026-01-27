@@ -642,6 +642,7 @@ export async function getEstimate(estimateId: string, organizationId: string): P
 
 export async function updateEstimate(
   estimateId: string,
+  organizationId: string,
   input: EstimateCalculationInput,
   expectedVersion?: number
 ): Promise<SavedEstimate> {
@@ -793,7 +794,7 @@ export async function updateEstimate(
   }
 
   // Return updated estimate
-  return (await getEstimate(estimateId))!;
+  return (await getEstimate(estimateId, organizationId))!;
 }
 
 // ============================================
@@ -802,6 +803,7 @@ export async function updateEstimate(
 
 export async function addLineItemToEstimate(
   estimateId: string,
+  organizationId: string,
   lineItem: EstimateLineItemInput
 ): Promise<SavedEstimate> {
   // Get current line items
@@ -846,7 +848,7 @@ export async function addLineItemToEstimate(
   }
 
   // Recalculate and update
-  return updateEstimate(estimateId, {
+  return updateEstimate(estimateId, organizationId, {
     regionId: estimateData.region_id,
     carrierProfileId: estimateData.carrier_profile_id,
     lineItems: existingItems,
@@ -859,6 +861,7 @@ export async function addLineItemToEstimate(
 
 export async function removeLineItemFromEstimate(
   estimateId: string,
+  organizationId: string,
   lineItemCode: string
 ): Promise<SavedEstimate> {
   // Get current line items
@@ -893,7 +896,7 @@ export async function removeLineItemFromEstimate(
     }));
 
   // Recalculate and update
-  return updateEstimate(estimateId, {
+  return updateEstimate(estimateId, organizationId, {
     regionId: estimateData.region_id,
     carrierProfileId: estimateData.carrier_profile_id,
     lineItems: remainingItems,

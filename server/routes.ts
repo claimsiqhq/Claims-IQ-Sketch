@@ -1714,7 +1714,7 @@ export async function registerRoutes(
 
     // Get expected version from request body for optimistic locking
     const expectedVersion = req.body.version;
-    const updatedEstimate = await updateEstimate(req.params.id, req.body, expectedVersion);
+    const updatedEstimate = await updateEstimate(req.params.id, req.organizationId!, req.body, expectedVersion);
     
     const { sendSuccess } = await import('./middleware/responseHelpers');
     sendSuccess(res, updatedEstimate);
@@ -2288,7 +2288,7 @@ export async function registerRoutes(
     const includeSketch = req.query.includeSketch !== 'false';
     const includePhotos = req.query.includePhotos === 'true';
 
-    const esxZip = await generateEsxZipArchive(req.params.id, {
+    const esxZip = await generateEsxZipArchive(req.params.id, req.organizationId!, {
       includeSketchPdf: includeSketch,
       includePhotos,
     });

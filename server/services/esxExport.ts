@@ -313,9 +313,10 @@ export class EsxExportValidator {
  */
 export async function generateEsxZipArchive(
   estimateId: string,
+  organizationId: string,
   config: EsxConfig = {}
 ): Promise<Buffer> {
-  const result = await generateValidatedEsxArchive(estimateId, config);
+  const result = await generateValidatedEsxArchive(estimateId, organizationId, config);
 
   if (!result.validation.canExport) {
     const errorMessages = result.validation.errors
@@ -335,6 +336,7 @@ export async function generateEsxZipArchive(
  */
 export async function generateValidatedEsxArchive(
   estimateId: string,
+  organizationId: string,
   config: EsxConfig = {}
 ): Promise<EsxExportResult> {
   const effectiveConfig: EsxConfig = {
@@ -347,13 +349,13 @@ export async function generateValidatedEsxArchive(
   };
 
   // Load estimate data
-  const estimate = await getEstimate(estimateId);
+  const estimate = await getEstimate(estimateId, organizationId);
   if (!estimate) {
     throw new Error(`Estimate ${estimateId} not found`);
   }
 
   // Load claim data for metadata
-  const claimMetadata = await getClaimMetadata(estimate.claimId);
+  const claimMetadata = await getClaimMetadata(estimate.claimId || null);
 
   // Load sketch geometry
   let sketch: { zones: ZoneSketch[]; connections: ZoneConnectionData[] } | null = null;
@@ -453,7 +455,7 @@ export async function generateValidatedEsxArchive(
   // 5. Photos (optional)
   let photoCount = 0;
   if (effectiveConfig.includePhotos) {
-    const photos = await getEstimatePhotos(estimateId);
+    const photos = await getEstimatePhotos(estimateId, organizationId);
     const maxPhotos = effectiveConfig.maxPhotos || 50;
     for (let i = 0; i < Math.min(photos.length, maxPhotos); i++) {
       if (photos[i].data) {
@@ -554,7 +556,7 @@ function generateXactdocXml(metadata: ClaimMetadata, estimate: SavedEstimate): s
     <TotalRCV>${(estimate.totals?.totalRcv || 0).toFixed(2)}</TotalRCV>
     <TotalACV>${(estimate.totals?.totalAcv || 0).toFixed(2)}</TotalACV>
     <TotalDepreciation>${(estimate.totals?.totalDepreciation || 0).toFixed(2)}</TotalDepreciation>
-    <Deductible>${(estimate.settlement?.totalDeductible || 0).toFixed(2)}</Deductible>
+    <Deductible>${((estimate.settlement?.totals as any)?.totalDeductible || 0).toFixed(2)}</Deductible>
     <NetClaim>${(estimate.totals?.netClaimTotal || 0).toFixed(2)}</NetClaim>
   </Summary>
 </XACTDOC>`;
@@ -1315,10 +1317,10 @@ function groupLineItemsForExport(estimate: SavedEstimate): LineItemForExport[] {
  * Get photos for an estimate
  * Loads photos from claim_photos table and downloads from storage
  */
-async function getEstimatePhotos(estimateId: string): Promise<Array<{ name: string; data: Buffer }>> {
+async function getEstimatePhotos(estimateId: string, organizationId: string): Promise<Array<{ name: string; data: Buffer }>> {
   try {
     // Get estimate to find claim ID
-    const estimate = await getEstimate(estimateId);
+    const estimate = await getEstimate(estimateId, organizationId);
     if (!estimate || !estimate.claimId) {
       return [];
     }
@@ -1392,9 +1394,10 @@ async function getEstimatePhotos(estimateId: string): Promise<Array<{ name: stri
  */
 export async function validateEsxExport(
   estimateId: string,
+  organizationId: string,
   strictMode: boolean = true
 ): Promise<EsxValidationResult> {
-  const estimate = await getEstimate(estimateId);
+  const estimate = await getEstimate(estimateId, organizationId);
   if (!estimate) {
     return {
       isValid: false,

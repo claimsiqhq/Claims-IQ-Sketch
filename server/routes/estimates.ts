@@ -7,6 +7,7 @@
 
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { requireOrganization } from '../middleware/tenant';
 import {
   calculateEstimate,
   saveEstimate,
@@ -92,10 +93,11 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
  * GET /api/estimates
  * List estimates (optionally filtered by claimId)
  */
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+router.get('/', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { claimId, status } = req.query;
     const estimates = await listEstimates({
+      organizationId: req.organizationId!,
       claimId: claimId as string,
       status: status as string,
     });
@@ -110,10 +112,10 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
  * GET /api/estimates/:id
  * Get a specific estimate
  */
-router.get('/:id', requireAuth, async (req: Request, res: Response) => {
+router.get('/:id', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const estimate = await getEstimate(id);
+    const estimate = await getEstimate(id, req.organizationId!);
     
     if (!estimate) {
       return res.status(404).json({ message: 'Estimate not found' });
@@ -130,12 +132,12 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
  * PUT /api/estimates/:id
  * Update an estimate
  */
-router.put('/:id', requireAuth, async (req: Request, res: Response) => {
+router.put('/:id', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    const estimate = await updateEstimate(id, updates);
+    const estimate = await updateEstimate(id, req.organizationId!, updates);
     if (!estimate) {
       return res.status(404).json({ message: 'Estimate not found' });
     }
@@ -156,12 +158,12 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
  * POST /api/estimates/:id/line-items
  * Add a line item to an estimate
  */
-router.post('/:id/line-items', requireAuth, async (req: Request, res: Response) => {
+router.post('/:id/line-items', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const lineItemData = req.body;
 
-    const lineItem = await addLineItemToEstimate(id, lineItemData);
+    const lineItem = await addLineItemToEstimate(id, req.organizationId!, lineItemData);
     log.info({ estimateId: id, lineItemId: lineItem.id }, 'Line item added');
     res.status(201).json({ lineItem });
   } catch (error) {
@@ -174,11 +176,11 @@ router.post('/:id/line-items', requireAuth, async (req: Request, res: Response) 
  * DELETE /api/estimates/:id/line-items/:code
  * Remove a line item from an estimate
  */
-router.delete('/:id/line-items/:code', requireAuth, async (req: Request, res: Response) => {
+router.delete('/:id/line-items/:code', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id, code } = req.params;
 
-    await removeLineItemFromEstimate(id, code);
+    await removeLineItemFromEstimate(id, req.organizationId!, code);
     log.info({ estimateId: id, lineItemCode: code }, 'Line item removed');
     res.json({ message: 'Line item removed' });
   } catch (error) {
@@ -398,7 +400,7 @@ router.get('/:id/export/csv', async (req: Request, res: Response) => {
  * - maxPhotos: number (default: 50)
  * - strictValidation: boolean (default: true)
  */
-router.get('/:id/export/esx-zip', async (req: Request, res: Response) => {
+router.get('/:id/export/esx-zip', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const config: EsxConfig = {
@@ -409,7 +411,7 @@ router.get('/:id/export/esx-zip', async (req: Request, res: Response) => {
       strictValidation: req.query.strictValidation !== 'false',
     };
 
-    const result = await generateValidatedEsxArchive(id, config);
+    const result = await generateValidatedEsxArchive(id, req.organizationId!, config);
 
     // If validation failed and can't export, return validation errors
     if (!result.validation.canExport) {
@@ -444,7 +446,7 @@ router.get('/:id/export/esx-zip', async (req: Request, res: Response) => {
  * Returns JSON with base64-encoded archive and full validation results.
  * Use this endpoint when you need to inspect validation before saving the file.
  */
-router.get('/:id/export/esx-validated', async (req: Request, res: Response) => {
+router.get('/:id/export/esx-validated', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const config: EsxConfig = {
@@ -455,7 +457,7 @@ router.get('/:id/export/esx-validated', async (req: Request, res: Response) => {
       strictValidation: req.query.strictValidation !== 'false',
     };
 
-    const result = await generateValidatedEsxArchive(id, config);
+    const result = await generateValidatedEsxArchive(id, req.organizationId!, config);
 
     res.json({
       success: result.validation.canExport,
@@ -476,12 +478,12 @@ router.get('/:id/export/esx-validated', async (req: Request, res: Response) => {
  *
  * Use this endpoint to check export readiness before triggering the full export.
  */
-router.get('/:id/export/esx-validate', async (req: Request, res: Response) => {
+router.get('/:id/export/esx-validate', requireAuth, requireOrganization, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const strictMode = req.query.strict !== 'false';
 
-    const validation = await validateEsxExport(id, strictMode);
+    const validation = await validateEsxExport(id, req.organizationId!, strictMode);
 
     res.json({
       estimateId: id,
