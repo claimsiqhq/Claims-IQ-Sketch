@@ -149,16 +149,13 @@ This codebase contains TWO inspection workflow systems. **Only use the NEW syste
 
 ### P0 - Broken UI (Causes User-Facing Errors)
 
-1. **`claim-detail.tsx` renders deprecated `WorkflowPanel`**
-   - Location: Lines 137 (import) and 2399-2400 (render)
-   - Impact: 404 errors when users view Workflow tab
-   - Fix: Remove import and `<WorkflowPanel />` component
+~~1. **`claim-detail.tsx` renders deprecated `WorkflowPanel`**~~ - ✅ Fixed (removed deprecated component references)
 
 ### P1 - Dead Code (No User Impact, Technical Debt)
 
-1. **Old API functions in `api.ts`** (lines 2487-2672)
-2. **Orphaned components in `components/workflow/`**
-3. **`workflow-panel.tsx`** (1492 lines of dead code)
+1. **Old API functions in `api.ts`** (lines 2487-2672) - Deprecated workflow API functions
+2. ~~**Orphaned components in `components/workflow/`**~~ - ✅ Cleaned up (directory removed)
+3. ~~**`workflow-panel.tsx`** (1492 lines of dead code)~~ - ✅ Cleaned up (file removed)
 
 ### P2 - Schema Cleanup (Future)
 
@@ -419,6 +416,25 @@ The sketching system allows field adjusters to create floor plans with rooms, st
 - **Documentation:** Confluence (Claims IQ space)
 - **Project Management:** Asana
 - **Last Updated:** 2026-01-23
+
+---
+
+## File Cleanup (2026-01-23)
+
+**Deleted Files:**
+- ✅ Removed 50+ old analysis/audit MD files (workflow_analysis_*.md, workflow_audit_*.md, analysis_*.md)
+- ✅ Removed temporary summary files (ALL_FIXES_COMPLETE.md, FIXES_APPLIED.md, etc.)
+- ✅ Removed old diagnostic SQL scripts (update_prompts_*.sql)
+- ✅ Removed test files (test.jpg)
+- ✅ Removed misplaced TypeScript file (docs/Validateperilcontext.ts)
+
+**Kept Essential Files:**
+- ✅ `CLAUDE.md` - Main developer reference (this file)
+- ✅ `README.md` - Project overview
+- ✅ `CHANGELOG.md` - Version history
+- ✅ `ARCHITECTURE.md` - Technical architecture documentation
+- ✅ `replit.md` - Replit-specific configuration
+- ✅ `docs/` directory - Feature documentation (kept relevant docs)
 
 ---
 
