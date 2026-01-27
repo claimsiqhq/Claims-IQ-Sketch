@@ -505,40 +505,40 @@ export default function Home() {
 
           {/* Mobile Stats - Compact horizontal scroll */}
           <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
-            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
-              <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+            <div className="bg-amber-50 p-3 rounded-lg border-2 border-amber-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-sm">
                 <FileText className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Claims</p>
-                <p className="text-lg font-bold">{stats?.total || 0}</p>
+                <p className="text-xs text-amber-700 font-medium">Claims</p>
+                <p className="text-lg font-bold text-amber-900">{stats?.total || 0}</p>
               </div>
             </div>
-            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
-              <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center text-primary">
+            <div className="bg-purple-50 p-3 rounded-lg border-2 border-purple-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center text-white shadow-sm">
                 <FileText className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Documents</p>
-                <p className="text-lg font-bold">{stats?.totalDocuments || 0}</p>
+                <p className="text-xs text-purple-700 font-medium">Documents</p>
+                <p className="text-lg font-bold text-purple-900">{stats?.totalDocuments || 0}</p>
               </div>
             </div>
-            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
-              <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+            <div className="bg-orange-50 p-3 rounded-lg border-2 border-orange-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-sm">
                 <Clock className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Processing</p>
-                <p className="text-lg font-bold">{stats?.pendingDocuments || 0}</p>
+                <p className="text-xs text-orange-700 font-medium">Processing</p>
+                <p className="text-lg font-bold text-orange-900">{stats?.pendingDocuments || 0}</p>
               </div>
             </div>
-            <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
-              <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center text-green-600">
+            <div className="bg-emerald-50 p-3 rounded-lg border-2 border-emerald-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+              <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-sm">
                 <Camera className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Photos</p>
-                <p className="text-lg font-bold">{stats?.totalPhotos || 0}</p>
+                <p className="text-xs text-emerald-700 font-medium">Photos</p>
+                <p className="text-lg font-bold text-emerald-900">{stats?.totalPhotos || 0}</p>
               </div>
             </div>
           </div>
