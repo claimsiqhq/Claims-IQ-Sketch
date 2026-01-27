@@ -2,7 +2,7 @@
 // Main container for voice-driven room sketching using RealtimeSession
 // Hierarchy: Structure > Room > Sub-room > Object
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { AlertCircle, RotateCcw, Plus, Home, Building2, Save, Loader2, ChevronRight, Camera, Layers, Triangle, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -48,6 +48,14 @@ export function VoiceSketchController({
     result: string;
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // Initialize geometry engine with claimId when claimId changes
+  useEffect(() => {
+    if (claimId) {
+      useGeometryEngine.getState().setClaimId(claimId);
+    }
+  }, [claimId]);
 
   const {
     currentRoom,
@@ -287,8 +295,16 @@ export function VoiceSketchController({
   };
 
   const handleReset = () => {
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = () => {
     resetSession();
     setLastToolCall(null);
+    setShowResetConfirm(false);
+    toast.info('Sketch session reset', {
+      description: 'All unsaved changes have been cleared.',
+    });
   };
 
   const handleSave = useCallback(async () => {
@@ -536,12 +552,14 @@ export function VoiceSketchController({
         {/* Right: Add buttons + actions */}
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {/* Add Structure */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                <Plus className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Add Structure</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -596,22 +614,43 @@ export function VoiceSketchController({
               <DropdownMenuItem onClick={() => handleAddExteriorZone('deck')} disabled={!currentStructure}>Deck</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="font-medium">Add Structure or Room</p>
+              <p className="text-xs text-muted-foreground">Create a new structure, room, or exterior zone</p>
+            </TooltipContent>
+          </Tooltip>
 
           {/* Undo */}
-          <Button
-            onClick={() => undo(1)}
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            disabled={undoStack.length === 0}
-            title="Undo"
-          >
-            <Undo2 className="h-3 w-3" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() => undo(1)}
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                disabled={undoStack.length === 0}
+              >
+                <Undo2 className="h-3 w-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="font-medium">Undo</p>
+              <p className="text-xs text-muted-foreground">Undo the last action</p>
+            </TooltipContent>
+          </Tooltip>
           {/* Reset */}
-          <Button onClick={handleReset} variant="ghost" size="sm" className="h-6 w-6 p-0" title="Reset">
-            <RotateCcw className="h-3 w-3" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button onClick={handleReset} variant="ghost" size="sm" className="h-6 w-6 p-0">
+                <RotateCcw className="h-3 w-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="font-medium">Reset Session</p>
+              <p className="text-xs text-muted-foreground">Clear all rooms and start over</p>
+            </TooltipContent>
+          </Tooltip>
           {photos.length > 0 && (
             <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded">
               <Camera className="h-2.5 w-2.5" />
@@ -619,20 +658,28 @@ export function VoiceSketchController({
             </span>
           )}
           {onSave && hasRooms && (
-            <Button
-              onClick={handleSave}
-              variant="default"
-              size="sm"
-              className="h-6 px-2"
-              disabled={isSaving}
-              data-testid="button-save-sketch"
-            >
-              {isSaving ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Save className="h-3 w-3" />
-              )}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleSave}
+                  variant="default"
+                  size="sm"
+                  className="h-6 px-2"
+                  disabled={isSaving}
+                  data-testid="button-save-sketch"
+                >
+                  {isSaving ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save className="h-3 w-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p className="font-medium">Save Sketch</p>
+                <p className="text-xs text-muted-foreground">Save rooms and damage zones to claim</p>
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -850,6 +897,25 @@ export function VoiceSketchController({
         onCancel={handleVoicePhotoCaptureCancel}
         onComplete={handleVoicePhotoCaptureComplete}
       />
+
+      {/* Reset Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Sketch Session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear all rooms, structures, and unsaved changes in the current sketch session. 
+              This action cannot be undone. Make sure you've saved your work if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowResetConfirm(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmReset} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Reset Session
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

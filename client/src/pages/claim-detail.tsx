@@ -620,6 +620,69 @@ export default function ClaimDetail() {
     }
   }, [apiClaim?.regionId, apiClaim?.carrierId, regions.length, carriers.length, setEstimateSettings]);
 
+  // Load saved rooms into geometry engine when claim data loads
+  useEffect(() => {
+    if (!params?.id || savedRooms.length === 0) return;
+
+    // Convert ClaimRoom[] to RoomGeometry[]
+    const convertClaimRoomToRoomGeometry = (claimRoom: ClaimRoom): RoomGeometry => {
+      const damageZonesForRoom = savedDamageZones
+        .filter(dz => dz.roomId === claimRoom.id)
+        .map(dz => ({
+          id: dz.id,
+          type: dz.damageType.toLowerCase() as any,
+          category: undefined,
+          affected_walls: (dz.affectedWalls || []) as any[],
+          floor_affected: dz.floorAffected || false,
+          ceiling_affected: dz.ceilingAffected || false,
+          extent_ft: typeof dz.extentFt === 'number' ? dz.extentFt : parseFloat(String(dz.extentFt || '0')),
+          source: dz.source || '',
+          notes: dz.notes || '',
+          polygon: [],
+          is_freeform: dz.isFreeform || false,
+        }));
+
+      return {
+        id: claimRoom.id,
+        name: claimRoom.name,
+        shape: (claimRoom.shape as RoomShape) || 'rectangle',
+        width_ft: typeof claimRoom.widthFt === 'number' ? claimRoom.widthFt : parseFloat(String(claimRoom.widthFt || '10')),
+        length_ft: typeof claimRoom.lengthFt === 'number' ? claimRoom.lengthFt : parseFloat(String(claimRoom.lengthFt || '10')),
+        ceiling_height_ft: typeof claimRoom.ceilingHeightFt === 'number' ? claimRoom.ceilingHeightFt : parseFloat(String(claimRoom.ceilingHeightFt || '8')),
+        polygon: [],
+        openings: (claimRoom.openings as Opening[]) || [],
+        features: (claimRoom.features as Feature[]) || [],
+        damageZones: damageZonesForRoom,
+        notes: (claimRoom.notes as RoomNote[]) || [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        origin_x_ft: typeof claimRoom.originXFt === 'number' ? claimRoom.originXFt : parseFloat(String(claimRoom.originXFt || '0')),
+        origin_y_ft: typeof claimRoom.originYFt === 'number' ? claimRoom.originYFt : parseFloat(String(claimRoom.originYFt || '0')),
+        structureId: claimRoom.structureId,
+        parentRoomId: undefined,
+        hierarchyLevel: 'room' as const,
+        subRooms: [],
+        objects: [],
+        photos: [],
+      };
+    };
+
+    const geometryRooms = savedRooms.map(convertClaimRoomToRoomGeometry);
+    
+    // Only load if we haven't already loaded for this claim
+    const currentLoadedClaimId = useGeometryEngine.getState().loadedForClaimId;
+    if (currentLoadedClaimId !== params.id) {
+      useGeometryEngine.getState().loadRooms(geometryRooms);
+      useGeometryEngine.getState().setClaimId(params.id);
+      
+      if (geometryRooms.length > 0) {
+        toast.success(`Loaded ${geometryRooms.length} saved room(s)`, {
+          description: 'Your previous sketch has been restored.',
+        });
+      }
+    }
+  }, [params?.id, savedRooms, savedDamageZones]);
+
   // Load estimate lock status
   const loadLockStatus = useCallback(async () => {
     if (!params?.id) return;
@@ -2649,23 +2712,31 @@ export default function ClaimDetail() {
                   />
                   {/* Prominent AI Suggestions Button - visible when damage zones exist */}
                   {(claim?.damageZones || []).length > 0 && (
-                    <Button
-                      onClick={handleGenerateAISuggestions}
-                      disabled={isGeneratingAISuggestions}
-                      className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-md"
-                    >
-                      {isGeneratingAISuggestions ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Wand2 className="h-4 w-4 mr-2" />
-                          AI Scope Suggestions
-                        </>
-                      )}
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          onClick={handleGenerateAISuggestions}
+                          disabled={isGeneratingAISuggestions}
+                          className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-md"
+                        >
+                          {isGeneratingAISuggestions ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="h-4 w-4 mr-2" />
+                              AI Scope Suggestions
+                            </>
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p className="font-medium">Generate AI Scope Suggestions</p>
+                        <p className="text-xs text-muted-foreground">Analyze damage zones and suggest line items for your estimate</p>
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
               </div>
