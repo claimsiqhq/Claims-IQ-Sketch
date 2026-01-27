@@ -807,48 +807,99 @@ export default function MovementExecutionPage() {
 
             {/* Validation Requirements */}
             {movement.validationRequirements && (
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertDescription>
-                  <span className="font-medium">Requirements:</span>
-                  <ul className="list-disc list-inside mt-1 text-sm space-y-1">
-                    {Array.isArray(movement.validationRequirements) ? (
-                      // Handle array of requirement objects
-                      movement.validationRequirements.map((req: any, index: number) => (
-                        <li key={index}>
-                          {req.type && <span className="font-medium capitalize">{req.type.replace('_', ' ')}:</span>}
-                          {req.description && <span className="ml-1">{req.description}</span>}
-                          {req.is_required !== undefined && (
-                            <span className="ml-2 text-xs">
-                              ({req.is_required ? 'Required' : 'Optional'})
-                            </span>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    Evidence Requirements
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {Array.isArray(movement.validationRequirements) ? (
+                    // Handle array of requirement objects
+                    (() => {
+                      const required = movement.validationRequirements.filter((req: any) => req.is_required === true);
+                      const optional = movement.validationRequirements.filter((req: any) => req.is_required !== true);
+                      
+                      return (
+                        <div className="space-y-3">
+                          {required.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge variant="destructive" className="text-xs">Required</Badge>
+                                <span className="text-xs text-muted-foreground">Must be completed</span>
+                              </div>
+                              <ul className="space-y-1.5 ml-1">
+                                {required.map((req: any, index: number) => (
+                                  <li key={index} className="text-sm flex items-start gap-2">
+                                    <span className="text-muted-foreground mt-0.5">•</span>
+                                    <div className="flex-1">
+                                      <span className="font-medium capitalize">{req.type?.replace(/_/g, ' ') || 'Evidence'}</span>
+                                      {req.description && (
+                                        <span className="text-muted-foreground ml-1">— {req.description}</span>
+                                      )}
+                                      {req.quantity_min !== undefined && req.quantity_max !== undefined && (
+                                        <span className="text-muted-foreground ml-1">
+                                          ({req.quantity_min === req.quantity_max 
+                                            ? `${req.quantity_min}` 
+                                            : `${req.quantity_min}-${req.quantity_max}`} 
+                                          {req.type === 'photo' ? ' photo' + (req.quantity_max > 1 ? 's' : '') 
+                                            : req.type === 'voice_note' ? ' note' + (req.quantity_max > 1 ? 's' : '')
+                                            : ' item' + (req.quantity_max > 1 ? 's' : '')})
+                                        </span>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           )}
-                          {req.quantity_min !== undefined && req.quantity_max !== undefined && (
-                            <span className="ml-2 text-xs">
-                              ({req.quantity_min}-{req.quantity_max} {req.type === 'photo' ? 'photos' : 'items'})
-                            </span>
+                          
+                          {optional.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge variant="secondary" className="text-xs">Optional</Badge>
+                                <span className="text-xs text-muted-foreground">Recommended but not required</span>
+                              </div>
+                              <ul className="space-y-1.5 ml-1">
+                                {optional.map((req: any, index: number) => (
+                                  <li key={index} className="text-sm flex items-start gap-2">
+                                    <span className="text-muted-foreground mt-0.5">•</span>
+                                    <div className="flex-1">
+                                      <span className="font-medium capitalize">{req.type?.replace(/_/g, ' ') || 'Evidence'}</span>
+                                      {req.description && (
+                                        <span className="text-muted-foreground ml-1">— {req.description}</span>
+                                      )}
+                                      {req.quantity_min !== undefined && req.quantity_max !== undefined && (
+                                        <span className="text-muted-foreground ml-1">
+                                          ({req.quantity_min === req.quantity_max 
+                                            ? `${req.quantity_min}` 
+                                            : `${req.quantity_min}-${req.quantity_max}`} 
+                                          {req.type === 'photo' ? ' photo' + (req.quantity_max > 1 ? 's' : '') 
+                                            : req.type === 'voice_note' ? ' note' + (req.quantity_max > 1 ? 's' : '')
+                                            : ' item' + (req.quantity_max > 1 ? 's' : '')})
+                                        </span>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           )}
-                        </li>
-                      ))
-                    ) : typeof movement.validationRequirements === 'object' ? (
-                      // Handle object with key-value pairs
-                      Object.entries(movement.validationRequirements).map(([key, value]) => (
-                        <li key={key}>
-                          <span className="font-medium">{key}:</span>{' '}
-                          {typeof value === 'object' && value !== null ? (
-                            <span className="text-muted-foreground">{JSON.stringify(value)}</span>
-                          ) : (
-                            <span>{String(value)}</span>
-                          )}
-                        </li>
-                      ))
-                    ) : (
-                      // Handle primitive value
-                      <li>{String(movement.validationRequirements)}</li>
-                    )}
-                  </ul>
-                </AlertDescription>
-              </Alert>
+                        </div>
+                      );
+                    })()
+                  ) : typeof movement.validationRequirements === 'object' ? (
+                    // Handle object with key-value pairs (fallback)
+                    <div className="text-sm text-muted-foreground">
+                      <p>Requirements data format not recognized. Please check the flow definition.</p>
+                    </div>
+                  ) : (
+                    // Handle primitive value (fallback)
+                    <div className="text-sm">{String(movement.validationRequirements)}</div>
+                  )}
+                </CardContent>
+              </Card>
             )}
           </div>
         </ScrollArea>
