@@ -482,6 +482,7 @@ export default function ClaimDetail() {
   const [editingOpening, setEditingOpening] = useState<RoomOpening | undefined>(undefined);
   const [isLineItemPickerOpen, setIsLineItemPickerOpen] = useState(false);
   const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const [isScheduleInspectionOpen, setIsScheduleInspectionOpen] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduleFormData, setScheduleFormData] = useState({
@@ -903,10 +904,20 @@ export default function ClaimDetail() {
     setIsOpeningModalOpen(true);
   };
 
+  // Open settings dialog and ensure regions/carriers are loaded
+  const openEstimateSettings = useCallback(async () => {
+    setIsEstimateSettingsOpen(true);
+    if (regions.length === 0 || carriers.length === 0) {
+      setIsLoadingSettings(true);
+      await loadRegionsAndCarriers();
+      setIsLoadingSettings(false);
+    }
+  }, [regions.length, carriers.length, loadRegionsAndCarriers]);
+
   const handleGenerateEstimate = async () => {
     if (!claim) return;
     if (scopeItems.length === 0) {
-      setIsEstimateSettingsOpen(true);
+      openEstimateSettings();
       return;
     }
     const result = await calculateEstimate(claim.id);
@@ -1412,7 +1423,7 @@ export default function ClaimDetail() {
               variant="outline"
               size="sm"
               className="hidden md:flex"
-              onClick={() => setIsEstimateSettingsOpen(true)}
+              onClick={openEstimateSettings}
             >
               <Settings2 className="h-4 w-4 mr-2" />
               Settings
@@ -3817,6 +3828,18 @@ export default function ClaimDetail() {
           <DialogHeader>
             <DialogTitle>Estimate Settings</DialogTitle>
           </DialogHeader>
+          {isLoadingSettings ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span className="ml-2 text-muted-foreground">Loading settings...</span>
+            </div>
+          ) : regions.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-muted-foreground mb-4">No regions available. Please configure regions in Settings.</p>
+              <Button variant="outline" onClick={() => setIsEstimateSettingsOpen(false)}>Close</Button>
+            </div>
+          ) : (
+          <>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="region">Region</Label>
@@ -3907,6 +3930,8 @@ export default function ClaimDetail() {
               )}
             </Button>
           </DialogFooter>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 
