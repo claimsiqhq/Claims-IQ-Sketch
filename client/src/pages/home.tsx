@@ -49,13 +49,14 @@ import { formatDistanceToNow } from "date-fns";
 import { ClaimUploadWizard } from "@/components/ClaimUploadWizard";
 
 function ClaimCard({ claim }: { claim: Claim }) {
+  // Use colors that contrast with the purple site theme
   const statusStyles: Record<string, { bg: string; text: string; border: string; icon: string }> = {
-    fnol: { bg: "bg-gradient-to-r from-purple-500 to-violet-500", text: "text-white", border: "border-purple-600", icon: "📥" },
-    open: { bg: "bg-gradient-to-r from-blue-500 to-cyan-500", text: "text-white", border: "border-blue-600", icon: "📂" },
-    in_progress: { bg: "bg-gradient-to-r from-amber-400 to-orange-500", text: "text-white", border: "border-amber-600", icon: "⚡" },
-    review: { bg: "bg-gradient-to-r from-orange-500 to-red-500", text: "text-white", border: "border-orange-600", icon: "👁️" },
-    approved: { bg: "bg-gradient-to-r from-emerald-500 to-green-500", text: "text-white", border: "border-emerald-600", icon: "✅" },
-    closed: { bg: "bg-gradient-to-r from-slate-400 to-slate-500", text: "text-white", border: "border-slate-500", icon: "📦" },
+    fnol: { bg: "bg-amber-400", text: "text-amber-900", border: "border-amber-500", icon: "📥" },
+    open: { bg: "bg-cyan-400", text: "text-cyan-900", border: "border-cyan-500", icon: "📂" },
+    in_progress: { bg: "bg-orange-400", text: "text-orange-900", border: "border-orange-500", icon: "⚡" },
+    review: { bg: "bg-rose-400", text: "text-rose-900", border: "border-rose-500", icon: "👁️" },
+    approved: { bg: "bg-emerald-400", text: "text-emerald-900", border: "border-emerald-500", icon: "✅" },
+    closed: { bg: "bg-slate-300", text: "text-slate-700", border: "border-slate-400", icon: "📦" },
   };
   const defaultStatus = { bg: "bg-slate-200", text: "text-slate-700", border: "border-slate-300", icon: "📋" };
   const statusStyle = statusStyles[claim.status] || defaultStatus;
@@ -168,13 +169,14 @@ function ClaimCard({ claim }: { claim: Claim }) {
 
 // Mobile-optimized claim card for compact display
 function MobileClaimCard({ claim }: { claim: Claim }) {
+  // Use colors that contrast with the purple site theme
   const statusStyles: Record<string, { bg: string; text: string; icon: string }> = {
-    fnol: { bg: "bg-gradient-to-r from-purple-500 to-violet-500", text: "text-white", icon: "📥" },
-    open: { bg: "bg-gradient-to-r from-blue-500 to-cyan-500", text: "text-white", icon: "📂" },
-    in_progress: { bg: "bg-gradient-to-r from-amber-400 to-orange-500", text: "text-white", icon: "⚡" },
-    review: { bg: "bg-gradient-to-r from-orange-500 to-red-500", text: "text-white", icon: "👁️" },
-    approved: { bg: "bg-gradient-to-r from-emerald-500 to-green-500", text: "text-white", icon: "✅" },
-    closed: { bg: "bg-gradient-to-r from-slate-400 to-slate-500", text: "text-white", icon: "📦" },
+    fnol: { bg: "bg-amber-400", text: "text-amber-900", icon: "📥" },
+    open: { bg: "bg-cyan-400", text: "text-cyan-900", icon: "📂" },
+    in_progress: { bg: "bg-orange-400", text: "text-orange-900", icon: "⚡" },
+    review: { bg: "bg-rose-400", text: "text-rose-900", icon: "👁️" },
+    approved: { bg: "bg-emerald-400", text: "text-emerald-900", icon: "✅" },
+    closed: { bg: "bg-slate-300", text: "text-slate-700", icon: "📦" },
   };
   const defaultStatus = { bg: "bg-slate-200", text: "text-slate-700", icon: "📋" };
   const statusStyle = statusStyles[claim.status] || defaultStatus;
