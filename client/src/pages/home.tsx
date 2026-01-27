@@ -493,7 +493,7 @@ export default function Home() {
               <span className="text-sm font-medium">New Claim</span>
             </button>
             <Link href="/voice-sketch">
-              <div className="bg-gradient-to-br from-purple-500 to-primary text-white p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
+              <div className="bg-gradient-to-br from-amber-500 to-orange-500 text-white p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
                 <Mic className="h-6 w-6" />
                 <span className="text-sm font-medium">Voice Sketch</span>
               </div>
@@ -503,7 +503,7 @@ export default function Home() {
           {/* Mobile Stats - Compact horizontal scroll */}
           <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
             <div className="bg-white p-3 rounded-lg border border-border flex items-center gap-2 shrink-0 min-w-[100px]">
-              <div className="h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+              <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
                 <FileText className="h-4 w-4" />
               </div>
               <div>
@@ -736,7 +736,7 @@ export default function Home() {
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+            <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
               <FileText className="h-6 w-6" />
             </div>
             <div>
