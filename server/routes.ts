@@ -1872,8 +1872,28 @@ export async function registerRoutes(
     sendSuccess(res, data);
   }));
 
-  // Get regions
+  // Get regions (now uses jurisdictions table)
   app.get('/api/regions', requireAuth, requireOrganization, apiRateLimiter, validateQuery(z.object({}).passthrough()), asyncHandler(async (req, res, next) => {
+    // Try jurisdictions table first (preferred)
+    const { data: jurisdictionsData, error: jurisdictionsError } = await supabaseAdmin
+      .from('jurisdictions')
+      .select('id, code, name, state_code, sales_tax_rate, is_active')
+      .eq('is_active', true)
+      .order('name');
+
+    if (!jurisdictionsError && jurisdictionsData && jurisdictionsData.length > 0) {
+      // Map jurisdictions to region format for compatibility
+      const regions = jurisdictionsData.map((j: any) => ({
+        id: j.code || j.id,
+        name: j.name,
+        state: j.state_code,
+        tax_rate: j.sales_tax_rate,
+      }));
+      const { sendSuccess } = await import('./middleware/responseHelpers');
+      return sendSuccess(res, regions);
+    }
+
+    // Fallback to regions table
     const { data, error } = await supabaseAdmin
       .from('regions')
       .select('*')
@@ -1882,7 +1902,21 @@ export async function registerRoutes(
     if (error) throw error;
 
     const { sendSuccess } = await import('./middleware/responseHelpers');
-    sendSuccess(res, data);
+    sendSuccess(res, data || []);
+  }));
+
+  // Get jurisdictions directly
+  app.get('/api/jurisdictions', requireAuth, requireOrganization, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const { data, error } = await supabaseAdmin
+      .from('jurisdictions')
+      .select('*')
+      .eq('is_active', true)
+      .order('name');
+
+    if (error) throw error;
+
+    const { sendSuccess } = await import('./middleware/responseHelpers');
+    sendSuccess(res, data || []);
   }));
 
   // ============================================
