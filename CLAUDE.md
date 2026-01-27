@@ -213,6 +213,83 @@ If you encounter old endpoint references, use this mapping:
 
 ---
 
+## Database Schema Audit (2026-01-23)
+
+**Status:** ✅ **SCHEMA MATCHES CODE** - Comprehensive audit completed
+
+### Audit Summary
+
+A comprehensive audit was performed comparing database schema definitions (`shared/schema.ts`) with actual code usage in services and routes. **All critical tables and columns exist and match code expectations.**
+
+### Flow Engine Tables
+
+| Table | Status | Key Columns |
+|-------|--------|-------------|
+| `flow_definitions` | ✅ Match | `id`, `organization_id`, `name`, `peril_type`, `flow_json`, `version`, `is_active` |
+| `claim_flow_instances` | ✅ Match | `id`, `claim_id`, `flow_definition_id`, `status`, `current_phase_id`, `completed_movements` |
+| `movement_completions` | ✅ Match | `id`, `flow_instance_id`, `movement_id`, `movement_phase`, `claim_id`, `evidence_data`, `skipped_required` |
+| `movement_evidence` | ✅ Match | `id`, `flow_instance_id`, `movement_id`, `evidence_type`, `reference_id` |
+
+### Evidence Tables
+
+| Table | Status | Key Columns |
+|-------|--------|-------------|
+| `audio_observations` | ✅ Match | `id`, `organization_id`, `claim_id`, `flow_instance_id`, `movement_id`, `movement_completion_id`, `audio_storage_path`, `transcription_status`, `extraction_status` |
+| `claim_photos` | ✅ Match | `id`, `organization_id`, `claim_id`, `flow_instance_id`, `movement_id`, `storage_path`, `analysis_status` |
+
+### Column Naming Convention
+
+**✅ Consistent:** All database columns use **snake_case** (`claim_id`, `flow_instance_id`).  
+**Code Mapping:** Services correctly map TypeScript camelCase (`claimId`, `flowInstanceId`) to database snake_case.
+
+### Foreign Keys
+
+**✅ All Foreign Keys Present:**
+- `claim_flow_instances.claim_id` → `claims.id` (CASCADE)
+- `claim_flow_instances.flow_definition_id` → `flow_definitions.id`
+- `movement_completions.flow_instance_id` → `claim_flow_instances.id` (CASCADE)
+- `movement_completions.claim_id` → `claims.id` (CASCADE)
+- `movement_evidence.flow_instance_id` → `claim_flow_instances.id` (CASCADE)
+- `audio_observations.organization_id` → `organizations.id` (CASCADE)
+- `audio_observations.flow_instance_id` → `claim_flow_instances.id` (SET NULL)
+- `audio_observations.movement_completion_id` → `movement_completions.id` (SET NULL)
+- `claim_photos.organization_id` → `organizations.id`
+- `claim_photos.claim_id` → `claims.id`
+
+**Note:** `claim_photos.flow_instance_id` and `claim_photos.movement_id` intentionally have **no FK constraints** (nullable references that may not always have valid targets).
+
+### Indexes
+
+**✅ All Required Indexes Present:**
+- Flow instance indexes on `claim_id`, `status`, `flow_definition_id`
+- Movement completion indexes on `flow_instance_id`, `movement_id`, `claim_id`, `movement_phase`
+- Movement evidence indexes on `flow_instance_id`, `movement_id`, `evidence_type`
+- Audio observation indexes on `organization_id`, `claim_id`, `flow_instance_id`, `movement_id`
+- Claim photo indexes on `claim_id`, `organization_id`, `flow_instance_id`, `movement_id`, `structure_id`, `room_id`
+
+### Migrations Applied
+
+1. ✅ **048_flow_engine_tables.sql** - Creates flow engine tables
+2. ✅ **051_fix_audio_observations_flow_columns.sql** - Adds flow context columns to audio_observations
+3. ✅ **055_add_movement_completions_columns.sql** - Adds validation columns to movement_completions
+
+### Verification Script
+
+Run the audit script to verify schema consistency:
+```sql
+\i db/audit_schema_consistency.sql
+```
+
+### Potential Issues
+
+**⚠️ Minor:** Audio upload route (`server/routes.ts:4302`) passes `movementCompletionId: movementId`. The service correctly maps this to `movement_completion_id` column. If the route also needs to set `movement_id` (string format "phaseId:movementId"), it should pass a separate parameter. **Status:** Functional, but could be clarified.
+
+### Full Audit Report
+
+See `SCHEMA_AUDIT_REPORT.md` for complete details.
+
+---
+
 ## Key Files Quick Reference
 
 | Purpose | File |
@@ -415,7 +492,7 @@ The sketching system allows field adjusters to create floor plans with rooms, st
 - **Repository:** Claims-IQ-Sketch
 - **Documentation:** Confluence (Claims IQ space)
 - **Project Management:** Asana
-- **Last Updated:** 2026-01-23
+- **Last Updated:** 2026-01-23 (Schema audit completed)
 
 ---
 
