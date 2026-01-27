@@ -500,12 +500,14 @@ export function VoiceSketchController({
             <span className="text-xs text-muted-foreground italic">No structure</span>
           ) : (
             <>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs font-medium">
-                    {currentStructure?.name || 'Select'}
-                  </Button>
-                </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs font-medium">
+                        {currentStructure?.name || 'Select'}
+                      </Button>
+                    </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuLabel>Structures</DropdownMenuLabel>
                   <DropdownMenuSeparator />
@@ -521,6 +523,12 @@ export function VoiceSketchController({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="font-medium">Select Structure</p>
+                <p className="text-xs text-muted-foreground">Choose which structure to work on</p>
+              </TooltipContent>
+            </Tooltip>
               {currentRoom && (
                 <>
                   <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />

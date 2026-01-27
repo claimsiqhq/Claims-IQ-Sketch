@@ -659,6 +659,9 @@ export default function ClaimDetail() {
           };
         });
 
+      // Get room from savedRooms to check if it has timestamps
+      const now = new Date().toISOString();
+      
       return {
         id: claimRoom.id,
         name: claimRoom.name,
@@ -671,8 +674,8 @@ export default function ClaimDetail() {
         features: (claimRoom.features as Feature[]) || [],
         damageZones: damageZonesForRoom,
         notes: (claimRoom.notes as RoomNote[]) || [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: now,
+        updated_at: now,
         origin_x_ft: typeof claimRoom.originXFt === 'number' ? claimRoom.originXFt : parseFloat(String(claimRoom.originXFt || '0')),
         origin_y_ft: typeof claimRoom.originYFt === 'number' ? claimRoom.originYFt : parseFloat(String(claimRoom.originYFt || '0')),
         structureId: claimRoom.structureId,
