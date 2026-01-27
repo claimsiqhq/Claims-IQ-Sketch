@@ -62,15 +62,15 @@ function ClaimCard({ claim }: { claim: Claim }) {
   const statusStyle = statusStyles[claim.status] || defaultStatus;
 
   // Peril-based border and accent colors - vibrant colorful gradient backgrounds
-  const perilStyles: Record<string, { border: string; bg: string; icon: string }> = {
-    wind_hail: { border: "border-l-cyan-500", bg: "bg-gradient-to-br from-cyan-100 via-cyan-50 to-sky-100 shadow-md", icon: "💨" },
-    fire: { border: "border-l-orange-500", bg: "bg-gradient-to-br from-orange-100 via-amber-50 to-yellow-100 shadow-md", icon: "🔥" },
-    water: { border: "border-l-blue-500", bg: "bg-gradient-to-br from-blue-100 via-blue-50 to-indigo-100 shadow-md", icon: "💧" },
-    flood: { border: "border-l-indigo-500", bg: "bg-gradient-to-br from-indigo-100 via-violet-50 to-purple-100 shadow-md", icon: "🌊" },
-    smoke: { border: "border-l-gray-500", bg: "bg-gradient-to-br from-gray-100 via-slate-50 to-zinc-100 shadow-md", icon: "💨" },
-    mold: { border: "border-l-emerald-500", bg: "bg-gradient-to-br from-emerald-100 via-green-50 to-teal-100 shadow-md", icon: "🍄" },
-    impact: { border: "border-l-red-500", bg: "bg-gradient-to-br from-red-100 via-rose-50 to-pink-100 shadow-md", icon: "💥" },
-    other: { border: "border-l-slate-400", bg: "bg-gradient-to-br from-slate-100 via-gray-50 to-stone-100 shadow-md", icon: "📋" },
+  const perilStyles: Record<string, { border: string; bgStyle: React.CSSProperties; icon: string }> = {
+    wind_hail: { border: "border-l-cyan-500", bgStyle: { background: "linear-gradient(135deg, #cffafe 0%, #e0f2fe 50%, #bae6fd 100%)" }, icon: "💨" },
+    fire: { border: "border-l-orange-500", bgStyle: { background: "linear-gradient(135deg, #fed7aa 0%, #fef3c7 50%, #fde68a 100%)" }, icon: "🔥" },
+    water: { border: "border-l-blue-500", bgStyle: { background: "linear-gradient(135deg, #bfdbfe 0%, #dbeafe 50%, #c7d2fe 100%)" }, icon: "💧" },
+    flood: { border: "border-l-indigo-500", bgStyle: { background: "linear-gradient(135deg, #c7d2fe 0%, #ede9fe 50%, #e9d5ff 100%)" }, icon: "🌊" },
+    smoke: { border: "border-l-gray-500", bgStyle: { background: "linear-gradient(135deg, #e5e7eb 0%, #f1f5f9 50%, #e4e4e7 100%)" }, icon: "💨" },
+    mold: { border: "border-l-emerald-500", bgStyle: { background: "linear-gradient(135deg, #a7f3d0 0%, #d1fae5 50%, #99f6e4 100%)" }, icon: "🍄" },
+    impact: { border: "border-l-red-500", bgStyle: { background: "linear-gradient(135deg, #fecaca 0%, #ffe4e6 50%, #fbcfe8 100%)" }, icon: "💥" },
+    other: { border: "border-l-slate-400", bgStyle: { background: "linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #e7e5e4 100%)" }, icon: "📋" },
   };
 
   // Legacy lossType to peril mapping
@@ -88,7 +88,7 @@ function ClaimCard({ claim }: { claim: Claim }) {
 
   return (
     <Link href={`/claim/${claim.id}`}>
-      <Card className={`hover:shadow-lg transition-all cursor-pointer border-l-4 ${perilStyle.border} ${perilStyle.bg} hover:scale-[1.01]`}>
+      <Card className={`hover:shadow-lg transition-all cursor-pointer border-l-4 ${perilStyle.border} shadow-md hover:scale-[1.01]`} style={perilStyle.bgStyle}>
         <CardContent className="p-4">
           <div className="flex items-start justify-between mb-3">
             <div>
