@@ -505,7 +505,7 @@ export default function Home() {
 
           {/* Mobile Stats - Compact horizontal scroll */}
           <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4 scrollbar-hide">
-            <div className="bg-amber-50 p-3 rounded-lg border-2 border-amber-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+            <div className="bg-amber-100 p-3 rounded-lg border-2 border-amber-300 flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-sm">
                 <FileText className="h-4 w-4" />
               </div>
@@ -514,7 +514,7 @@ export default function Home() {
                 <p className="text-lg font-bold text-amber-900">{stats?.total || 0}</p>
               </div>
             </div>
-            <div className="bg-purple-50 p-3 rounded-lg border-2 border-purple-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+            <div className="bg-purple-100 p-3 rounded-lg border-2 border-purple-300 flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center text-white shadow-sm">
                 <FileText className="h-4 w-4" />
               </div>
@@ -523,7 +523,7 @@ export default function Home() {
                 <p className="text-lg font-bold text-purple-900">{stats?.totalDocuments || 0}</p>
               </div>
             </div>
-            <div className="bg-orange-50 p-3 rounded-lg border-2 border-orange-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+            <div className="bg-orange-100 p-3 rounded-lg border-2 border-orange-300 flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-sm">
                 <Clock className="h-4 w-4" />
               </div>
@@ -532,7 +532,7 @@ export default function Home() {
                 <p className="text-lg font-bold text-orange-900">{stats?.pendingDocuments || 0}</p>
               </div>
             </div>
-            <div className="bg-emerald-50 p-3 rounded-lg border-2 border-emerald-200 flex items-center gap-2 shrink-0 min-w-[100px]">
+            <div className="bg-emerald-100 p-3 rounded-lg border-2 border-emerald-300 flex items-center gap-2 shrink-0 min-w-[100px]">
               <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-sm">
                 <Camera className="h-4 w-4" />
               </div>
