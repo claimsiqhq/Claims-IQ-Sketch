@@ -483,6 +483,7 @@ export default function ClaimDetail() {
   const [isLineItemPickerOpen, setIsLineItemPickerOpen] = useState(false);
   const [isEstimateSettingsOpen, setIsEstimateSettingsOpen] = useState(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isScheduleInspectionOpen, setIsScheduleInspectionOpen] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduleFormData, setScheduleFormData] = useState({
@@ -913,6 +914,28 @@ export default function ClaimDetail() {
       setIsLoadingSettings(false);
     }
   }, [regions.length, carriers.length, loadRegionsAndCarriers]);
+
+  // Save estimate settings to the database
+  const saveEstimateSettings = useCallback(async () => {
+    if (!claim) return false;
+    setIsSavingSettings(true);
+    try {
+      await updateClaim(claim.id, {
+        regionId: estimateSettings.regionId || undefined,
+        carrierId: estimateSettings.carrierProfileId || undefined,
+      } as any);
+      toast.success('Estimate settings saved');
+      // Refresh claim data
+      queryClient.invalidateQueries({ queryKey: ['claim', claim.id] });
+      return true;
+    } catch (error) {
+      console.error('Failed to save estimate settings:', error);
+      toast.error('Failed to save settings');
+      return false;
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }, [claim, estimateSettings, queryClient]);
 
   const handleGenerateEstimate = async () => {
     if (!claim) return;
@@ -3906,19 +3929,43 @@ export default function ClaimDetail() {
               <p className="text-sm text-destructive">{estimateError}</p>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => setIsEstimateSettingsOpen(false)}>
               Cancel
             </Button>
             <Button
+              variant="secondary"
               onClick={async () => {
+                const saved = await saveEstimateSettings();
+                if (saved) {
+                  setIsEstimateSettingsOpen(false);
+                }
+              }}
+              disabled={isSavingSettings}
+            >
+              {isSavingSettings ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Settings
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={async () => {
+                // Save settings first, then calculate
+                await saveEstimateSettings();
                 const result = await calculateEstimate(claim.id);
                 if (result) {
                   setIsEstimateSettingsOpen(false);
                   setActiveTab("estimate");
                 }
               }}
-              disabled={isCalculating || scopeItems.length === 0}
+              disabled={isCalculating || isSavingSettings || scopeItems.length === 0}
             >
               {isCalculating ? (
                 <>

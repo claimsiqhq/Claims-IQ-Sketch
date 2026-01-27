@@ -100,6 +100,11 @@ export const claimUpdateSchema = z.object({
   adjusterPhone: z.string().optional(),
   notes: z.string().optional(),
   status: z.string().optional(),
+  // Estimate settings
+  regionId: z.string().optional(),
+  carrierId: z.string().uuid().optional().nullable(),
+  overheadPct: z.number().min(0).max(100).optional(),
+  profitPct: z.number().min(0).max(100).optional(),
 }).passthrough();
 
 // ============================================
