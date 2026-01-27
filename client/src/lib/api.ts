@@ -313,7 +313,9 @@ export async function getRegions(): Promise<Region[]> {
   if (!response.ok) {
     throw new Error('Failed to fetch regions');
   }
-  return response.json();
+  const result = await response.json();
+  // Handle both wrapped { success: true, data: [...] } and direct array responses
+  return Array.isArray(result) ? result : (result.data || []);
 }
 
 export async function getCarrierProfiles(): Promise<CarrierProfile[]> {
@@ -323,7 +325,9 @@ export async function getCarrierProfiles(): Promise<CarrierProfile[]> {
   if (!response.ok) {
     throw new Error('Failed to fetch carrier profiles');
   }
-  return response.json();
+  const result = await response.json();
+  // Handle both wrapped { success: true, data: [...] } and direct array responses
+  return Array.isArray(result) ? result : (result.data || []);
 }
 
 // ============================================

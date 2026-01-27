@@ -374,6 +374,10 @@ export const useStore = create<StoreState>((set, get) => ({
         getCarrierProfiles(),
       ]);
 
+      // Ensure arrays (handle API response format changes)
+      regions = Array.isArray(regions) ? regions : [];
+      carriers = Array.isArray(carriers) ? carriers : [];
+
       // If no data found, seed it
       if (regions.length === 0 || carriers.length === 0) {
         try {
@@ -386,6 +390,9 @@ export const useStore = create<StoreState>((set, get) => ({
             getRegions(),
             getCarrierProfiles(),
           ]);
+          // Ensure arrays again after reload
+          regions = Array.isArray(regions) ? regions : [];
+          carriers = Array.isArray(carriers) ? carriers : [];
         } catch (seedError) {
           console.error('Failed to seed reference data:', seedError);
         }
@@ -401,7 +408,12 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }));
     } catch (error) {
-      // Failed to load regions and carriers - will retry on next attempt
+      // Failed to load regions and carriers - ensure arrays are set to empty
+      set((state) => ({
+        regions: [],
+        carriers: [],
+      }));
+      console.error('Failed to load regions and carriers:', error);
     }
   },
 
