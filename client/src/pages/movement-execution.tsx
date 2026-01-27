@@ -236,28 +236,55 @@ export default function MovementExecutionPage() {
         toast.success('Movement completed (offline - will sync when online)');
       }
 
-      // Invalidate queries (only if online)
+      // Invalidate and refetch queries (only if online)
       if (isOnline) {
+        // Invalidate all related queries
         queryClient.invalidateQueries({ queryKey: ['flowInstance', flowId] });
         queryClient.invalidateQueries({ queryKey: ['flowPhases', flowId] });
         queryClient.invalidateQueries({ queryKey: ['nextMovement', flowId] });
         queryClient.invalidateQueries({ queryKey: ['phaseMovements', flowId] });
+
+        // CRITICAL: Refetch flow instance to ensure we have the latest completed_movements array
+        // before calling getNextMovement. Without this, getNextMovement may use stale data
+        // and return the same movement we just completed.
+        await queryClient.refetchQueries({ queryKey: ['flowInstance', flowId] });
       }
 
       // Navigate to next movement or back to flow progress
       try {
         if (isOnline) {
           const next = await getNextMovement(flowId!);
+          
+          // Check if next movement is different from current (prevents staying on same step)
           if (next.type === 'movement' && next.movement) {
-            setLocation(`/flows/${flowId}/movements/${next.movement.id}`);
+            if (next.movement.id === movementId) {
+              // Same movement returned - backend might not have updated yet
+              // Wait a moment and retry once
+              console.warn('Next movement is same as current, retrying after delay...');
+              await new Promise(resolve => setTimeout(resolve, 500));
+              const retryNext = await getNextMovement(flowId!);
+              
+              if (retryNext.type === 'movement' && retryNext.movement && retryNext.movement.id !== movementId) {
+                setLocation(`/flows/${flowId}/movements/${retryNext.movement.id}`);
+              } else {
+                // Still same or no movement - go to flow progress
+                setLocation(`/flows/${flowId}`);
+              }
+            } else {
+              // Different movement - navigate to it
+              setLocation(`/flows/${flowId}/movements/${next.movement.id}`);
+            }
           } else {
+            // No more movements or flow complete - go to flow progress
             setLocation(`/flows/${flowId}`);
           }
         } else {
           // Offline: optimistic navigation (may need adjustment based on cached flow state)
           setLocation(`/flows/${flowId}`);
         }
-      } catch {
+      } catch (error) {
+        console.error('Failed to get next movement:', error);
+        // If we can't get next movement, go back to flow progress
         setLocation(`/flows/${flowId}`);
       }
     },
