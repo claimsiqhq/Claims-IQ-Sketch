@@ -5288,5 +5288,69 @@ export async function registerRoutes(
     res.json({ message: 'Cache refreshed successfully' });
   }));
 
+  /**
+   * POST /api/admin/seed-reference-data
+   * Seed regions and carrier profiles if they don't exist
+   */
+  app.post('/api/admin/seed-reference-data', requireAuth, apiRateLimiter, asyncHandler(async (req, res, next) => {
+    const results: { regions: number; carriers: number } = { regions: 0, carriers: 0 };
+
+    // Seed regions
+    const regionsData = [
+      { id: 'NATIONAL', name: 'National Average', state: 'US', price_index: 1.00, labor_index: 1.00, material_index: 1.00, equipment_index: 1.00, currency: 'USD', tax_rate: 0.0625 },
+      { id: 'TX-DFW', name: 'Texas - Dallas/Fort Worth', state: 'TX', price_index: 0.97, labor_index: 0.95, material_index: 0.98, equipment_index: 0.97, currency: 'USD', tax_rate: 0.0825 },
+      { id: 'TX-HOU', name: 'Texas - Houston', state: 'TX', price_index: 0.98, labor_index: 0.97, material_index: 1.00, equipment_index: 0.98, currency: 'USD', tax_rate: 0.0825 },
+      { id: 'TX-AUS', name: 'Texas - Austin', state: 'TX', price_index: 1.02, labor_index: 1.00, material_index: 1.02, equipment_index: 1.00, currency: 'USD', tax_rate: 0.0825 },
+      { id: 'CA-LA', name: 'California - Los Angeles', state: 'CA', price_index: 1.25, labor_index: 1.30, material_index: 1.18, equipment_index: 1.15, currency: 'USD', tax_rate: 0.0950 },
+      { id: 'CA-SF', name: 'California - San Francisco', state: 'CA', price_index: 1.35, labor_index: 1.40, material_index: 1.25, equipment_index: 1.20, currency: 'USD', tax_rate: 0.0875 },
+      { id: 'FL-MIA', name: 'Florida - Miami', state: 'FL', price_index: 1.05, labor_index: 1.02, material_index: 1.05, equipment_index: 1.03, currency: 'USD', tax_rate: 0.0700 },
+      { id: 'FL-ORL', name: 'Florida - Orlando', state: 'FL', price_index: 0.98, labor_index: 0.95, material_index: 1.00, equipment_index: 0.98, currency: 'USD', tax_rate: 0.0650 },
+      { id: 'NY-NYC', name: 'New York - NYC Metro', state: 'NY', price_index: 1.45, labor_index: 1.55, material_index: 1.30, equipment_index: 1.25, currency: 'USD', tax_rate: 0.0875 },
+      { id: 'IL-CHI', name: 'Illinois - Chicago', state: 'IL', price_index: 1.15, labor_index: 1.20, material_index: 1.10, equipment_index: 1.08, currency: 'USD', tax_rate: 0.1025 },
+      { id: 'CO-DEN', name: 'Colorado - Denver', state: 'CO', price_index: 1.08, labor_index: 1.05, material_index: 1.08, equipment_index: 1.05, currency: 'USD', tax_rate: 0.0877 },
+      { id: 'GA-ATL', name: 'Georgia - Atlanta', state: 'GA', price_index: 1.00, labor_index: 0.98, material_index: 1.02, equipment_index: 1.00, currency: 'USD', tax_rate: 0.0890 },
+    ];
+
+    for (const region of regionsData) {
+      const { error } = await supabaseAdmin
+        .from('regions')
+        .upsert(region, { onConflict: 'id' });
+      if (!error) results.regions++;
+    }
+
+    // Seed carrier profiles
+    const carriersData = [
+      { id: crypto.randomUUID(), name: 'State Farm', code: 'STATEFARM', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'Allstate', code: 'ALLSTATE', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'USAA', code: 'USAA', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'Liberty Mutual', code: 'LIBERTY', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'Farmers Insurance', code: 'FARMERS', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'Travelers', code: 'TRAVELERS', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'Nationwide', code: 'NATIONWIDE', overhead_allowed: true, profit_allowed: true, default_overhead_pct: 10, default_profit_pct: 10, depreciation_method: 'age_based', is_active: true },
+      { id: crypto.randomUUID(), name: 'Progressive', code: 'PROGRESSIVE', overhead_allowed: true, profit_allowed: false, default_overhead_pct: 10, default_profit_pct: 0, depreciation_method: 'age_based', is_active: true },
+    ];
+
+    // Check if carriers already exist
+    const { data: existingCarriers } = await supabaseAdmin
+      .from('carrier_profiles')
+      .select('code');
+
+    const existingCodes = new Set((existingCarriers || []).map((c: any) => c.code));
+
+    for (const carrier of carriersData) {
+      if (!existingCodes.has(carrier.code)) {
+        const { error } = await supabaseAdmin
+          .from('carrier_profiles')
+          .insert(carrier);
+        if (!error) results.carriers++;
+      }
+    }
+
+    res.json({ 
+      message: 'Reference data seeded successfully',
+      seeded: results
+    });
+  }));
+
   return httpServer;
 }
