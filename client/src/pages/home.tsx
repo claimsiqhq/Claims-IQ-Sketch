@@ -61,16 +61,16 @@ function ClaimCard({ claim }: { claim: Claim }) {
   const defaultStatus = { bg: "bg-slate-200", text: "text-slate-700", border: "border-slate-300", icon: "📋" };
   const statusStyle = statusStyles[claim.status] || defaultStatus;
 
-  // Peril-based border and accent colors - solid white backgrounds for better visibility
+  // Peril-based border and accent colors - vibrant colorful gradient backgrounds
   const perilStyles: Record<string, { border: string; bg: string; icon: string }> = {
-    wind_hail: { border: "border-l-cyan-500", bg: "bg-white shadow-md", icon: "💨" },
-    fire: { border: "border-l-orange-500", bg: "bg-white shadow-md", icon: "🔥" },
-    water: { border: "border-l-blue-500", bg: "bg-white shadow-md", icon: "💧" },
-    flood: { border: "border-l-indigo-500", bg: "bg-white shadow-md", icon: "🌊" },
-    smoke: { border: "border-l-gray-500", bg: "bg-white shadow-md", icon: "💨" },
-    mold: { border: "border-l-emerald-500", bg: "bg-white shadow-md", icon: "🍄" },
-    impact: { border: "border-l-red-500", bg: "bg-white shadow-md", icon: "💥" },
-    other: { border: "border-l-slate-400", bg: "bg-white shadow-md", icon: "📋" },
+    wind_hail: { border: "border-l-cyan-500", bg: "bg-gradient-to-br from-cyan-100 via-cyan-50 to-sky-100 shadow-md", icon: "💨" },
+    fire: { border: "border-l-orange-500", bg: "bg-gradient-to-br from-orange-100 via-amber-50 to-yellow-100 shadow-md", icon: "🔥" },
+    water: { border: "border-l-blue-500", bg: "bg-gradient-to-br from-blue-100 via-blue-50 to-indigo-100 shadow-md", icon: "💧" },
+    flood: { border: "border-l-indigo-500", bg: "bg-gradient-to-br from-indigo-100 via-violet-50 to-purple-100 shadow-md", icon: "🌊" },
+    smoke: { border: "border-l-gray-500", bg: "bg-gradient-to-br from-gray-100 via-slate-50 to-zinc-100 shadow-md", icon: "💨" },
+    mold: { border: "border-l-emerald-500", bg: "bg-gradient-to-br from-emerald-100 via-green-50 to-teal-100 shadow-md", icon: "🍄" },
+    impact: { border: "border-l-red-500", bg: "bg-gradient-to-br from-red-100 via-rose-50 to-pink-100 shadow-md", icon: "💥" },
+    other: { border: "border-l-slate-400", bg: "bg-gradient-to-br from-slate-100 via-gray-50 to-stone-100 shadow-md", icon: "📋" },
   };
 
   // Legacy lossType to peril mapping
