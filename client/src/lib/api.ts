@@ -983,17 +983,12 @@ export async function getClaim(id: string): Promise<Claim> {
   if (!response.ok) {
     throw new Error('Failed to fetch claim');
   }
-  const data = await response.json();
-  // API may return { claim: {...} } or the claim object directly
-  // Handle both formats for backward compatibility
-  if (data.claim) {
-    return data.claim;
+  const claim = await response.json();
+  // API returns the claim object directly
+  if (!claim || !claim.id) {
+    throw new Error('Invalid response: claim not found in response');
   }
-  // If it's already a claim object (has id and other claim properties), return it directly
-  if (data.id && (data.claimId || data.claimNumber || data.policyholder)) {
-    return data;
-  }
-  throw new Error('Invalid response: claim not found in response');
+  return claim;
 }
 
 export async function updateClaim(id: string, data: Partial<Claim>): Promise<Claim> {
