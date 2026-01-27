@@ -369,10 +369,27 @@ export const useStore = create<StoreState>((set, get) => ({
   // Estimate actions
   loadRegionsAndCarriers: async () => {
     try {
-      const [regions, carriers] = await Promise.all([
+      let [regions, carriers] = await Promise.all([
         getRegions(),
         getCarrierProfiles(),
       ]);
+
+      // If no data found, seed it
+      if (regions.length === 0 || carriers.length === 0) {
+        try {
+          await fetch('/api/admin/seed-reference-data', {
+            method: 'POST',
+            credentials: 'include',
+          });
+          // Reload after seeding
+          [regions, carriers] = await Promise.all([
+            getRegions(),
+            getCarrierProfiles(),
+          ]);
+        } catch (seedError) {
+          console.error('Failed to seed reference data:', seedError);
+        }
+      }
 
       set((state) => ({
         regions,
