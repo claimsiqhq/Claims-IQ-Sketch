@@ -492,10 +492,13 @@ export default function Home() {
               <Plus className="h-6 w-6" />
               <span className="text-sm font-medium">New Claim</span>
             </button>
-            <Link href="/voice-sketch">
-              <div className="bg-gradient-to-br from-amber-500 to-orange-500 text-white p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target">
-                <Mic className="h-6 w-6" />
-                <span className="text-sm font-medium">Voice Sketch</span>
+            <Link href="/voice-sketch" className="block h-full">
+              <div 
+                className="p-4 rounded-xl flex flex-col items-center justify-center gap-2 active:opacity-90 transition-opacity min-tap-target shadow-md h-full"
+                style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)', color: 'white' }}
+              >
+                <Mic className="h-6 w-6" style={{ color: 'white' }} />
+                <span className="text-sm font-medium" style={{ color: 'white' }}>Voice Sketch</span>
               </div>
             </Link>
           </div>
