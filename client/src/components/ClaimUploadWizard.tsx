@@ -352,11 +352,13 @@ export function ClaimUploadWizard({
     : queue;
 
   return (
-    <Card className={cn("overflow-hidden", className)} data-testid="claim-upload-wizard">
-      <CardHeader className="pb-3">
+    <Card className={cn("overflow-hidden border-2 border-emerald-200 shadow-lg", className)} data-testid="claim-upload-wizard">
+      <CardHeader className="pb-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <FolderPlus className="h-5 w-5 text-primary" />
+          <CardTitle className="text-lg font-bold flex items-center gap-2 text-emerald-800">
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg p-1.5">
+              <FolderPlus className="h-5 w-5 text-white" />
+            </div>
             Upload Documents
             {stats.isActive && (
               <Badge variant="secondary" className="ml-2">
@@ -430,17 +432,19 @@ export function ClaimUploadWizard({
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">1. FNOL Document</span>
+                <div className="bg-amber-500 rounded-full p-1">
+                  <FileText className="h-3 w-3 text-white" />
+                </div>
+                <span className="text-sm font-semibold text-amber-800">1. FNOL Document</span>
                 {fnolState.status !== "idle" && renderFnolStatus()}
               </div>
               
               {fnolState.status === "idle" && (
                 <div
                   className={cn(
-                    "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all",
-                    isDraggingFnol ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50",
-                    fnolState.file && "border-primary bg-primary/5"
+                    "border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all",
+                    isDraggingFnol ? "border-amber-500 bg-amber-50" : "border-amber-300 bg-amber-50/50 hover:border-amber-400 hover:bg-amber-50",
+                    fnolState.file && "border-amber-500 bg-amber-100"
                   )}
                   onDragEnter={(e) => { e.preventDefault(); setIsDraggingFnol(true); }}
                   onDragLeave={(e) => { e.preventDefault(); if (e.currentTarget === e.target) setIsDraggingFnol(false); }}
@@ -486,15 +490,17 @@ export function ClaimUploadWizard({
 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <Link2 className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">2. Supporting Documents</span>
-                <span className="text-xs text-muted-foreground">(policies, endorsements, photos)</span>
+                <div className="bg-sky-500 rounded-full p-1">
+                  <Link2 className="h-3 w-3 text-white" />
+                </div>
+                <span className="text-sm font-semibold text-sky-800">2. Supporting Documents</span>
+                <span className="text-xs text-sky-600">(policies, endorsements, photos)</span>
               </div>
               
               <div
                 className={cn(
-                  "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all",
-                  isDraggingSupporting ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
+                  "border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all",
+                  isDraggingSupporting ? "border-sky-500 bg-sky-50" : "border-sky-300 bg-sky-50/50 hover:border-sky-400 hover:bg-sky-50"
                 )}
                 onDragEnter={(e) => { e.preventDefault(); setIsDraggingSupporting(true); }}
                 onDragLeave={(e) => { e.preventDefault(); if (e.currentTarget === e.target) setIsDraggingSupporting(false); }}
@@ -596,11 +602,11 @@ export function ClaimUploadWizard({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Documents to Attach</Label>
+              <Label className="text-sm font-semibold text-violet-800">Documents to Attach</Label>
               <div
                 className={cn(
-                  "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all",
-                  isDraggingSupporting ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
+                  "border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all",
+                  isDraggingSupporting ? "border-violet-500 bg-violet-50" : "border-violet-300 bg-violet-50/50 hover:border-violet-400 hover:bg-violet-50"
                 )}
                 onDragEnter={(e) => { e.preventDefault(); setIsDraggingSupporting(true); }}
                 onDragLeave={(e) => { e.preventDefault(); if (e.currentTarget === e.target) setIsDraggingSupporting(false); }}

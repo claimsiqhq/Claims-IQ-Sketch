@@ -63,14 +63,14 @@ function ClaimCard({ claim }: { claim: Claim }) {
 
   // Peril-based border and accent colors - vibrant colorful gradient backgrounds
   const perilStyles: Record<string, { border: string; bgStyle: React.CSSProperties; icon: string }> = {
-    wind_hail: { border: "border-l-cyan-500", bgStyle: { background: "linear-gradient(135deg, #cffafe 0%, #e0f2fe 50%, #bae6fd 100%)" }, icon: "💨" },
-    fire: { border: "border-l-orange-500", bgStyle: { background: "linear-gradient(135deg, #fed7aa 0%, #fef3c7 50%, #fde68a 100%)" }, icon: "🔥" },
-    water: { border: "border-l-blue-500", bgStyle: { background: "linear-gradient(135deg, #bfdbfe 0%, #dbeafe 50%, #c7d2fe 100%)" }, icon: "💧" },
-    flood: { border: "border-l-indigo-500", bgStyle: { background: "linear-gradient(135deg, #c7d2fe 0%, #ede9fe 50%, #e9d5ff 100%)" }, icon: "🌊" },
-    smoke: { border: "border-l-gray-500", bgStyle: { background: "linear-gradient(135deg, #e5e7eb 0%, #f1f5f9 50%, #e4e4e7 100%)" }, icon: "💨" },
-    mold: { border: "border-l-emerald-500", bgStyle: { background: "linear-gradient(135deg, #a7f3d0 0%, #d1fae5 50%, #99f6e4 100%)" }, icon: "🍄" },
-    impact: { border: "border-l-red-500", bgStyle: { background: "linear-gradient(135deg, #fecaca 0%, #ffe4e6 50%, #fbcfe8 100%)" }, icon: "💥" },
-    other: { border: "border-l-slate-400", bgStyle: { background: "linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #e7e5e4 100%)" }, icon: "📋" },
+    wind_hail: { border: "border-l-cyan-500", bgStyle: { background: "linear-gradient(135deg, #a5f3fc 0%, #67e8f9 30%, #22d3ee 100%)" }, icon: "💨" },
+    fire: { border: "border-l-orange-500", bgStyle: { background: "linear-gradient(135deg, #fed7aa 0%, #fdba74 30%, #fb923c 100%)" }, icon: "🔥" },
+    water: { border: "border-l-blue-500", bgStyle: { background: "linear-gradient(135deg, #bfdbfe 0%, #93c5fd 30%, #60a5fa 100%)" }, icon: "💧" },
+    flood: { border: "border-l-indigo-500", bgStyle: { background: "linear-gradient(135deg, #c7d2fe 0%, #a5b4fc 30%, #818cf8 100%)" }, icon: "🌊" },
+    smoke: { border: "border-l-gray-500", bgStyle: { background: "linear-gradient(135deg, #e5e7eb 0%, #d1d5db 30%, #9ca3af 100%)" }, icon: "💨" },
+    mold: { border: "border-l-emerald-500", bgStyle: { background: "linear-gradient(135deg, #a7f3d0 0%, #6ee7b7 30%, #34d399 100%)" }, icon: "🍄" },
+    impact: { border: "border-l-red-500", bgStyle: { background: "linear-gradient(135deg, #fecaca 0%, #fca5a5 30%, #f87171 100%)" }, icon: "💥" },
+    other: { border: "border-l-violet-500", bgStyle: { background: "linear-gradient(135deg, #ddd6fe 0%, #c4b5fd 30%, #a78bfa 100%)" }, icon: "📋" },
   };
 
   // Legacy lossType to peril mapping
