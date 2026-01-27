@@ -5042,6 +5042,7 @@ export const audioObservations = pgTable("audio_observations", {
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   claimId: uuid("claim_id").references(() => claims.id, { onDelete: "set null" }),
   flowInstanceId: uuid("flow_instance_id").references(() => claimFlowInstances.id, { onDelete: "set null" }),
+  movementId: varchar("movement_id", { length: 255 }), // e.g., "arrival:verify_address" - links to workflow movement
   movementCompletionId: uuid("movement_completion_id").references(() => movementCompletions.id, { onDelete: "set null" }),
   roomId: uuid("room_id").references(() => claimRooms.id, { onDelete: "set null" }),
   structureId: uuid("structure_id").references(() => claimStructures.id, { onDelete: "set null" }),
@@ -5072,6 +5073,7 @@ export const audioObservations = pgTable("audio_observations", {
   orgIdx: index("audio_observations_org_idx").on(table.organizationId),
   claimIdx: index("audio_observations_claim_idx").on(table.claimId),
   flowInstanceIdx: index("audio_observations_flow_instance_idx").on(table.flowInstanceId),
+  movementIdx: index("audio_observations_movement_idx").on(table.movementId),
   roomIdx: index("audio_observations_room_idx").on(table.roomId),
 }));
 

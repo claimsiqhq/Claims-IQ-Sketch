@@ -282,7 +282,7 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB limit (matches Supabase bucket limit)
   },
   fileFilter: (req, file, cb) => {
-    // Allow PDFs, images, and common document types
+    // Allow PDFs, images, audio, and common document types
     const allowedMimes = [
       'application/pdf',
       'image/jpeg',
@@ -292,7 +292,16 @@ const upload = multer({
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      // Audio formats for voice notes
+      'audio/webm',
+      'audio/ogg',
+      'audio/mp3',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/mp4',
+      'audio/m4a',
+      'audio/x-m4a'
     ];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
