@@ -665,7 +665,7 @@ export default function ClaimDetail() {
       return {
         id: claimRoom.id,
         name: claimRoom.name,
-        shape: (claimRoom.shape as RoomShape) || 'rectangle',
+        shape: (claimRoom.shape as RoomShape) || ('rectangle' as RoomShape),
         width_ft: typeof claimRoom.widthFt === 'number' ? claimRoom.widthFt : parseFloat(String(claimRoom.widthFt || '10')),
         length_ft: typeof claimRoom.lengthFt === 'number' ? claimRoom.lengthFt : parseFloat(String(claimRoom.lengthFt || '10')),
         ceiling_height_ft: typeof claimRoom.ceilingHeightFt === 'number' ? claimRoom.ceilingHeightFt : parseFloat(String(claimRoom.ceilingHeightFt || '8')),
@@ -1090,22 +1090,37 @@ export default function ClaimDetail() {
         widthFt: String(voiceRoom.width_ft),
         lengthFt: String(voiceRoom.length_ft),
         ceilingHeightFt: String(voiceRoom.ceiling_height_ft),
-        originXFt: '0',
-        originYFt: '0',
-        shape: 'rectangular',
+        originXFt: String(voiceRoom.origin_x_ft ?? 0),
+        originYFt: String(voiceRoom.origin_y_ft ?? 0),
+        shape: String(voiceRoom.shape || 'rectangle'),
+        structureId: voiceRoom.structureId,
+        openings: voiceRoom.openings || [],
+        features: voiceRoom.features || [],
+        notes: voiceRoom.notes || [],
       };
       claimRooms.push(claimRoom);
 
       voiceRoom.damageZones.forEach((vDamage) => {
+        // Map severity back from VoiceDamageZone format to ClaimDamageZone format
+        const severityMap: Record<string, string> = {
+          'minor': 'minor',
+          'moderate': 'moderate',
+          'severe': 'severe',
+          'total': 'total',
+        };
+        const severity = vDamage.severity 
+          ? (severityMap[vDamage.severity] || 'moderate')
+          : (vDamage.category || 'moderate');
+
         const claimDamage: ClaimDamageZone = {
           id: vDamage.id,
           roomId: voiceRoom.id,
           damageType: vDamage.type,
-          severity: vDamage.category || 'medium',
-          affectedWalls: vDamage.affected_walls,
-          floorAffected: vDamage.floor_affected,
-          ceilingAffected: vDamage.ceiling_affected,
-          extentFt: String(vDamage.extent_ft),
+          severity: severity,
+          affectedWalls: vDamage.affected_walls || [],
+          floorAffected: vDamage.floor_affected || false,
+          ceilingAffected: vDamage.ceiling_affected || false,
+          extentFt: String(vDamage.extent_ft || 0),
           source: vDamage.source || '',
           notes: vDamage.notes || '',
           isFreeform: vDamage.is_freeform || false,

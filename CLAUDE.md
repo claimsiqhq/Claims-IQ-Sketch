@@ -231,12 +231,194 @@ If you encounter old endpoint references, use this mapping:
 
 ---
 
+## Sketching System
+
+**Status:** ✅ MVP Ready - Fully functional with save/load, tooltips, and proper data persistence
+
+### Overview
+
+The sketching system allows field adjusters to create floor plans with rooms, structures, damage zones, openings, and features. It supports both voice-guided creation and manual manipulation via toolbar tools.
+
+**Key Features:**
+- Voice-guided room creation via `VoiceSketchController`
+- Manual sketch manipulation via `SketchToolbar`
+- Automatic save/load of rooms and damage zones per claim
+- Damage zone tracking with severity and affected surfaces
+- Photo integration with sketch rooms
+- Undo/redo functionality
+- Grid and parallel snapping for precise alignment
+
+### Core Components
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| `VoiceSketchController` | `client/src/features/voice-sketch/components/VoiceSketchController.tsx` | Main voice-driven sketch interface with hierarchy display |
+| `SketchToolbar` | `client/src/features/voice-sketch/components/SketchToolbar.tsx` | Professional toolbar for manual sketch manipulation (desktop/mobile responsive) |
+| `geometry-engine` | `client/src/features/voice-sketch/services/geometry-engine.ts` | Zustand store managing sketch state (rooms, structures, photos, command history) |
+| `sketch-manipulation-store` | `client/src/features/voice-sketch/services/sketch-manipulation-store.ts` | Store for selection, tool modes, and manipulation operations |
+
+### Data Flow
+
+#### Save Process (`claim-detail.tsx:1064-1143`)
+1. User clicks "Save" button in `VoiceSketchController`
+2. `handleSaveVoiceSketch()` collects all rooms from geometry engine
+3. Converts `RoomGeometry[]` → `ClaimRoom[]` and `ClaimDamageZone[]`
+4. Calls `saveClaimRooms(claimId, rooms, damageZones)` API
+5. Shows success toast with counts
+6. Resets geometry engine session
+7. Reloads claim data to refresh saved rooms
+
+**Save Function Preserves:**
+- Room dimensions (width, length, ceiling height)
+- Room position (origin_x_ft, origin_y_ft) ✅ Fixed 2026-01-23
+- Room shape (rectangle, l_shape, t_shape, irregular)
+- Structure ID (for multi-structure properties)
+- Openings (doors, windows, archways)
+- Features (closets, alcoves, islands, etc.)
+- Notes
+- Damage zones with severity mapping
+
+#### Load Process (`claim-detail.tsx:623-684`)
+1. When claim opens, `useEffect` detects `savedRooms` array
+2. Converts `ClaimRoom[]` → `RoomGeometry[]` with `convertClaimRoomToRoomGeometry()`
+3. Maps damage zones from `savedDamageZones` to room's `damageZones` array
+4. Calls `useGeometryEngine.getState().loadRooms(geometryRooms)`
+5. Sets `claimId` in geometry engine
+6. Shows toast notification: "Loaded X saved room(s)"
+
+**Load Function Handles:**
+- Type conversions (string/number for dimensions)
+- Severity mapping (minor/moderate/severe/total)
+- Default values for missing fields
+- Damage zone association by `roomId`
+- Prevents duplicate loading via `loadedForClaimId` check
+
+### Geometry Engine State
+
+**Key State Properties:**
+- `rooms: RoomGeometry[]` - All confirmed rooms
+- `currentRoom: RoomGeometry | null` - Room being created/edited
+- `structures: Structure[]` - Building structures (main dwelling, garage, etc.)
+- `currentStructure: Structure | null` - Active structure
+- `photos: SketchPhoto[]` - Photos linked to rooms/structures
+- `commandHistory: Command[]` - History for undo/redo
+- `undoStack: Command[]` - Stack for redo operations
+- `claimId: string | null` - Current claim context
+- `loadedForClaimId: string | null` - Tracks which claim's data is loaded
+
+**Key Methods:**
+- `loadRooms(rooms)` - Load rooms into engine (clears existing)
+- `loadFromClaimData(structures, rooms)` - Load with structures
+- `resetSession()` - Clear all state
+- `setClaimId(claimId)` - Set claim context
+- `undo(count)` / `redo(count)` - Undo/redo operations
+
+### API Functions
+
+**Save/Load (`client/src/lib/api.ts`):**
+- `saveClaimRooms(claimId, rooms, damageZones)` - Persist sketch data
+- `getClaimRooms(claimId)` - Fetch saved rooms and damage zones
+
+**Data Types:**
+- `ClaimRoom` - Database format (strings for dimensions)
+- `RoomGeometry` - In-memory format (numbers for dimensions)
+- `ClaimDamageZone` - Database damage zone format
+- `VoiceDamageZone` - In-memory damage zone format
+
+### Recent Fixes (2026-01-23 - MVP Readiness)
+
+#### ✅ Fixed: Saved Rooms Not Loading
+- **Issue:** Rooms saved to database were not loaded when opening claim
+- **Fix:** Added `useEffect` in `claim-detail.tsx` (lines 623-684) to auto-load saved rooms
+- **Impact:** Users can now resume sketches after closing/reopening claims
+
+#### ✅ Fixed: Missing Tooltips
+- **Issue:** Several buttons lacked tooltips (Undo, Reset, Save, Add Structure, AI Suggestions)
+- **Fix:** Added `Tooltip` components to all buttons in `VoiceSketchController` and `claim-detail.tsx`
+- **Impact:** Better UX with clear button descriptions
+
+#### ✅ Fixed: Position Data Loss on Save
+- **Issue:** `origin_x_ft` and `origin_y_ft` were hardcoded to '0' in save function
+- **Fix:** Updated `handleSaveVoiceSketch()` to preserve `voiceRoom.origin_x_ft` and `origin_y_ft`
+- **Impact:** Room positions persist correctly after save/reload
+
+#### ✅ Fixed: Severity Mapping
+- **Issue:** Damage zone severity not properly mapped between save/load formats
+- **Fix:** Added bidirectional severity mapping in both save and load functions
+- **Impact:** Damage severity (minor/moderate/severe/total) persists correctly
+
+#### ✅ Fixed: Missing Field Preservation
+- **Issue:** Save function didn't preserve `structureId`, `openings`, `features`, `notes`
+- **Fix:** Updated save function to include all `RoomGeometry` fields
+- **Impact:** Complete sketch data now persists
+
+#### ✅ Added: Reset Confirmation Dialog
+- **Feature:** Added `AlertDialog` confirmation before resetting sketch session
+- **Impact:** Prevents accidental data loss
+
+#### ✅ Added: Loading Feedback
+- **Feature:** Toast notification when saved rooms are loaded
+- **Impact:** Users know when their previous sketch has been restored
+
+#### ✅ Added: ClaimId Initialization
+- **Feature:** `VoiceSketchController` now initializes geometry engine with `claimId` on mount
+- **Impact:** Proper claim context for all sketch operations
+
+### Usage Guidelines
+
+#### Creating a Sketch
+1. Open claim detail page → "Sketch" tab
+2. Use voice commands via `VoiceSketchController` OR use `SketchToolbar` for manual drawing
+3. Create structures (Main House, Garage, etc.)
+4. Add rooms within structures
+5. Add openings (doors/windows), features (closets/islands), and damage zones
+6. Click "Save" button to persist to database
+
+#### Loading a Saved Sketch
+- Automatically loads when claim opens (if rooms exist)
+- Toast notification confirms: "Loaded X saved room(s)"
+- All rooms, damage zones, and positions are restored
+
+#### Manual Manipulation
+- Use `SketchToolbar` for:
+  - Selecting rooms/walls
+  - Moving/rotating/copying rooms
+  - Aligning multiple rooms
+  - Toggling wall types (exterior/interior/missing)
+  - Grid and parallel snapping
+  - Undo/redo
+
+#### Best Practices
+- Always save before navigating away
+- Use structures to organize multi-building properties
+- Add damage zones to rooms with damage
+- Use grid snapping for precise measurements
+- Check sketch completeness badge for missing required data
+
+### Known Limitations
+
+1. **Polygon Data:** Room `polygon` arrays are not yet persisted (currently empty on save/load)
+2. **Photo Linking:** Photos captured during sketch are stored separately; room-photo associations via `roomId` in photo metadata
+3. **Sub-rooms:** `parentRoomId` and `subRooms` are not yet fully implemented in save/load
+4. **Structures:** Structure data is managed separately; rooms reference `structureId` but structures themselves aren't saved with rooms
+
+### Future Enhancements
+
+- Persist room polygon coordinates for irregular shapes
+- Full sub-room hierarchy support
+- Structure persistence alongside rooms
+- Sketch versioning/history
+- Export to CAD formats
+- Measurement validation against photos
+
+---
+
 ## Contact & Resources
 
 - **Repository:** Claims-IQ-Sketch
 - **Documentation:** Confluence (Claims IQ space)
 - **Project Management:** Asana
-- **Last Updated:** 2026-01-18
+- **Last Updated:** 2026-01-23
 
 ---
 
