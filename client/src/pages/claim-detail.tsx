@@ -141,7 +141,7 @@ import { VoiceSketchController } from "@/features/voice-sketch/components/VoiceS
 import { SketchToolbar } from "@/features/voice-sketch/components/SketchToolbar";
 import { useGeometryEngine } from "@/features/voice-sketch/services/geometry-engine";
 import { saveClaimRooms, getClaimRooms, type ClaimRoom, type ClaimDamageZone } from "@/lib/api";
-import type { RoomGeometry } from "@/features/voice-sketch/types/geometry";
+import type { RoomGeometry, RoomShape, Opening, Feature, RoomNote } from "@/features/voice-sketch/types/geometry";
 import DamageZoneModal from "@/components/damage-zone-modal";
 import OpeningModal from "@/components/opening-modal";
 import LineItemPicker from "@/components/line-item-picker";
@@ -628,19 +628,36 @@ export default function ClaimDetail() {
     const convertClaimRoomToRoomGeometry = (claimRoom: ClaimRoom): RoomGeometry => {
       const damageZonesForRoom = savedDamageZones
         .filter(dz => dz.roomId === claimRoom.id)
-        .map(dz => ({
-          id: dz.id,
-          type: dz.damageType.toLowerCase() as any,
-          category: undefined,
-          affected_walls: (dz.affectedWalls || []) as any[],
-          floor_affected: dz.floorAffected || false,
-          ceiling_affected: dz.ceilingAffected || false,
-          extent_ft: typeof dz.extentFt === 'number' ? dz.extentFt : parseFloat(String(dz.extentFt || '0')),
-          source: dz.source || '',
-          notes: dz.notes || '',
-          polygon: [],
-          is_freeform: dz.isFreeform || false,
-        }));
+        .map(dz => {
+          // Map severity from ClaimDamageZone to VoiceDamageZone format
+          const severityMap: Record<string, 'minor' | 'moderate' | 'severe' | 'total'> = {
+            'minor': 'minor',
+            'moderate': 'moderate',
+            'severe': 'severe',
+            'total': 'total',
+            'low': 'minor',
+            'medium': 'moderate',
+            'high': 'severe',
+          };
+          const severity = dz.severity 
+            ? (severityMap[dz.severity.toLowerCase()] || 'moderate' as const)
+            : undefined;
+
+          return {
+            id: dz.id,
+            type: dz.damageType.toLowerCase() as any,
+            category: undefined,
+            affected_walls: (dz.affectedWalls || []) as any[],
+            floor_affected: dz.floorAffected || false,
+            ceiling_affected: dz.ceilingAffected || false,
+            extent_ft: typeof dz.extentFt === 'number' ? dz.extentFt : parseFloat(String(dz.extentFt || '0')),
+            severity,
+            source: dz.source || '',
+            notes: dz.notes || '',
+            polygon: [],
+            is_freeform: dz.isFreeform || false,
+          };
+        });
 
       return {
         id: claimRoom.id,
