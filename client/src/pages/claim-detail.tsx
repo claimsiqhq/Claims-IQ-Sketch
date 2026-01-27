@@ -3821,14 +3821,14 @@ export default function ClaimDetail() {
             <div className="space-y-2">
               <Label htmlFor="region">Region</Label>
               <Select
-                value={estimateSettings.regionId}
+                value={estimateSettings.regionId || ""}
                 onValueChange={(value) => setEstimateSettings({ regionId: value })}
               >
                 <SelectTrigger id="region">
                   <SelectValue placeholder="Select region" />
                 </SelectTrigger>
                 <SelectContent>
-                  {regions.map((region) => (
+                  {regions.filter(r => r.id).map((region) => (
                     <SelectItem key={region.id} value={region.id}>
                       {region.name}{region.state ? `, ${region.state}` : ''}
                     </SelectItem>
@@ -3847,7 +3847,7 @@ export default function ClaimDetail() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No carrier profile</SelectItem>
-                  {carriers.map((carrier) => (
+                  {carriers.filter(c => c.id).map((carrier) => (
                     <SelectItem key={carrier.id} value={carrier.id}>
                       {carrier.name}
                     </SelectItem>
@@ -4269,7 +4269,7 @@ export default function ClaimDetail() {
                   <SelectValue placeholder="Select region" />
                 </SelectTrigger>
                 <SelectContent>
-                  {regions.map((region) => (
+                  {regions.filter(r => r.id).map((region) => (
                     <SelectItem key={region.id} value={region.id}>
                       {region.name}
                     </SelectItem>
@@ -4284,15 +4284,15 @@ export default function ClaimDetail() {
                 Carrier
               </Label>
               <Select
-                value={estimateSettings.carrierProfileId || ''}
-                onValueChange={(value) => setEstimateSettings({ carrierProfileId: value || null })}
+                value={estimateSettings.carrierProfileId || 'none'}
+                onValueChange={(value) => setEstimateSettings({ carrierProfileId: value === 'none' ? null : value })}
               >
                 <SelectTrigger className="col-span-3" id="estimate-carrier">
                   <SelectValue placeholder="Select carrier (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {carriers.map((carrier) => (
+                  <SelectItem value="none">None</SelectItem>
+                  {carriers.filter(c => c.id).map((carrier) => (
                     <SelectItem key={carrier.id} value={carrier.id}>
                       {carrier.name}
                     </SelectItem>
