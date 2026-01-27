@@ -1558,61 +1558,8 @@ export default function ClaimDetail() {
                       <Separator />
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground uppercase">Loss Description</Label>
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-3">
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                           <p className="text-sm text-amber-900">{apiClaim?.lossDescription || 'No description provided'}</p>
-                          
-                          {/* Historical Weather at Date of Loss - inline with loss description */}
-                          {apiClaim?.dolWeather && (
-                            apiClaim.dolWeather.summary || 
-                            apiClaim.dolWeather.temperature != null || 
-                            apiClaim.dolWeather.conditions ||
-                            apiClaim.dolWeather.windSpeed != null ||
-                            apiClaim.dolWeather.windGust != null ||
-                            apiClaim.dolWeather.precipAmount != null ||
-                            apiClaim.dolWeather.hailSize != null ||
-                            apiClaim.dolWeather.humidity != null
-                          ) && (
-                            <div className="border-t border-amber-200 pt-2 mt-2">
-                              <div className="flex items-center gap-1 text-xs text-amber-700 mb-1">
-                                <Cloud className="w-3 h-3" />
-                                <span className="font-medium">Weather on Date of Loss:</span>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2 text-sm">
-                                {/* Temperature */}
-                                {apiClaim.dolWeather.temperature !== null && apiClaim.dolWeather.temperature !== undefined && (
-                                  <span className="font-semibold text-amber-900">
-                                    {apiClaim.dolWeather.temperature}°F
-                                  </span>
-                                )}
-                                
-                                {/* Conditions */}
-                                {apiClaim.dolWeather.conditions && (
-                                  <span className="text-amber-800">{apiClaim.dolWeather.conditions}</span>
-                                )}
-                                
-                                {/* Hail Size */}
-                                {apiClaim.dolWeather.hailSize && (
-                                  <Badge variant="outline" className="bg-amber-100 border-amber-400 text-amber-800 text-xs">
-                                    Hail {apiClaim.dolWeather.hailSize}"
-                                  </Badge>
-                                )}
-                                
-                                {/* Wind */}
-                                {(apiClaim.dolWeather.windGust && apiClaim.dolWeather.windGust > 20) && (
-                                  <span className="text-amber-800">
-                                    {apiClaim.dolWeather.windGust} mph gusts
-                                  </span>
-                                )}
-                                
-                                {/* Precipitation */}
-                                {apiClaim.dolWeather.precipAmount && apiClaim.dolWeather.precipAmount > 0 && (
-                                  <span className="text-amber-800">
-                                    {apiClaim.dolWeather.precipAmount}" precip
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </CardContent>
@@ -1888,7 +1835,7 @@ export default function ClaimDetail() {
                   {/* ============================================ */}
                   {/* DAMAGE DESCRIPTION CARD */}
                   {/* ============================================ */}
-                  {apiClaim?.extractedPolicy?.damageDescription && (
+                  {(apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription) && (
                     <Card className="border-amber-200">
                       <CardHeader className="pb-3 bg-amber-50 rounded-t-lg">
                         <CardTitle className="text-lg flex items-center gap-2 text-amber-800">
@@ -1896,8 +1843,52 @@ export default function ClaimDetail() {
                           Loss Description
                         </CardTitle>
                       </CardHeader>
-                      <CardContent className="bg-amber-50/50">
-                        <p className="text-sm text-amber-900">{apiClaim.extractedPolicy.damageDescription}</p>
+                      <CardContent className="bg-amber-50/50 space-y-3">
+                        <p className="text-sm text-amber-900">{apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription || 'No description provided'}</p>
+                        
+                        {/* Historical Weather at Date of Loss */}
+                        {apiClaim?.dolWeather && (
+                          apiClaim.dolWeather.summary || 
+                          apiClaim.dolWeather.temperature != null || 
+                          apiClaim.dolWeather.conditions ||
+                          apiClaim.dolWeather.windSpeed != null ||
+                          apiClaim.dolWeather.windGust != null ||
+                          apiClaim.dolWeather.precipAmount != null ||
+                          apiClaim.dolWeather.hailSize != null ||
+                          apiClaim.dolWeather.humidity != null
+                        ) && (
+                          <div className="border-t border-amber-200 pt-3 mt-3">
+                            <div className="flex items-center gap-1 text-xs text-amber-700 mb-2">
+                              <Cloud className="w-3 h-3" />
+                              <span className="font-medium">Weather on Date of Loss:</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                              {apiClaim.dolWeather.temperature !== null && apiClaim.dolWeather.temperature !== undefined && (
+                                <span className="font-semibold text-amber-900">
+                                  {apiClaim.dolWeather.temperature}°F
+                                </span>
+                              )}
+                              {apiClaim.dolWeather.conditions && (
+                                <span className="text-amber-800">{apiClaim.dolWeather.conditions}</span>
+                              )}
+                              {apiClaim.dolWeather.hailSize && (
+                                <Badge variant="outline" className="bg-amber-100 border-amber-400 text-amber-800 text-xs">
+                                  Hail {apiClaim.dolWeather.hailSize}"
+                                </Badge>
+                              )}
+                              {(apiClaim.dolWeather.windGust && apiClaim.dolWeather.windGust > 20) && (
+                                <span className="text-amber-800">
+                                  {apiClaim.dolWeather.windGust} mph gusts
+                                </span>
+                              )}
+                              {apiClaim.dolWeather.precipAmount && apiClaim.dolWeather.precipAmount > 0 && (
+                                <span className="text-amber-800">
+                                  {apiClaim.dolWeather.precipAmount}" precip
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   )}
