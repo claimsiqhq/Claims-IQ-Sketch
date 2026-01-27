@@ -1836,17 +1836,17 @@ export default function ClaimDetail() {
                   {/* DAMAGE DESCRIPTION CARD */}
                   {/* ============================================ */}
                   {(apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription) && (
-                    <Card className="border-amber-200">
-                      <CardHeader className="pb-3 bg-amber-50 rounded-t-lg">
-                        <CardTitle className="text-lg flex items-center gap-2 text-amber-800">
-                          <AlertTriangle className="w-5 h-5 text-amber-600" />
+                    <Card className="border-amber-300 shadow-lg">
+                      <CardHeader className="pb-3 bg-gradient-to-r from-amber-100 to-amber-50 rounded-t-lg">
+                        <CardTitle className="text-xl font-bold flex items-center gap-2 text-amber-900">
+                          <AlertTriangle className="w-6 h-6 text-amber-600" />
                           Loss Description
                         </CardTitle>
                       </CardHeader>
-                      <CardContent className="bg-amber-50/50 space-y-3">
-                        <p className="text-sm text-amber-900">{apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription || 'No description provided'}</p>
+                      <CardContent className="bg-amber-50/50 space-y-4 pt-4">
+                        <p className="text-base font-medium text-amber-950 leading-relaxed">{apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription || 'No description provided'}</p>
                         
-                        {/* Historical Weather at Date of Loss */}
+                        {/* Historical Weather at Date of Loss - Enhanced */}
                         {apiClaim?.dolWeather && (
                           apiClaim.dolWeather.summary || 
                           apiClaim.dolWeather.temperature != null || 
@@ -1857,34 +1857,51 @@ export default function ClaimDetail() {
                           apiClaim.dolWeather.hailSize != null ||
                           apiClaim.dolWeather.humidity != null
                         ) && (
-                          <div className="border-t border-amber-200 pt-3 mt-3">
-                            <div className="flex items-center gap-1 text-xs text-amber-700 mb-2">
-                              <Cloud className="w-3 h-3" />
-                              <span className="font-medium">Weather on Date of Loss:</span>
+                          <div className="bg-gradient-to-br from-sky-100 via-blue-50 to-indigo-100 rounded-xl p-4 border-2 border-sky-300 shadow-md">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="bg-sky-500 rounded-full p-2">
+                                  <Cloud className="w-5 h-5 text-white" />
+                                </div>
+                                <span className="text-lg font-bold text-sky-900">Weather on Date of Loss</span>
+                              </div>
+                              {apiClaim?.dateOfLoss && (
+                                <Badge className="bg-sky-600 text-white font-semibold px-3 py-1 text-sm">
+                                  {new Date(apiClaim.dateOfLoss).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </Badge>
+                              )}
                             </div>
-                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <div className="flex flex-wrap items-center gap-3">
                               {apiClaim.dolWeather.temperature !== null && apiClaim.dolWeather.temperature !== undefined && (
-                                <span className="font-semibold text-amber-900">
-                                  {apiClaim.dolWeather.temperature}°F
-                                </span>
+                                <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-sky-200">
+                                  <span className="text-2xl font-bold text-sky-800">
+                                    {apiClaim.dolWeather.temperature}°F
+                                  </span>
+                                </div>
                               )}
                               {apiClaim.dolWeather.conditions && (
-                                <span className="text-amber-800">{apiClaim.dolWeather.conditions}</span>
+                                <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-sky-200">
+                                  <span className="font-semibold text-sky-700">{apiClaim.dolWeather.conditions}</span>
+                                </div>
                               )}
                               {apiClaim.dolWeather.hailSize && (
-                                <Badge variant="outline" className="bg-amber-100 border-amber-400 text-amber-800 text-xs">
+                                <Badge className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-bold px-3 py-1.5 text-sm shadow-md">
                                   Hail {apiClaim.dolWeather.hailSize}"
                                 </Badge>
                               )}
                               {(apiClaim.dolWeather.windGust && apiClaim.dolWeather.windGust > 20) && (
-                                <span className="text-amber-800">
-                                  {apiClaim.dolWeather.windGust} mph gusts
-                                </span>
+                                <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-sky-200">
+                                  <span className="font-semibold text-sky-700">
+                                    {apiClaim.dolWeather.windGust} mph gusts
+                                  </span>
+                                </div>
                               )}
                               {apiClaim.dolWeather.precipAmount && apiClaim.dolWeather.precipAmount > 0 && (
-                                <span className="text-amber-800">
-                                  {apiClaim.dolWeather.precipAmount}" precip
-                                </span>
+                                <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-sky-200">
+                                  <span className="font-semibold text-sky-700">
+                                    {apiClaim.dolWeather.precipAmount}" precip
+                                  </span>
+                                </div>
                               )}
                             </div>
                           </div>
