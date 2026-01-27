@@ -154,26 +154,35 @@ export default function MovementExecutionPage() {
         setIsUploading(true);
         try {
           for (const photo of capturedPhotos) {
-            const file = photo.file || await fetch(photo.dataUrl)
-              .then(r => r.blob())
-              .then(blob => new File([blob], `movement-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+            try {
+              const file = photo.file || await fetch(photo.dataUrl)
+                .then(r => r.blob())
+                .then(blob => new File([blob], `movement-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`, { type: 'image/jpeg' }));
 
-            const result = await uploadPhoto({
-              claimId: flowInstance!.claimId,
-              file,
-              label: photo.label || movement?.name || 'Movement Photo',
-              hierarchyPath: `Flow / ${flowInstance?.flowName || 'Inspection'} / ${movement?.name || 'Movement'}`,
-            });
-
-            if (result?.photo?.id) {
-              uploadedPhotoIds.push(result.photo.id);
-
-              // Attach to movement
-              await attachMovementEvidence(flowId!, movementId!, {
-                type: 'photo',
-                referenceId: result.photo.id,
-                userId: user.id,
+              const result = await uploadPhoto({
+                claimId: flowInstance!.claimId,
+                file,
+                label: photo.label || movement?.name || 'Movement Photo',
+                hierarchyPath: `Flow / ${flowInstance?.flowName || 'Inspection'} / ${movement?.name || 'Movement'}`,
               });
+
+              // uploadPhoto returns UploadedPhoto directly (has .id property)
+              if (result?.id) {
+                uploadedPhotoIds.push(result.id);
+
+                // Attach to movement evidence
+                await attachMovementEvidence(flowId!, movementId!, {
+                  type: 'photo',
+                  referenceId: result.id,
+                  userId: user.id,
+                });
+              } else {
+                console.error('Photo upload response missing ID:', result);
+                toast.error('Photo uploaded but missing ID - check console');
+              }
+            } catch (photoError) {
+              console.error('Failed to upload photo:', photoError);
+              toast.error(`Failed to upload photo: ${photoError instanceof Error ? photoError.message : 'Unknown error'}`);
             }
           }
         } finally {
@@ -343,12 +352,16 @@ export default function MovementExecutionPage() {
       };
 
       mediaRecorder.start(1000);
-      setIsRecording(true);
       setRecordingTime(0);
       setShowVoiceRecorder(true);
+      setIsRecording(true);
 
+      // Start timer after state is set
       recordingTimerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime(prev => {
+          const next = prev + 1;
+          return next;
+        });
       }, 1000);
     } catch (err) {
       toast.error('Could not access microphone');
@@ -798,10 +811,41 @@ export default function MovementExecutionPage() {
                 <Info className="h-4 w-4" />
                 <AlertDescription>
                   <span className="font-medium">Requirements:</span>
-                  <ul className="list-disc list-inside mt-1 text-sm">
-                    {Object.entries(movement.validationRequirements).map(([key, value]) => (
-                      <li key={key}>{key}: {String(value)}</li>
-                    ))}
+                  <ul className="list-disc list-inside mt-1 text-sm space-y-1">
+                    {Array.isArray(movement.validationRequirements) ? (
+                      // Handle array of requirement objects
+                      movement.validationRequirements.map((req: any, index: number) => (
+                        <li key={index}>
+                          {req.type && <span className="font-medium capitalize">{req.type.replace('_', ' ')}:</span>}
+                          {req.description && <span className="ml-1">{req.description}</span>}
+                          {req.is_required !== undefined && (
+                            <span className="ml-2 text-xs">
+                              ({req.is_required ? 'Required' : 'Optional'})
+                            </span>
+                          )}
+                          {req.quantity_min !== undefined && req.quantity_max !== undefined && (
+                            <span className="ml-2 text-xs">
+                              ({req.quantity_min}-{req.quantity_max} {req.type === 'photo' ? 'photos' : 'items'})
+                            </span>
+                          )}
+                        </li>
+                      ))
+                    ) : typeof movement.validationRequirements === 'object' ? (
+                      // Handle object with key-value pairs
+                      Object.entries(movement.validationRequirements).map(([key, value]) => (
+                        <li key={key}>
+                          <span className="font-medium">{key}:</span>{' '}
+                          {typeof value === 'object' && value !== null ? (
+                            <span className="text-muted-foreground">{JSON.stringify(value)}</span>
+                          ) : (
+                            <span>{String(value)}</span>
+                          )}
+                        </li>
+                      ))
+                    ) : (
+                      // Handle primitive value
+                      <li>{String(movement.validationRequirements)}</li>
+                    )}
                   </ul>
                 </AlertDescription>
               </Alert>
