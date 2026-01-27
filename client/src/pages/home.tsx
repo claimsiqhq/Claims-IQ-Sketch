@@ -49,14 +49,16 @@ import { formatDistanceToNow } from "date-fns";
 import { ClaimUploadWizard } from "@/components/ClaimUploadWizard";
 
 function ClaimCard({ claim }: { claim: Claim }) {
-  const statusColors: Record<string, string> = {
-    fnol: "bg-purple-100 text-purple-700",
-    open: "bg-blue-100 text-blue-700",
-    in_progress: "bg-amber-100 text-amber-700",
-    review: "bg-orange-100 text-orange-700",
-    approved: "bg-green-100 text-green-700",
-    closed: "bg-slate-100 text-slate-700",
+  const statusStyles: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+    fnol: { bg: "bg-gradient-to-r from-purple-500 to-violet-500", text: "text-white", border: "border-purple-600", icon: "📥" },
+    open: { bg: "bg-gradient-to-r from-blue-500 to-cyan-500", text: "text-white", border: "border-blue-600", icon: "📂" },
+    in_progress: { bg: "bg-gradient-to-r from-amber-400 to-orange-500", text: "text-white", border: "border-amber-600", icon: "⚡" },
+    review: { bg: "bg-gradient-to-r from-orange-500 to-red-500", text: "text-white", border: "border-orange-600", icon: "👁️" },
+    approved: { bg: "bg-gradient-to-r from-emerald-500 to-green-500", text: "text-white", border: "border-emerald-600", icon: "✅" },
+    closed: { bg: "bg-gradient-to-r from-slate-400 to-slate-500", text: "text-white", border: "border-slate-500", icon: "📦" },
   };
+  const defaultStatus = { bg: "bg-slate-200", text: "text-slate-700", border: "border-slate-300", icon: "📋" };
+  const statusStyle = statusStyles[claim.status] || defaultStatus;
 
   // Peril-based border and accent colors
   const perilStyles: Record<string, { border: string; bg: string; icon: string }> = {
@@ -95,7 +97,8 @@ function ClaimCard({ claim }: { claim: Claim }) {
               </div>
               <p className="text-sm text-slate-600 font-medium">{claim.insuredName || "Unknown Insured"}</p>
             </div>
-            <Badge className={`${statusColors[claim.status] || statusColors.fnol} shadow-sm`}>
+            <Badge className={`${statusStyle.bg} ${statusStyle.text} ${statusStyle.border} border shadow-md font-semibold px-2.5 py-0.5`}>
+              <span className="mr-1">{statusStyle.icon}</span>
               {claim.status.replace("_", " ").toUpperCase()}
             </Badge>
           </div>
@@ -165,14 +168,16 @@ function ClaimCard({ claim }: { claim: Claim }) {
 
 // Mobile-optimized claim card for compact display
 function MobileClaimCard({ claim }: { claim: Claim }) {
-  const statusColors: Record<string, string> = {
-    fnol: "bg-purple-100 text-purple-700",
-    open: "bg-blue-100 text-blue-700",
-    in_progress: "bg-amber-100 text-amber-700",
-    review: "bg-orange-100 text-orange-700",
-    approved: "bg-green-100 text-green-700",
-    closed: "bg-slate-100 text-slate-700",
+  const statusStyles: Record<string, { bg: string; text: string; icon: string }> = {
+    fnol: { bg: "bg-gradient-to-r from-purple-500 to-violet-500", text: "text-white", icon: "📥" },
+    open: { bg: "bg-gradient-to-r from-blue-500 to-cyan-500", text: "text-white", icon: "📂" },
+    in_progress: { bg: "bg-gradient-to-r from-amber-400 to-orange-500", text: "text-white", icon: "⚡" },
+    review: { bg: "bg-gradient-to-r from-orange-500 to-red-500", text: "text-white", icon: "👁️" },
+    approved: { bg: "bg-gradient-to-r from-emerald-500 to-green-500", text: "text-white", icon: "✅" },
+    closed: { bg: "bg-gradient-to-r from-slate-400 to-slate-500", text: "text-white", icon: "📦" },
   };
+  const defaultStatus = { bg: "bg-slate-200", text: "text-slate-700", icon: "📋" };
+  const statusStyle = statusStyles[claim.status] || defaultStatus;
 
   const lossTypeIcons: Record<string, string> = {
     Water: "💧",
@@ -191,7 +196,8 @@ function MobileClaimCard({ claim }: { claim: Claim }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-slate-900 truncate">{claim.claimNumber}</span>
-            <Badge className={`${statusColors[claim.status] || statusColors.fnol} text-xs shrink-0`}>
+            <Badge className={`${statusStyle.bg} ${statusStyle.text} text-xs shrink-0 shadow-sm font-medium px-2 py-0.5`}>
+              <span className="mr-0.5">{statusStyle.icon}</span>
               {claim.status.replace("_", " ").toUpperCase()}
             </Badge>
           </div>
