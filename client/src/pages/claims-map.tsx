@@ -309,7 +309,6 @@ export default function ClaimsMap() {
     markersRef.current = [];
 
     const bounds = new google.maps.LatLngBounds();
-    const infoWindow = new google.maps.InfoWindow();
 
     claims.forEach((claim, index) => {
       const position = { lat: claim.lat, lng: claim.lng };
@@ -335,14 +334,6 @@ export default function ClaimsMap() {
 
       marker.addListener('click', () => {
         setSelectedClaim(claim);
-        infoWindow.setContent(`
-          <div style="padding: 8px; max-width: 250px;">
-            <strong>${claim.claimNumber}</strong><br/>
-            <span style="color: #666;">${claim.insuredName}</span><br/>
-            <span style="font-size: 12px; color: #888;">${claim.address}, ${claim.city}, ${claim.state}</span>
-          </div>
-        `);
-        infoWindow.open(googleMapRef.current!, marker);
       });
 
       bounds.extend(position);
