@@ -13,6 +13,9 @@
 
 import { supabaseAdmin } from '../server/lib/supabaseAdmin';
 import { loggers } from '../server/lib/logger';
+import { fileURLToPath } from 'url';
+
+const logger = loggers.claims;
 
 interface ArtifactReport {
   tableName: string;
@@ -261,7 +264,7 @@ async function validatePurge(
   organizationId: string,
   claimIds?: string[]
 ): Promise<PurgeValidationReport> {
-  loggers.default.info({ organizationId, claimIds }, 'Starting purge completeness validation...');
+  logger.info({ organizationId, claimIds }, 'Starting purge completeness validation...');
 
   // Get claim IDs if not provided
   let claimIdsToCheck: string[] = [];
@@ -278,7 +281,7 @@ async function validatePurge(
   }
 
   if (claimIdsToCheck.length === 0) {
-    loggers.default.info('No claims found to validate');
+    logger.info('No claims found to validate');
     return {
       organizationId,
       claimIdsChecked: [],
@@ -444,12 +447,13 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    loggers.default.error({ error }, 'Validation failed');
+    logger.error({ error }, 'Validation failed');
     process.exit(1);
   }
 }
 
-if (require.main === module) {
+// ES module equivalent of require.main === module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
 }
 

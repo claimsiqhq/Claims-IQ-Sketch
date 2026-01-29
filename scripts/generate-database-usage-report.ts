@@ -19,6 +19,9 @@ import { runValidation, type ValidationReport } from './validate-column-populati
 import { validatePurge, type PurgeValidationReport } from './validate-purge-completeness';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const logger = loggers.claims;
 
 interface DatabaseHealthMetrics {
   totalClaims: number;
@@ -226,7 +229,7 @@ function calculateHealthScore(
  * Generate comprehensive report
  */
 async function generateReport(organizationId?: string): Promise<DatabaseUsageReport> {
-  loggers.default.info('Generating comprehensive database usage report...');
+  logger.info('Generating comprehensive database usage report...');
 
   // Run all audits
   const [healthMetrics, schemaAudit, columnValidation] = await Promise.all([
@@ -241,7 +244,7 @@ async function generateReport(organizationId?: string): Promise<DatabaseUsageRep
     try {
       purgeValidation = await validatePurge(organizationId);
     } catch (error) {
-      loggers.default.warn({ error }, 'Purge validation skipped');
+      logger.warn({ error }, 'Purge validation skipped');
     }
   }
 
@@ -393,12 +396,13 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    loggers.default.error({ error }, 'Report generation failed');
+    logger.error({ error }, 'Report generation failed');
     process.exit(1);
   }
 }
 
-if (require.main === module) {
+// ES module equivalent of require.main === module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
 }
 

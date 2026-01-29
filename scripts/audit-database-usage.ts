@@ -13,6 +13,9 @@
 
 import { supabaseAdmin } from '../server/lib/supabaseAdmin';
 import { loggers } from '../server/lib/logger';
+import { fileURLToPath } from 'url';
+
+const logger = loggers.claims;
 
 interface TableAuditResult {
   tableName: string;
@@ -131,6 +134,16 @@ async function auditTable(tableName: string, organizationId?: string): Promise<T
       recordsWithDeletedClaims = count || 0;
     }
 
+    // Check foreign key constraint (simplified - assume exists if table is in our known list)
+    // In production, this would query information_schema via direct DB connection
+    const knownTablesWithFk = [
+      'claim_briefings', 'claim_checklists', 'claim_damage_zones',
+      'claim_flow_instances', 'claim_photos', 'claim_rooms',
+      'claim_structures', 'documents', 'estimates',
+      'inspection_appointments', 'inspection_workflows',
+    ];
+    const foreignKeyConstraint = knownTablesWithFk.includes(tableName) ? `fk_${tableName}_claim` : null;
+
     // Check if table has index on claim_id (simplified - assume yes if FK exists)
     // In production, this would query pg_indexes via direct DB connection
     const hasIndex = !!foreignKeyConstraint; // FK constraints typically create indexes
@@ -156,16 +169,6 @@ async function auditTable(tableName: string, organizationId?: string): Promise<T
         // Column doesn't exist, skip
       }
     }
-
-    // Check foreign key constraint (simplified - assume exists if table is in our known list)
-    // In production, this would query information_schema via direct DB connection
-    const knownTablesWithFk = [
-      'claim_briefings', 'claim_checklists', 'claim_damage_zones',
-      'claim_flow_instances', 'claim_photos', 'claim_rooms',
-      'claim_structures', 'documents', 'estimates',
-      'inspection_appointments', 'inspection_workflows',
-    ];
-    const foreignKeyConstraint = knownTablesWithFk.includes(tableName) ? `fk_${tableName}_claim` : null;
 
     // Calculate orphaned records
     // Get all unique claim_ids from this table
@@ -208,7 +211,7 @@ async function auditTable(tableName: string, organizationId?: string): Promise<T
       foreignKeyConstraint,
     };
   } catch (error) {
-    loggers.default.error({ error, tableName }, `Failed to audit table ${tableName}`);
+    logger.error({ error, tableName }, `Failed to audit table ${tableName}`);
     return null;
   }
 }
@@ -258,16 +261,16 @@ function generateRecommendations(results: TableAuditResult[]): string[] {
  * Main audit function
  */
 async function runAudit(organizationId?: string): Promise<AuditReport> {
-  loggers.default.info('Starting database usage audit...');
+  logger.info('Starting database usage audit...');
 
   // Find all tables with claim_id
   const tablesWithClaimId = await findTablesWithClaimId();
-  loggers.default.info({ count: tablesWithClaimId.length }, 'Found tables with claim_id column');
+  logger.info({ count: tablesWithClaimId.length }, 'Found tables with claim_id column');
 
   // Audit each table
   const auditResults: TableAuditResult[] = [];
   for (const tableName of tablesWithClaimId) {
-    loggers.default.info({ tableName }, 'Auditing table');
+    logger.info({ tableName }, 'Auditing table');
     const result = await auditTable(tableName, organizationId);
     if (result) {
       auditResults.push(result);
@@ -359,12 +362,13 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    loggers.default.error({ error }, 'Audit failed');
+    logger.error({ error }, 'Audit failed');
     process.exit(1);
   }
 }
 
-if (require.main === module) {
+// ES module equivalent of require.main === module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
 }
 

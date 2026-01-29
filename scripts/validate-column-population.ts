@@ -13,6 +13,9 @@
 
 import { supabaseAdmin } from '../server/lib/supabaseAdmin';
 import { loggers } from '../server/lib/logger';
+import { fileURLToPath } from 'url';
+
+const logger = loggers.claims;
 
 interface ColumnStats {
   columnName: string;
@@ -186,7 +189,7 @@ async function analyzeTable(
   organizationId?: string
 ): Promise<TableColumnReport | null> {
   try {
-    loggers.default.info({ tableName }, 'Analyzing table columns');
+    logger.info({ tableName }, 'Analyzing table columns');
 
     const columnStats = await getColumnStats(tableName, organizationId);
     
@@ -246,7 +249,7 @@ async function analyzeTable(
       recommendations,
     };
   } catch (error) {
-    loggers.default.error({ error, tableName }, `Failed to analyze table ${tableName}`);
+    logger.error({ error, tableName }, `Failed to analyze table ${tableName}`);
     return null;
   }
 }
@@ -258,7 +261,7 @@ async function runValidation(
   tableName?: string,
   organizationId?: string
 ): Promise<ValidationReport> {
-  loggers.default.info('Starting column population validation...');
+  logger.info('Starting column population validation...');
 
   const tablesToAnalyze = tableName
     ? [tableName]
@@ -361,12 +364,13 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    loggers.default.error({ error }, 'Validation failed');
+    logger.error({ error }, 'Validation failed');
     process.exit(1);
   }
 }
 
-if (require.main === module) {
+// ES module equivalent of require.main === module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
 }
 
