@@ -200,6 +200,80 @@ After running these scripts:
 4. **Monitor**: Run scripts regularly (weekly/monthly) to track database health
 5. **Document**: Keep track of issues found and fixes applied
 
+## Fixing Issues Found
+
+After running validation scripts, you can fix issues automatically:
+
+### Option 1: Generate SQL Migration File (Recommended)
+
+```bash
+# Generate a SQL migration file with all fixes
+tsx scripts/fix-database-issues.ts --generate-sql
+```
+
+This creates a migration file in `db/migrations/` that you can review and run manually.
+
+### Option 2: Use Pre-Created Migration
+
+A migration file has been created at `db/migrations/059_fix_validation_issues.sql` that fixes:
+- Missing indexes on `claim_scope_items` and `endorsement_extractions`
+- Missing FK constraints on the same tables
+
+Run it via your database client or migration tool.
+
+### Option 3: Manual SQL Execution
+
+For the issues found in your report:
+
+```sql
+-- Add missing indexes
+CREATE INDEX IF NOT EXISTS idx_claim_scope_items_claim_id 
+  ON claim_scope_items(claim_id);
+
+CREATE INDEX IF NOT EXISTS idx_endorsement_extractions_claim_id 
+  ON endorsement_extractions(claim_id);
+
+-- Add missing FK constraints (after cleaning orphans)
+ALTER TABLE claim_scope_items
+  ADD CONSTRAINT fk_claim_scope_items_claim
+  FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE;
+
+ALTER TABLE endorsement_extractions
+  ADD CONSTRAINT fk_endorsement_extractions_claim
+  FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE SET NULL;
+```
+
+## Understanding Your Results
+
+Based on your validation report:
+
+### ✅ Good News
+- **No orphaned records** - Data integrity is good
+- **No critical issues** - Database is in good shape
+- **Good document/photo ratios** - 3.67 docs/claim, 2.33 photos/claim
+
+### ⚠️ Items to Address
+
+1. **Missing Indexes** (2 tables)
+   - `claim_scope_items` - Add index on `claim_id`
+   - `endorsement_extractions` - Add index on `claim_id`
+   - **Impact**: Slower queries when filtering by claim_id
+   - **Fix**: Run migration `059_fix_validation_issues.sql`
+
+2. **Missing FK Constraints** (2 tables)
+   - Same tables as above
+   - **Impact**: No automatic cleanup on claim deletion
+   - **Fix**: Run migration `059_fix_validation_issues.sql`
+
+3. **Always-NULL Columns** (16 columns)
+   - These columns are never populated
+   - **Impact**: Wasted storage, potential confusion
+   - **Action**: Review if columns are needed:
+     - **claims table**: `assigned_user_id`, `carrier_id`, `claim_type`, `coverage_d`, `assigned_adjuster_id`, `closed_at`, `dol_weather_hail_size`, `dol_weather_humidity`
+     - **documents table**: `preview_error`
+     - **claim_photos table**: `structure_id`, `room_id`, `damage_zone_id`, `uploaded_by`, `geo_address`, `taxonomy_prefix`, `taxonomy_category_id`
+   - **Decision**: Keep if planned for future use, remove if truly unused
+
 ## Related Functions
 
 The scripts work alongside these updated functions:
