@@ -3306,11 +3306,13 @@ export async function registerRoutes(
 
   // Delete claim
   app.delete('/api/claims/:id', requireAuth, requireOrganization, requireOrgRole('owner', 'admin'), apiRateLimiter, validateParams(uuidParamSchema), asyncHandler(async (req, res, next) => {
-    const success = await deleteClaim(req.params.id, req.organizationId!);
+    // Support hardDelete via query parameter or body
+    const hardDelete = req.query.hardDelete === 'true' || req.body.hardDelete === true;
+    const success = await deleteClaim(req.params.id, req.organizationId!, hardDelete);
     if (!success) {
       return next(errors.notFound('Claim'));
     }
-    res.json({ success: true });
+    res.json({ success: true, hardDelete });
   }));
 
   // Save rooms to claim with full hierarchy (structures → rooms → damage zones)

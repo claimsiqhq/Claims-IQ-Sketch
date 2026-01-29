@@ -198,14 +198,16 @@ router.delete('/:id', requireAuth, requireOrganization, requireOrgRole('owner', 
   try {
     const { id } = req.params;
     const organizationId = (req as any).organizationId;
+    // Support hardDelete via query parameter or body
+    const hardDelete = req.query.hardDelete === 'true' || req.body.hardDelete === true;
 
-    const deleted = await deleteClaim(id, organizationId);
+    const deleted = await deleteClaim(id, organizationId, hardDelete);
     if (!deleted) {
       return res.status(404).json({ message: 'Claim not found' });
     }
 
-    log.info({ claimId: id }, 'Claim deleted');
-    res.json({ message: 'Claim deleted successfully' });
+    log.info({ claimId: id, hardDelete }, 'Claim deleted');
+    res.json({ message: 'Claim deleted successfully', hardDelete });
   } catch (error) {
     log.error({ err: error }, 'Delete claim error');
     res.status(500).json({ message: 'Failed to delete claim' });

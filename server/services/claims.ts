@@ -738,15 +738,41 @@ export async function updateClaim(
 
 export async function deleteClaim(
   id: string,
-  organizationId: string
+  organizationId: string,
+  hardDelete: boolean = false
 ): Promise<boolean> {
-  const { error } = await supabaseAdmin
-    .from('claims')
-    .update({ status: 'deleted', updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .eq('organization_id', organizationId);
+  if (hardDelete) {
+    // Hard delete: Actually remove the claim and let foreign key cascades handle related records
+    // Note: This will trigger CASCADE deletes on all tables with ON DELETE CASCADE foreign keys
+    const { error } = await supabaseAdmin
+      .from('claims')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', organizationId);
 
-  return !error;
+    if (error) {
+      log.error({ error, claimId: id }, '[deleteClaim] Hard delete failed');
+      return false;
+    }
+
+    log.info({ claimId: id }, '[deleteClaim] Hard deleted claim (cascades handled by FK constraints)');
+    return true;
+  } else {
+    // Soft delete: Mark as deleted but keep the record
+    const { error } = await supabaseAdmin
+      .from('claims')
+      .update({ status: 'deleted', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('organization_id', organizationId);
+
+    if (error) {
+      log.error({ error, claimId: id }, '[deleteClaim] Soft delete failed');
+      return false;
+    }
+
+    log.info({ claimId: id }, '[deleteClaim] Soft deleted claim (status set to deleted)');
+    return true;
+  }
 }
 
 export async function getClaimStats(organizationId: string): Promise<{
@@ -1050,11 +1076,12 @@ export async function purgeAllClaims(organizationId: string): Promise<{
 
     for (const table of flowChildTables) {
       try {
-        await supabaseAdmin
+        const { count } = await supabaseAdmin
           .from(table)
-          .delete()
+          .delete({ count: 'exact' })
           .in('flow_instance_id', flowInstanceIds);
-        relatedRecordsDeleted += flowInstanceIds.length;
+        relatedRecordsDeleted += count || 0;
+        log.debug({ table, deleted: count }, '[purge] Deleted from flow child table');
       } catch (e) {
         log.debug({ error: e, table }, '[purge] Could not delete from table');
       }
@@ -1145,15 +1172,17 @@ export async function purgeAllClaims(organizationId: string): Promise<{
       'estimate_coverage_summary',
       'scope_items',
       'scope_summary',
+      'rule_effects', // Audit trail for estimate rules
     ];
 
     for (const table of estimateChildTables) {
       try {
-        await supabaseAdmin
+        const { count } = await supabaseAdmin
           .from(table)
-          .delete()
+          .delete({ count: 'exact' })
           .in('estimate_id', estimateIds);
-        relatedRecordsDeleted += estimateIds.length;
+        relatedRecordsDeleted += count || 0;
+        log.debug({ table, deleted: count }, '[purge] Deleted from estimate child table');
       } catch (e) {
         log.debug({ error: e, table }, '[purge] Could not delete from table');
       }
@@ -1167,7 +1196,33 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     relatedRecordsDeleted += estimateIds.length;
   }
 
-  // 14. Delete from tables with claim_id foreign key
+  // 14. Get inspection appointment IDs for calendar cache cleanup
+  let inspectionAppointmentIds: string[] = [];
+  try {
+    const { data: appointments } = await supabaseAdmin
+      .from('inspection_appointments')
+      .select('id')
+      .in('claim_id', claimIds);
+    inspectionAppointmentIds = appointments?.map(a => a.id) || [];
+  } catch (e) {
+    log.debug({ error: e }, '[purge] Could not fetch inspection appointments');
+  }
+
+  // 14b. Delete calendar event cache entries linked to appointments
+  if (inspectionAppointmentIds.length > 0) {
+    try {
+      const { count } = await supabaseAdmin
+        .from('calendar_event_cache')
+        .delete({ count: 'exact' })
+        .in('local_appointment_id', inspectionAppointmentIds);
+      relatedRecordsDeleted += count || 0;
+      log.debug({ deleted: count }, '[purge] Deleted calendar event cache entries');
+    } catch (e) {
+      log.debug({ error: e }, '[purge] Could not delete from calendar_event_cache (table may not exist)');
+    }
+  }
+
+  // 15. Delete from tables with claim_id foreign key
   const directClaimTables = [
     'claim_damage_zones',
     'claim_rooms',
@@ -1177,6 +1232,7 @@ export async function purgeAllClaims(organizationId: string): Promise<{
     'claim_photos',
     'claim_checklists',
     'claim_checklist_items',
+    'claim_scope_items', // Claim-level scope items (pre-estimate)
     'documents',
     'policy_form_extractions',
     'endorsement_extractions',
@@ -1185,33 +1241,42 @@ export async function purgeAllClaims(organizationId: string): Promise<{
 
   for (const table of directClaimTables) {
     try {
-      await supabaseAdmin
+      const { count } = await supabaseAdmin
         .from(table)
-        .delete()
+        .delete({ count: 'exact' })
         .in('claim_id', claimIds);
-      relatedRecordsDeleted += claimIds.length;
+      relatedRecordsDeleted += count || 0;
+      log.debug({ table, deleted: count }, '[purge] Deleted from direct claim table');
     } catch (e) {
       log.debug({ error: e, table }, '[purge] Could not delete from table');
     }
   }
 
-  // 15. Delete estimates
+  // 16. Delete estimates
   if (estimateIds.length > 0) {
-    await supabaseAdmin
+    const { count: estimatesDeleted } = await supabaseAdmin
       .from('estimates')
-      .delete()
+      .delete({ count: 'exact' })
       .in('id', estimateIds);
-    relatedRecordsDeleted += estimateIds.length;
+    relatedRecordsDeleted += estimatesDeleted || 0;
+    log.debug({ deleted: estimatesDeleted }, '[purge] Deleted estimates');
   }
 
-  // 16. Finally delete claims
-  await supabaseAdmin
+  // 17. Finally delete claims
+  const { count: claimsDeleted } = await supabaseAdmin
     .from('claims')
-    .delete()
+    .delete({ count: 'exact' })
     .eq('organization_id', organizationId);
+  
+  log.info({ 
+    organizationId, 
+    claimsDeleted: claimsDeleted || 0, 
+    relatedRecordsDeleted,
+    storageFilesDeleted 
+  }, '[purge] Completed purge operation');
 
   return {
-    claimsDeleted: claimIds.length,
+    claimsDeleted: claimsDeleted || claimIds.length,
     relatedRecordsDeleted,
     storageFilesDeleted
   };
