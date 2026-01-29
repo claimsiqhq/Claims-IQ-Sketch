@@ -51,6 +51,7 @@ interface AuditReport {
  */
 async function findTablesWithClaimId(): Promise<string[]> {
   // Known tables with claim_id from schema analysis
+  // Note: Some tables may not exist in all databases
   const knownTables = [
     'claims',
     'claim_briefings',
@@ -60,7 +61,7 @@ async function findTablesWithClaimId(): Promise<string[]> {
     'claim_flow_instances',
     'claim_photos',
     'claim_rooms',
-    'claim_scope_items',
+    'claim_scope_items', // May not exist in all databases
     'claim_structures',
     'documents',
     'endorsement_extractions',
