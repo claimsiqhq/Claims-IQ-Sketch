@@ -358,13 +358,20 @@ export default function MovementExecutionPage() {
     setCapturedPhotos(prev => prev.filter(p => p.id !== id));
   };
 
+  // Ref for timer so interval always sees current value (avoids stale closure)
+  const recordingElapsedRef = useRef(0);
+
   // Voice recording handlers
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      // Prefer audio/webm; Safari and some browsers need no mimeType (browser default)
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : undefined;
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+
+      const blobType = mediaRecorder.mimeType || 'audio/webm';
 
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
@@ -373,22 +380,21 @@ export default function MovementExecutionPage() {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: blobType });
         setAudioBlob(audioBlob);
         stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start(1000);
+      recordingElapsedRef.current = 0;
       setRecordingTime(0);
       setShowVoiceRecorder(true);
       setIsRecording(true);
 
-      // Start timer after state is set
+      // Timer: increment ref and set state so UI updates every second
       recordingTimerRef.current = setInterval(() => {
-        setRecordingTime(prev => {
-          const next = prev + 1;
-          return next;
-        });
+        recordingElapsedRef.current += 1;
+        setRecordingTime(recordingElapsedRef.current);
       }, 1000);
     } catch (err) {
       toast.error('Could not access microphone');

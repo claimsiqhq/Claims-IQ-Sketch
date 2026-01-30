@@ -14,7 +14,7 @@
 
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase';
 import { getPrompt, substituteVariables } from './promptService';
 import { createLogger } from '../lib/logger';
 
@@ -100,7 +100,12 @@ export interface AudioObservationWithJoins extends AudioObservation {
  * Initialize the audio-observations storage bucket if it doesn't exist
  */
 export async function initializeAudioBucket(): Promise<void> {
+  if (!isSupabaseConfigured) {
+    log.warn('Supabase not configured, skipping audio bucket initialization');
+    return;
+  }
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
 
     if (listError) {
@@ -172,18 +177,41 @@ export async function createAudioObservation(input: CreateAudioObservationInput)
     'Creating audio observation'
   );
 
-  // Upload to Supabase Storage
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from(AUDIO_BUCKET)
-    .upload(storagePath, audioBuffer, {
+  if (!isSupabaseConfigured) {
+    log.error('Supabase not configured - cannot upload audio');
+    throw new Error('Audio storage is not configured. Please set SUPABASE_URL and SUPABASE_SECRET_KEY.');
+  }
+
+  const supabaseAdmin = getSupabaseAdmin();
+
+  // Upload to Supabase Storage (with bucket init retry like photos)
+  let uploadError: { message?: string } | null = null;
+  uploadError = (
+    await supabaseAdmin.storage.from(AUDIO_BUCKET).upload(storagePath, audioBuffer, {
       contentType: mimeType,
       cacheControl: '3600',
       upsert: false,
-    });
+    })
+  ).error;
 
   if (uploadError) {
-    log.error({ err: uploadError, storagePath }, 'Failed to upload audio to storage');
-    throw new Error(`Failed to upload audio: ${uploadError.message}`);
+    const isBucketMissing =
+      uploadError.message?.includes('not found') ||
+      uploadError.message?.toLowerCase().includes('bucket not found');
+    if (isBucketMissing) {
+      log.warn({ storagePath }, 'Audio bucket not found, initializing and retrying');
+      await initializeAudioBucket();
+      const retry = await supabaseAdmin.storage.from(AUDIO_BUCKET).upload(storagePath, audioBuffer, {
+        contentType: mimeType,
+        cacheControl: '3600',
+        upsert: false,
+      });
+      uploadError = retry.error;
+    }
+    if (uploadError) {
+      log.error({ err: uploadError, storagePath }, 'Failed to upload audio to storage');
+      throw new Error(`Failed to upload audio: ${uploadError.message}`);
+    }
   }
 
   // Get public URL
@@ -236,6 +264,7 @@ export async function createAudioObservation(input: CreateAudioObservationInput)
  */
 export async function processAudioObservation(audioObservationId: string): Promise<void> {
   log.info({ audioObservationId }, 'Processing audio observation');
+  const supabaseAdmin = getSupabaseAdmin();
 
   try {
     // Step 1: Transcribe
@@ -263,6 +292,7 @@ export async function processAudioObservation(audioObservationId: string): Promi
  */
 export async function transcribeAudio(audioObservationId: string): Promise<void> {
   log.info({ audioObservationId }, 'Starting audio transcription');
+  const supabaseAdmin = getSupabaseAdmin();
 
   // Update status to processing
   await supabaseAdmin
@@ -350,6 +380,7 @@ export async function transcribeAudio(audioObservationId: string): Promise<void>
  */
 export async function extractEntities(audioObservationId: string): Promise<void> {
   log.info({ audioObservationId }, 'Starting entity extraction');
+  const supabaseAdmin = getSupabaseAdmin();
 
   // Update status to processing
   await supabaseAdmin
@@ -473,6 +504,7 @@ export async function extractEntities(audioObservationId: string): Promise<void>
 export async function getAudioObservation(
   id: string
 ): Promise<AudioObservationWithJoins | null> {
+  const supabaseAdmin = getSupabaseAdmin();
   const { data, error } = await supabaseAdmin
     .from('audio_observations')
     .select(`
@@ -508,6 +540,7 @@ export async function getAudioObservation(
 export async function getClaimAudioObservations(
   claimId: string
 ): Promise<AudioObservationWithJoins[]> {
+  const supabaseAdmin = getSupabaseAdmin();
   const { data, error } = await supabaseAdmin
     .from('audio_observations')
     .select(`
@@ -543,6 +576,7 @@ export async function getClaimAudioObservations(
  * Determines which step to retry based on current status
  */
 export async function retryAudioProcessing(audioObservationId: string): Promise<void> {
+  const supabaseAdmin = getSupabaseAdmin();
   const { data: observation, error } = await supabaseAdmin
     .from('audio_observations')
     .select('transcription_status, extraction_status')

@@ -129,10 +129,11 @@ import {
   type CoverageAnalysisSummary,
   type CoverageAlert,
   type ClaimPhoto,
+  getActiveFlowForClaim,
 } from "@/lib/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, formatDistance } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PhotoAlbum } from "@/features/voice-sketch/components/PhotoAlbum";
 import type { SketchPhoto } from "@/features/voice-sketch/types/geometry";
@@ -292,6 +293,14 @@ export default function ClaimDetail() {
     },
     retry: 3, // Retry failed requests up to 3 times
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
+  });
+
+  // Active flow for claim (shared with ClaimFlowSection via same queryKey; used for master timer)
+  const { data: activeFlow } = useQuery({
+    queryKey: ['activeFlow', params?.id],
+    queryFn: () => getActiveFlowForClaim(params!.id),
+    enabled: !!params?.id,
+    staleTime: 30000,
   });
 
   // Convert ClaimPhotos to SketchPhotos for PhotoAlbum
@@ -1453,6 +1462,28 @@ export default function ClaimDetail() {
                 </span>
               </div>
               <p className="text-sm text-muted-foreground font-mono mt-0.5 hidden md:block">{claim.policyNumber}</p>
+              {/* Master claim timer: open/closed overall + inspection stage */}
+              {(apiClaim?.createdAt || activeFlow?.startedAt) && (
+                <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 hidden md:flex">
+                  {apiClaim?.createdAt && (
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3 shrink-0" />
+                      {apiClaim.closedAt
+                        ? `Closed after ${formatDistance(new Date(apiClaim.createdAt), new Date(apiClaim.closedAt))}`
+                        : `Open since ${formatDistanceToNow(new Date(apiClaim.createdAt), { addSuffix: false })} ago`
+                      }
+                    </span>
+                  )}
+                  {activeFlow?.startedAt && (
+                    <span>
+                      Inspection {activeFlow.completedAt
+                        ? `completed in ${formatDistance(new Date(activeFlow.startedAt), new Date(activeFlow.completedAt))}`
+                        : `started ${formatDistanceToNow(new Date(activeFlow.startedAt), { addSuffix: false })} ago`
+                      }
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

@@ -151,7 +151,7 @@ router.get('/claims/:claimId/flows/preview', async (req, res) => {
 
 /**
  * GET /api/claims/:claimId/flows
- * Get active flow for claim
+ * Get active flow for claim (includes progress so start page shows correct X/Y movements and %)
  */
 router.get('/claims/:claimId/flows', async (req, res) => {
   try {
@@ -163,7 +163,14 @@ router.get('/claims/:claimId/flows', async (req, res) => {
       return res.status(404).json({ error: 'No active flow found for this claim' });
     }
 
-    res.status(200).json(flow);
+    const progress = await getFlowProgress(flow.id);
+    const payload = {
+      ...flow,
+      progress,
+      startedAt: flow.startedAt instanceof Date ? flow.startedAt.toISOString() : flow.startedAt,
+      completedAt: flow.completedAt instanceof Date ? flow.completedAt?.toISOString() ?? null : flow.completedAt,
+    };
+    res.status(200).json(payload);
 
   } catch (error) {
     console.error('[FlowEngineRoutes] GET /claims/:claimId/flows error:', error);
