@@ -1624,6 +1624,20 @@ function FlowEditorView({
       try {
         setLoading(true);
         const flow = await getFlowDefinition(flowId);
+        
+        // Validate flow structure before setting state
+        if (!flow.flowJson) {
+          throw new Error('Flow definition is missing flowJson data');
+        }
+        
+        if (!Array.isArray(flow.flowJson.phases)) {
+          throw new Error('Flow definition has invalid phases structure');
+        }
+        
+        if (!Array.isArray(flow.flowJson.gates)) {
+          throw new Error('Flow definition has invalid gates structure');
+        }
+        
         setFlowName(flow.name);
         setFlowDescription(flow.description || "");
         setPerilType(flow.perilType);
@@ -1632,9 +1646,10 @@ function FlowEditorView({
         setFlowJson(flow.flowJson);
         setSelectedPhaseId(flow.flowJson.phases[0]?.id || null);
       } catch (error) {
+        console.error('[FlowBuilder] Error loading flow:', error);
         toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to load flow",
+          title: "Error Loading Flow",
+          description: error instanceof Error ? error.message : "Failed to load flow definition. The flow may be corrupted.",
           variant: "destructive",
         });
         onBack();

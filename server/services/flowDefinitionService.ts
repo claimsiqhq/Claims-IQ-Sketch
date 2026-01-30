@@ -76,7 +76,19 @@ export async function getAllFlowDefinitions(organizationId?: string): Promise<Fl
   }
 
   return (data || []).map(def => {
-    const flowJson = def.flow_json as FlowJson;
+    // Safely extract flow_json - handle both parsed (JSONB) and string formats
+    let flowJson: FlowJson | null = null;
+    try {
+      if (typeof def.flow_json === 'string') {
+        flowJson = JSON.parse(def.flow_json) as FlowJson;
+      } else if (def.flow_json && typeof def.flow_json === 'object') {
+        flowJson = def.flow_json as FlowJson;
+      }
+    } catch (e) {
+      console.error(`[FlowDefinitionService] Invalid JSON in flow ${def.id}:`, e);
+      // Continue with null flowJson - will result in 0 counts
+    }
+
     const phaseCount = flowJson?.phases?.length || 0;
     const movementCount = flowJson?.phases?.reduce((sum, phase) => sum + (phase.movements?.length || 0), 0) || 0;
 
@@ -116,6 +128,21 @@ export async function getFlowDefinition(id: string) {
     return null;
   }
 
+  // Safely parse flow_json
+  let flowJson: FlowJson;
+  try {
+    if (typeof data.flow_json === 'string') {
+      flowJson = JSON.parse(data.flow_json) as FlowJson;
+    } else if (data.flow_json && typeof data.flow_json === 'object') {
+      flowJson = data.flow_json as FlowJson;
+    } else {
+      throw new Error('flow_json is not a valid object or string');
+    }
+  } catch (e) {
+    console.error(`[FlowDefinitionService] Invalid flow_json for ${data.id}:`, e);
+    throw new Error(`Invalid flow JSON: ${e instanceof Error ? e.message : 'Unknown error'}`);
+  }
+
   return {
     id: data.id,
     organizationId: data.organization_id,
@@ -123,7 +150,7 @@ export async function getFlowDefinition(id: string) {
     description: data.description,
     perilType: data.peril_type,
     propertyType: data.property_type,
-    flowJson: data.flow_json as FlowJson,
+    flowJson,
     version: data.version,
     isActive: data.is_active,
     createdBy: data.created_by,

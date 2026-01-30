@@ -3210,11 +3210,27 @@ export async function getFlowDefinitions(organizationId?: string): Promise<FlowD
   const response = await fetch(url.toString(), {
     credentials: 'include',
   });
+  
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Failed to fetch flow definitions');
+    throw new Error(error.error || `Failed to fetch flow definitions: ${response.status} ${response.statusText}`);
   }
-  return response.json();
+  
+  try {
+    const data = await response.json();
+    // Validate response is an array
+    if (!Array.isArray(data)) {
+      console.error('[getFlowDefinitions] Invalid response format:', data);
+      throw new Error('Invalid response format: expected array');
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error('[getFlowDefinitions] JSON parse error:', error);
+      throw new Error('Invalid JSON response from server. Check server logs for flow definition issues.');
+    }
+    throw error;
+  }
 }
 
 /**
@@ -3238,11 +3254,37 @@ export async function getFlowDefinition(id: string): Promise<FlowDefinition> {
   const response = await fetch(`${API_BASE}/flow-definitions/${id}`, {
     credentials: 'include',
   });
+  
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Failed to fetch flow definition');
+    throw new Error(error.error || `Failed to fetch flow definition: ${response.status} ${response.statusText}`);
   }
-  return response.json();
+  
+  try {
+    const data = await response.json();
+    
+    // Validate flowJson exists and is valid
+    if (!data.flowJson) {
+      throw new Error('Flow definition missing flowJson field');
+    }
+    
+    // Ensure flowJson has required structure
+    if (!data.flowJson.phases || !Array.isArray(data.flowJson.phases)) {
+      throw new Error('Flow definition has invalid structure: missing phases array');
+    }
+    
+    if (!data.flowJson.gates || !Array.isArray(data.flowJson.gates)) {
+      throw new Error('Flow definition has invalid structure: missing gates array');
+    }
+    
+    return data;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error('[getFlowDefinition] JSON parse error:', error);
+      throw new Error('Invalid JSON response from server. The flow definition may be corrupted.');
+    }
+    throw error;
+  }
 }
 
 /**
