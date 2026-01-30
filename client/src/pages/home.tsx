@@ -1,3 +1,4 @@
+/// <reference types="@types/google.maps" />
 import { useEffect, useState, useRef } from "react";
 import { useStore } from "@/lib/store";
 import Layout from "@/components/layout";
@@ -43,6 +44,12 @@ import {
   Droplets,
   AlertTriangle,
 } from "lucide-react";
+
+declare global {
+  interface Window {
+    google: typeof google;
+  }
+}
 import { Link } from "wouter";
 import { getClaims, getClaimStats, type Claim, type ClaimStats } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
@@ -271,6 +278,7 @@ export default function Home() {
   const [weather, setWeather] = useState<CurrentWeather | null>(null);
   const [currentLocation, setCurrentLocation] = useState<CurrentLocation | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
+  const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -284,9 +292,30 @@ export default function Home() {
     bulkUploadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
+  // Check if Google Maps is already loaded (might be loaded by map tab or other pages)
+  useEffect(() => {
+    if (window.google?.maps) {
+      setGoogleMapsLoaded(true);
+      return;
+    }
+    
+    // Try to detect if Google Maps loads later
+    const checkInterval = setInterval(() => {
+      if (window.google?.maps) {
+        setGoogleMapsLoaded(true);
+        clearInterval(checkInterval);
+      }
+    }, 500);
+    
+    // Stop checking after 10 seconds
+    setTimeout(() => clearInterval(checkInterval), 10000);
+    
+    return () => clearInterval(checkInterval);
+  }, []);
+
   // Fetch weather for current location
   useEffect(() => {
-    async function fetchWeatherAndLocation(lat: number, lng: number) {
+    async function fetchWeatherAndLocation(lat: number, lng: number, isDefault = false) {
       try {
         // Fetch weather
         const response = await fetch('/api/weather/locations', {
@@ -314,46 +343,139 @@ export default function Home() {
           }
         }
 
-        // Reverse geocode to get city/state using our backend
-        try {
-          const geoResponse = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`, {
-            credentials: 'include',
-          });
-          if (geoResponse.ok) {
-            const geoData = await geoResponse.json();
-            if (geoData.city || geoData.state) {
-              setCurrentLocation({
-                city: geoData.city || '',
-                state: geoData.state || '',
-                lat,
-                lng,
-              });
+        // Reverse geocode location - use Google Maps if available (same as map tab), otherwise use backend API
+        // Both use Google Maps API, so they should return the same results
+        if (window.google?.maps) {
+          // Use Google Maps geocoding directly (same as map tab)
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === 'OK' && results && results[0]) {
+              const addressComponents = results[0].address_components;
+              let city = '';
+              let state = '';
+              for (const component of addressComponents) {
+                if (component.types.includes('locality')) {
+                  city = component.long_name;
+                }
+                if (component.types.includes('administrative_area_level_1')) {
+                  state = component.short_name;
+                }
+              }
+              setCurrentLocation({ city, state, lat, lng });
+            } else {
+              // Geocoding failed - try backend API as fallback
+              fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`, {
+                credentials: 'include',
+              })
+                .then((geoResponse) => {
+                  if (geoResponse.ok) {
+                    return geoResponse.json();
+                  }
+                  return null;
+                })
+                .then((geoData) => {
+                  if (geoData && (geoData.city || geoData.state)) {
+                    setCurrentLocation({
+                      city: geoData.city || '',
+                      state: geoData.state || '',
+                      lat,
+                      lng,
+                    });
+                  } else {
+                    setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
+                  }
+                })
+                .catch(() => {
+                  setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
+                });
             }
+          });
+        } else {
+          // Google Maps not loaded - use backend API (which also uses Google Maps)
+          try {
+            const geoResponse = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`, {
+              credentials: 'include',
+            });
+            if (geoResponse.ok) {
+              const geoData = await geoResponse.json();
+              if (geoData.city || geoData.state) {
+                setCurrentLocation({
+                  city: geoData.city || '',
+                  state: geoData.state || '',
+                  lat,
+                  lng,
+                });
+              } else {
+                setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
+              }
+            } else {
+              setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
+            }
+          } catch {
+            setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
           }
-        } catch {
-          // Fallback - just use coordinates
-          setCurrentLocation({ city: 'Your Location', state: '', lat, lng });
+          
+          // If Google Maps loads later, update the location with better geocoding
+          const checkGoogleMaps = setInterval(() => {
+            if (window.google?.maps && (!currentLocation || !currentLocation.city || currentLocation.city === 'Current Location')) {
+              const geocoder = new google.maps.Geocoder();
+              geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+                if (status === 'OK' && results && results[0]) {
+                  const addressComponents = results[0].address_components;
+                  let city = '';
+                  let state = '';
+                  for (const component of addressComponents) {
+                    if (component.types.includes('locality')) {
+                      city = component.long_name;
+                    }
+                    if (component.types.includes('administrative_area_level_1')) {
+                      state = component.short_name;
+                    }
+                  }
+                  setCurrentLocation({ city, state, lat, lng });
+                }
+              });
+              clearInterval(checkGoogleMaps);
+            } else if (currentLocation?.city && currentLocation.city !== 'Current Location' && currentLocation.city !== 'Location unavailable') {
+              clearInterval(checkGoogleMaps);
+            }
+          }, 1000);
+          
+          // Cleanup interval after 15 seconds
+          setTimeout(() => clearInterval(checkGoogleMaps), 15000);
         }
       } catch (err) {
+        console.error('Error fetching weather:', err);
         // Weather fetch failed - continue without weather data
       } finally {
         setWeatherLoading(false);
       }
     }
 
-    // Default to Austin, TX if geolocation unavailable
-    const defaultLat = 30.2672;
-    const defaultLng = -97.7431;
-
+    // Improved geolocation - match map tab's approach
     if (navigator.geolocation) {
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 10000, // 10 second timeout
+        maximumAge: 60000, // Use cached location if less than 1 minute old
+      };
+
       navigator.geolocation.getCurrentPosition(
-        (position) => fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude),
-        () => fetchWeatherAndLocation(defaultLat, defaultLng),
-        { timeout: 5000, maximumAge: 300000 }
+        (position) => {
+          fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude, false);
+        },
+        (error) => {
+          console.warn('Geolocation error:', error.message);
+          // Don't use default location - user should enable location services
+          setWeatherLoading(false);
+        },
+        options
       );
     } else {
-      fetchWeatherAndLocation(defaultLat, defaultLng);
+      // Geolocation not supported
+      setWeatherLoading(false);
     }
+
   }, []);
 
   useEffect(() => {
@@ -442,41 +564,62 @@ export default function Home() {
                 <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
               </div>
             ) : weather && (
-              <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-xl px-3 py-2" data-testid="weather-badge-home">
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const WeatherIcon = getWeatherIconComponent(weather.conditions);
-                    return <WeatherIcon className="h-8 w-8 text-sky-500" />;
-                  })()}
-                  <div>
-                    <div className="text-lg font-bold text-foreground">{Math.round(weather.temp)}°F</div>
-                    <div className="text-xs text-muted-foreground">{weather.conditions}</div>
+              <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-xl px-3 py-2 flex items-center gap-3" data-testid="weather-badge-home">
+                {(() => {
+                  const WeatherIcon = getWeatherIconComponent(weather.conditions);
+                  return <WeatherIcon className="h-8 w-8 text-sky-500" />;
+                })()}
+                <div className="flex flex-col">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-xl font-bold text-foreground">{Math.round(weather.temp)}°F</span>
+                    <span className="text-xs text-muted-foreground">{weather.conditions}</span>
                   </div>
-                  <div className="border-l border-sky-200 pl-2 ml-1 space-y-0.5">
-                    {weather.feelsLike !== undefined && (
-                      <div className="flex items-center gap-1 text-xs">
-                        <Thermometer className="h-3 w-3 text-sky-500" />
-                        <span>{Math.round(weather.feelsLike)}°</span>
-                      </div>
-                    )}
-                    {weather.humidity !== undefined && (
-                      <div className="flex items-center gap-1 text-xs">
-                        <Droplets className="h-3 w-3 text-sky-500" />
-                        <span>{weather.humidity}%</span>
-                      </div>
-                    )}
-                  </div>
+                  {currentLocation && (currentLocation.city || currentLocation.state) && (
+                    <div className="flex items-center gap-1 text-xs text-sky-600">
+                      <MapPin className="h-3 w-3" />
+                      <span className="truncate max-w-[120px]">
+                        {currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {currentLocation && (currentLocation.city || currentLocation.state) && (
-                  <div className="flex items-center gap-1 mt-1 text-xs text-sky-600">
-                    <MapPin className="h-3 w-3" />
-                    <span>{currentLocation.city}{currentLocation.city && currentLocation.state ? ', ' : ''}{currentLocation.state}</span>
+                <div className="border-l border-sky-200 pl-3 flex gap-3 text-xs">
+                  {weather.feelsLike !== undefined && (
+                    <div className="flex items-center gap-1">
+                      <Thermometer className="h-3 w-3 text-sky-500" />
+                      <span className="text-muted-foreground">Feels</span>
+                      <span className="font-medium">{Math.round(weather.feelsLike)}°</span>
+                    </div>
+                  )}
+                  {weather.humidity !== undefined && (
+                    <div className="flex items-center gap-1">
+                      <Droplets className="h-3 w-3 text-sky-500" />
+                      <span className="font-medium">{weather.humidity}%</span>
+                    </div>
+                  )}
+                  {weather.windSpeed !== undefined && (
+                    <div className="flex items-center gap-1">
+                      <Wind className="h-3 w-3 text-sky-500" />
+                      <span className="font-medium">{Math.round(weather.windSpeed)} mph</span>
+                    </div>
+                  )}
+                </div>
+                {weather.forecast && weather.forecast.length > 0 && (
+                  <div className="border-l border-sky-200 pl-3 flex gap-2">
+                    {weather.forecast.slice(0, 3).map((hour, idx) => (
+                      <div key={idx} className="text-center">
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(hour.time).toLocaleTimeString([], { hour: 'numeric' })}
+                        </p>
+                        <p className="text-xs font-medium">{Math.round(hour.temp)}°</p>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {weather.alerts && weather.alerts.length > 0 && (
-                  <div className="flex items-center gap-1 mt-1 text-xs text-amber-600">
+                  <div className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2 py-1 rounded">
                     <AlertTriangle className="h-3 w-3" />
-                    <span className="truncate">{weather.alerts[0].event}</span>
+                    <span className="text-xs font-medium truncate max-w-[100px]">{weather.alerts[0].event}</span>
                   </div>
                 )}
               </div>

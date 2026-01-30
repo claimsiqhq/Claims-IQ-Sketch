@@ -174,11 +174,14 @@ export default function ClaimsMap() {
                 }
               }
               setCurrentLocation({ city, state, lat, lng });
+            } else {
+              // Geocoding failed - use fallback
+              setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
             }
           });
         } else {
           // Fallback if Google Maps not loaded yet - just set coordinates
-          setCurrentLocation({ city: 'Current Location', state: '', lat, lng });
+          setCurrentLocation({ city: isDefault ? 'Location unavailable' : 'Current Location', state: '', lat, lng });
         }
       } catch (err) {
         console.error('Error fetching weather:', err);
@@ -187,17 +190,26 @@ export default function ClaimsMap() {
       }
     }
 
-    const defaultLat = 30.2672;
-    const defaultLng = -97.7431;
-
+    // Improved geolocation with better error handling - don't default to Austin
     if (navigator.geolocation) {
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 10000, // Increased timeout to 10 seconds
+        maximumAge: 60000, // Use cached location if less than 1 minute old
+      };
+
       navigator.geolocation.getCurrentPosition(
-        (position) => fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude),
-        () => fetchWeatherAndLocation(defaultLat, defaultLng),
-        { timeout: 5000, maximumAge: 300000 }
+        (position) => fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude, false),
+        (error) => {
+          console.warn('Geolocation error:', error.message);
+          // Don't use default location - user should enable location services
+          setWeatherLoading(false);
+        },
+        options
       );
     } else {
-      fetchWeatherAndLocation(defaultLat, defaultLng);
+      // Geolocation not supported
+      setWeatherLoading(false);
     }
   }, [mapLoaded]);
 
