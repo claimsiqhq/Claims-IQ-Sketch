@@ -2180,8 +2180,9 @@ export async function createClaimFromDocuments(
       insured_phone: insuredInfo.phone || null,
       insured_email: insuredInfo.email || null,
 
-      // Property address
-      property_address: propertyAddress,
+      // Property address - store only street address, not full address with city/state/zip
+      // This prevents duplication when displaying full address later
+      property_address: addressParts.streetAddress || null,
       property_city: addressParts.city || null,
       property_state: addressParts.state || null,
       property_zip: addressParts.zip || null,
