@@ -2212,27 +2212,43 @@ export interface AudioObservation {
   createdAt: string;
 }
 
+const AUDIO_UPLOAD_TIMEOUT_MS = 90_000; // 90s so large files or slow networks can complete
+
 export async function uploadAudio(params: AudioUploadParams): Promise<{ id: string; audioUrl: string | null; success: boolean }> {
   const formData = new FormData();
-  formData.append('audio', params.file, 'voice-note.webm');
+  const fileName = params.file instanceof File ? params.file.name : 'voice-note.webm';
+  formData.append('audio', params.file, fileName);
   if (params.claimId) formData.append('claimId', params.claimId);
   if (params.flowInstanceId) formData.append('flowInstanceId', params.flowInstanceId);
   if (params.movementId) formData.append('movementId', params.movementId);
   if (params.roomId) formData.append('roomId', params.roomId);
   if (params.structureId) formData.append('structureId', params.structureId);
 
-  const response = await fetch(`${API_BASE}/audio/upload`, {
-    method: 'POST',
-    body: formData,
-    credentials: 'include',
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AUDIO_UPLOAD_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Failed to upload audio');
+  try {
+    const response = await fetch(`${API_BASE}/audio/upload`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(error.error || 'Failed to upload audio');
+    }
+
+    return response.json();
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Upload timed out. Try a shorter recording or check your connection.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return response.json();
 }
 
 export async function getAudioObservation(id: string): Promise<AudioObservation> {

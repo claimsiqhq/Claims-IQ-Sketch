@@ -406,6 +406,7 @@ export default function MovementExecutionPage() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      recordingElapsedRef.current = 0;
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
@@ -420,6 +421,7 @@ export default function MovementExecutionPage() {
     setIsRecording(false);
     setAudioBlob(null);
     setRecordingTime(0);
+    recordingElapsedRef.current = 0;
     setShowVoiceRecorder(false);
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
@@ -433,22 +435,26 @@ export default function MovementExecutionPage() {
       return;
     }
 
+    setIsUploading(true);
     try {
-      setIsUploading(true);
       const result = await uploadAudio({
         file: audioBlob,
         claimId: flowInstance.claimId,
-        flowInstanceId: flowId,
-        movementId: movementId,
+        flowInstanceId: flowId ?? undefined,
+        movementId: movementId ?? undefined,
       });
-      
+
+      if (!result?.id) {
+        throw new Error('Server did not return a voice note ID');
+      }
+
       // Track saved voice note for display with audio URL for playback
-      setSavedVoiceNotes(prev => [...prev, { 
-        id: result.id, 
+      setSavedVoiceNotes(prev => [...prev, {
+        id: result.id,
         timestamp: new Date().toLocaleTimeString(),
-        audioUrl: result.audioUrl || undefined
+        audioUrl: result.audioUrl ?? undefined,
       }]);
-      
+
       // Attach to movement evidence if we have a movement
       if (flowId && movementId && user?.id) {
         try {
@@ -456,26 +462,29 @@ export default function MovementExecutionPage() {
             type: 'audio',
             referenceId: result.id,
             data: { audioUrl: result.audioUrl, type: 'voice_note' },
-            userId: user.id
+            userId: user.id,
           });
         } catch (attachErr) {
           console.warn('Could not attach audio to movement evidence:', attachErr);
         }
       }
-      
+
       toast.success('Voice note saved');
       setAudioBlob(null);
       setRecordingTime(0);
       setShowVoiceRecorder(false);
-      
-      // Refresh evidence
       queryClient.invalidateQueries({ queryKey: ['movementEvidence', flowId, movementId] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save voice note');
+      const message = err instanceof Error ? err.message : 'Failed to save voice note';
+      toast.error(message);
+      // Close panel on error so user is not stuck; they can record again
+      setShowVoiceRecorder(false);
+      setAudioBlob(null);
+      setRecordingTime(0);
     } finally {
       setIsUploading(false);
     }
-  }, [audioBlob, flowInstance?.claimId, flowId, movementId, queryClient]);
+  }, [audioBlob, flowInstance?.claimId, flowId, movementId, user?.id, queryClient]);
 
   const formatRecordingTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
