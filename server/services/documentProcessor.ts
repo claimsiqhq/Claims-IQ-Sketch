@@ -150,35 +150,45 @@ function parseCurrencyToNumber(value: string | null | undefined): number | null 
 }
 
 /**
- * Parse address string to extract city, state, and zip
+ * Parse address string to extract street address, city, state, and zip
  * Handles formats like "897 E DIABERLVILLE St, Dodgeville, WI 53533-1427"
+ * Returns streetAddress (just the street portion) plus city, state, zip
  */
-function parseAddressParts(address: string | null | undefined): { city: string | null; state: string | null; zip: string | null } {
-  if (!address) return { city: null, state: null, zip: null };
+function parseAddressParts(address: string | null | undefined): { 
+  streetAddress: string | null; 
+  city: string | null; 
+  state: string | null; 
+  zip: string | null 
+} {
+  if (!address) return { streetAddress: null, city: null, state: null, zip: null };
 
   // Try to match common address patterns
-  // Pattern: "..., City, ST ZIPCODE" or "..., City, ST ZIPCODE-XXXX"
-  const match = address.match(/,\s*([^,]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
+  // Pattern: "Street Address, City, ST ZIPCODE" or "Street Address, City, ST ZIPCODE-XXXX"
+  const match = address.match(/^(.+?),\s*([^,]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
 
   if (match) {
     return {
-      city: match[1].trim(),
-      state: match[2].toUpperCase(),
-      zip: match[3],
+      streetAddress: match[1].trim(),
+      city: match[2].trim(),
+      state: match[3].toUpperCase(),
+      zip: match[4],
     };
   }
 
   // Fallback: try to extract just state and zip from the end
-  const stateZipMatch = address.match(/([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
+  // Pattern: "Everything else ST ZIPCODE"
+  const stateZipMatch = address.match(/^(.+?)\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/i);
   if (stateZipMatch) {
     return {
+      streetAddress: stateZipMatch[1].trim(),
       city: null,
-      state: stateZipMatch[1].toUpperCase(),
-      zip: stateZipMatch[2],
+      state: stateZipMatch[2].toUpperCase(),
+      zip: stateZipMatch[3],
     };
   }
 
-  return { city: null, state: null, zip: null };
+  // If no pattern matches, return original address as streetAddress
+  return { streetAddress: address, city: null, state: null, zip: null };
 }
 
 /**
