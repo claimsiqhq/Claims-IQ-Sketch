@@ -738,49 +738,49 @@ export default function Home() {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+          <div className="bg-amber-100 p-6 rounded-xl border-2 border-amber-300 shadow-sm flex items-center gap-4">
+            <div className="h-12 w-12 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-sm">
               <FileText className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Claims</p>
-              <p className="text-3xl font-display font-bold text-slate-900">
+              <p className="text-sm font-medium text-amber-700">Claims</p>
+              <p className="text-3xl font-display font-bold text-amber-900">
                 {stats?.total || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center text-primary">
+          <div className="bg-purple-100 p-6 rounded-xl border-2 border-purple-300 shadow-sm flex items-center gap-4">
+            <div className="h-12 w-12 rounded-full bg-purple-500 flex items-center justify-center text-white shadow-sm">
               <FileText className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Documents</p>
-              <p className="text-3xl font-display font-bold text-slate-900">
+              <p className="text-sm font-medium text-purple-700">Documents</p>
+              <p className="text-3xl font-display font-bold text-purple-900">
                 {stats?.totalDocuments || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+          <div className="bg-orange-100 p-6 rounded-xl border-2 border-orange-300 shadow-sm flex items-center gap-4">
+            <div className="h-12 w-12 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-sm">
               <Clock className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Processing</p>
-              <p className="text-3xl font-display font-bold text-slate-900">
+              <p className="text-sm font-medium text-orange-700">Processing</p>
+              <p className="text-3xl font-display font-bold text-orange-900">
                 {stats?.pendingDocuments || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-xl border border-border shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center text-green-600">
+          <div className="bg-emerald-100 p-6 rounded-xl border-2 border-emerald-300 shadow-sm flex items-center gap-4">
+            <div className="h-12 w-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-sm">
               <Camera className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Photos</p>
-              <p className="text-3xl font-display font-bold text-slate-900">
+              <p className="text-sm font-medium text-emerald-700">Photos</p>
+              <p className="text-3xl font-display font-bold text-emerald-900">
                 {stats?.totalPhotos || 0}
               </p>
             </div>
