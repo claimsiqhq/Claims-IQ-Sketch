@@ -1701,10 +1701,12 @@ export default function ClaimDetail() {
                       </div>
                       
                       <Separator />
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground uppercase">Loss Description</Label>
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                          <p className="text-sm text-amber-900">{apiClaim?.lossDescription || 'No description provided'}</p>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Loss Description</Label>
+                        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 border-2 border-amber-200 rounded-lg p-3 shadow-sm">
+                          <p className="text-sm text-amber-900 leading-relaxed font-medium">
+                            {apiClaim?.lossDescription || 'No description provided'}
+                          </p>
                         </div>
                       </div>
                     </CardContent>
@@ -1981,15 +1983,28 @@ export default function ClaimDetail() {
                   {/* DAMAGE DESCRIPTION CARD */}
                   {/* ============================================ */}
                   {(apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription) && (
-                    <Card className="border-slate-200">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2">
+                    <Card className="border-amber-200 bg-gradient-to-br from-amber-50/30 to-background shadow-sm">
+                      <CardHeader className="pb-3 border-b border-amber-200/50 bg-amber-50/50">
+                        <CardTitle className="text-lg flex items-center gap-2 text-amber-900">
                           <AlertTriangle className="w-5 h-5 text-amber-600" />
                           Loss Description
                         </CardTitle>
                       </CardHeader>
-                      <CardContent className="space-y-4">
-                        <p className="text-slate-700 leading-relaxed">{apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription || 'No description provided'}</p>
+                      <CardContent className="space-y-4 pt-4">
+                        {/* Loss Description Badge - Formatted */}
+                        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 border-2 border-amber-200 rounded-lg p-4 shadow-sm">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                              <Label className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                                Description
+                              </Label>
+                            </div>
+                            <p className="text-sm text-amber-900 leading-relaxed font-medium pl-3.5">
+                              {apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription || 'No description provided'}
+                            </p>
+                          </div>
+                        </div>
                         
                         {/* Historical Weather - Maps-Style Extended Widget */}
                         {apiClaim?.dolWeather && (
