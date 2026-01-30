@@ -131,7 +131,7 @@ export default function MovementExecutionPage() {
   // Find current movement
   const movement = movements?.find(m => m.id === movementId);
 
-  // Fetch existing evidence
+  // Fetch existing evidence (poll while any photo is still analyzing so "needs rework" appears inline)
   const {
     data: existingEvidence,
     isLoading: isLoadingEvidence,
@@ -139,6 +139,14 @@ export default function MovementExecutionPage() {
     queryKey: ['movementEvidence', flowId, movementId],
     queryFn: () => getMovementEvidence(flowId!, movementId!),
     enabled: !!flowId && !!movementId,
+    refetchInterval: (query) => {
+      const evidence = query.state.data ?? [];
+      const hasAnalyzing = evidence.some(
+        (e: { type: string; data?: { analysisStatus?: string } }) =>
+          e.type === 'photo' && (e.data?.analysisStatus === 'pending' || e.data?.analysisStatus === 'analyzing')
+      );
+      return hasAnalyzing ? 4000 : false;
+    },
   });
 
   // Complete movement mutation
@@ -572,14 +580,15 @@ export default function MovementExecutionPage() {
   const isSubmitting = completeMutation.isPending || isUploading;
   const hasEvidence = capturedPhotos.length > 0 || savedVoiceNotes.length > 0 || (existingEvidence && existingEvidence.length > 0);
 
-  // Convert existing evidence to grid format
+  // Convert existing evidence to grid format (include photo analysis status for "needs rework" in workflow)
   const existingEvidenceItems = existingEvidence?.map(e => ({
     id: e.id,
     type: e.type,
-    url: e.type === 'audio' 
-      ? (e.data?.audioUrl || e.data?.publicUrl) 
-      : (e.data?.publicUrl || e.referenceId),
-    label: e.type === 'note' ? 'Note' : e.type === 'audio' ? 'Voice Note' : undefined,
+    url: e.type === 'audio'
+      ? (e.data?.audioUrl || e.data?.publicUrl)
+      : (e.data?.url || e.data?.publicUrl || e.referenceId),
+    thumbnailUrl: e.type === 'photo' ? (e.data?.url || e.data?.publicUrl) : undefined,
+    label: e.type === 'note' ? 'Note' : e.type === 'audio' ? 'Voice Note' : e.data?.label,
     data: e.data,
     createdAt: e.createdAt,
   })) || [];

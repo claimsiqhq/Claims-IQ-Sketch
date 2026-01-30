@@ -27,7 +27,11 @@ import {
   Pause,
   Download,
   Square,
-  AlertTriangle
+  AlertTriangle,
+  AlertOctagon,
+  CheckCircle2,
+  XCircle,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MovementEvidence } from "@/lib/api";
@@ -315,8 +319,26 @@ interface EvidenceCardProps {
   onRemove?: () => void;
 }
 
+function getPhotoAnalysisBadge(status: string | undefined) {
+  if (!status) return null;
+  switch (status) {
+    case 'pending':
+    case 'analyzing':
+      return { icon: Loader2, label: 'Analyzing', className: 'bg-blue-500/90 text-white animate-pulse' };
+    case 'concerns':
+      return { icon: AlertOctagon, label: 'Needs rework', className: 'bg-amber-500/90 text-white' };
+    case 'failed':
+      return { icon: XCircle, label: 'Analysis failed', className: 'bg-red-500/90 text-white' };
+    case 'completed':
+      return { icon: CheckCircle2, label: 'OK', className: 'bg-green-500/90 text-white' };
+    default:
+      return null;
+  }
+}
+
 function EvidenceCard({ item, onPreview, onRemove }: EvidenceCardProps) {
   const Icon = TYPE_ICONS[item.type];
+  const photoAnalysis = item.type === 'photo' ? getPhotoAnalysisBadge(item.data?.analysisStatus) : null;
 
   return (
     <Card className="overflow-hidden group relative">
@@ -333,6 +355,23 @@ function EvidenceCard({ item, onPreview, onRemove }: EvidenceCardProps) {
         >
           <Trash2 className="h-3 w-3" />
         </Button>
+      )}
+
+      {/* Photo analysis status badge (workflow: "needs rework" visible without leaving step) */}
+      {item.type === 'photo' && photoAnalysis && (
+        <div
+          className={cn(
+            'absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+            photoAnalysis.className
+          )}
+        >
+          {photoAnalysis.label === 'Analyzing' ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <photoAnalysis.icon className="h-3 w-3" />
+          )}
+          <span>{photoAnalysis.label}</span>
+        </div>
       )}
 
       <div

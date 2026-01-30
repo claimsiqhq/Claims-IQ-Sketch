@@ -963,10 +963,10 @@ export async function getMovementEvidence(
     console.error('[FlowEngineService] Error getting movement_evidence:', evidenceError);
   }
 
-  // Get photos linked to this movement
+  // Get photos linked to this movement (include analysis status for "needs rework" in workflow)
   const { data: photos, error: photosError } = await supabaseAdmin
     .from('claim_photos')
-    .select('id, public_url, file_name, label, description, ai_analysis, created_at')
+    .select('id, public_url, file_name, label, description, ai_analysis, analysis_status, analysis_error, quality_score, created_at')
     .eq('flow_instance_id', flowInstanceId)
     .or(`movement_id.eq.${movementId},movement_id.like.%:${movementId}`);
 
@@ -1026,10 +1026,14 @@ export async function getMovementEvidence(
           referenceId: photo.id,
           data: {
             url: photo.public_url,
+            publicUrl: photo.public_url,
             fileName: photo.file_name,
             label: photo.label,
             description: photo.description,
-            aiAnalysis: photo.ai_analysis
+            aiAnalysis: photo.ai_analysis,
+            analysisStatus: photo.analysis_status,
+            analysisError: photo.analysis_error,
+            qualityScore: photo.quality_score
           },
           createdAt: photo.created_at,
           source: 'claim_photos'
