@@ -412,6 +412,7 @@ export default function FlowProgressPage() {
                     movements={phaseMovements[phase.id]}
                     isCurrentPhase={phase.id === flowInstance.currentPhaseId}
                     onMovementClick={handleMovementClick}
+                    flowInstanceId={flowId}
                   />
                 ))
               ) : (

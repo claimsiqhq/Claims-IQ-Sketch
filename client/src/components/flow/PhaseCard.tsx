@@ -38,6 +38,7 @@ interface PhaseCardProps {
   movements?: FlowMovement[];
   isCurrentPhase?: boolean;
   onMovementClick?: (movement: FlowMovement) => void;
+  flowInstanceId?: string;
   className?: string;
 }
 
@@ -67,6 +68,7 @@ export function PhaseCard({
   movements = [],
   isCurrentPhase = false,
   onMovementClick,
+  flowInstanceId,
   className
 }: PhaseCardProps) {
   const [isExpanded, setIsExpanded] = useState(isCurrentPhase);
@@ -157,6 +159,7 @@ export function PhaseCard({
                     movement={movement}
                     index={index}
                     onClick={onMovementClick}
+                    flowInstanceId={flowInstanceId}
                   />
                 ))
               ) : (
@@ -176,18 +179,14 @@ interface MovementItemProps {
   movement: FlowMovement;
   index: number;
   onClick?: (movement: FlowMovement) => void;
+  flowInstanceId?: string;
 }
 
-function MovementItem({ movement, index, onClick }: MovementItemProps) {
+function MovementItem({ movement, index, onClick, flowInstanceId }: MovementItemProps) {
   const isCompleted = movement.completionStatus === 'completed';
   const isSkipped = movement.completionStatus === 'skipped';
   const isPending = !movement.completionStatus || movement.completionStatus === 'pending';
   const [showTips, setShowTips] = useState(false);
-
-  // Extract flowInstanceId from movement if available (movement might have flowInstanceId property)
-  // For now, we'll need to pass it as a prop or get it from context
-  // This is a simplified version - in production, you'd pass flowInstanceId as a prop
-  const flowInstanceId = (movement as any).flowInstanceId;
   
   // Fetch guidance if flowInstanceId is available
   const { data: guidance } = useQuery({

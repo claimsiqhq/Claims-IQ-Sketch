@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Mic, MicOff, Volume2, VolumeX, X, CheckCircle2, ArrowLeft, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getMovementGuidance } from '@/lib/api';
 
 interface VoiceGuidedInspectionProps {
   flowInstanceId: string;
@@ -107,10 +108,26 @@ export function VoiceGuidedInspection({
         systemContext: data.systemContext
       });
       
-      // Speak initial instructions
-      const initialText = data.systemContext.split('CURRENT INSPECTION STATE:')[1]?.split('VOICE COMMANDS')[0] || '';
-      if (initialText.trim()) {
-        speak(`Voice-guided inspection started. ${initialText.trim()}`);
+      // Fetch and speak TTS text for current movement
+      try {
+        const guidance = await getMovementGuidance(flowInstanceId, data.currentMovement);
+        if (guidance.tts_text) {
+          speak(`Voice-guided inspection started. ${guidance.tts_text}`);
+        } else if (guidance.instruction) {
+          speak(`Voice-guided inspection started. ${guidance.instruction}`);
+        } else {
+          const initialText = data.systemContext.split('CURRENT INSPECTION STATE:')[1]?.split('VOICE COMMANDS')[0] || '';
+          if (initialText.trim()) {
+            speak(`Voice-guided inspection started. ${initialText.trim()}`);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch initial guidance:', err);
+        // Fallback to system context
+        const initialText = data.systemContext.split('CURRENT INSPECTION STATE:')[1]?.split('VOICE COMMANDS')[0] || '';
+        if (initialText.trim()) {
+          speak(`Voice-guided inspection started. ${initialText.trim()}`);
+        }
       }
       
     } catch (err) {
@@ -158,7 +175,10 @@ export function VoiceGuidedInspection({
       
       const result = await response.json();
       setLastResponse(result.response);
-      speak(result.response);
+      
+      // If we have TTS text from the result, use it; otherwise use the response
+      const textToSpeak = result.data?.ttsText || result.response;
+      speak(textToSpeak);
       
       if (result.action === 'flow_complete') {
         onComplete?.();
@@ -166,6 +186,18 @@ export function VoiceGuidedInspection({
       
       if (result.data?.nextMovement) {
         setCurrentMovement(result.data.nextMovement);
+        // Fetch and speak TTS text for the new movement
+        try {
+          const guidance = await getMovementGuidance(flowInstanceId, result.data.nextMovement.id);
+          if (guidance.tts_text) {
+            // Small delay to let the current response finish
+            setTimeout(() => {
+              speak(guidance.tts_text);
+            }, 1000);
+          }
+        } catch (err) {
+          console.error('Failed to fetch movement guidance:', err);
+        }
       } else if (result.data?.movement) {
         setCurrentMovement(result.data.movement);
       }

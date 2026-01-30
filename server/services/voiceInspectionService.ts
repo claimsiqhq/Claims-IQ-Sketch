@@ -292,10 +292,39 @@ RESPONSE STYLE:
     // Update session
     session.currentMovementId = next.id;
     
+    // Get TTS text for next movement
+    let nextTtsText = null;
+    try {
+      const { data: flowInstance } = await supabaseAdmin
+        .from('claim_flow_instances')
+        .select(`
+          *,
+          flow_definitions (flow_json)
+        `)
+        .eq('id', session.flowInstanceId)
+        .single();
+
+      const flowJson = (flowInstance.flow_definitions as any)?.flow_json;
+      if (flowJson?.phases) {
+        for (const phase of flowJson.phases) {
+          const nextMovementDef = phase.movements?.find((m: any) => m.id === next.id);
+          if (nextMovementDef?.guidance?.tts_text) {
+            nextTtsText = nextMovementDef.guidance.tts_text;
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[VoiceInspectionService] Error fetching next movement TTS:', error);
+    }
+    
     return {
       action: 'movement_complete',
       response: `Got it, ${movement.name} is complete. Moving on to: ${next.name}. ${next.description || ''}`,
-      data: { nextMovement: next }
+      data: { 
+        nextMovement: next,
+        ttsText: nextTtsText || undefined
+      }
     };
   },
   
@@ -367,8 +396,8 @@ RESPONSE STYLE:
     
     return {
       action: 'repeat',
-      response: responseText,
-      data: { movement, ttsText }
+      response: `Repeating instructions: ${responseText}`,
+      data: { movement, ttsText: responseText }
     };
   },
   
