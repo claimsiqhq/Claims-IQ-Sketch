@@ -542,7 +542,7 @@ export default function Home() {
     loadData();
   };
 
-  const displayName = authUser?.username || user?.name || 'User';
+  const displayName = user?.name || authUser?.username || 'User';
 
   // Mobile Layout
   if (isMobileLayout) {
