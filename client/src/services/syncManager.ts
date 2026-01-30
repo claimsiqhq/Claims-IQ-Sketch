@@ -168,13 +168,14 @@ class SyncManager {
 
           const photoData = await response.json();
 
-          // Attach to movement
+          // Attach to movement (userId required by API; stored in metadata when queued offline)
           await api.attachMovementEvidence(
             evidence.flowInstanceId,
             evidence.movementId,
             {
               type: 'photo',
               referenceId: photoData.id,
+              userId: evidence.metadata?.userId ?? '',
             }
           );
         } else if (evidence.type === 'voice_note') {
@@ -205,7 +206,7 @@ class SyncManager {
                 type: 'audio',
                 referenceId: audioData.id,
                 data: { audioUrl: audioData.audioUrl, type: 'voice_note' },
-                userId: evidence.metadata?.userId,
+                userId: evidence.metadata?.userId ?? '',
               }
             );
           }

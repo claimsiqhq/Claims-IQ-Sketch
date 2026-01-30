@@ -202,7 +202,7 @@ export default function MovementExecutionPage() {
             flowInstanceId: flowId!,
             movementId: movementId!,
             claimId: flowInstance!.claimId,
-            metadata: { label: photo.label || movement?.name },
+            metadata: { label: photo.label || movement?.name, userId: user.id },
           });
         }
       }
@@ -435,6 +435,32 @@ export default function MovementExecutionPage() {
       return;
     }
 
+    const isOnline = syncManager.getIsOnline();
+
+    if (!isOnline) {
+      // Offline: queue voice note for sync when back online
+      try {
+        const fileName = `voice-note-${Date.now()}.${audioBlob.type?.includes('webm') ? 'webm' : 'webm'}`;
+        await offlineStorage.queueEvidence({
+          type: 'voice_note',
+          fileData: audioBlob,
+          fileName,
+          flowInstanceId: flowId!,
+          movementId: movementId!,
+          claimId: flowInstance.claimId,
+          metadata: { userId: user?.id },
+        });
+        toast.success('Voice note saved for sync when online');
+        setAudioBlob(null);
+        setRecordingTime(0);
+        setShowVoiceRecorder(false);
+        queryClient.invalidateQueries({ queryKey: ['movementEvidence', flowId, movementId] });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to save voice note for sync');
+      }
+      return;
+    }
+
     setIsUploading(true);
     try {
       const result = await uploadAudio({
@@ -477,7 +503,6 @@ export default function MovementExecutionPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save voice note';
       toast.error(message);
-      // Close panel on error so user is not stuck; they can record again
       setShowVoiceRecorder(false);
       setAudioBlob(null);
       setRecordingTime(0);

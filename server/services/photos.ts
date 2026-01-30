@@ -218,20 +218,14 @@ Look for concerns such as:
   }
 }
 
-// Background analysis function - runs after photo is saved
+// Background analysis function - runs after photo is saved (with one retry on OpenAI failure)
 async function runBackgroundAnalysis(photoId: string, base64Image: string, mimeType: string): Promise<void> {
   console.log(`[photos] Starting background analysis for photo ${photoId}`);
 
-  try {
-    // Mark as analyzing
-    await storage.updateClaimPhoto(photoId, {
-      analysisStatus: 'analyzing',
-    });
-
+  const attempt = async (): Promise<void> => {
     const result = await analyzePhotoWithVision(base64Image, mimeType);
     const { analysis, hasConcerns, concernReasons } = result;
 
-    // Update photo with analysis results
     await storage.updateClaimPhoto(photoId, {
       aiAnalysis: analysis,
       qualityScore: analysis.quality.score,
@@ -243,14 +237,27 @@ async function runBackgroundAnalysis(photoId: string, base64Image: string, mimeT
     });
 
     console.log(`[photos] Background analysis completed for photo ${photoId}, status: ${hasConcerns ? 'concerns' : 'completed'}`);
-  } catch (error) {
-    console.error(`[photos] Background analysis failed for photo ${photoId}:`, error);
+  };
 
-    // Mark as failed
+  try {
     await storage.updateClaimPhoto(photoId, {
-      analysisStatus: 'failed',
-      analysisError: error instanceof Error ? error.message : 'Unknown analysis error',
+      analysisStatus: 'analyzing',
     });
+
+    await attempt();
+  } catch (error) {
+    console.error(`[photos] Background analysis failed for photo ${photoId} (will retry once):`, error);
+
+    try {
+      await new Promise((r) => setTimeout(r, 2000));
+      await attempt();
+    } catch (retryError) {
+      console.error(`[photos] Background analysis retry failed for photo ${photoId}:`, retryError);
+      await storage.updateClaimPhoto(photoId, {
+        analysisStatus: 'failed',
+        analysisError: retryError instanceof Error ? retryError.message : 'Unknown analysis error',
+      });
+    }
   }
 }
 
