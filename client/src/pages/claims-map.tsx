@@ -22,6 +22,7 @@ import {
   Thermometer,
   Droplets,
   MapPinned,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -100,6 +101,7 @@ export default function ClaimsMap() {
   const [refreshing, setRefreshing] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<ClaimLocation | null>(null);
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string>('');
   const [keyLoaded, setKeyLoaded] = useState(false);
@@ -334,6 +336,21 @@ export default function ClaimsMap() {
 
       marker.addListener('click', () => {
         setSelectedClaim(claim);
+        // Get marker screen position for popup placement
+        if (googleMapRef.current) {
+          const projection = googleMapRef.current.getProjection();
+          const bounds = googleMapRef.current.getBounds();
+          const topRight = projection?.fromLatLngToPoint(bounds?.getNorthEast()!);
+          const bottomLeft = projection?.fromLatLngToPoint(bounds?.getSouthWest()!);
+          const scale = Math.pow(2, googleMapRef.current.getZoom()!);
+          const markerPoint = projection?.fromLatLngToPoint(new google.maps.LatLng(position.lat, position.lng));
+          
+          if (topRight && bottomLeft && markerPoint) {
+            const x = (markerPoint.x - bottomLeft.x) * scale;
+            const y = (markerPoint.y - topRight.y) * scale;
+            setPopupPosition({ x, y });
+          }
+        }
       });
 
       bounds.extend(position);
@@ -501,45 +518,67 @@ export default function ClaimsMap() {
           
           <div ref={mapRef} className="w-full h-full" />
 
-          {selectedClaim && (
-            <Card className={cn(
-              "absolute z-20 shadow-lg",
-              isMobile ? "bottom-4 left-4 right-4" : "bottom-4 left-4 w-80"
-            )}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="font-semibold">{selectedClaim.claimNumber}</p>
-                    <p className="text-sm text-muted-foreground">{selectedClaim.insuredName}</p>
-                  </div>
-                  <Badge variant="outline" className="text-xs">
-                    {selectedClaim.status}
-                  </Badge>
-                </div>
-                
-                <p className="text-sm mb-3">
-                  {selectedClaim.address}, {selectedClaim.city}, {selectedClaim.state} {selectedClaim.zip}
-                </p>
-
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => openInGoogleMaps(selectedClaim)}
+          {selectedClaim && popupPosition && (
+            <div 
+              className="absolute z-20"
+              style={{
+                left: Math.min(Math.max(popupPosition.x - 160, 10), (mapRef.current?.offsetWidth || 400) - 330),
+                top: Math.max(popupPosition.y - 180, 10),
+              }}
+            >
+              <Card className="shadow-lg w-80 relative">
+                <CardContent className="p-4">
+                  <button 
+                    onClick={() => { setSelectedClaim(null); setPopupPosition(null); }}
+                    className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
                   >
-                    <Navigation className="h-4 w-4 mr-1" />
-                    Directions
-                  </Button>
-                  <Link href={`/claim/${selectedClaim.id}`}>
-                    <Button size="sm" className="flex-1">
-                      View Claim
-                      <ChevronRight className="h-4 w-4 ml-1" />
+                    <X className="h-4 w-4" />
+                  </button>
+                  <div className="flex items-start justify-between mb-2 pr-6">
+                    <div>
+                      <p className="font-semibold">{selectedClaim.claimNumber}</p>
+                      <p className="text-sm text-muted-foreground">{selectedClaim.insuredName}</p>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {selectedClaim.status}
+                    </Badge>
+                  </div>
+                  
+                  <p className="text-sm mb-3">
+                    {selectedClaim.address}, {selectedClaim.city}, {selectedClaim.state} {selectedClaim.zip}
+                  </p>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => openInGoogleMaps(selectedClaim)}
+                    >
+                      <Navigation className="h-4 w-4 mr-1" />
+                      Directions
                     </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
+                    <Link href={`/claim/${selectedClaim.id}`}>
+                      <Button size="sm" className="flex-1">
+                        View Claim
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+                {/* Arrow pointing down to marker */}
+                <div 
+                  className="absolute w-4 h-4 bg-white rotate-45 shadow-lg"
+                  style={{
+                    left: '50%',
+                    bottom: -8,
+                    marginLeft: -8,
+                    borderRight: '1px solid #e5e7eb',
+                    borderBottom: '1px solid #e5e7eb',
+                  }}
+                />
+              </Card>
+            </div>
           )}
 
           <div className={cn(
