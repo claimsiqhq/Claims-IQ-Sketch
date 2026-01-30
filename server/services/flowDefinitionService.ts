@@ -143,6 +143,16 @@ export async function getFlowDefinition(id: string) {
     throw new Error(`Invalid flow JSON: ${e instanceof Error ? e.message : 'Unknown error'}`);
   }
 
+  // Ensure flowJson is properly serializable by doing a round-trip through JSON
+  // This handles any potential Supabase JSONB serialization quirks
+  let serializedFlowJson: FlowJson;
+  try {
+    serializedFlowJson = JSON.parse(JSON.stringify(flowJson)) as FlowJson;
+  } catch (e) {
+    console.error(`[FlowDefinitionService] Failed to serialize flowJson for ${data.id}:`, e);
+    throw new Error(`Invalid flow JSON structure: ${e instanceof Error ? e.message : 'Unknown error'}`);
+  }
+
   return {
     id: data.id,
     organizationId: data.organization_id,
@@ -150,7 +160,7 @@ export async function getFlowDefinition(id: string) {
     description: data.description,
     perilType: data.peril_type,
     propertyType: data.property_type,
-    flowJson,
+    flowJson: serializedFlowJson,
     version: data.version,
     isActive: data.is_active,
     createdBy: data.created_by,
