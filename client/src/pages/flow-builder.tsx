@@ -372,8 +372,7 @@ function FlowListView({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-
-      {/* List */}
+        {/* List */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -520,33 +519,34 @@ function FlowListView({
         </div>
       )}
 
-      {/* Duplicate Dialog */}
-      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Duplicate Flow</DialogTitle>
-            <DialogDescription>Enter a name for the duplicated flow.</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="duplicate-name">Flow Name</Label>
-            <Input
-              id="duplicate-name"
-              value={duplicateName}
-              onChange={(e) => setDuplicateName(e.target.value)}
-              placeholder="Enter flow name"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDuplicateDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleDuplicate} disabled={duplicating || !duplicateName.trim()}>
-              {duplicating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Duplicate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* Duplicate Dialog */}
+        <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Duplicate Flow</DialogTitle>
+              <DialogDescription>Enter a name for the duplicated flow.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label htmlFor="duplicate-name">Flow Name</Label>
+              <Input
+                id="duplicate-name"
+                value={duplicateName}
+                onChange={(e) => setDuplicateName(e.target.value)}
+                placeholder="Enter flow name"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDuplicateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleDuplicate} disabled={duplicating || !duplicateName.trim()}>
+                {duplicating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Duplicate
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }
