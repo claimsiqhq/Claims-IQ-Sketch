@@ -479,22 +479,31 @@ export async function cancelFlow(flowInstanceId: string): Promise<void> {
  * Get flow progress
  */
 export async function getFlowProgress(flowInstanceId: string): Promise<FlowProgress> {
-  // Get flow instance with definition
+  // Get flow instance with definition - use !inner to ensure join succeeds
   const { data: flowInstance, error: instanceError } = await supabaseAdmin
     .from('claim_flow_instances')
     .select(`
       *,
-      flow_definitions (flow_json)
+      flow_definitions!inner (flow_json)
     `)
     .eq('id', flowInstanceId)
     .single();
 
   if (instanceError || !flowInstance) {
+    console.error('[FlowEngineService] getFlowProgress - Flow instance not found or join failed:', {
+      flowInstanceId,
+      error: instanceError?.message
+    });
     throw new Error(`Flow instance not found: ${flowInstanceId}`);
   }
 
   const flowJson = (flowInstance.flow_definitions as any)?.flow_json as FlowJson;
   if (!flowJson?.phases) {
+    console.warn('[FlowEngineService] getFlowProgress - No phases in flow_json:', {
+      flowInstanceId,
+      hasFlowDef: !!flowInstance.flow_definitions,
+      hasFlowJson: !!(flowInstance.flow_definitions as any)?.flow_json
+    });
     return { total: 0, completed: 0, percentComplete: 0 };
   }
 
