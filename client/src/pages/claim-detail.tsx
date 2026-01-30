@@ -1991,14 +1991,14 @@ export default function ClaimDetail() {
                       <CardContent className="space-y-4">
                         <p className="text-slate-700 leading-relaxed">{apiClaim?.extractedPolicy?.damageDescription || apiClaim?.lossDescription || 'No description provided'}</p>
                         
-                        {/* Historical Weather - Maps-Style Widget */}
+                        {/* Historical Weather - Maps-Style Extended Widget */}
                         {apiClaim?.dolWeather && (
                           apiClaim.dolWeather.temperature != null || 
                           apiClaim.dolWeather.conditions ||
                           apiClaim.dolWeather.windGust != null ||
                           apiClaim.dolWeather.precipAmount != null
                         ) && (
-                          <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-lg px-4 py-3 flex items-center gap-4" data-testid="weather-widget-dol">
+                          <div className="bg-gradient-to-br from-sky-50 to-white border border-sky-200 rounded-lg px-3 py-2 flex items-center gap-3" data-testid="weather-widget-dol">
                             {/* Dynamic Weather Icon */}
                             {(() => {
                               const conditions = (apiClaim.dolWeather.conditions || '').toLowerCase();
@@ -2009,51 +2009,80 @@ export default function ClaimDetail() {
                               else if (conditions.includes('hail')) WeatherIcon = CloudHail;
                               else if (conditions.includes('clear') || conditions.includes('sunny') || conditions.includes('fair')) WeatherIcon = Sun;
                               else if (conditions.includes('wind')) WeatherIcon = Wind;
-                              return <WeatherIcon className="h-10 w-10 text-sky-500 flex-shrink-0" />;
+                              return <WeatherIcon className="h-8 w-8 text-sky-500 flex-shrink-0" />;
                             })()}
                             
                             {/* Temperature & Conditions */}
                             <div className="flex flex-col">
-                              <div className="flex items-baseline gap-2">
+                              <div className="flex items-baseline gap-1">
                                 {apiClaim.dolWeather.temperature != null && (
-                                  <span className="text-2xl font-bold text-foreground">{apiClaim.dolWeather.temperature}°F</span>
+                                  <span className="text-xl font-bold text-foreground">{Math.round(apiClaim.dolWeather.temperature)}°F</span>
                                 )}
                                 {apiClaim.dolWeather.conditions && (
-                                  <span className="text-sm text-muted-foreground">{apiClaim.dolWeather.conditions}</span>
+                                  <span className="text-xs text-muted-foreground">{apiClaim.dolWeather.conditions}</span>
                                 )}
                               </div>
                               <div className="flex items-center gap-1 text-xs text-sky-600">
                                 <Calendar className="h-3 w-3" />
                                 <span className="font-medium">
-                                  {apiClaim?.dateOfLoss ? new Date(apiClaim.dateOfLoss).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'Date of Loss'}
+                                  {apiClaim?.dateOfLoss ? new Date(apiClaim.dateOfLoss).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date of Loss'}
                                 </span>
                               </div>
                             </div>
                             
-                            {/* Weather Details - Horizontal Row */}
-                            <div className="border-l border-sky-200 pl-4 flex gap-4 text-sm">
-                              {apiClaim.dolWeather.windGust != null && apiClaim.dolWeather.windGust > 0 && (
+                            {/* Weather Stats - Horizontal Row (like Maps tab) */}
+                            <div className="border-l border-sky-200 pl-3 flex gap-3 text-xs">
+                              {/* Min/Max temps like "Feels" */}
+                              {(apiClaim.dolWeather.temperatureMin != null || apiClaim.dolWeather.temperatureMax != null) && (
                                 <div className="flex items-center gap-1">
-                                  <Wind className="h-4 w-4 text-sky-500" />
-                                  <span className="text-muted-foreground">Gusts</span>
-                                  <span className="font-medium">{apiClaim.dolWeather.windGust} mph</span>
+                                  <Thermometer className="h-3 w-3 text-sky-500" />
+                                  <span className="text-muted-foreground">Range</span>
+                                  <span className="font-medium">
+                                    {apiClaim.dolWeather.temperatureMin != null && `${Math.round(apiClaim.dolWeather.temperatureMin)}°`}
+                                    {apiClaim.dolWeather.temperatureMin != null && apiClaim.dolWeather.temperatureMax != null && '-'}
+                                    {apiClaim.dolWeather.temperatureMax != null && `${Math.round(apiClaim.dolWeather.temperatureMax)}°`}
+                                  </span>
                                 </div>
                               )}
-                              {apiClaim.dolWeather.precipAmount != null && apiClaim.dolWeather.precipAmount > 0 && (
+                              {apiClaim.dolWeather.humidity != null && (
                                 <div className="flex items-center gap-1">
-                                  <Droplets className="h-4 w-4 text-sky-500" />
-                                  <span className="text-muted-foreground">Precip</span>
-                                  <span className="font-medium">{apiClaim.dolWeather.precipAmount}"</span>
+                                  <Droplets className="h-3 w-3 text-sky-500" />
+                                  <span className="font-medium">{Math.round(apiClaim.dolWeather.humidity)}%</span>
                                 </div>
                               )}
-                              {apiClaim.dolWeather.hailSize != null && (
+                              {apiClaim.dolWeather.windSpeed != null && apiClaim.dolWeather.windSpeed > 0 && (
                                 <div className="flex items-center gap-1">
-                                  <CloudHail className="h-4 w-4 text-cyan-500" />
-                                  <span className="text-muted-foreground">Hail</span>
-                                  <span className="font-medium">{apiClaim.dolWeather.hailSize}"</span>
+                                  <Wind className="h-3 w-3 text-sky-500" />
+                                  <span className="font-medium">{Math.round(apiClaim.dolWeather.windSpeed)} mph</span>
                                 </div>
                               )}
                             </div>
+                            
+                            {/* Severe Weather Details (like forecast section) */}
+                            {(apiClaim.dolWeather.windGust != null && apiClaim.dolWeather.windGust > 0) || 
+                             (apiClaim.dolWeather.precipAmount != null && apiClaim.dolWeather.precipAmount > 0) ||
+                             apiClaim.dolWeather.hailSize != null ? (
+                              <div className="border-l border-sky-200 pl-3 flex gap-2">
+                                {apiClaim.dolWeather.windGust != null && apiClaim.dolWeather.windGust > 0 && (
+                                  <div className="text-center">
+                                    <p className="text-[10px] text-muted-foreground">Gusts</p>
+                                    <p className="text-xs font-medium">{Math.round(apiClaim.dolWeather.windGust)} mph</p>
+                                  </div>
+                                )}
+                                {apiClaim.dolWeather.precipAmount != null && apiClaim.dolWeather.precipAmount > 0 && (
+                                  <div className="text-center">
+                                    <p className="text-[10px] text-muted-foreground">Precip</p>
+                                    <p className="text-xs font-medium">{apiClaim.dolWeather.precipAmount}"</p>
+                                  </div>
+                                )}
+                                {apiClaim.dolWeather.hailSize != null && (
+                                  <div className="text-center">
+                                    <p className="text-[10px] text-muted-foreground">Hail</p>
+                                    <p className="text-xs font-medium text-cyan-600">{apiClaim.dolWeather.hailSize}"</p>
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </CardContent>
