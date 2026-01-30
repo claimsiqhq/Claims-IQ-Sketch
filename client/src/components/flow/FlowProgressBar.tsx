@@ -9,8 +9,10 @@
 
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Circle, PlayCircle } from "lucide-react";
+import { CheckCircle2, Circle, PlayCircle, Lightbulb } from "lucide-react";
 import type { FlowProgress, FlowPhaseStatus } from "@/lib/api";
+import { getMovementGuidance } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 
 interface FlowProgressBarProps {
   progress: FlowProgress;

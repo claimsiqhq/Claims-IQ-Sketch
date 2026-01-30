@@ -335,11 +335,19 @@ export default function FlowProgressPage() {
 
                   {/* Next Movement Preview */}
                   {nextMovement?.type === 'movement' && nextMovement.movement && (
-                    <div className="mt-4 p-3 bg-muted rounded-lg">
-                      <div className="text-xs text-muted-foreground mb-1">Next Up</div>
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{nextMovement.movement.name}</span>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    <div className="mt-4 p-4 bg-gradient-to-br from-blue-50/50 to-blue-100/30 dark:from-blue-950/20 dark:to-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
+                        <PlayCircle className="h-3 w-3" />
+                        Next Up
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-base">{nextMovement.movement.name}</span>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        {nextMovement.movement.description && (
+                          <p className="text-sm text-muted-foreground">{nextMovement.movement.description}</p>
+                        )}
                       </div>
                     </div>
                   )}

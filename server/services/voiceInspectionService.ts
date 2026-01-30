@@ -81,6 +81,32 @@ export const voiceInspectionService = {
     const currentMovement = await getCurrentMovement(session.flowInstanceId);
     const phase = await getCurrentPhase(session.flowInstanceId);
     
+    // Get movement guidance (instruction, tips, TTS text)
+    let movementGuidance = null;
+    try {
+      const { data: flowInstance } = await supabaseAdmin
+        .from('claim_flow_instances')
+        .select(`
+          *,
+          flow_definitions (flow_json)
+        `)
+        .eq('id', session.flowInstanceId)
+        .single();
+
+      const flowJson = (flowInstance.flow_definitions as any)?.flow_json;
+      if (flowJson?.phases) {
+        for (const p of flowJson.phases) {
+          const movement = p.movements?.find((m: any) => m.id === currentMovement.id);
+          if (movement?.guidance) {
+            movementGuidance = movement.guidance;
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[VoiceInspectionService] Error fetching movement guidance:', error);
+    }
+    
     // Get TTS-optimized guidance prompt (fallback if not found)
     const guidancePrompt = await getPromptWithFallback('flow.movement_guidance_tts', {
       systemPrompt: 'You are a helpful voice assistant guiding an insurance adjuster through an inspection.',
@@ -90,13 +116,24 @@ export const voiceInspectionService = {
     const evidenceRequirements = currentMovement.validationRequirements || [];
     const evidenceTypes = evidenceRequirements.map((req: any) => req.type || req.evidence_type).join(', ') || 'None specified';
     
+    // Build instruction text (use TTS text if available, otherwise instruction, otherwise description)
+    const instructionText = movementGuidance?.tts_text || 
+                           movementGuidance?.instruction || 
+                           currentMovement.description || 
+                           'Complete this step';
+    
+    // Include tips in context
+    const tipsText = movementGuidance?.tips && movementGuidance.tips.length > 0
+      ? `\nTips: ${movementGuidance.tips.join('. ')}`
+      : '';
+    
     return `
 ${guidancePrompt.systemPrompt || 'You are a helpful voice assistant guiding an insurance adjuster through an inspection.'}
 
 CURRENT INSPECTION STATE:
 - Phase: ${phase.name} (${phase.id})
 - Movement: ${currentMovement.name}
-- Instructions: ${currentMovement.description || 'Complete this step'}
+- Instructions: ${instructionText}${tipsText}
 - Required: ${currentMovement.isRequired ? 'Yes' : 'No'}
 - Evidence needed: ${evidenceTypes}
 
@@ -115,7 +152,45 @@ RESPONSE STYLE:
 - Speak naturally, as if guiding someone in the field
 - Confirm actions before executing
 - Alert if trying to skip a required movement
+- When starting a movement, speak the instruction text clearly
 `;
+  },
+  
+  /**
+   * Get TTS text for current movement
+   */
+  async getMovementTtsText(sessionId: string): Promise<string | null> {
+    const session = activeSessions.get(sessionId);
+    if (!session) return null;
+    
+    try {
+      const { data: flowInstance } = await supabaseAdmin
+        .from('claim_flow_instances')
+        .select(`
+          *,
+          flow_definitions (flow_json)
+        `)
+        .eq('id', session.flowInstanceId)
+        .single();
+
+      const flowJson = (flowInstance.flow_definitions as any)?.flow_json;
+      if (flowJson?.phases) {
+        for (const phase of flowJson.phases) {
+          const movement = phase.movements?.find((m: any) => m.id === session.currentMovementId);
+          if (movement?.guidance) {
+            // Return TTS text if available, otherwise instruction, otherwise description
+            return movement.guidance.tts_text || 
+                   movement.guidance.instruction || 
+                   movement.description || 
+                   null;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[VoiceInspectionService] Error fetching TTS text:', error);
+    }
+    
+    return null;
   },
   
   /**
@@ -285,10 +360,15 @@ RESPONSE STYLE:
   async handleRepeat(session: VoiceSession): Promise<CommandResult> {
     const movement = await getCurrentMovement(session.flowInstanceId);
     
+    // Get TTS text for this movement
+    const ttsText = await this.getMovementTtsText(session.sessionId);
+    const responseText = ttsText || 
+                        `Current step: ${movement.name}. ${movement.description || 'Complete this step when ready.'}`;
+    
     return {
       action: 'repeat',
-      response: `Current step: ${movement.name}. ${movement.description || 'Complete this step when ready.'}`,
-      data: { movement }
+      response: responseText,
+      data: { movement, ttsText }
     };
   },
   

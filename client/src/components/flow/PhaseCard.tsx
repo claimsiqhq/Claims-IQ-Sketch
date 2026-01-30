@@ -24,10 +24,14 @@ import {
   MapPin,
   FileText,
   Shield,
-  Wrench
+  Wrench,
+  Lightbulb,
+  Mic
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FlowPhaseStatus, FlowMovement } from "@/lib/api";
+import { getMovementGuidance } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 
 interface PhaseCardProps {
   phase: FlowPhaseStatus;
@@ -178,82 +182,130 @@ function MovementItem({ movement, index, onClick }: MovementItemProps) {
   const isCompleted = movement.completionStatus === 'completed';
   const isSkipped = movement.completionStatus === 'skipped';
   const isPending = !movement.completionStatus || movement.completionStatus === 'pending';
+  const [showTips, setShowTips] = useState(false);
+
+  // Extract flowInstanceId from movement if available (movement might have flowInstanceId property)
+  // For now, we'll need to pass it as a prop or get it from context
+  // This is a simplified version - in production, you'd pass flowInstanceId as a prop
+  const flowInstanceId = (movement as any).flowInstanceId;
+  
+  // Fetch guidance if flowInstanceId is available
+  const { data: guidance } = useQuery({
+    queryKey: ['movementGuidance', flowInstanceId, movement.id],
+    queryFn: () => getMovementGuidance(flowInstanceId!, movement.id),
+    enabled: !!flowInstanceId && !!movement.id,
+  });
 
   return (
     <div
       className={cn(
-        "flex items-start gap-3 p-3 rounded-lg border transition-colors",
+        "group flex flex-col gap-2 p-3 rounded-lg border transition-all",
         isCompleted && "bg-green-50/50 border-green-200 dark:bg-green-950/30 dark:border-green-800",
         isSkipped && "bg-amber-50/50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800",
-        isPending && "bg-background border-border hover:bg-muted/50",
+        isPending && "bg-background border-border hover:bg-muted/50 hover:shadow-sm",
         onClick && isPending && "cursor-pointer"
       )}
       onClick={() => onClick && isPending && onClick(movement)}
     >
-      {/* Status Icon */}
-      <div className={cn(
-        "flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm",
-        isCompleted && "bg-green-500 text-white",
-        isSkipped && "bg-amber-500 text-white",
-        isPending && "bg-muted text-muted-foreground"
-      )}>
-        {isCompleted ? (
-          <CheckCircle2 className="h-4 w-4" />
-        ) : isSkipped ? (
-          <SkipForward className="h-3 w-3" />
-        ) : (
-          index + 1
-        )}
-      </div>
-
-      {/* Movement Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={cn(
-            "text-sm font-medium",
-            isCompleted && "text-green-700 dark:text-green-300",
-            isSkipped && "text-amber-700 dark:text-amber-300 line-through"
-          )}>
-            {movement.name}
-          </span>
-          {movement.isRequired && (
-            <Badge variant="outline" className="text-xs">
-              <Lock className="h-3 w-3 mr-1" />
-              Required
-            </Badge>
-          )}
-          {movement.roomSpecific && movement.roomName && (
-            <Badge variant="secondary" className="text-xs">
-              {movement.roomName}
-            </Badge>
+      <div className="flex items-start gap-3">
+        {/* Status Icon */}
+        <div className={cn(
+          "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold",
+          isCompleted && "bg-green-500 text-white",
+          isSkipped && "bg-amber-500 text-white",
+          isPending && "bg-primary/10 text-primary border-2 border-primary/20"
+        )}>
+          {isCompleted ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : isSkipped ? (
+            <SkipForward className="h-3 w-3" />
+          ) : (
+            index + 1
           )}
         </div>
-        {movement.description && (
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-            {movement.description}
-          </p>
-        )}
-        {movement.notes && (
-          <p className="text-xs text-green-600 dark:text-green-400 mt-1 italic">
-            "{movement.notes}"
-          </p>
+
+        {/* Movement Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn(
+              "text-sm font-semibold",
+              isCompleted && "text-green-700 dark:text-green-300",
+              isSkipped && "text-amber-700 dark:text-amber-300 line-through",
+              isPending && "text-foreground"
+            )}>
+              {movement.name}
+            </span>
+            {movement.isRequired && (
+              <Badge variant="outline" className="text-xs h-5">
+                <Lock className="h-2.5 w-2.5 mr-1" />
+                Required
+              </Badge>
+            )}
+            {movement.roomSpecific && movement.roomName && (
+              <Badge variant="secondary" className="text-xs h-5">
+                {movement.roomName}
+              </Badge>
+            )}
+          </div>
+          {movement.description && (
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              {movement.description}
+            </p>
+          )}
+          {guidance?.instruction && (
+            <p className="text-xs text-foreground/80 mt-1.5 leading-relaxed font-medium">
+              {guidance.instruction}
+            </p>
+          )}
+          {movement.notes && (
+            <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 italic">
+              "{movement.notes}"
+            </p>
+          )}
+          
+          {/* Tips Section */}
+          {guidance?.tips && guidance.tips.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-muted">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTips(!showTips);
+                }}
+                className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+              >
+                <Lightbulb className="h-3.5 w-3.5" />
+                <span>{guidance.tips.length} tip{guidance.tips.length !== 1 ? 's' : ''}</span>
+                <ChevronRight className={cn("h-3 w-3 transition-transform", showTips && "rotate-90")} />
+              </button>
+              {showTips && (
+                <ul className="mt-2 space-y-1.5 pl-5">
+                  {guidance.tips.map((tip, tipIndex) => (
+                    <li key={tipIndex} className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <span className="mt-1 h-1 w-1 rounded-full bg-amber-500 shrink-0" />
+                      <span className="flex-1">{tip}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action */}
+        {isPending && onClick && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="flex-shrink-0 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick(movement);
+            }}
+          >
+            <PlayCircle className="h-4 w-4" />
+          </Button>
         )}
       </div>
-
-      {/* Action */}
-      {isPending && onClick && (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="flex-shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick(movement);
-          }}
-        >
-          <PlayCircle className="h-4 w-4" />
-        </Button>
-      )}
     </div>
   );
 }

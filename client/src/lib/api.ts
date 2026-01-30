@@ -3865,6 +3865,34 @@ export async function getScrapeJobs(): Promise<Array<{
 /**
  * Get evidence for a movement
  */
+/**
+ * Get movement guidance (instruction, tips, TTS text)
+ */
+export interface MovementGuidance {
+  instruction: string;
+  tips: string[];
+  tts_text: string;
+  movement_name: string;
+  movement_description: string;
+}
+
+export async function getMovementGuidance(
+  flowInstanceId: string,
+  movementId: string
+): Promise<MovementGuidance> {
+  const response = await fetch(
+    `${API_BASE}/flows/${flowInstanceId}/movements/${movementId}/guidance`,
+    {
+      credentials: 'include',
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to fetch movement guidance');
+  }
+  return response.json();
+}
+
 export async function getMovementEvidence(
   flowInstanceId: string,
   movementId: string

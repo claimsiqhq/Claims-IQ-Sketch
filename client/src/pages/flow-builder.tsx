@@ -370,50 +370,8 @@ function FlowListView({
   };
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Flow Definitions</h1>
-          <p className="text-muted-foreground">
-            Define inspection workflows for different peril types
-          </p>
-        </div>
-        <Button onClick={onCreateNew}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Flow
-        </Button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search flows..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select value={filterPeril} onValueChange={setFilterPeril}>
-          <SelectTrigger className="w-48">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Filter by peril" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Perils</SelectItem>
-            {PERIL_TYPES.map((peril) => (
-              <SelectItem key={peril.value} value={peril.value}>
-                {peril.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button variant="outline" onClick={loadFlows}>
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-      </div>
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
 
       {/* List */}
       {loading ? (
@@ -439,60 +397,64 @@ function FlowListView({
           </CardContent>
         </Card>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left p-3 font-medium">Name</th>
-                <th className="text-left p-3 font-medium">Peril</th>
-                <th className="text-left p-3 font-medium">Property</th>
-                <th className="text-center p-3 font-medium">Phases</th>
-                <th className="text-center p-3 font-medium">Movements</th>
-                <th className="text-center p-3 font-medium">Status</th>
-                <th className="text-left p-3 font-medium">Updated</th>
-                <th className="text-right p-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredFlows.map((flow) => (
-                <tr
-                  key={flow.id}
-                  className="border-t hover:bg-muted/30 cursor-pointer"
-                  onClick={() => onEdit(flow.id)}
-                >
-                  <td className="p-3">
-                    <div className="font-medium">{flow.name}</div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredFlows.map((flow) => (
+            <Card
+              key={flow.id}
+              className="group hover:shadow-lg transition-all duration-200 cursor-pointer border-2 hover:border-primary/50 bg-gradient-to-br from-background to-muted/20"
+              onClick={() => onEdit(flow.id)}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-lg font-semibold mb-1 line-clamp-1 group-hover:text-primary transition-colors">
+                      {flow.name}
+                    </CardTitle>
                     {flow.description && (
-                      <div className="text-sm text-muted-foreground truncate max-w-xs">
+                      <CardDescription className="line-clamp-2 text-xs">
                         {flow.description}
-                      </div>
+                      </CardDescription>
                     )}
-                  </td>
-                  <td className="p-3">
-                    <Badge variant="outline">
-                      {PERIL_TYPES.find((p) => p.value === flow.perilType)?.label || flow.perilType}
-                    </Badge>
-                  </td>
-                  <td className="p-3">
-                    <Badge variant="secondary">
-                      {PROPERTY_TYPES.find((p) => p.value === flow.propertyType)?.label ||
-                        flow.propertyType}
-                    </Badge>
-                  </td>
-                  <td className="p-3 text-center">{flow.phaseCount}</td>
-                  <td className="p-3 text-center">{flow.movementCount}</td>
-                  <td className="p-3 text-center">
-                    <Badge variant={flow.isActive ? "default" : "secondary"}>
-                      {flow.isActive ? "Active" : "Inactive"}
-                    </Badge>
-                  </td>
-                  <td className="p-3 text-sm text-muted-foreground">
-                    {new Date(flow.updatedAt).toLocaleDateString()}
-                  </td>
-                  <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                  </div>
+                  <Badge 
+                    variant={flow.isActive ? "default" : "secondary"}
+                    className="shrink-0"
+                  >
+                    {flow.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+                    {PERIL_TYPES.find((p) => p.value === flow.perilType)?.label || flow.perilType}
+                  </Badge>
+                  <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950 border-purple-200 dark:border-purple-800">
+                    {PROPERTY_TYPES.find((p) => p.value === flow.propertyType)?.label || flow.propertyType}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t">
+                  <div className="flex items-center gap-4 text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <Layers className="h-3.5 w-3.5" />
+                      <span className="font-medium">{flow.phaseCount}</span>
+                      <span className="text-xs">phases</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Target className="h-3.5 w-3.5" />
+                      <span className="font-medium">{flow.movementCount}</span>
+                      <span className="text-xs">movements</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-xs text-muted-foreground">
+                    Updated {new Date(flow.updatedAt).toLocaleDateString()}
+                  </span>
+                  <div onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" className="h-7 w-7">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -550,11 +512,11 @@ function FlowListView({
                         </AlertDialog>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
 
@@ -609,92 +571,125 @@ function PhaseList({
   onMovePhase: (id: string, direction: "up" | "down") => void;
 }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold">Phases</h3>
-          <Button variant="ghost" size="icon" onClick={onAddPhase}>
-            <Plus className="h-4 w-4" />
+    <div className="flex flex-col h-full bg-gradient-to-b from-background to-muted/10">
+      <div className="p-4 border-b bg-background/80 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-base">Phases</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{phases.length} total</p>
+          </div>
+          <Button variant="default" size="sm" onClick={onAddPhase} className="shadow-sm">
+            <Plus className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Add Phase</span>
           </Button>
         </div>
       </div>
       <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
+        <div className="p-3 space-y-2">
           {phases.map((phase, index) => (
             <div
               key={phase.id}
-              className={`group p-2 rounded-md cursor-pointer flex items-center gap-2 ${
+              className={`group relative p-3 rounded-lg cursor-pointer transition-all duration-200 ${
                 selectedPhaseId === phase.id
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted"
+                  ? "bg-primary text-primary-foreground shadow-md ring-2 ring-primary/20"
+                  : "bg-card hover:bg-muted/50 border border-border hover:border-primary/30 hover:shadow-sm"
               }`}
               onClick={() => onSelectPhase(phase.id)}
             >
-              <GripVertical className="h-4 w-4 opacity-50" />
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm truncate">{phase.name}</div>
-                <div
-                  className={`text-xs ${
-                    selectedPhaseId === phase.id ? "text-primary-foreground/70" : "text-muted-foreground"
-                  }`}
-                >
-                  {phase.movements.length} movements
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 ${selectedPhaseId === phase.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                  <GripVertical className="h-4 w-4" />
                 </div>
-              </div>
-              <div className="flex gap-0.5 opacity-0 group-hover:opacity-100">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  disabled={index === 0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onMovePhase(phase.id, "up");
-                  }}
-                >
-                  <ChevronUp className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  disabled={index === phases.length - 1}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onMovePhase(phase.id, "down");
-                  }}
-                >
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-destructive"
-                      onClick={(e) => e.stopPropagation()}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`font-semibold text-sm ${selectedPhaseId === phase.id ? "text-primary-foreground" : ""}`}>
+                      {phase.name}
+                    </div>
+                    <Badge 
+                      variant="outline" 
+                      className={`text-xs ${
+                        selectedPhaseId === phase.id 
+                          ? "bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground" 
+                          : "bg-muted"
+                      }`}
                     >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Phase?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will delete "{phase.name}" and all its movements.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => onDeletePhase(phase.id)}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      {index + 1}
+                    </Badge>
+                  </div>
+                  <div className={`text-xs flex items-center gap-2 ${
+                    selectedPhaseId === phase.id ? "text-primary-foreground/70" : "text-muted-foreground"
+                  }`}>
+                    <Target className="h-3 w-3" />
+                    <span>{phase.movements.length} movement{phase.movements.length !== 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-7 w-7 ${
+                      selectedPhaseId === phase.id 
+                        ? "hover:bg-primary-foreground/20 text-primary-foreground" 
+                        : ""
+                    }`}
+                    disabled={index === 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMovePhase(phase.id, "up");
+                    }}
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-7 w-7 ${
+                      selectedPhaseId === phase.id 
+                        ? "hover:bg-primary-foreground/20 text-primary-foreground" 
+                        : ""
+                    }`}
+                    disabled={index === phases.length - 1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMovePhase(phase.id, "down");
+                    }}
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-7 w-7 ${
+                          selectedPhaseId === phase.id 
+                            ? "hover:bg-destructive/20 text-primary-foreground" 
+                            : "text-destructive hover:text-destructive"
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Phase?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will delete "{phase.name}" and all its movements.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => onDeletePhase(phase.id)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </div>
             </div>
           ))}
@@ -737,96 +732,148 @@ function MovementList({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-3 border-b">
+    <div className="flex flex-col h-full bg-gradient-to-b from-background to-muted/10">
+      <div className="p-4 border-b bg-background/80 backdrop-blur-sm">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Movements</h3>
-          <Button variant="ghost" size="icon" onClick={onAddMovement}>
-            <Plus className="h-4 w-4" />
+          <div>
+            <h3 className="font-semibold text-base">Movements</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{movements.length} total</p>
+          </div>
+          <Button variant="default" size="sm" onClick={onAddMovement} className="shadow-sm">
+            <Plus className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Add</span>
           </Button>
         </div>
       </div>
       <ScrollArea className="flex-1">
         {movements.length === 0 ? (
-          <div className="p-4 text-center text-muted-foreground">
-            <Target className="h-8 w-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No movements in this phase</p>
-            <Button variant="link" size="sm" onClick={onAddMovement}>
+          <div className="p-8 text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted mb-4">
+              <Target className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-medium mb-1">No movements in this phase</p>
+            <p className="text-xs text-muted-foreground mb-4">Add movements to define inspection steps</p>
+            <Button variant="outline" size="sm" onClick={onAddMovement}>
+              <Plus className="h-4 w-4 mr-2" />
               Add Movement
             </Button>
           </div>
         ) : (
-          <div className="p-2 space-y-1">
+          <div className="p-3 space-y-2">
             {movements.map((movement, index) => (
               <div
                 key={movement.id}
-                className={`group p-2 rounded-md cursor-pointer ${
+                className={`group relative p-3 rounded-lg cursor-pointer transition-all duration-200 ${
                   selectedMovementId === movement.id
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-muted"
+                    ? "bg-primary text-primary-foreground shadow-md ring-2 ring-primary/20"
+                    : "bg-card hover:bg-muted/50 border border-border hover:border-primary/30 hover:shadow-sm"
                 }`}
                 onClick={() => onSelectMovement(movement.id)}
               >
-                <div className="flex items-start gap-2">
-                  <GripVertical className="h-4 w-4 mt-1 opacity-50" />
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 ${selectedMovementId === movement.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                    <GripVertical className="h-4 w-4" />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mb-1.5">
                       <span
-                        className={`h-2 w-2 rounded-full ${getCriticalityColor(movement.criticality)}`}
+                        className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                          movement.criticality === "high" ? "bg-red-500" :
+                          movement.criticality === "medium" ? "bg-yellow-500" :
+                          "bg-green-500"
+                        }`}
                       />
-                      <span className="font-medium text-sm truncate">{movement.name}</span>
+                      <span className={`font-semibold text-sm truncate ${
+                        selectedMovementId === movement.id ? "text-primary-foreground" : ""
+                      }`}>
+                        {movement.name}
+                      </span>
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs shrink-0 ${
+                          selectedMovementId === movement.id 
+                            ? "bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground" 
+                            : "bg-muted"
+                        }`}
+                      >
+                        {index + 1}
+                      </Badge>
                     </div>
-                    <div
-                      className={`text-xs flex items-center gap-2 mt-1 ${
-                        selectedMovementId === movement.id
-                          ? "text-primary-foreground/70"
+                    {movement.description && (
+                      <p className={`text-xs mb-2 line-clamp-1 ${
+                        selectedMovementId === movement.id 
+                          ? "text-primary-foreground/80" 
                           : "text-muted-foreground"
-                      }`}
-                    >
-                      <span className="flex items-center gap-1">
+                      }`}>
+                        {movement.description}
+                      </p>
+                    )}
+                    <div className={`flex items-center gap-3 text-xs ${
+                      selectedMovementId === movement.id 
+                        ? "text-primary-foreground/70" 
+                        : "text-muted-foreground"
+                    }`}>
+                      <div className="flex items-center gap-1">
                         <Camera className="h-3 w-3" />
-                        {movement.evidence_requirements.length}
-                      </span>
-                      <span className="flex items-center gap-1">
+                        <span>{movement.evidence_requirements.length} evidence</span>
+                      </div>
+                      <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {movement.estimated_minutes}m
-                      </span>
+                        <span>{movement.estimated_minutes}m</span>
+                      </div>
+                      {movement.is_required && (
+                        <Badge variant="outline" className="text-xs h-4 px-1.5">
+                          Required
+                        </Badge>
+                      )}
                     </div>
                   </div>
-                  <div className="flex gap-0.5 opacity-0 group-hover:opacity-100">
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6"
+                      className={`h-7 w-7 ${
+                        selectedMovementId === movement.id 
+                          ? "hover:bg-primary-foreground/20 text-primary-foreground" 
+                          : ""
+                      }`}
                       disabled={index === 0}
                       onClick={(e) => {
                         e.stopPropagation();
                         onMoveMovement(movement.id, "up");
                       }}
                     >
-                      <ChevronUp className="h-3 w-3" />
+                      <ChevronUp className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6"
+                      className={`h-7 w-7 ${
+                        selectedMovementId === movement.id 
+                          ? "hover:bg-primary-foreground/20 text-primary-foreground" 
+                          : ""
+                      }`}
                       disabled={index === movements.length - 1}
                       onClick={(e) => {
                         e.stopPropagation();
                         onMoveMovement(movement.id, "down");
                       }}
                     >
-                      <ChevronDown className="h-3 w-3" />
+                      <ChevronDown className="h-3.5 w-3.5" />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 text-destructive"
+                          className={`h-7 w-7 ${
+                            selectedMovementId === movement.id 
+                              ? "hover:bg-destructive/20 text-primary-foreground" 
+                              : "text-destructive hover:text-destructive"
+                          }`}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
@@ -912,10 +959,13 @@ function MovementEditor({
 
   return (
     <ScrollArea className="h-full">
-      <div className="p-4 space-y-6">
+      <div className="p-4 md:p-6 space-y-6 bg-gradient-to-b from-background to-muted/5">
         {/* Basic Info */}
         <div className="space-y-4">
-          <h3 className="font-semibold">Movement Details</h3>
+          <div className="flex items-center gap-2">
+            <div className="h-1 w-8 bg-gradient-to-r from-primary to-primary/50 rounded-full" />
+            <h3 className="font-semibold text-base">Movement Details</h3>
+          </div>
           <div className="space-y-3">
             <div>
               <Label htmlFor="movement-name">Name</Label>
@@ -986,64 +1036,121 @@ function MovementEditor({
 
         {/* Guidance */}
         <div className="space-y-4">
-          <h3 className="font-semibold">Guidance</h3>
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="guidance-instruction">Instruction</Label>
-              <Textarea
-                id="guidance-instruction"
-                value={movement.guidance.instruction}
-                onChange={(e) =>
-                  onUpdate({
-                    guidance: { ...movement.guidance, instruction: e.target.value },
-                  })
-                }
-                rows={3}
-                placeholder="Full instruction text for the adjuster..."
-              />
-            </div>
-            <div>
-              <Label htmlFor="guidance-tts">TTS Text</Label>
-              <Textarea
-                id="guidance-tts"
-                value={movement.guidance.tts_text}
-                onChange={(e) =>
-                  onUpdate({
-                    guidance: { ...movement.guidance, tts_text: e.target.value },
-                  })
-                }
-                rows={2}
-                placeholder="Optimized text for voice reading..."
-              />
-            </div>
-            <div>
-              <Label>Tips</Label>
-              <div className="space-y-2 mt-1">
-                {movement.guidance.tips.map((tip, index) => (
-                  <div key={index} className="flex gap-2">
-                    <Input value={tip} readOnly className="flex-1" />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveTip(index)}
+          <div className="flex items-center gap-2">
+            <div className="h-1 w-8 bg-gradient-to-r from-primary to-primary/50 rounded-full" />
+            <h3 className="font-semibold text-base">Guidance & Instructions</h3>
+          </div>
+          <div className="space-y-4">
+            <Card className="bg-gradient-to-br from-blue-50/50 to-blue-100/30 dark:from-blue-950/20 dark:to-blue-900/10 border-blue-200 dark:border-blue-800">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Eye className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <Label htmlFor="guidance-instruction" className="text-sm font-medium">Instruction</Label>
+                </div>
+                <Textarea
+                  id="guidance-instruction"
+                  value={movement.guidance.instruction}
+                  onChange={(e) =>
+                    onUpdate({
+                      guidance: { ...movement.guidance, instruction: e.target.value },
+                    })
+                  }
+                  rows={3}
+                  placeholder="Full instruction text displayed to the adjuster..."
+                  className="bg-background/80 resize-none"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This text appears in the UI when the adjuster reaches this movement
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-gradient-to-br from-purple-50/50 to-purple-100/30 dark:from-purple-950/20 dark:to-purple-900/10 border-purple-200 dark:border-purple-800">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Mic className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  <Label htmlFor="guidance-tts" className="text-sm font-medium">TTS Text (Voice)</Label>
+                </div>
+                <Textarea
+                  id="guidance-tts"
+                  value={movement.guidance.tts_text}
+                  onChange={(e) =>
+                    onUpdate({
+                      guidance: { ...movement.guidance, tts_text: e.target.value },
+                    })
+                  }
+                  rows={2}
+                  placeholder="Optimized text for text-to-speech playback..."
+                  className="bg-background/80 resize-none"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This text is spoken during voice-guided inspections. Leave empty to use instruction text.
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-gradient-to-br from-amber-50/50 to-amber-100/30 dark:from-amber-950/20 dark:to-amber-900/10 border-amber-200 dark:border-amber-800">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <Label className="text-sm font-medium">Tips & Best Practices</Label>
+                  </div>
+                  <Badge variant="outline" className="text-xs">
+                    {movement.guidance.tips.length} tip{movement.guidance.tips.length !== 1 ? 's' : ''}
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {movement.guidance.tips.length > 0 ? (
+                    movement.guidance.tips.map((tip, index) => (
+                      <div 
+                        key={index} 
+                        className="flex items-start gap-2 p-2.5 rounded-md bg-background/80 border border-amber-200/50 dark:border-amber-800/50"
+                      >
+                        <div className="mt-0.5 shrink-0">
+                          <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                        </div>
+                        <Input 
+                          value={tip} 
+                          readOnly 
+                          className="flex-1 border-0 bg-transparent p-0 h-auto text-sm focus-visible:ring-0" 
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleRemoveTip(index)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">No tips added yet</p>
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <Input
+                      value={newTip}
+                      onChange={(e) => setNewTip(e.target.value)}
+                      placeholder="Add a helpful tip for adjusters..."
+                      onKeyDown={(e) => e.key === "Enter" && handleAddTip()}
+                      className="bg-background/80"
+                    />
+                    <Button 
+                      variant="outline" 
+                      onClick={handleAddTip}
+                      className="shrink-0"
+                      disabled={!newTip.trim()}
                     >
-                      <X className="h-4 w-4" />
+                      <Plus className="h-4 w-4" />
                     </Button>
                   </div>
-                ))}
-                <div className="flex gap-2">
-                  <Input
-                    value={newTip}
-                    onChange={(e) => setNewTip(e.target.value)}
-                    placeholder="Add a tip..."
-                    onKeyDown={(e) => e.key === "Enter" && handleAddTip()}
-                  />
-                  <Button variant="outline" onClick={handleAddTip}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
                 </div>
-              </div>
-            </div>
+                <p className="text-xs text-muted-foreground">
+                  Tips appear as helpful hints in the UI and are included in AI-generated guidance
+                </p>
+              </CardContent>
+            </Card>
           </div>
         </div>
 
@@ -1174,9 +1281,12 @@ function PhaseEditor({
   onUpdate: (updates: Partial<FlowJsonPhase>) => void;
 }) {
   return (
-    <div className="p-4 space-y-4 border-b">
-      <h3 className="font-semibold">Phase Settings</h3>
-      <div className="grid grid-cols-2 gap-3">
+    <div className="p-4 md:p-6 space-y-4 border-b bg-gradient-to-br from-background to-muted/10">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="h-1 w-8 bg-gradient-to-r from-primary to-primary/50 rounded-full" />
+        <h3 className="font-semibold text-base">Phase Settings</h3>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <Label htmlFor="phase-name">Phase Name</Label>
           <Input
@@ -1920,159 +2030,175 @@ function FlowEditorView({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-gradient-to-br from-background via-background to-muted/10">
       {/* Top Toolbar */}
-      <div className="p-3 border-b flex items-center gap-4 bg-white">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <Separator orientation="vertical" className="h-6" />
-        <div className="flex-1 flex items-center gap-4">
-          <div className="w-64">
-            <Input
-              value={flowName}
-              onChange={(e) => {
-                setFlowName(e.target.value);
-                setIsDirty(true);
-              }}
-              className="font-semibold"
-              placeholder="Flow name..."
-            />
-          </div>
-          <Select value={perilType} onValueChange={(v) => { setPerilType(v); setIsDirty(true); }}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PERIL_TYPES.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={propertyType} onValueChange={(v) => { setPropertyType(v); setIsDirty(true); }}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PROPERTY_TYPES.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={isActive}
-              onCheckedChange={(v) => { setIsActive(v); setIsDirty(true); }}
-            />
-            <Label>Active</Label>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleValidate} disabled={validating}>
-            {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            <span className="ml-2">Validate</span>
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            <span className="ml-2">Save</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as EditorTab)} className="flex-1 flex flex-col">
-        <div className="border-b px-3">
-          <TabsList className="bg-transparent">
-            <TabsTrigger value="editor" className="data-[state=active]:bg-muted">
-              <Layers className="h-4 w-4 mr-2" />
-              Editor
-            </TabsTrigger>
-            <TabsTrigger value="gates" className="data-[state=active]:bg-muted">
-              <Target className="h-4 w-4 mr-2" />
-              Gates ({flowJson.gates.length})
-            </TabsTrigger>
-            <TabsTrigger value="json" className="data-[state=active]:bg-muted">
-              <Code className="h-4 w-4 mr-2" />
-              JSON
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="editor" className="flex-1 m-0">
-          <div className="flex h-full">
-            {/* Left Sidebar: Phases */}
-            <div className="w-56 border-r bg-white">
-              <PhaseList
-                phases={flowJson.phases}
-                selectedPhaseId={selectedPhaseId}
-                onSelectPhase={(id) => {
-                  setSelectedPhaseId(id);
-                  setSelectedMovementId(null);
+      <div className="p-3 md:p-4 border-b bg-gradient-to-r from-background via-background to-primary/5 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Separator orientation="vertical" className="h-6 hidden lg:block" />
+            <div className="flex-1 min-w-0">
+              <Input
+                value={flowName}
+                onChange={(e) => {
+                  setFlowName(e.target.value);
+                  setIsDirty(true);
                 }}
-                onAddPhase={handleAddPhase}
-                onDeletePhase={handleDeletePhase}
-                onMovePhase={handleMovePhase}
+                className="font-semibold text-base md:text-lg border-0 bg-transparent p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0"
+                placeholder="Flow name..."
               />
             </div>
-
-            {/* Center: Movements */}
-            <div className="w-72 border-r bg-white flex flex-col">
-              {selectedPhase && (
-                <>
-                  <PhaseEditor phase={selectedPhase} onUpdate={handleUpdatePhase} />
-                  <div className="flex-1">
-                    <MovementList
-                      movements={selectedPhase.movements}
-                      selectedMovementId={selectedMovementId}
-                      onSelectMovement={setSelectedMovementId}
-                      onAddMovement={handleAddMovement}
-                      onDeleteMovement={handleDeleteMovement}
-                      onMoveMovement={handleMoveMovement}
-                    />
-                  </div>
-                </>
-              )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 lg:gap-3 flex-1 lg:justify-end">
+            <Select value={perilType} onValueChange={(v) => { setPerilType(v); setIsDirty(true); }}>
+              <SelectTrigger className="w-full sm:w-32 h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERIL_TYPES.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={propertyType} onValueChange={(v) => { setPropertyType(v); setIsDirty(true); }}>
+              <SelectTrigger className="w-full sm:w-36 h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PROPERTY_TYPES.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2 px-2">
+              <Switch
+                checked={isActive}
+                onCheckedChange={(v) => { setIsActive(v); setIsDirty(true); }}
+              />
+              <Label className="text-sm whitespace-nowrap">Active</Label>
             </div>
-
-            {/* Right: Movement Editor */}
-            <div className="flex-1 bg-white">
-              {selectedMovement ? (
-                <MovementEditor
-                  movement={selectedMovement}
-                  onUpdate={handleUpdateMovement}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <div className="text-center">
-                    <Target className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>Select a movement to edit</p>
-                  </div>
-                </div>
-              )}
+            <Separator orientation="vertical" className="h-6 hidden lg:block" />
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleValidate} disabled={validating} size="sm" className="h-9">
+                {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                <span className="ml-2 hidden sm:inline">Validate</span>
+              </Button>
+              <Button onClick={handleSave} disabled={saving} size="sm" className="h-9 shadow-sm">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                <span className="ml-2 hidden sm:inline">Save</span>
+              </Button>
             </div>
           </div>
-        </TabsContent>
+        </div>
+        {isDirty && (
+          <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" />
+            <span>You have unsaved changes</span>
+          </div>
+        )}
+      </div>
 
-        <TabsContent value="gates" className="flex-1 m-0 overflow-auto">
-          <GatesEditor
-            gates={flowJson.gates}
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* Left Sidebar - Phases */}
+        <div className="w-full lg:w-64 xl:w-72 border-r flex flex-col bg-background/50 shrink-0">
+          <PhaseList
             phases={flowJson.phases}
-            onUpdate={handleUpdateGates}
+            selectedPhaseId={selectedPhaseId}
+            onSelectPhase={(id) => {
+              setSelectedPhaseId(id);
+              setSelectedMovementId(null);
+            }}
+            onAddPhase={handleAddPhase}
+            onDeletePhase={handleDeletePhase}
+            onMovePhase={handleMovePhase}
           />
-        </TabsContent>
+        </div>
 
-        <TabsContent value="json" className="flex-1 m-0">
-          <JsonEditor
-            flowJson={flowJson}
-            onImport={handleImportJson}
-            validation={validation}
-          />
-        </TabsContent>
-      </Tabs>
+        {/* Middle - Movements */}
+        {selectedPhase && (
+          <div className="w-full lg:w-64 xl:w-72 border-r flex flex-col bg-background/30 shrink-0">
+            <PhaseEditor phase={selectedPhase} onUpdate={handleUpdatePhase} />
+            <div className="flex-1 min-h-0">
+              <MovementList
+                movements={selectedPhase.movements}
+                selectedMovementId={selectedMovementId}
+                onSelectMovement={setSelectedMovementId}
+                onAddMovement={handleAddMovement}
+                onDeleteMovement={handleDeleteMovement}
+                onMoveMovement={handleMoveMovement}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Right - Editor */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-background">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as EditorTab)} className="flex-1 flex flex-col">
+            <div className="border-b bg-background/80 backdrop-blur-sm px-4 pt-4">
+              <TabsList className="w-full sm:w-auto">
+                <TabsTrigger value="editor" className="flex-1 sm:flex-none">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Editor
+                </TabsTrigger>
+                <TabsTrigger value="gates" className="flex-1 sm:flex-none">
+                  <Layers className="h-4 w-4 mr-2" />
+                  Gates ({flowJson.gates.length})
+                </TabsTrigger>
+                <TabsTrigger value="json" className="flex-1 sm:flex-none">
+                  <Code className="h-4 w-4 mr-2" />
+                  JSON
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="editor" className="flex-1 overflow-hidden mt-0 p-0">
+              {selectedMovement ? (
+                <MovementEditor movement={selectedMovement} onUpdate={handleUpdateMovement} />
+              ) : selectedPhase ? (
+                <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <Target className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Select a Movement</h3>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    Choose a movement from the middle panel to edit its details, guidance, and evidence requirements.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <Workflow className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Select a Phase or Movement</h3>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    Choose a phase from the left sidebar to view its movements, or select a movement to edit its details.
+                  </p>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="gates" className="flex-1 overflow-hidden mt-0 p-0">
+              <GatesEditor
+                gates={flowJson.gates}
+                phases={flowJson.phases}
+                onUpdate={handleUpdateGates}
+              />
+            </TabsContent>
+            <TabsContent value="json" className="flex-1 overflow-hidden mt-0 p-0">
+              <JsonEditor
+                flowJson={flowJson}
+                onImport={handleImportJson}
+                validation={validation}
+              />
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
 
       {/* Dirty indicator */}
       {isDirty && (
@@ -2111,7 +2237,7 @@ export default function FlowBuilder() {
 
   return (
     <Layout>
-      <div className="h-full">
+      <div className="h-full flex flex-col bg-gradient-to-br from-background via-background to-muted/20">
         {isEditing ? (
           <FlowEditorView
             flowId={flowId === "new" ? null : flowId}

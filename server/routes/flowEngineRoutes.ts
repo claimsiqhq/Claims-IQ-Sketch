@@ -521,6 +521,87 @@ router.get('/flows/:flowInstanceId/movements/:movementId/sketch-evidence', async
   }
 });
 
+/**
+ * GET /api/flows/:flowInstanceId/movements/:movementId/guidance
+ * Get guidance information (instruction, tips, TTS text) for a movement
+ */
+router.get('/flows/:flowInstanceId/movements/:movementId/guidance', async (req, res) => {
+  try {
+    const { flowInstanceId, movementId } = req.params;
+
+    // Get flow instance
+    const { data: flowInstance, error: instanceError } = await supabaseAdmin
+      .from('claim_flow_instances')
+      .select('flow_definition_id')
+      .eq('id', flowInstanceId)
+      .single();
+
+    if (instanceError || !flowInstance) {
+      return res.status(404).json({ error: 'Flow instance not found' });
+    }
+
+    // Get flow definition
+    const { data: flowDef, error: defError } = await supabaseAdmin
+      .from('flow_definitions')
+      .select('flow_json')
+      .eq('id', flowInstance.flow_definition_id)
+      .single();
+
+    if (defError || !flowDef) {
+      return res.status(404).json({ error: 'Flow definition not found' });
+    }
+
+    const flowJson = flowDef.flow_json as any;
+    
+    // Find the movement in phases or dynamic movements
+    let movement = null;
+    
+    // Check phases first
+    for (const phase of flowJson.phases || []) {
+      const found = phase.movements?.find((m: any) => m.id === movementId);
+      if (found) {
+        movement = found;
+        break;
+      }
+    }
+
+    // Check dynamic movements if not found
+    if (!movement) {
+      const { data: instance, error: instError } = await supabaseAdmin
+        .from('claim_flow_instances')
+        .select('dynamic_movements')
+        .eq('id', flowInstanceId)
+        .single();
+
+      if (!instError && instance?.dynamic_movements) {
+        const dynamicMovements = instance.dynamic_movements as any[];
+        movement = dynamicMovements.find((m: any) => m.id === movementId);
+      }
+    }
+
+    if (!movement) {
+      return res.status(404).json({ error: 'Movement not found' });
+    }
+
+    // Extract guidance
+    const guidance = movement.guidance || {};
+    
+    res.status(200).json({
+      instruction: guidance.instruction || '',
+      tips: guidance.tips || [],
+      tts_text: guidance.tts_text || guidance.instruction || '',
+      movement_name: movement.name || '',
+      movement_description: movement.description || '',
+    });
+
+  } catch (error) {
+    console.error('[FlowEngineRoutes] GET /flows/:flowInstanceId/movements/:movementId/guidance error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ============================================================================
 // 4. GATE EVALUATION
 // ============================================================================
