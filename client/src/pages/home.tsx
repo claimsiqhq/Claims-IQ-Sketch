@@ -880,50 +880,50 @@ export default function Home() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-amber-100 p-6 rounded-xl border-2 border-amber-300 shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-sm">
-              <FileText className="h-6 w-6" />
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8">
+          <div className="bg-amber-100 p-3 md:p-6 rounded-xl border-2 border-amber-300 shadow-sm flex items-center gap-2 md:gap-4">
+            <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-sm shrink-0">
+              <FileText className="h-5 w-5 md:h-6 md:w-6" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-amber-700">Claims</p>
-              <p className="text-3xl font-display font-bold text-amber-900">
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-amber-700">Claims</p>
+              <p className="text-xl md:text-3xl font-display font-bold text-amber-900">
                 {stats?.total || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-purple-100 p-6 rounded-xl border-2 border-purple-300 shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-purple-500 flex items-center justify-center text-white shadow-sm">
-              <FileText className="h-6 w-6" />
+          <div className="bg-purple-100 p-3 md:p-6 rounded-xl border-2 border-purple-300 shadow-sm flex items-center gap-2 md:gap-4">
+            <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-purple-500 flex items-center justify-center text-white shadow-sm shrink-0">
+              <FileText className="h-5 w-5 md:h-6 md:w-6" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-purple-700">Documents</p>
-              <p className="text-3xl font-display font-bold text-purple-900">
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-purple-700">Docs</p>
+              <p className="text-xl md:text-3xl font-display font-bold text-purple-900">
                 {stats?.totalDocuments || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-orange-100 p-6 rounded-xl border-2 border-orange-300 shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-sm">
-              <Clock className="h-6 w-6" />
+          <div className="bg-orange-100 p-3 md:p-6 rounded-xl border-2 border-orange-300 shadow-sm flex items-center gap-2 md:gap-4">
+            <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-orange-500 flex items-center justify-center text-white shadow-sm shrink-0">
+              <Clock className="h-5 w-5 md:h-6 md:w-6" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-orange-700">Processing</p>
-              <p className="text-3xl font-display font-bold text-orange-900">
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-orange-700">Pending</p>
+              <p className="text-xl md:text-3xl font-display font-bold text-orange-900">
                 {stats?.pendingDocuments || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-emerald-100 p-6 rounded-xl border-2 border-emerald-300 shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-sm">
-              <Camera className="h-6 w-6" />
+          <div className="bg-emerald-100 p-3 md:p-6 rounded-xl border-2 border-emerald-300 shadow-sm flex items-center gap-2 md:gap-4">
+            <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-sm shrink-0">
+              <Camera className="h-5 w-5 md:h-6 md:w-6" />
             </div>
-            <div>
-              <p className="text-sm font-medium text-emerald-700">Photos</p>
-              <p className="text-3xl font-display font-bold text-emerald-900">
+            <div className="min-w-0">
+              <p className="text-xs md:text-sm font-medium text-emerald-700">Photos</p>
+              <p className="text-xl md:text-3xl font-display font-bold text-emerald-900">
                 {stats?.totalPhotos || 0}
               </p>
             </div>
@@ -932,25 +932,25 @@ export default function Home() {
 
         {/* Total Value Card */}
         {stats && (stats.totalRcv > 0 || stats.totalAcv > 0) && (
-          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-6 rounded-xl border border-primary/20 mb-8">
-            <div className="flex items-center gap-4">
-              <div className="h-12 w-12 rounded-full bg-white flex items-center justify-center text-primary">
-                <DollarSign className="h-6 w-6" />
+          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-4 md:p-6 rounded-xl border border-primary/20 mb-8">
+            <div className="flex items-center gap-3 md:gap-4">
+              <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-white flex items-center justify-center text-primary shrink-0">
+                <DollarSign className="h-5 w-5 md:h-6 md:w-6" />
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-slate-600">Total Claims Value</p>
-                <div className="flex items-baseline gap-4 mt-1">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs md:text-sm font-medium text-slate-600">Total Claims Value</p>
+                <div className="flex flex-wrap items-baseline gap-2 md:gap-4 mt-1">
                   <div>
-                    <span className="text-2xl font-display font-bold text-slate-900">
+                    <span className="text-lg md:text-2xl font-display font-bold text-slate-900">
                       ${stats.totalRcv.toLocaleString()}
                     </span>
-                    <span className="text-sm text-slate-500 ml-1">RCV</span>
+                    <span className="text-xs md:text-sm text-slate-500 ml-1">RCV</span>
                   </div>
                   <div>
-                    <span className="text-xl font-display font-semibold text-slate-700">
+                    <span className="text-base md:text-xl font-display font-semibold text-slate-700">
                       ${stats.totalAcv.toLocaleString()}
                     </span>
-                    <span className="text-sm text-slate-500 ml-1">ACV</span>
+                    <span className="text-xs md:text-sm text-slate-500 ml-1">ACV</span>
                   </div>
                 </div>
               </div>
@@ -959,8 +959,9 @@ export default function Home() {
         )}
 
         {/* Search and Filters */}
-        <div className="flex flex-col md:flex-row gap-4 mb-6">
-          <form onSubmit={handleSearch} className="flex-1 flex gap-2">
+        <div className="flex flex-col gap-3 mb-6">
+          {/* Search Row */}
+          <form onSubmit={handleSearch} className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -970,37 +971,40 @@ export default function Home() {
                 className="pl-9"
               />
             </div>
-            <Button type="submit" variant="secondary">
+            <Button type="submit" variant="secondary" className="shrink-0">
               Search
             </Button>
           </form>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="All Statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="fnol">FNOL</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="review">In Review</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Filters Row */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[160px]">
+                <SelectValue placeholder="All Statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="fnol">FNOL</SelectItem>
+                <SelectItem value="open">Open</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="review">In Review</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="closed">Closed</SelectItem>
+              </SelectContent>
+            </Select>
 
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="show-closed"
-              checked={showClosed}
-              onCheckedChange={(checked) => setShowClosed(checked === true)}
-              data-testid="checkbox-show-closed"
-            />
-            <Label htmlFor="show-closed" className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1">
-              <Archive className="h-4 w-4" />
-              Show closed
-            </Label>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="show-closed"
+                checked={showClosed}
+                onCheckedChange={(checked) => setShowClosed(checked === true)}
+                data-testid="checkbox-show-closed"
+              />
+              <Label htmlFor="show-closed" className="text-sm text-muted-foreground cursor-pointer flex items-center gap-1 whitespace-nowrap">
+                <Archive className="h-4 w-4" />
+                Show closed
+              </Label>
+            </div>
           </div>
         </div>
 
