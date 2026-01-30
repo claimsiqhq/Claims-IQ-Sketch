@@ -547,7 +547,7 @@ export default function ClaimsMap() {
                   </div>
                   
                   <p className="text-sm mb-3">
-                    {selectedClaim.address}, {selectedClaim.city}, {selectedClaim.state} {selectedClaim.zip}
+                    {selectedClaim.address}
                   </p>
 
                   <div className="flex gap-2">
