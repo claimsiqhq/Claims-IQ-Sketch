@@ -178,14 +178,13 @@ class SyncManager {
             }
           );
         } else if (evidence.type === 'voice_note') {
-          // Upload audio - adjust endpoint as needed
+          // Upload audio (API expects field name 'audio')
           const formData = new FormData();
-          formData.append('file', file);
+          formData.append('audio', file, evidence.fileName || 'voice-note.webm');
           formData.append('claimId', evidence.claimId);
           formData.append('flowInstanceId', evidence.flowInstanceId);
           formData.append('movementId', evidence.movementId);
 
-          // Assuming similar endpoint structure
           const response = await fetch('/api/audio/upload', {
             method: 'POST',
             credentials: 'include',
@@ -193,8 +192,22 @@ class SyncManager {
           });
 
           if (!response.ok) {
-            const error = await response.json();
+            const error = await response.json().catch(() => ({ error: 'Failed to upload audio' }));
             throw new Error(error.error || 'Failed to upload audio');
+          }
+
+          const audioData = await response.json();
+          if (audioData?.id) {
+            await api.attachMovementEvidence(
+              evidence.flowInstanceId,
+              evidence.movementId,
+              {
+                type: 'audio',
+                referenceId: audioData.id,
+                data: { audioUrl: audioData.audioUrl, type: 'voice_note' },
+                userId: evidence.metadata?.userId,
+              }
+            );
           }
         }
 
