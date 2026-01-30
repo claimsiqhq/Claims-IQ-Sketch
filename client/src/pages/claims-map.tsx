@@ -388,9 +388,11 @@ export default function ClaimsMap() {
   }
 
   const openInGoogleMaps = (claim: ClaimLocation) => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-      `${claim.address}, ${claim.city}, ${claim.state} ${claim.zip}`
-    )}`;
+    // Use lat/lng for precise navigation, fallback to address
+    const destination = claim.lat && claim.lng 
+      ? `${claim.lat},${claim.lng}`
+      : encodeURIComponent(claim.address);
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
     window.open(url, '_blank');
   };
 
