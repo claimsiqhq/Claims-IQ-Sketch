@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { getSupabaseAdmin, DOCUMENTS_BUCKET, PREVIEWS_BUCKET } from '../lib/supabase';
+import { getSupabaseAdmin, isSupabaseConfigured, DOCUMENTS_BUCKET, PREVIEWS_BUCKET } from '../lib/supabase';
 import { InsertDocument } from '../../shared/schema';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -52,6 +52,10 @@ function mapRowToDocument(row: any): DocumentInfo {
 }
 
 export async function initializeStorageBucket(): Promise<void> {
+  if (!isSupabaseConfigured) {
+    console.warn('[documents] Supabase not configured, skipping storage bucket initialization');
+    return;
+  }
   const supabase = getSupabaseAdmin();
   const { data: buckets, error: listError } = await supabase.storage.listBuckets();
 
@@ -458,6 +462,11 @@ export async function generateDocumentPreviews(
 
     const previewBasePath = `${organizationId}/${documentId}`;
 
+    if (!isSupabaseConfigured) {
+      throw new Error('Supabase not configured - cannot upload document previews');
+    }
+
+    let uploadFailed = false;
     for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
       const possibleFiles = [
         `${outputPrefix}-${pageNum}.png`,
@@ -475,23 +484,52 @@ export async function generateDocumentPreviews(
 
       if (!pageImagePath) {
         console.warn(`Could not find generated image for page ${pageNum}`);
+        uploadFailed = true;
         continue;
       }
 
       const imageBuffer = fs.readFileSync(pageImagePath);
       const supabasePath = `${previewBasePath}/page-${pageNum}.png`;
 
-      const { error: uploadError } = await supabase.storage
-        .from(PREVIEWS_BUCKET)
-        .upload(supabasePath, imageBuffer, {
+      let uploadError = (
+        await supabase.storage.from(PREVIEWS_BUCKET).upload(supabasePath, imageBuffer, {
           contentType: 'image/png',
           cacheControl: '31536000',
           upsert: true,
-        });
+        })
+      ).error;
 
       if (uploadError) {
-        console.error(`Failed to upload page ${pageNum}:`, uploadError);
+        const isBucketMissing =
+          uploadError.message?.includes('not found') ||
+          uploadError.message?.toLowerCase().includes('bucket not found');
+        if (isBucketMissing) {
+          console.warn('[documents] document-previews bucket not found, initializing and retrying');
+          await initializeStorageBucket();
+          const retry = await supabase.storage.from(PREVIEWS_BUCKET).upload(supabasePath, imageBuffer, {
+            contentType: 'image/png',
+            cacheControl: '31536000',
+            upsert: true,
+          });
+          uploadError = retry.error;
+        }
+        if (uploadError) {
+          console.error(`Failed to upload page ${pageNum}:`, uploadError);
+          uploadFailed = true;
+        }
       }
+    }
+
+    if (uploadFailed) {
+      await supabaseAdmin
+        .from('documents')
+        .update({
+          preview_status: 'failed',
+          preview_error: 'One or more preview page uploads failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', documentId);
+      return { success: false, pageCount: 0, error: 'One or more preview page uploads failed' };
     }
 
     await supabaseAdmin
